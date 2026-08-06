@@ -6,6 +6,30 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F71DD54D3023297400135A65 /* xCloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD54C3023297400135A65 /* xCloudApp.swift */; };
+		F71DD57930232A9500135A65 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57830232A8D00135A65 /* AppState.swift */; };
+		F71DD57C30232B4500135A65 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57B30232B4500135A65 /* RootView.swift */; };
+		F71DD57E30232BBF00135A65 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57D30232BBF00135A65 /* SidebarView.swift */; };
+		F71DD58030232BDC00135A65 /* AppBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57F30232BDC00135A65 /* AppBackground.swift */; };
+		F71DD58830232FF300135A65 /* XTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD58730232FF300135A65 /* XTheme.swift */; };
+		F71DD58A3023304400135A65 /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD5893023304400135A65 /* GlassCard.swift */; };
+		F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD58B3023306500135A65 /* GlassButtonStyle.swift */; };
+		F783B6513023365500326355 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F783B6503023365500326355 /* GRDB */; };
+		F783B662302340F500326355 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = F783B661302340F500326355 /* TDLibKit */; };
+		F783B6683023416F00326355 /* TelegramSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6673023416F00326355 /* TelegramSetupView.swift */; };
+		F783B66A3023476900326355 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6693023476900326355 /* LoginView.swift */; };
+		F783B672302364AF00326355 /* FileBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B671302364AF00326355 /* FileBrowserView.swift */; };
+		F783B67830236D5C00326355 /* TerminationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B67730236D5C00326355 /* TerminationHandler.swift */; };
+		F783B67D3023700000326355 /* VideoPlaybackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B67E3023700000326355 /* VideoPlaybackView.swift */; };
+		F783B6853023800000326355 /* TransfersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6863023800000326355 /* TransfersView.swift */; };
+		F783B68C3023900000326355 /* ActiveTransferHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B68D3023900000326355 /* ActiveTransferHUD.swift */; };
+		F783B6933024000000326355 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6943024000000326355 /* SettingsView.swift */; };
+		F783B6953024000000326355 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6963024000000326355 /* OnboardingView.swift */; };
+		F783B6973024000000326355 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6983024000000326355 /* AboutView.swift */; };
+		F783B69D3023700000326355 /* TheaterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B69E3023700000326355 /* TheaterView.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F71DD5573023297500135A65 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -25,8 +49,27 @@
 
 /* Begin PBXFileReference section */
 		F71DD5493023297400135A65 /* xCloud.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = xCloud.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F71DD54C3023297400135A65 /* xCloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = xCloudApp.swift; sourceTree = "<group>"; };
 		F71DD5563023297500135A65 /* xCloudTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xCloudTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F71DD5603023297500135A65 /* xCloudUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xCloudUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F71DD57830232A8D00135A65 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		F71DD57B30232B4500135A65 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F71DD57D30232BBF00135A65 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		F71DD57F30232BDC00135A65 /* AppBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBackground.swift; sourceTree = "<group>"; };
+		F71DD58730232FF300135A65 /* XTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XTheme.swift; sourceTree = "<group>"; };
+		F71DD5893023304400135A65 /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
+		F71DD58B3023306500135A65 /* GlassButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassButtonStyle.swift; sourceTree = "<group>"; };
+		F783B6673023416F00326355 /* TelegramSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramSetupView.swift; sourceTree = "<group>"; };
+		F783B6693023476900326355 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		F783B671302364AF00326355 /* FileBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserView.swift; sourceTree = "<group>"; };
+		F783B67730236D5C00326355 /* TerminationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationHandler.swift; sourceTree = "<group>"; };
+		F783B67E3023700000326355 /* VideoPlaybackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlaybackView.swift; sourceTree = "<group>"; };
+		F783B6863023800000326355 /* TransfersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransfersView.swift; sourceTree = "<group>"; };
+		F783B68D3023900000326355 /* ActiveTransferHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveTransferHUD.swift; sourceTree = "<group>"; };
+		F783B6943024000000326355 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F783B6963024000000326355 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		F783B6983024000000326355 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		F783B69E3023700000326355 /* TheaterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TheaterView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -45,6 +88,26 @@
 			path = xCloudUITests;
 			sourceTree = "<group>";
 		};
+		F783B6483023338700326355 /* Storage */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		F783B6523023381000326355 /* Engine */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		F783B65B3023390F00326355 /* Crypto */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+		F783B6633023411100326355 /* Telegram */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Telegram;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,6 +115,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F783B6513023365500326355 /* GRDB in Frameworks */,
+				F783B662302340F500326355 /* TDLibKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,10 +140,17 @@
 		F71DD5403023297400135A65 = {
 			isa = PBXGroup;
 			children = (
+				F783B6633023411100326355 /* Telegram */,
+				F783B65B3023390F00326355 /* Crypto */,
+				F783B6523023381000326355 /* Engine */,
+				F783B6483023338700326355 /* Storage */,
 				F71DD54B3023297400135A65 /* xCloud */,
 				F71DD5593023297500135A65 /* xCloudTests */,
 				F71DD5633023297500135A65 /* xCloudUITests */,
 				F71DD54A3023297400135A65 /* Products */,
+				F71DD57330232A1600135A65 /* App */,
+				F71DD57530232A3400135A65 /* Design */,
+				F71DD57730232A5800135A65 /* Features */,
 			);
 			sourceTree = "<group>";
 		};
@@ -90,6 +162,46 @@
 				F71DD5603023297500135A65 /* xCloudUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		F71DD57330232A1600135A65 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				F71DD54C3023297400135A65 /* xCloudApp.swift */,
+				F71DD57830232A8D00135A65 /* AppState.swift */,
+				F783B67730236D5C00326355 /* TerminationHandler.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		F71DD57530232A3400135A65 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				F71DD57F30232BDC00135A65 /* AppBackground.swift */,
+				F71DD58730232FF300135A65 /* XTheme.swift */,
+				F71DD5893023304400135A65 /* GlassCard.swift */,
+				F71DD58B3023306500135A65 /* GlassButtonStyle.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		F71DD57730232A5800135A65 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				F71DD57B30232B4500135A65 /* RootView.swift */,
+				F71DD57D30232BBF00135A65 /* SidebarView.swift */,
+				F783B6673023416F00326355 /* TelegramSetupView.swift */,
+				F783B6693023476900326355 /* LoginView.swift */,
+				F783B671302364AF00326355 /* FileBrowserView.swift */,
+				F783B67E3023700000326355 /* VideoPlaybackView.swift */,
+				F783B69E3023700000326355 /* TheaterView.swift */,
+				F783B6863023800000326355 /* TransfersView.swift */,
+				F783B68D3023900000326355 /* ActiveTransferHUD.swift */,
+				F783B6943024000000326355 /* SettingsView.swift */,
+				F783B6963024000000326355 /* OnboardingView.swift */,
+				F783B6983024000000326355 /* AboutView.swift */,
+			);
+			path = Features;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -109,9 +221,15 @@
 			);
 			fileSystemSynchronizedGroups = (
 				F71DD54B3023297400135A65 /* xCloud */,
+				F783B6483023338700326355 /* Storage */,
+				F783B6523023381000326355 /* Engine */,
+				F783B65B3023390F00326355 /* Crypto */,
+				F783B6633023411100326355 /* Telegram */,
 			);
 			name = xCloud;
 			packageProductDependencies = (
+				F783B6503023365500326355 /* GRDB */,
+				F783B661302340F500326355 /* TDLibKit */,
 			);
 			productName = xCloud;
 			productReference = F71DD5493023297400135A65 /* xCloud.app */;
@@ -195,6 +313,10 @@
 			);
 			mainGroup = F71DD5403023297400135A65;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F783B64F3023365500326355 /* XCRemoteSwiftPackageReference "GRDB" */,
+				F783B660302340F500326355 /* XCRemoteSwiftPackageReference "TDLibKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F71DD54A3023297400135A65 /* Products */;
 			projectDirPath = "";
@@ -236,6 +358,25 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F783B67D3023700000326355 /* VideoPlaybackView.swift in Sources */,
+				F783B69D3023700000326355 /* TheaterView.swift in Sources */,
+				F783B6853023800000326355 /* TransfersView.swift in Sources */,
+				F783B68C3023900000326355 /* ActiveTransferHUD.swift in Sources */,
+				F783B6933024000000326355 /* SettingsView.swift in Sources */,
+				F783B6953024000000326355 /* OnboardingView.swift in Sources */,
+				F783B6973024000000326355 /* AboutView.swift in Sources */,
+				F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */,
+				F783B672302364AF00326355 /* FileBrowserView.swift in Sources */,
+				F783B6683023416F00326355 /* TelegramSetupView.swift in Sources */,
+				F71DD58030232BDC00135A65 /* AppBackground.swift in Sources */,
+				F783B67830236D5C00326355 /* TerminationHandler.swift in Sources */,
+				F71DD54D3023297400135A65 /* xCloudApp.swift in Sources */,
+				F71DD58830232FF300135A65 /* XTheme.swift in Sources */,
+				F783B66A3023476900326355 /* LoginView.swift in Sources */,
+				F71DD57E30232BBF00135A65 /* SidebarView.swift in Sources */,
+				F71DD57930232A9500135A65 /* AppState.swift in Sources */,
+				F71DD58A3023304400135A65 /* GlassCard.swift in Sources */,
+				F71DD57C30232B4500135A65 /* RootView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -399,8 +540,19 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = A6388Z7T5U;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -431,8 +583,19 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = A6388Z7T5U;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -573,6 +736,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F783B64F3023365500326355 /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+		F783B660302340F500326355 /* XCRemoteSwiftPackageReference "TDLibKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Swiftgram/TDLibKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = "1.5.2-tdlib-1.8.66-022d6020";
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F783B6503023365500326355 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F783B64F3023365500326355 /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+		F783B661302340F500326355 /* TDLibKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F783B660302340F500326355 /* XCRemoteSwiftPackageReference "TDLibKit" */;
+			productName = TDLibKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F71DD5413023297400135A65 /* Project object */;
 }
