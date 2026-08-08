@@ -450,6 +450,14 @@ final class AppState {
     }
 
     @MainActor
+    func emptyTrash() {
+        let trashed = files.filter { $0.trashed }
+        for file in trashed {
+            deleteForever(file)
+        }
+    }
+
+    @MainActor
     func deleteForever(_ file: ObjectRecord) {
         Task {
             let all = (try? await DatabaseManager.shared.allObjects()) ?? []

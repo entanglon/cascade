@@ -17,6 +17,7 @@ struct FileBrowserView: View {
     @State private var renameText = ""
     @FocusState private var gridFocused: Bool
     @FocusState private var searchFocused: Bool
+    @State private var showEmptyTrashAlert = false
     @State private var dropTargeted = false
     @State private var columnCount = 4
     @State private var fabHovering = false
@@ -89,8 +90,8 @@ struct FileBrowserView: View {
                 appState.clearSelection()
             }
 
-            // Transfer pill + FAB overlay
-            if appState.selectedDestination != .transfers && appState.selectedDestination != .trash && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
+            // Transfer pill + FAB overlay (visible everywhere except Trash)
+            if appState.selectedDestination != .trash && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
                 VStack(spacing: 12) {
                     Spacer()
                     HStack {
@@ -186,6 +187,14 @@ struct FileBrowserView: View {
         } message: {
             Text("Enter a new name.")
         }
+        .alert("Empty Trash?", isPresented: $showEmptyTrashAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Empty Trash", role: .destructive) {
+                appState.emptyTrash()
+            }
+        } message: {
+            Text("Are you sure you want to permanently delete all items in the Trash? This action cannot be undone.")
+        }
         .alert("xCloud", isPresented: Binding(
             get: { appState.alertMessage != nil },
             set: { if !$0 { appState.alertMessage = nil } }
@@ -275,6 +284,22 @@ struct FileBrowserView: View {
             // RIGHT — controls
             HStack(spacing: 10) {
                 Spacer()
+
+                if appState.selectedDestination == .trash && !visibleFiles.isEmpty {
+                    Button(role: .destructive) {
+                        showEmptyTrashAlert = true
+                    } label: {
+                        Label("Empty Trash…", systemImage: "trash.slash")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                            .overlay(Capsule().strokeBorder(.red.opacity(0.3), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Permanently delete all items in Trash")
+                }
 
                 if appState.selectedDestination == .privateVault && appState.isPrivateVaultUnlocked {
                     Button {
