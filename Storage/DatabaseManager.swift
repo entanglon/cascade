@@ -157,6 +157,18 @@ actor DatabaseManager {
         }
     }
 
+    func allChunks() throws -> [ChunkRecord] {
+        try read { db in try ChunkRecord.fetchAll(db) }
+    }
+
+    func updateChunk(_ id: String, _ mutate: (inout ChunkRecord) -> Void) throws {
+        try write { db in
+            guard var chunk = try ChunkRecord.fetchOne(db, id: id) else { return }
+            mutate(&chunk)
+            try chunk.update(db)
+        }
+    }
+
     func firstVault() throws -> VaultRecord? {
         try read { db in try VaultRecord.fetchOne(db) }
     }

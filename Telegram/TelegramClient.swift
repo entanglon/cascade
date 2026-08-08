@@ -549,9 +549,9 @@ final class TelegramClient {
 
     // MARK: - Channel maintenance
 
-    func allChannelMessageIDs(chatId: Int64) async -> [Int64] {
+    func allChannelMessages(chatId: Int64) async -> [Message] {
         guard let client else { return [] }
-        var ids: [Int64] = []
+        var result: [Message] = []
         var from: Int64 = 0
         while true {
             guard let history = try? await client.getChatHistory(
@@ -560,18 +560,18 @@ final class TelegramClient {
                 limit: 100,
                 offset: 0,
                 onlyLocal: false
-            ) else { break }
+            ), let msgs = history.messages, !msgs.isEmpty else { break }
 
-            var batch: [Int64] = []
-            for message in history.messages ?? [] {
-                batch.append(message.id)
-            }
-
-            ids.append(contentsOf: batch)
-            if batch.count < 100 { break }
-            from = batch.last ?? 0
+            result.append(contentsOf: msgs)
+            if msgs.count < 100 { break }
+            from = msgs.last?.id ?? 0
         }
-        return ids
+        return result
+    }
+
+    func allChannelMessageIDs(chatId: Int64) async -> [Int64] {
+        let msgs = await allChannelMessages(chatId: chatId)
+        return msgs.map(\.id)
     }
 
     func deleteMessages(chatId: Int64, messageIds: [Int64]) async throws {
