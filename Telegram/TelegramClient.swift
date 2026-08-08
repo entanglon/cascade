@@ -89,6 +89,12 @@ final class TelegramClient {
         return work()
     }
 
+    private func parseInt64(_ value: Any?) -> Int64? {
+        if let num = value as? NSNumber { return num.int64Value }
+        if let str = value as? String, let val = Int64(str) { return val }
+        return nil
+    }
+
     // MARK: - Update handling
 
     private func handleUpdate(data: Data) async {
@@ -147,9 +153,9 @@ final class TelegramClient {
             }
 
         case "updateMessageSendSucceeded":
-            if let oldId = (json["old_message_id"] as? NSNumber)?.int64Value,
+            if let oldId = parseInt64(json["old_message_id"]),
                let message = json["message"] as? [String: Any],
-               let realId = (message["id"] as? NSNumber)?.int64Value {
+               let realId = parseInt64(message["id"]) {
                 let continuation = syncLock { self.pendingSendContinuations.removeValue(forKey: oldId) }
                 if let continuation {
                     continuation.resume(returning: realId)
@@ -159,7 +165,7 @@ final class TelegramClient {
             }
 
         case "updateMessageSendFailed":
-            if let oldId = (json["old_message_id"] as? NSNumber)?.int64Value {
+            if let oldId = parseInt64(json["old_message_id"]) {
                 let code = (json["error_code"] as? NSNumber)?.intValue ?? 0
                 let msg = (json["error_message"] as? String) ?? "Upload failed"
                 let err: any Swift.Error = NSError(domain: "Telegram", code: code, userInfo: [NSLocalizedDescriptionKey: msg])

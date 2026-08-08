@@ -256,6 +256,18 @@ enum UploadEngine {
             }
 
             try await DatabaseManager.shared.updateObject(objectID) { $0.state = "ready" }
+
+            // Populate local cache for instant (0ms) double-click previews
+            if let cacheDir = try? DownloadEngine.cacheDirectory() {
+                let ext = fileURL.pathExtension
+                let fileName = ext.isEmpty ? objectID : "\(objectID).\(ext)"
+                let dest = cacheDir.appendingPathComponent(fileName)
+                let fm = FileManager.default
+                if !fm.fileExists(atPath: dest.path(percentEncoded: false)) {
+                    try? fm.copyItem(at: fileURL, to: dest)
+                }
+            }
+
             report("Complete", 1.0)
             Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
             logger.info("Upload complete: \(plan.items.count) chunk(s) stored in vault")

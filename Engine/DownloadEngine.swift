@@ -137,12 +137,47 @@ enum DownloadEngine {
             report("Complete", 1.0)
             Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
             logger.info("Download complete: \(object.name)")
+            cleanCacheIfOverLimit()
             return dest
         } catch {
             Task { @MainActor in
                 TransferCenter.shared.finish(transferID, success: false, error: error.localizedDescription)
             }
             throw error
+        }
+    }
+
+    // MARK: - LRU Cache Management (Default 5GB Limit)
+    static let maxCacheSizeBytes: Int64 = 5 * 1024 * 1024 * 1024 // 5 GB
+
+    static func cleanCacheIfOverLimit() {
+        guard let dir = try? cacheDirectory() else { return }
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.fileSizeKey, .contentAccessDateKey, .attributeModificationDateKey],
+            options: .skipsHiddenFiles
+        ) else { return }
+
+        var totalSize: Int64 = 0
+        var items: [(url: URL, size: Int64, date: Date)] = []
+
+        for file in files {
+            let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentAccessDateKey, .attributeModificationDateKey])
+            let size = Int64(values?.fileSize ?? 0)
+            let date = values?.contentAccessDate ?? values?.attributeModificationDate ?? .distantPast
+            totalSize += size
+            items.append((url: file, size: size, date: date))
+        }
+
+        if totalSize > maxCacheSizeBytes {
+            items.sort { $0.date < $1.date }
+            var currentTotal = totalSize
+            for item in items {
+                if currentTotal <= maxCacheSizeBytes { break }
+                try? fm.removeItem(at: item.url)
+                currentTotal -= item.size
+            }
         }
     }
 }
