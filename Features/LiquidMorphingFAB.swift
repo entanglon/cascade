@@ -1,5 +1,14 @@
 import SwiftUI
 
+// MARK: - Transfers Button Phase State
+
+enum TransfersButtonPhase: Equatable {
+    case idle                                      // 0 transfers: Single 52x52 Add button
+    case materializing                             // Budding off: 0 -> 1 transfer
+    case active(count: Int, progress: Double)      // Steady state: Transfer pill split above
+    case dematerializing                           // Merging back: transfers completed
+}
+
 struct LiquidMorphingFAB: View {
     @Environment(AppState.self) private var appState
     @Binding var showImporter: Bool
@@ -32,23 +41,124 @@ struct LiquidMorphingFAB: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // MARK: - Liquid Gooey Metaball Bridge
-            if splitProgress > 0.02 && splitProgress < 0.98 {
-                LiquidMetaballBridge(progress: splitProgress)
-                    .frame(width: buttonSize, height: maxOffset + buttonSize)
-                    .allowsHitTesting(false)
+            // MARK: 1. UNIFIED SINGLE LIQUID GLASS SURFACE (Masked by Metaball SDF)
+            ZStack(alignment: .bottom) {
+                // Glass Base Material
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+
+                // Ambient Brand Tint
+                XTheme.brandGradient.opacity(0.35)
+
+                // Progressive Blue Fill for Active Transfer
+                if splitProgress > 0.02 {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Rectangle()
+                            .fill(XTheme.brandGradient)
+                            .frame(height: maxOffset * min(1.0, max(0.05, overallProgress)) + buttonSize)
+                            .animation(.linear(duration: 0.2), value: overallProgress)
+                    }
+                }
+
+                // Top Specular Lighting Highlight
+                LinearGradient(
+                    colors: [.white.opacity(0.5), .white.opacity(0.05)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .frame(width: buttonSize, height: maxOffset * splitProgress + buttonSize)
+            .mask {
+                // Smooth Anti-Aliased Liquid Mask
+                LiquidMetaballCanvas(progress: splitProgress, buttonSize: buttonSize, maxOffset: maxOffset)
+            }
+            .overlay(
+                // Specular Glass Rim Outline
+                ZStack(alignment: .bottom) {
+                    LinearGradient(
+                        colors: [.white.opacity(0.75), .white.opacity(0.15)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+                .frame(width: buttonSize, height: maxOffset * splitProgress + buttonSize)
+                .mask {
+                    LiquidMetaballCanvas(progress: splitProgress, buttonSize: buttonSize, maxOffset: maxOffset, isStrokeOnly: true)
+                }
+            )
+            .shadow(color: XTheme.accent.opacity(0.4), radius: 14, y: 6)
+
+            // MARK: 2. SEPARATE CONTENT & INTERACTIVE OVERLAY LAYER
+
+            // TOP BUTTON: Transfer Pill Overlay
+            if splitProgress > 0.08 {
+                Button {
+                    showMiniTransfersPopover.toggle()
+                } label: {
+                    ZStack {
+                        if let item = activeTransfers.first {
+                            VStack(spacing: 1) {
+                                Image(systemName: item.direction == .upload ? "arrow.up" : "arrow.down")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.white)
+
+                                Text("\(Int(overallProgress * 100))%")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    }
+                    .frame(width: buttonSize, height: buttonSize)
+                    .contentShape(Circle())
+                    .scaleEffect(transferHovering ? 1.08 : 1.0)
+                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: transferHovering)
+                    .onHover { transferHovering = $0 }
+                }
+                .buttonStyle(.plain)
+                .offset(y: -maxOffset * splitProgress)
+                .opacity(min(1.0, splitProgress * 1.6))
+                .popover(isPresented: $showMiniTransfersPopover, arrowEdge: .trailing) {
+                    MiniTransfersView()
+                }
+                .help("View Transfer Progress")
             }
 
-            // MARK: - TOP BUTTON: Transfer Pill (Splits & Moves Upwards)
-            if splitProgress > 0.05 {
-                transferPillButton
-                    .offset(y: -maxOffset * splitProgress)
-                    .scaleEffect(0.6 + 0.4 * splitProgress)
-                    .opacity(min(1.0, splitProgress * 1.5))
+            // BOTTOM BUTTON: Add (+) Button Overlay
+            Menu {
+                Button { showImporter = true } label: {
+                    Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
+                }
+                Divider()
+                if appState.selectedDestination == .privateVault {
+                    Button {
+                        folderName = ""
+                        showNewPrivateFolder = true
+                    } label: {
+                        Label("New Private Folder", systemImage: "lock.shield.fill")
+                    }
+                } else {
+                    Button {
+                        folderName = ""
+                        showNewFolder = true
+                    } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                }
+            } label: {
+                ZStack {
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: buttonSize, height: buttonSize)
+                .contentShape(Circle())
+                .scaleEffect(addHovering ? 1.08 : 1.0)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: addHovering)
+                .onHover { addHovering = $0 }
             }
-
-            // MARK: - BOTTOM BUTTON: (+) Add Button
-            addButton
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
         }
         .onChange(of: isTransferring, initial: true) { _, transferring in
             withAnimation(.spring(response: 0.55, dampingFraction: 0.70)) {
@@ -56,164 +166,60 @@ struct LiquidMorphingFAB: View {
             }
         }
     }
-
-    // MARK: - Top Button: Transfer Pill
-
-    private var transferPillButton: some View {
-        Button {
-            showMiniTransfersPopover.toggle()
-        } label: {
-            ZStack {
-                // Glass Base with Brand Gradient
-                Circle()
-                    .fill(XTheme.brandGradient)
-
-                // Progressive Fill Layer (Fills from bottom to top)
-                GeometryReader { geo in
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        Rectangle()
-                            .fill(Color.white.opacity(0.3))
-                            .frame(height: geo.size.height * min(1.0, max(0.05, overallProgress)))
-                            .animation(.linear(duration: 0.2), value: overallProgress)
-                    }
-                }
-                .clipShape(Circle())
-
-                // Specular Glass Rim
-                Circle()
-                    .strokeBorder(LinearGradient(
-                        colors: [.white.opacity(0.6), .white.opacity(0.15)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ), lineWidth: 1.5)
-
-                // Transfer Content
-                if let item = activeTransfers.first {
-                    VStack(spacing: 1) {
-                        Image(systemName: item.direction == .upload ? "arrow.up" : "arrow.down")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
-
-                        Text("\(Int(overallProgress * 100))%")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white)
-                    }
-                }
-            }
-            .frame(width: buttonSize, height: buttonSize)
-            .contentShape(Circle())
-            .glassEffect(.regular.interactive(), in: .circle)
-            .shadow(color: XTheme.accent.opacity(0.45), radius: 12, y: 6)
-            .scaleEffect(transferHovering ? 1.06 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: transferHovering)
-            .onHover { transferHovering = $0 }
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $showMiniTransfersPopover, arrowEdge: .trailing) {
-            MiniTransfersView()
-        }
-        .help("View Transfer Progress")
-    }
-
-    // MARK: - Bottom Button: Add (+) Button
-
-    private var addButton: some View {
-        Menu {
-            Button { showImporter = true } label: {
-                Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
-            }
-            Divider()
-            if appState.selectedDestination == .privateVault {
-                Button {
-                    folderName = ""
-                    showNewPrivateFolder = true
-                } label: {
-                    Label("New Private Folder", systemImage: "lock.shield.fill")
-                }
-            } else {
-                Button {
-                    folderName = ""
-                    showNewFolder = true
-                } label: {
-                    Label("New Folder", systemImage: "folder.badge.plus")
-                }
-            }
-        } label: {
-            ZStack {
-                // Glass Base with Brand Gradient
-                Circle()
-                    .fill(XTheme.brandGradient)
-
-                // Specular Glass Rim
-                Circle()
-                    .strokeBorder(LinearGradient(
-                        colors: [.white.opacity(0.6), .white.opacity(0.15)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ), lineWidth: 1.5)
-
-                Image(systemName: "plus")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: buttonSize, height: buttonSize)
-            .contentShape(Circle())
-            .glassEffect(.regular.interactive(), in: .circle)
-            .shadow(color: XTheme.accent.opacity(0.45), radius: 14, y: 6)
-            .scaleEffect(addHovering ? 1.08 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: addHovering)
-            .onHover { addHovering = $0 }
-        }
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-    }
 }
 
-// MARK: - Canvas Metaball Liquid Bridge
+// MARK: - Anti-Aliased Liquid Metaball Mask Canvas
 
-struct LiquidMetaballBridge: View {
+struct LiquidMetaballCanvas: View {
     var progress: CGFloat
+    var buttonSize: CGFloat
+    var maxOffset: CGFloat
+    var isStrokeOnly: Bool = false
 
     var body: some View {
         Canvas { context, size in
-            guard progress > 0.02 && progress < 0.98 else { return }
+            let centerX = size.width / 2
+            let bottomY = size.height - buttonSize / 2
+            let topY = bottomY - (maxOffset * progress)
+            let radius = buttonSize / 2
 
-            context.addFilter(.alphaThreshold(min: 0.48, color: XTheme.accent))
-            context.addFilter(.blur(radius: 12))
+            let drawStyle: (inout GraphicsContext, Path) -> Void = { ctx, path in
+                if isStrokeOnly {
+                    ctx.stroke(path, with: .color(.white), lineWidth: 1.5)
+                } else {
+                    ctx.fill(path, with: .color(.white))
+                }
+            }
 
-            context.drawLayer { ctx in
-                let centerX = size.width / 2
-                let bottomY = size.height - 26
-                let topY = bottomY - (68 * progress)
+            if progress < 0.02 {
+                // Resting single circle
+                drawStyle(&context, Path(ellipseIn: CGRect(x: centerX - radius, y: bottomY - radius, width: buttonSize, height: buttonSize)))
+            } else {
+                context.addFilter(.alphaThreshold(min: 0.45, color: .white))
+                context.addFilter(.blur(radius: 8))
 
-                let radius: CGFloat = 22
+                context.drawLayer { ctx in
+                    // Bottom Add Circle
+                    drawStyle(&ctx, Path(ellipseIn: CGRect(x: centerX - radius, y: bottomY - radius, width: buttonSize, height: buttonSize)))
 
-                ctx.fill(
-                    Path(ellipseIn: CGRect(x: centerX - radius, y: bottomY - radius, width: radius * 2, height: radius * 2)),
-                    with: .color(.white)
-                )
+                    // Top Transfer Circle
+                    drawStyle(&ctx, Path(ellipseIn: CGRect(x: centerX - radius, y: topY - radius, width: buttonSize, height: buttonSize)))
 
-                ctx.fill(
-                    Path(ellipseIn: CGRect(x: centerX - radius, y: topY - radius, width: radius * 2, height: radius * 2)),
-                    with: .color(.white)
-                )
-
-                let neckWidth = max(0, radius * 1.6 * (1.0 - progress))
-                if neckWidth > 1 {
-                    let neckRect = CGRect(
-                        x: centerX - neckWidth / 2,
-                        y: topY,
-                        width: neckWidth,
-                        height: bottomY - topY
-                    )
-                    ctx.fill(
-                        Path(roundedRect: neckRect, cornerRadius: neckWidth / 2),
-                        with: .color(.white)
-                    )
+                    // Connecting Liquid Neck Bridge
+                    if progress < 0.90 {
+                        let neckWidth = max(0, buttonSize * 0.9 * (1.0 - progress * 1.1))
+                        if neckWidth > 1 {
+                            let neckRect = CGRect(
+                                x: centerX - neckWidth / 2,
+                                y: topY,
+                                width: neckWidth,
+                                height: bottomY - topY
+                            )
+                            drawStyle(&ctx, Path(roundedRect: neckRect, cornerRadius: neckWidth / 2))
+                        }
+                    }
                 }
             }
         }
-        .allowsHitTesting(false)
     }
 }
