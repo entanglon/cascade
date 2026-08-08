@@ -122,15 +122,14 @@ struct FileBrowserView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($gridFocused)
-        .onKeyPress(.delete, phases: .down) { press in
-            guard !appState.selectedFiles.isEmpty else { return .ignored }
-            let isCmd = press.modifiers.contains(.command)
-            let isOpt = press.modifiers.contains(.option)
-
-            if isCmd && isOpt {
-                appState.bulkDeleteForever()
+        .onKeyPress(.delete) {
+            if appState.selectedDestination == .trash {
+                showEmptyTrashAlert = true
                 return .handled
-            } else if appState.selectedDestination == .trash {
+            }
+            guard !appState.selectedFiles.isEmpty else { return .ignored }
+            let flags = NSEvent.modifierFlags
+            if flags.contains(.command) && flags.contains(.option) {
                 appState.bulkDeleteForever()
                 return .handled
             } else {

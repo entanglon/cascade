@@ -224,8 +224,7 @@ enum UploadEngine {
                     try plain.write(to: tmpURL)
                 }
 
-                report("Uploading chunk \(n)/\(plan.items.count)",
-                       (Double(item.index) + 0.5) / total)
+                report("Uploading chunk \(n)/\(plan.items.count)", Double(item.index) / total)
 
                 var captionString: String? = nil
                 let meta: [String: Any] = [
@@ -250,7 +249,7 @@ enum UploadEngine {
                     kind: kind,
                     caption: captionString,
                     onProgress: { p in
-                        let overallProgress = (Double(item.index) + p) / total
+                        let overallProgress = (Double(item.index) + min(max(0.0, p), 1.0)) / total
                         report("Uploading chunk \(n)/\(plan.items.count)", min(overallProgress, 0.99))
                     }
                 )

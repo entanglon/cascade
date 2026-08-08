@@ -136,8 +136,8 @@ final class TelegramClient {
                 let handler = syncLock { fileProgressHandlers[fileId] }
 
                 if let handler {
-                    let expectedSize = (file["expected_size"] as? NSNumber)?.doubleValue ?? 0
-                    if expectedSize > 0 {
+                    let totalSize = (file["size"] as? NSNumber)?.doubleValue ?? (file["expected_size"] as? NSNumber)?.doubleValue ?? 0
+                    if totalSize > 0 {
                         var current: Double = 0
                         if let remote = file["remote"] as? [String: Any],
                            let uploaded = (remote["uploaded_size"] as? NSNumber)?.doubleValue {
@@ -147,7 +147,7 @@ final class TelegramClient {
                            let downloaded = (local["downloaded_size"] as? NSNumber)?.doubleValue {
                             current = max(current, downloaded)
                         }
-                        handler(min(current / expectedSize, 1.0))
+                        handler(min(max(0, current / totalSize), 1.0))
                     }
                 }
             }
