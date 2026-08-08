@@ -109,6 +109,58 @@ struct FileBrowserView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($gridFocused)
+        .onKeyPress(.delete, phases: .down) { press in
+            guard !appState.selectedFiles.isEmpty else { return .ignored }
+            let isCmd = press.modifiers.contains(.command)
+            let isOpt = press.modifiers.contains(.option)
+
+            if isCmd && isOpt {
+                appState.bulkDeleteForever()
+                return .handled
+            } else if appState.selectedDestination == .trash {
+                appState.bulkDeleteForever()
+                return .handled
+            } else {
+                appState.bulkTrash()
+                return .handled
+            }
+        }
+        .onKeyPress(.escape) {
+            appState.clearSelection()
+            return .handled
+        }
+        .onKeyPress("a", phases: .down) { press in
+            if press.modifiers.contains(.command) {
+                appState.selectAll()
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress("o", phases: .down) { press in
+            if press.modifiers.contains(.command), let f = appState.selectedFile {
+                open(f)
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress(.downArrow, phases: .down) { press in
+            if press.modifiers.contains(.command), let f = appState.selectedFile {
+                open(f)
+                return .handled
+            }
+            keyNav(columnCount)
+            return .handled
+        }
+        .onKeyPress(.upArrow, phases: .down) { press in
+            if press.modifiers.contains(.command) {
+                appState.navigateBack()
+                return .handled
+            }
+            keyNav(-columnCount)
+            return .handled
+        }
+        .onKeyPress(.leftArrow)  { keyNav(-1); return .handled }
+        .onKeyPress(.rightArrow) { keyNav(1); return .handled }
         .onKeyPress(.space) {
             if let file = appState.selectedFile, !file.isFolder {
                 appState.theaterFile = file
@@ -116,26 +168,8 @@ struct FileBrowserView: View {
             }
             return .ignored
         }
-        .onKeyPress(.leftArrow)  { keyNav(-1); return .handled }
-        .onKeyPress(.rightArrow) { keyNav(1); return .handled }
-        .onKeyPress(.upArrow)    { keyNav(-columnCount); return .handled }
-        .onKeyPress(.downArrow)  { keyNav(columnCount); return .handled }
         .onKeyPress(.return) {
             if let f = appState.selectedFile { open(f); return .handled }
-            return .ignored
-        }
-        .onKeyPress(.delete) {
-            if !appState.selectedFiles.isEmpty {
-                appState.bulkTrash()
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress("a", phases: .down) { press in
-            if press.modifiers.contains(.command) {
-                appState.selectAll()
-                return .handled
-            }
             return .ignored
         }
         .onDrop(of: [UTType.item], isTargeted: $dropTargeted) { providers in

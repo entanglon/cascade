@@ -306,8 +306,52 @@ final class AppState {
         }
     }
 
-    private func visibleFilesInCurrentContext() -> [ObjectRecord] {
-        files.filter { !$0.trashed && $0.parentID == currentFolderID }
+    @MainActor
+    func bulkDeleteForever() {
+        let ids = selectedFiles
+        selectedFiles.removeAll()
+        for id in ids {
+            if let file = files.first(where: { $0.id == id }) {
+                deleteForever(file)
+            }
+        }
+    }
+
+    @MainActor
+    func bulkRestore() {
+        let ids = selectedFiles
+        selectedFiles.removeAll()
+        Task {
+            for id in ids {
+                try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
+            }
+            await loadFiles()
+        }
+    }
+
+    func visibleFilesInCurrentContext() -> [ObjectRecord] {
+        switch selectedDestination {
+        case .allFiles:
+            return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentFolderID }
+        case .privateVault:
+            return files.filter { !$0.trashed && $0.isPrivate && $0.parentID == currentFolderID }
+        case .trash:
+            return files.filter { $0.trashed }
+        case .favorites:
+            return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+        case .recent:
+            return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
+        case .video:
+            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("video/") }
+        case .audio:
+            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("audio/") }
+        case .documents:
+            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
+                ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
+                 $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
+        case .transfers:
+            return []
+        }
     }
 
     // MARK: - Folder operations
