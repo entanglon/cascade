@@ -83,6 +83,11 @@ final class TelegramClient {
     private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
     private var fileProgressHandlers: [Int: (Double) -> Void] = [:]
     private let trackingLock = NSLock()
+    private func syncLock<T>(_ work: () -> T) -> T {
+        trackingLock.lock()
+        defer { trackingLock.unlock() }
+        return work()
+    }
 
     // MARK: - Update handling
 
@@ -122,9 +127,7 @@ final class TelegramClient {
         case "updateFile":
             if let file = json["file"] as? [String: Any],
                let fileId = file["id"] as? Int {
-                trackingLock.lock()
-                let handler = fileProgressHandlers[fileId]
-                trackingLock.unlock()
+                let handler = syncLock { fileProgressHandlers[fileId] }
 
                 if let handler {
                     let expectedSize = (file["expected_size"] as? NSNumber)?.doubleValue ?? 0
@@ -147,13 +150,11 @@ final class TelegramClient {
             if let oldId = (json["old_message_id"] as? NSNumber)?.int64Value,
                let message = json["message"] as? [String: Any],
                let realId = (message["id"] as? NSNumber)?.int64Value {
-                trackingLock.lock()
-                if let continuation = pendingSendContinuations.removeValue(forKey: oldId) {
-                    trackingLock.unlock()
+                let continuation = syncLock { self.pendingSendContinuations.removeValue(forKey: oldId) }
+                if let continuation {
                     continuation.resume(returning: realId)
                 } else {
-                    completedSends[oldId] = .success(realId)
-                    trackingLock.unlock()
+                    syncLock { self.completedSends[oldId] = .success(realId) }
                 }
             }
 
@@ -162,13 +163,11 @@ final class TelegramClient {
                 let code = (json["error_code"] as? NSNumber)?.intValue ?? 0
                 let msg = (json["error_message"] as? String) ?? "Upload failed"
                 let err: any Swift.Error = NSError(domain: "Telegram", code: code, userInfo: [NSLocalizedDescriptionKey: msg])
-                trackingLock.lock()
-                if let continuation = pendingSendContinuations.removeValue(forKey: oldId) {
-                    trackingLock.unlock()
+                let continuation = syncLock { self.pendingSendContinuations.removeValue(forKey: oldId) }
+                if let continuation {
                     continuation.resume(throwing: err)
                 } else {
-                    completedSends[oldId] = .failure(err)
-                    trackingLock.unlock()
+                    syncLock { self.completedSends[oldId] = .failure(err) }
                 }
             }
 
@@ -248,9 +247,21 @@ final class TelegramClient {
         try await client.logOut()
     }
 
-    func thumbnailFileId(forMessage messageId: Int64, chatId: Int64) async throws -> Int? {
+    /// Fetches message either from local TDLib cache or directly from Telegram server if not cached.
+    func getOrFetchMessage(chatId: Int64, messageId: Int64) async throws -> Message {
         guard let client else { throw TelegramError.notInitialized }
-        let message = try await client.getMessage(chatId: chatId, messageId: messageId)
+        if let msg = try? await client.getMessage(chatId: chatId, messageId: messageId) {
+            return msg
+        }
+        let res = try await client.getMessages(chatId: chatId, messageIds: [messageId])
+        if let msgs = res.messages, let first = msgs.first {
+            return first
+        }
+        throw DownloadError.fileNotFound
+    }
+
+    func thumbnailFileId(forMessage messageId: Int64, chatId: Int64) async throws -> Int? {
+        let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
         switch message.content {
         case .messagePhoto(let ph):
             let best = ph.photo.sizes.min { abs($0.width - 320) < abs($1.width - 320) }
@@ -307,9 +318,8 @@ final class TelegramClient {
     }
 
     func uploadStatus(chatId: Int64, messageId: Int64) async -> UploadStatus {
-        guard let client else { return .unknown }
         do {
-            let message = try await client.getMessage(chatId: chatId, messageId: messageId)
+            let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
             guard let file = primaryFile(from: message.content) else { return .notUploaded }
             return file.remote.isUploadingCompleted ? .uploaded : .notUploaded
         } catch {
@@ -332,21 +342,19 @@ final class TelegramClient {
     // MARK: - Download
 
     func downloadMessageFile(messageId: Int64, chatId: Int64, to destination: URL) async throws {
-        guard let client else { throw TelegramError.notInitialized }
-        let message = try await client.getMessage(chatId: chatId, messageId: messageId)
+        let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
         guard let file = primaryFile(from: message.content) else {
             throw DownloadError.fileNotFound
         }
 
-        let updated = try await client.downloadFile(
+        let updated = try await client?.downloadFile(
             fileId: file.id,
             limit: 0,
             offset: 0,
             priority: 32,
             synchronous: true
         )
-        let path = updated.local.path
-        guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else {
+        guard let updated, let path = Optional(updated.local.path), !path.isEmpty, FileManager.default.fileExists(atPath: path) else {
             throw DownloadError.fileNotFound
         }
         let dest = destination.path(percentEncoded: false)
@@ -357,8 +365,7 @@ final class TelegramClient {
     }
 
     func getFileId(chatId: Int64, messageId: Int64) async throws -> Int {
-        guard let client else { throw TelegramError.notInitialized }
-        let message = try await client.getMessage(chatId: chatId, messageId: messageId)
+        let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
         guard let file = primaryFile(from: message.content) else {
             throw DownloadError.fileNotFound
         }
@@ -366,8 +373,7 @@ final class TelegramClient {
     }
 
     func fileId(forMessage messageId: Int64, chatId: Int64) async throws -> Int32 {
-        guard let client else { throw TelegramError.notInitialized }
-        let message = try await client.getMessage(chatId: chatId, messageId: messageId)
+        let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
         guard let file = primaryFile(from: message.content) else {
             throw DownloadError.fileNotFound
         }
@@ -511,32 +517,24 @@ final class TelegramClient {
         let fileId = primaryFile(from: message.content)?.id
 
         if let fileId, let onProgress {
-            trackingLock.lock()
-            fileProgressHandlers[fileId] = onProgress
-            trackingLock.unlock()
+            syncLock { fileProgressHandlers[fileId] = onProgress }
         }
 
         // Check if send succeeded before setup
-        trackingLock.lock()
-        if let preResult = completedSends.removeValue(forKey: message.id) {
-            if let fileId { fileProgressHandlers.removeValue(forKey: fileId) }
-            trackingLock.unlock()
+        let preResult = syncLock { completedSends.removeValue(forKey: message.id) }
+        if let preResult {
+            if let fileId { syncLock { fileProgressHandlers.removeValue(forKey: fileId) } }
             onProgress?(1.0)
             return try preResult.get()
         }
-        trackingLock.unlock()
 
         // Wait for updateMessageSendSucceeded
         let finalId = try await withCheckedThrowingContinuation { continuation in
-            trackingLock.lock()
-            pendingSendContinuations[message.id] = continuation
-            trackingLock.unlock()
+            syncLock { pendingSendContinuations[message.id] = continuation }
         }
 
         if let fileId {
-            trackingLock.lock()
-            fileProgressHandlers.removeValue(forKey: fileId)
-            trackingLock.unlock()
+            syncLock { fileProgressHandlers.removeValue(forKey: fileId) }
         }
 
         onProgress?(1.0)
