@@ -6,6 +6,7 @@ struct TheaterView: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
 
+    @FocusState private var isFocused: Bool
     @State private var url: URL?
     @State private var imageScale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -66,7 +67,11 @@ struct TheaterView: View {
             }
         }
         .focusable()
+        .focused($isFocused)
         .focusEffectDisabled()
+        .onAppear {
+            isFocused = true
+        }
         .onExitCommand {
             appState.theaterFile = nil
         }
@@ -85,6 +90,7 @@ struct TheaterView: View {
             return .handled
         }
         .task(id: file.id) {
+            isFocused = true
             await loadFile()
         }
     }

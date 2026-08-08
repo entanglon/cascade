@@ -806,6 +806,11 @@ struct FileItemContextMenu: View {
             } label: {
                 Label("Move to Trash", systemImage: "trash")
             }
+            Button(role: .destructive) {
+                appState.deleteForever(file)
+            } label: {
+                Label("Delete Permanently", systemImage: "trash.slash")
+            }
         }
     }
 
