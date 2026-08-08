@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - Animatable Double-Blur Liquid Mask (Qwen & Claude's Gold Standard Architecture)
+// MARK: - Animatable Double-Blur Liquid Alpha Mask
 
 struct AnimatableLiquidMetaballCanvas: View, Animatable {
     var splitProgress: CGFloat // 0.0 = merged, 1.0 = fully separated
@@ -23,25 +23,25 @@ struct AnimatableLiquidMetaballCanvas: View, Animatable {
                 // 1. Initial Blur to merge overlapping shapes
                 ctx.addFilter(.blur(radius: 12))
                 // 2. Alpha Threshold cutoff to form cohesive liquid skin
-                ctx.addFilter(.alphaThreshold(min: 0.5, color: .white))
-                // 3. SECOND BLUR PASS: Re-softens threshold cutoff into a crisp, perfectly anti-aliased round edge!
+                ctx.addFilter(.alphaThreshold(min: 0.5, color: .black))
+                // 3. SECOND BLUR PASS: Re-softens threshold cutoff into a crisp, anti-aliased edge
                 ctx.addFilter(.blur(radius: 1.5))
 
-                // Bottom Add Blob
+                // Bottom Add Blob (pure flat color for alpha mask)
                 ctx.fill(
                     Path(ellipseIn: CGRect(x: centerX - radius, y: bottomY - radius, width: buttonSize, height: buttonSize)),
-                    with: .color(.white)
+                    with: .color(.black)
                 )
 
-                // Top Transfer Blob (Moves up smoothly driven frame-by-frame by animatableData)
+                // Top Transfer Blob (Moves up smoothly)
                 if splitProgress > 0.001 {
                     ctx.fill(
                         Path(ellipseIn: CGRect(x: centerX - radius, y: topY - radius, width: buttonSize, height: buttonSize)),
-                        with: .color(.white)
+                        with: .color(.black)
                     )
                 }
 
-                // Liquid Neck Bridge (Pinches off organically as distance increases)
+                // Liquid Neck Bridge
                 let neckWidth = max(0, buttonSize * 0.9 * (1.0 - splitProgress))
                 if splitProgress < 0.99 && neckWidth > 1 {
                     let neckRect = CGRect(
@@ -52,11 +52,13 @@ struct AnimatableLiquidMetaballCanvas: View, Animatable {
                     )
                     ctx.fill(
                         Path(roundedRect: neckRect, cornerRadius: neckWidth / 2),
-                        with: .color(.white)
+                        with: .color(.black)
                     )
                 }
             }
         }
+        .frame(width: buttonSize, height: maxOffset + buttonSize)
+        .clipShape(Rectangle()) // BUG 1 FIX: Strictly clips blur bleed beyond bounding box
     }
 }
 
@@ -172,29 +174,57 @@ struct LiquidMorphingFAB: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // MARK: 1. UNIFIED GLASS SURFACE (Masked by Double-Blur Animatable Liquid Canvas)
+            // MARK: 1. BUG 2 FIX: UNIFIED LIQUID GLASS SURFACE (Masked by Pure Alpha Canvas)
             ZStack(alignment: .bottom) {
-                // Base UltraThinMaterial Glass
+                // Base UltraThinMaterial Translucent Glass
                 Rectangle()
                     .fill(.ultraThinMaterial)
 
-                // Specular Light Gradient
+                // Vibrant Brand Tint
+                XTheme.brandGradient.opacity(0.35)
+
+                // Rising Blue Liquid Fill during Active Transfer
+                if splitProgress > 0.02 {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Rectangle()
+                            .fill(XTheme.brandGradient)
+                            .frame(height: maxOffset * min(1.0, max(0.05, overallProgress)) + buttonSize)
+                            .animation(.linear(duration: 0.2), value: overallProgress)
+                    }
+                }
+
+                // Top Specular Lighting Highlight
                 LinearGradient(
                     colors: [.white.opacity(0.55), .white.opacity(0.08)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+
+                // Specular Glass Rim Light Stroke
+                RoundedRectangle(cornerRadius: buttonSize / 2)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.75), .white.opacity(0.15)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.5
+                    )
             }
             .frame(width: buttonSize, height: maxOffset * splitProgress + buttonSize)
             .mask(
-                AnimatableLiquidMetaballCanvas(splitProgress: splitProgress, buttonSize: buttonSize, maxOffset: maxOffset)
-                    .frame(width: buttonSize, height: maxOffset * splitProgress + buttonSize)
+                AnimatableLiquidMetaballCanvas(
+                    splitProgress: splitProgress,
+                    buttonSize: buttonSize,
+                    maxOffset: maxOffset
+                )
             )
             .shadow(color: XTheme.accent.opacity(0.4), radius: 14, y: 6)
 
-            // MARK: 2. SEPARATE CONTENT & INTERACTIVE OVERLAY LAYER
+            // MARK: 2. SEPARATE CONTENT LAYER (Icons & Controls Over Glass)
 
-            // TOP BUTTON: Transfer Pill (Liquid Sphere Visualizer)
+            // TOP BUTTON: Transfer Pill Content
             if splitProgress > 0.05 {
                 Button {
                     showMiniTransfersPopover.toggle()
@@ -218,7 +248,7 @@ struct LiquidMorphingFAB: View {
                 .help("View Transfer Progress")
             }
 
-            // BOTTOM BUTTON: Add (+) Button Overlay
+            // BOTTOM BUTTON: Add (+) Button Content
             Menu {
                 Button { showImporter = true } label: {
                     Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
@@ -229,7 +259,7 @@ struct LiquidMorphingFAB: View {
                         folderName = ""
                         showNewPrivateFolder = true
                     } label: {
-                        Label("New Private Folder", systemImage: "lock.shield.fill")
+                        Label("New Private Folder", systemImage: "lock.square.stack.fill")
                     }
                 } else {
                     Button {
@@ -241,19 +271,6 @@ struct LiquidMorphingFAB: View {
                 }
             } label: {
                 ZStack {
-                    Circle()
-                        .fill(XTheme.brandGradient)
-
-                    Circle()
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.6), .white.opacity(0.15)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
-                        )
-
                     Image(systemName: "plus")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)

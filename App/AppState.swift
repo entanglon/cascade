@@ -24,7 +24,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .allFiles: return "square.grid.2x2"
-        case .privateVault: return "lock.shield"
+        case .privateVault: return "lock.square.stack.fill"
         case .recent: return "clock"
         case .favorites: return "star"
         case .video: return "play.rectangle"
