@@ -438,9 +438,12 @@ final class TelegramClient {
         chatId: Int64,
         path: String,
         kind: MediaKind,
+        caption: String? = nil,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
+
+        let formattedCaption: FormattedText? = caption.map { FormattedText(entities: [], text: $0) }
 
         let content: InputMessageContent
         switch kind {
@@ -454,7 +457,7 @@ final class TelegramClient {
                 width: 0
             )
             content = .inputMessagePhoto(InputMessagePhoto(
-                caption: nil as FormattedText?,
+                caption: formattedCaption,
                 hasSpoiler: false,
                 photo: inputPhoto,
                 selfDestructType: nil as MessageSelfDestructType?,
@@ -473,7 +476,7 @@ final class TelegramClient {
                 width: 0
             )
             content = .inputMessageVideo(InputMessageVideo(
-                caption: nil as FormattedText?,
+                caption: formattedCaption,
                 hasSpoiler: false,
                 selfDestructType: nil as MessageSelfDestructType?,
                 showCaptionAboveMedia: false,
@@ -486,7 +489,7 @@ final class TelegramClient {
                 thumbnail: nil as InputThumbnail?
             )
             content = .inputMessageDocument(InputMessageDocument(
-                caption: nil as FormattedText?,
+                caption: formattedCaption,
                 document: inputDocument
             ))
         }

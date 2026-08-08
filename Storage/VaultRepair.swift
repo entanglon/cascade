@@ -8,7 +8,7 @@ enum VaultRepair {
         category: "repair"
     )
 
-    /// Scans Telegram channel to repair chunk message IDs, promote stuck objects, and purge orphaned channel messages.
+    /// Scans Telegram channel to reconstruct missing catalog objects/chunks, repair chunk message IDs, promote stuck objects, and purge orphaned channel messages.
     static func run() async -> Bool {
         guard TelegramClient.shared.isAuthorized else { return false }
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return false }
@@ -17,31 +17,104 @@ enum VaultRepair {
         // 1. Fetch channel messages from Telegram
         let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
         let chunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+        let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
 
-        // Find chunks needing repair (missing messageID or <= 10_000_000 temporary local ID)
-        let brokenChunks = chunks.filter { $0.messageID == nil || ($0.messageID ?? 0) <= 10_000_000 }
+        let objectDict = Dictionary(uniqueKeysWithValues: objects.map { ($0.id, $0) })
 
-        if !brokenChunks.isEmpty && !messages.isEmpty {
-            logger.info("Repairing \(brokenChunks.count) chunk(s)...")
+        if !messages.isEmpty {
             for message in messages {
                 var fileName: String? = nil
                 var fileSize: Int64 = 0
+                var captionText: String? = nil
 
                 switch message.content {
                 case .messageDocument(let doc):
                     fileName = doc.document.fileName
                     fileSize = Int64(doc.document.document.size)
+                    captionText = doc.caption.text
                 case .messageVideo(let vid):
                     fileSize = Int64(vid.video.video.size)
+                    captionText = vid.caption.text
                 case .messagePhoto(let ph):
                     if let best = ph.photo.sizes.max(by: { $0.width < $1.width }) {
                         fileSize = Int64(best.photo.size)
                     }
+                    captionText = ph.caption.text
                 default:
                     break
                 }
 
-                // Match document filename pattern "OBJECT_ID-INDEX.bin"
+                // A. Reconstruct from JSON metadata caption (xcloud:v1:...)
+                if let caption = captionText, caption.hasPrefix("xcloud:v1:") {
+                    let jsonString = String(caption.dropFirst(10))
+                    if let data = jsonString.data(using: .utf8),
+                       let meta = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                       let objectID = meta["id"] as? String,
+                       let name = meta["name"] as? String,
+                       let size = meta["size"] as? Int64 ?? (meta["size"] as? Int).map(Int64.init),
+                       let mime = meta["mime"] as? String,
+                       let index = meta["index"] as? Int {
+
+                        let parentID = meta["parentID"] as? String
+                        let isPrivate = meta["isPrivate"] as? Bool ?? false
+                        let totalChunks = meta["totalChunks"] as? Int ?? 1
+                        let wrappedKeyStr = meta["wrappedKey"] as? String ?? ""
+                        let wrappedKey = Data(base64Encoded: wrappedKeyStr)
+
+                        // Restore Object if missing in SQLite
+                        if objectDict[objectID] == nil {
+                            let newObj = ObjectRecord(
+                                id: objectID,
+                                vaultID: vault.id,
+                                name: name,
+                                size: size,
+                                mime: mime,
+                                state: "ready",
+                                rootHash: nil,
+                                wrappedKey: wrappedKey,
+                                createdAt: .now,
+                                modifiedAt: .now,
+                                isFavorite: false,
+                                trashed: false,
+                                parentID: (parentID == nil || parentID?.isEmpty == true) ? nil : parentID,
+                                isFolder: false,
+                                isPrivate: isPrivate,
+                                sourcePath: nil
+                            )
+                            try? await DatabaseManager.shared.save(newObj)
+                            changed = true
+                        }
+
+                        // Restore Chunk if missing or update messageID
+                        let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
+                        if let target = existingChunks.first(where: { $0.index == index }) {
+                            if target.messageID != message.id {
+                                try? await DatabaseManager.shared.updateChunk(target.id) { $0.messageID = message.id }
+                                changed = true
+                            }
+                        } else {
+                            let newChunk = ChunkRecord(
+                                id: UUID().uuidString,
+                                objectID: objectID,
+                                index: index,
+                                size: size / Int64(max(1, totalChunks)),
+                                plainHash: nil,
+                                cipherHash: nil,
+                                state: "uploaded",
+                                messageID: message.id,
+                                fileUniqueID: nil,
+                                channelID: vault.channelID,
+                                createdAt: .now
+                            )
+                            try? await DatabaseManager.shared.save(newChunk)
+                            changed = true
+                        }
+                        continue
+                    }
+                }
+
+                // B. Fallback: Match filename pattern "OBJECT_ID-INDEX.bin"
+                let brokenChunks = chunks.filter { $0.messageID == nil || ($0.messageID ?? 0) <= 10_000_000 }
                 if let fn = fileName, fn.hasSuffix(".bin") {
                     let nameWithoutExt = (fn as NSString).deletingPathExtension
                     let parts = nameWithoutExt.split(separator: "-")
@@ -67,8 +140,8 @@ enum VaultRepair {
         }
 
         // 2. Promote failed or uploading objects to ready if all chunks have real message IDs
-        let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
-        for var object in objects where object.state != "ready" {
+        let currentObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
+        for var object in currentObjects where object.state != "ready" {
             let objChunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
             guard !objChunks.isEmpty else { continue }
             if objChunks.allSatisfy({ ($0.messageID ?? 0) > 10_000_000 }) {

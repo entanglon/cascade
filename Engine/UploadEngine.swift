@@ -227,10 +227,28 @@ enum UploadEngine {
                 report("Uploading chunk \(n)/\(plan.items.count)",
                        (Double(item.index) + 0.5) / total)
 
+                var captionString: String? = nil
+                let meta: [String: Any] = [
+                    "id": objectID,
+                    "name": displayName,
+                    "size": fileSize,
+                    "mime": mime,
+                    "parentID": parentID ?? "",
+                    "isPrivate": isParentPrivate,
+                    "index": item.index,
+                    "totalChunks": plan.items.count,
+                    "wrappedKey": wrappedKey?.base64EncodedString() ?? ""
+                ]
+                if let jsonData = try? JSONSerialization.data(withJSONObject: meta),
+                   let jsonStr = String(data: jsonData, encoding: .utf8) {
+                    captionString = "xcloud:v1:" + jsonStr
+                }
+
                 let messageId = try await TelegramClient.shared.sendFile(
                     chatId: vault.channelID,
                     path: tmpURL.path(percentEncoded: false),
                     kind: kind,
+                    caption: captionString,
                     onProgress: { p in
                         let overallProgress = (Double(item.index) + p) / total
                         report("Uploading chunk \(n)/\(plan.items.count)", min(overallProgress, 0.99))
