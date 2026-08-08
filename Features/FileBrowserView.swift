@@ -101,13 +101,18 @@ struct FileBrowserView: View {
                 }
             }
 
-            // Morphing FAB <-> Transfer Pill overlay (bottom right)
+            // Morphing Liquid Glass Cell-Division FAB (bottom right)
             if appState.selectedDestination != .trash && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        morphingFloatingButton
+                        LiquidMorphingFAB(
+                            showImporter: $showImporter,
+                            showNewFolder: $showNewFolder,
+                            showNewPrivateFolder: $showNewPrivateFolder,
+                            folderName: $folderName
+                        )
                     }
                 }
                 .padding(24)
