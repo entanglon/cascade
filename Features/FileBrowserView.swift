@@ -271,37 +271,61 @@ struct FileBrowserView: View {
                         Label("Lock Now", systemImage: "lock.fill")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.red)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(.red.opacity(0.15)))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .glassEffect(.regular, in: .capsule)
+                            .overlay(Capsule().strokeBorder(.red.opacity(0.3), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .help("Lock Private Vault")
                 }
 
-                Picker("", selection: $viewModeRaw) {
-                    Image(systemName: "square.grid.2x2").tag("grid")
-                    Image(systemName: "list.bullet").tag("list")
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 76)
+                // View Mode Toggle (Grid / List)
+                HStack(spacing: 2) {
+                    Button {
+                        viewModeRaw = "grid"
+                    } label: {
+                        Image(systemName: "square.grid.2x2.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(viewModeRaw == "grid" ? .white : .white.opacity(0.5))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(viewModeRaw == "grid" ? Capsule().fill(XTheme.accent) : Capsule().fill(Color.clear))
+                    }
+                    .buttonStyle(.plain)
 
+                    Button {
+                        viewModeRaw = "list"
+                    } label: {
+                        Image(systemName: "list.bullet")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(viewModeRaw == "list" ? .white : .white.opacity(0.5))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(viewModeRaw == "list" ? Capsule().fill(XTheme.accent) : Capsule().fill(Color.clear))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(2)
+                .glassEffect(.regular, in: .capsule)
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+
+                // Sort Menu Button
                 Menu { sortPickerContent } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.7))
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassEffect(.regular, in: .capsule)
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
                 }
-
-                Button { showNewFolder = true } label: {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.8))
-                }.buttonStyle(.plain).help("New Folder")
-
-                Button { showImporter = true } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(XTheme.brandGradient)
-                }.buttonStyle(.plain).help("Upload")
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 20)
@@ -347,18 +371,11 @@ struct FileBrowserView: View {
                         }
                     }
                 } label: {
-                    ZStack {
-                        Circle()
-                            .fill(XTheme.brandGradient)
-                            .frame(width: 48, height: 48)
-                            .shadow(color: XTheme.accent.opacity(0.4), radius: 12, y: 6)
-                        Image(systemName: "plus")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                    .scaleEffect(fabHovering ? 1.06 : 1.0)
-                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: fabHovering)
-                    .onHover { fabHovering = $0 }
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(XTheme.accent)
+                        .frame(width: 52, height: 52)
+                        .glassEffect(.regular.interactive(), in: .circle)
                 }
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
