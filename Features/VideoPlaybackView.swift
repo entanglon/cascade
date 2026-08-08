@@ -1,5 +1,22 @@
 import SwiftUI
 import AVKit
+import AppKit
+
+struct NativeAVPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.player = player
+        playerView.controlsStyle = .inline
+        playerView.showsSharingServiceButton = false
+        return playerView
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        nsView.player = player
+    }
+}
 
 struct VideoPlaybackView: View {
     let object: ObjectRecord
@@ -10,7 +27,7 @@ struct VideoPlaybackView: View {
     var body: some View {
         ZStack {
             if let player {
-                VideoPlayer(player: player)
+                NativeAVPlayerView(player: player)
             } else if let error {
                 VStack(spacing: 10) {
                     Image(systemName: "wifi.exclamationmark")
@@ -38,22 +55,33 @@ struct VideoPlaybackView: View {
             }
         }
         .task { await prepare() }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
     }
 
     private func prepare() async {
         if DownloadEngine.isCached(object) {
-            player = AVPlayer(url: DownloadEngine.cacheURL(for: object))
-            player?.play()
+            let url = DownloadEngine.cacheURL(for: object)
+            await MainActor.run {
+                player = AVPlayer(url: url)
+                player?.play()
+            }
             return
         }
         do {
             let url = try await DownloadEngine.download(object: object) { _, p in
                 Task { @MainActor in progress = p }
             }
-            player = AVPlayer(url: url)
-            player?.play()
+            await MainActor.run {
+                player = AVPlayer(url: url)
+                player?.play()
+            }
         } catch {
-            self.error = error.localizedDescription
+            await MainActor.run {
+                self.error = error.localizedDescription
+            }
         }
     }
 }
