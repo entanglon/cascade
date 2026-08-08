@@ -289,16 +289,16 @@ struct FileBrowserView: View {
                     Button(role: .destructive) {
                         showEmptyTrashAlert = true
                     } label: {
-                        Label("Empty Trash…", systemImage: "trash.slash")
-                            .font(.system(size: 11, weight: .semibold))
+                        Image(systemName: "trash.slash")
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.red)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassEffect(.regular.interactive(), in: .capsule)
-                            .overlay(Capsule().strokeBorder(.red.opacity(0.3), lineWidth: 1))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .overlay(Circle().strokeBorder(.red.opacity(0.3), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .help("Permanently delete all items in Trash")
+                    .help("Empty Trash")
                 }
 
                 if appState.selectedDestination == .privateVault && appState.isPrivateVaultUnlocked {
