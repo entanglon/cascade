@@ -18,6 +18,7 @@ struct FileBrowserView: View {
     @FocusState private var gridFocused: Bool
     @FocusState private var searchFocused: Bool
     @State private var showEmptyTrashAlert = false
+    @State private var showMiniTransfersPopover = false
     @State private var dropTargeted = false
     @State private var columnCount = 4
     @State private var fabHovering = false
@@ -90,16 +91,23 @@ struct FileBrowserView: View {
                 appState.clearSelection()
             }
 
-            // Transfer pill + FAB overlay (visible everywhere except Trash)
+            // Floating Mini Audio Player (Centered at Bottom)
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    MiniPlayerView()
+                    Spacer()
+                }
+            }
+
+            // Morphing FAB <-> Transfer Pill overlay (bottom right)
             if appState.selectedDestination != .trash && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
-                VStack(spacing: 12) {
+                VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        VStack(spacing: 12) {
-                            transferPillOverlay
-                            fabButton
-                        }
+                        morphingFloatingButton
                     }
                 }
                 .padding(24)
@@ -418,45 +426,62 @@ struct FileBrowserView: View {
         TransferCenter.shared.items.filter { $0.state == .active }
     }
 
+    private var overallProgress: Double {
+        guard !activeTransfers.isEmpty else { return 0 }
+        let total = activeTransfers.reduce(0.0) { $0 + $1.progress }
+        return total / Double(activeTransfers.count)
+    }
+
     @ViewBuilder
-    private var transferPillOverlay: some View {
+    private var morphingFloatingButton: some View {
         if let item = activeTransfers.first {
+            // ACTIVE TRANSFERS: Liquid Glass Morphing Transfer Pill Button
             Button {
-                appState.selectedDestination = .transfers
+                showMiniTransfersPopover.toggle()
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: item.direction == .upload ? "arrow.up" : "arrow.down")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(XTheme.accent)
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .stroke(.white.opacity(0.15), lineWidth: 3)
+                            .frame(width: 28, height: 28)
+                        Circle()
+                            .trim(from: 0, to: max(0.05, overallProgress))
+                            .stroke(
+                                XTheme.brandGradient,
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 28, height: 28)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.name)
-                            .font(.system(size: 11, weight: .semibold))
+                        Image(systemName: item.direction == .upload ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.white)
-                            .lineLimit(1)
-                        ProgressView(value: item.progress)
-                            .progressViewStyle(.linear)
-                            .tint(XTheme.accent)
                     }
-                    .frame(maxWidth: 140)
 
-                    Text("\(Int(item.progress * 100))%")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.7))
+                    Text("\(Int(overallProgress * 100))%")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
 
                     if activeTransfers.count > 1 {
-                        Text("+\(activeTransfers.count - 1)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.5))
+                        Text("(\(activeTransfers.count))")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                .shadow(color: XTheme.accent.opacity(0.35), radius: 10, y: 4)
             }
             .buttonStyle(.plain)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: activeTransfers.count)
+            .popover(isPresented: $showMiniTransfersPopover, arrowEdge: .bottom) {
+                MiniTransfersView()
+            }
+            .transition(.scale.combined(with: .opacity))
+        } else {
+            // IDLE: Standard Floating (+) Add Button
+            fabButton
+                .transition(.scale.combined(with: .opacity))
         }
     }
 
@@ -632,9 +657,16 @@ struct FileBrowserView: View {
     private func open(_ file: ObjectRecord) {
         if file.isFolder {
             appState.openFolder(file)
+        } else if isAudioFile(file) {
+            AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
             appState.theaterFile = file
         }
+    }
+
+    private func isAudioFile(_ file: ObjectRecord) -> Bool {
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        return file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(ext)
     }
 
     private func keyNav(_ delta: Int) {

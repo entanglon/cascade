@@ -1,0 +1,296 @@
+import SwiftUI
+import AppKit
+
+struct MiniPlayerView: View {
+    @Bindable var audioEngine = AudioPlayerEngine.shared
+
+    var body: some View {
+        if let track = audioEngine.currentTrack {
+            VStack(spacing: 0) {
+                if audioEngine.isFullScreen {
+                    audioTheaterOverlay(track: track)
+                } else {
+                    miniBar(track: track)
+                }
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: audioEngine.isFullScreen)
+        }
+    }
+
+    // MARK: - Mini Bar
+
+    private func miniBar(track: ObjectRecord) -> some View {
+        HStack(spacing: 14) {
+            // Album Art Badge with Equalizer
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(XTheme.brandGradient)
+                    .frame(width: 44, height: 44)
+                    .shadow(color: XTheme.accent.opacity(0.4), radius: 6, y: 3)
+
+                if audioEngine.isPlaying {
+                    EqualizerWaveformView(barCount: 4)
+                        .frame(width: 20, height: 18)
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+
+            // Info & Scrub Slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(track.name)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Text(timeString(audioEngine.currentTime) + " / " + timeString(audioEngine.duration))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+
+                // Progress slider
+                Slider(
+                    value: Binding(
+                        get: { audioEngine.currentTime },
+                        set: { audioEngine.seek(to: $0) }
+                    ),
+                    in: 0...max(1, audioEngine.duration)
+                )
+                .tint(XTheme.accent)
+                .controlSize(.mini)
+            }
+            .frame(width: 240)
+
+            // Playback Controls
+            HStack(spacing: 10) {
+                Button { audioEngine.skipPrevious() } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+
+                Button { audioEngine.togglePlayPause() } label: {
+                    ZStack {
+                        Circle().fill(XTheme.accent)
+                            .frame(width: 32, height: 32)
+                        Image(systemName: audioEngine.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .offset(x: audioEngine.isPlaying ? 0 : 1)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button { audioEngine.skipNext() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider().frame(height: 24).overlay(.white.opacity(0.15))
+
+            // Expand to Full Screen
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    audioEngine.isFullScreen = true
+                }
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .buttonStyle(.plain)
+            .help("Full Screen Player")
+
+            // Close Button
+            Button {
+                audioEngine.stop()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Close Player")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .padding(.bottom, 20)
+    }
+
+    // MARK: - Full Screen Audio Theater
+
+    private func audioTheaterOverlay(track: ObjectRecord) -> some View {
+        ZStack {
+            // Full screen backdrop
+            Color.black.opacity(0.95).ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                // Top Header
+                HStack {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            audioEngine.isFullScreen = false
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .frame(width: 36, height: 36)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Text("NOW PLAYING")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(XTheme.accent)
+
+                    Spacer()
+
+                    Button { audioEngine.stop() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .frame(width: 36, height: 36)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 24)
+
+                Spacer()
+
+                // Large Album Art Badge with Equalizer Spectrum
+                ZStack {
+                    Circle()
+                        .fill(XTheme.brandGradient)
+                        .frame(width: 220, height: 220)
+                        .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
+
+                    if audioEngine.isPlaying {
+                        EqualizerWaveformView(barCount: 7)
+                            .frame(width: 100, height: 90)
+                    } else {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 80, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+
+                // Track Title & Info
+                VStack(spacing: 6) {
+                    Text(track.name)
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+
+                    Text(ByteCountFormatter.string(fromByteCount: track.size, countStyle: .file))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 40)
+
+                // Scrub Bar
+                VStack(spacing: 8) {
+                    Slider(
+                        value: Binding(
+                            get: { audioEngine.currentTime },
+                            set: { audioEngine.seek(to: $0) }
+                        ),
+                        in: 0...max(1, audioEngine.duration)
+                    )
+                    .tint(XTheme.accent)
+
+                    HStack {
+                        Text(timeString(audioEngine.currentTime))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.5))
+                        Spacer()
+                        Text(timeString(audioEngine.duration))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                }
+                .frame(maxWidth: 480)
+                .padding(.horizontal, 40)
+
+                // Playback Controls
+                HStack(spacing: 36) {
+                    Button { audioEngine.skipPrevious() } label: {
+                        Image(systemName: "backward.fill")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { audioEngine.togglePlayPause() } label: {
+                        ZStack {
+                            Circle().fill(XTheme.accent)
+                                .frame(width: 68, height: 68)
+                                .shadow(color: XTheme.accent.opacity(0.6), radius: 14, y: 6)
+                            Image(systemName: audioEngine.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+                                .offset(x: audioEngine.isPlaying ? 0 : 2)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { audioEngine.skipNext() } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+            }
+        }
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard !seconds.isNaN && !seconds.isInfinite && seconds >= 0 else { return "0:00" }
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+// MARK: - Equalizer Waveform Animation
+
+struct EqualizerWaveformView: View {
+    let barCount: Int
+    @State private var animate = false
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(0..<barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(.white)
+                    .frame(height: animate ? CGFloat.random(in: 6...30) : 10)
+                    .animation(
+                        .easeInOut(duration: 0.35)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(index) * 0.08),
+                        value: animate
+                    )
+            }
+        }
+        .onAppear { animate = true }
+    }
+}

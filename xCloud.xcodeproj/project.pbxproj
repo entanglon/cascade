@@ -28,6 +28,8 @@
 		F783B6953024000000326355 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6963024000000326355 /* OnboardingView.swift */; };
 		F783B6973024000000326355 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6983024000000326355 /* AboutView.swift */; };
 		F783B69D3023700000326355 /* TheaterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B69E3023700000326355 /* TheaterView.swift */; };
+		F783B6A13024000000326355 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A23024000000326355 /* MiniPlayerView.swift */; };
+		F783B6A33024000000326355 /* MiniTransfersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A43024000000326355 /* MiniTransfersView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +72,8 @@
 		F783B6963024000000326355 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		F783B6983024000000326355 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		F783B69E3023700000326355 /* TheaterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TheaterView.swift; sourceTree = "<group>"; };
+		F783B6A23024000000326355 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
+		F783B6A43024000000326355 /* MiniTransfersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniTransfersView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -200,6 +204,8 @@
 				F783B6943024000000326355 /* SettingsView.swift */,
 				F783B6963024000000326355 /* OnboardingView.swift */,
 				F783B6983024000000326355 /* AboutView.swift */,
+				F783B6A23024000000326355 /* MiniPlayerView.swift */,
+				F783B6A43024000000326355 /* MiniTransfersView.swift */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -365,6 +371,8 @@
 				F783B6933024000000326355 /* SettingsView.swift in Sources */,
 				F783B6953024000000326355 /* OnboardingView.swift in Sources */,
 				F783B6973024000000326355 /* AboutView.swift in Sources */,
+				F783B6A13024000000326355 /* MiniPlayerView.swift in Sources */,
+				F783B6A33024000000326355 /* MiniTransfersView.swift in Sources */,
 				F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */,
 				F783B672302364AF00326355 /* FileBrowserView.swift in Sources */,
 				F783B6683023416F00326355 /* TelegramSetupView.swift in Sources */,
