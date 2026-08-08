@@ -8,7 +8,7 @@ enum VaultRepair {
         category: "repair"
     )
 
-    /// Scans Telegram channel to repair chunk message IDs and promote stuck objects.
+    /// Scans Telegram channel to repair chunk message IDs, promote stuck objects, and purge orphaned channel messages.
     static func run() async -> Bool {
         guard TelegramClient.shared.isAuthorized else { return false }
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return false }
@@ -78,6 +78,35 @@ enum VaultRepair {
             }
         }
 
+        // 3. Purge any orphaned messages in Telegram channel that no longer belong to active chunks
+        let purgedCount = await purgeOrphanedMessages()
+        if purgedCount > 0 {
+            changed = true
+        }
+
         return changed
+    }
+
+    /// Scans Telegram channel and deletes any messages that are not associated with active chunks in SQLite.
+    @discardableResult
+    static func purgeOrphanedMessages() async -> Int {
+        guard TelegramClient.shared.isAuthorized else { return 0 }
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return 0 }
+
+        let allMessages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        guard !allMessages.isEmpty else { return 0 }
+
+        let validChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+        let validIDs = Set(validChunks.compactMap(\.messageID))
+
+        let orphanedIDs = allMessages.map(\.id).filter { !validIDs.contains($0) }
+        guard !orphanedIDs.isEmpty else { return 0 }
+
+        logger.info("Purging \(orphanedIDs.count) orphaned message(s) from Telegram channel...")
+        for i in stride(from: 0, to: orphanedIDs.count, by: 100) {
+            let batch = Array(orphanedIDs[i..<min(i + 100, orphanedIDs.count)])
+            try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: batch)
+        }
+        return orphanedIDs.count
     }
 }

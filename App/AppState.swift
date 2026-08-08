@@ -496,8 +496,11 @@ final class AppState {
     @MainActor
     func emptyTrash() {
         let trashed = files.filter { $0.trashed }
-        for file in trashed {
-            deleteForever(file)
+        Task {
+            for file in trashed {
+                deleteForever(file)
+            }
+            await VaultRepair.purgeOrphanedMessages()
         }
     }
 
@@ -537,6 +540,7 @@ final class AppState {
             selectedFiles.subtract(ids)
             if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
             await loadFiles()
+            await VaultRepair.purgeOrphanedMessages()
         }
     }
 
