@@ -78,39 +78,102 @@ final class TelegramClient {
         logger.info("TDLib client started")
     }
 
+    // MARK: - Tracking
+    private var pendingSendContinuations: [Int64: CheckedContinuation<Int64, any Swift.Error>] = [:]
+    private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
+    private var fileProgressHandlers: [Int: (Double) -> Void] = [:]
+    private let trackingLock = NSLock()
+
     // MARK: - Update handling
 
     private func handleUpdate(data: Data) async {
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let type = json["@type"] as? String,
-           type == "updateAuthorizationState",
-           let authState = json["authorization_state"] as? [String: Any],
-           let stateType = authState["@type"] as? String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["@type"] as? String else { return }
 
-            await MainActor.run {
-                switch stateType {
-                case "authorizationStateWaitPhoneNumber":
-                    self.authStep = .phone
-                    self.isConnected = true
-                    self.isAuthorized = false
-                case "authorizationStateWaitCode":
-                    self.authStep = .code
-                    self.isConnected = true
-                    self.isAuthorized = false
-                case "authorizationStateWaitPassword":
-                    self.authStep = .password
-                    self.isConnected = true
-                    self.isAuthorized = false
-                case "authorizationStateReady":
-                    self.authStep = .ready
-                    self.isConnected = true
-                    self.isAuthorized = true
-                    self.logger.info("Telegram authorized successfully")
-                default:
-                    self.authStep = .unknown
+        switch type {
+        case "updateAuthorizationState":
+            if let authState = json["authorization_state"] as? [String: Any],
+               let stateType = authState["@type"] as? String {
+                await MainActor.run {
+                    switch stateType {
+                    case "authorizationStateWaitPhoneNumber":
+                        self.authStep = .phone
+                        self.isConnected = true
+                        self.isAuthorized = false
+                    case "authorizationStateWaitCode":
+                        self.authStep = .code
+                        self.isConnected = true
+                        self.isAuthorized = false
+                    case "authorizationStateWaitPassword":
+                        self.authStep = .password
+                        self.isConnected = true
+                        self.isAuthorized = false
+                    case "authorizationStateReady":
+                        self.authStep = .ready
+                        self.isConnected = true
+                        self.isAuthorized = true
+                        self.logger.info("Telegram authorized successfully")
+                    default:
+                        self.authStep = .unknown
+                    }
                 }
             }
-            return
+
+        case "updateFile":
+            if let file = json["file"] as? [String: Any],
+               let fileId = file["id"] as? Int {
+                trackingLock.lock()
+                let handler = fileProgressHandlers[fileId]
+                trackingLock.unlock()
+
+                if let handler {
+                    let expectedSize = (file["expected_size"] as? NSNumber)?.doubleValue ?? 0
+                    if expectedSize > 0 {
+                        var current: Double = 0
+                        if let remote = file["remote"] as? [String: Any],
+                           let uploaded = (remote["uploaded_size"] as? NSNumber)?.doubleValue {
+                            current = max(current, uploaded)
+                        }
+                        if let local = file["local"] as? [String: Any],
+                           let downloaded = (local["downloaded_size"] as? NSNumber)?.doubleValue {
+                            current = max(current, downloaded)
+                        }
+                        handler(min(current / expectedSize, 1.0))
+                    }
+                }
+            }
+
+        case "updateMessageSendSucceeded":
+            if let oldId = (json["old_message_id"] as? NSNumber)?.int64Value,
+               let message = json["message"] as? [String: Any],
+               let realId = (message["id"] as? NSNumber)?.int64Value {
+                trackingLock.lock()
+                if let continuation = pendingSendContinuations.removeValue(forKey: oldId) {
+                    trackingLock.unlock()
+                    continuation.resume(returning: realId)
+                } else {
+                    completedSends[oldId] = .success(realId)
+                    trackingLock.unlock()
+                }
+            }
+
+        case "updateMessageSendFailed":
+            if let oldId = (json["old_message_id"] as? NSNumber)?.int64Value {
+                let code = (json["error_code"] as? NSNumber)?.intValue ?? 0
+                let msg = (json["error_message"] as? String) ?? "Upload failed"
+                let err: any Swift.Error = NSError(domain: "Telegram", code: code, userInfo: [NSLocalizedDescriptionKey: msg])
+                trackingLock.lock()
+                if let continuation = pendingSendContinuations.removeValue(forKey: oldId) {
+                    trackingLock.unlock()
+                    continuation.resume(throwing: err)
+                } else {
+                    completedSends[oldId] = .failure(err)
+                    trackingLock.unlock()
+                }
+            }
+
+        default:
+            break
         }
     }
 
@@ -362,7 +425,8 @@ final class TelegramClient {
     func sendFile(
         chatId: Int64,
         path: String,
-        kind: MediaKind
+        kind: MediaKind,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
 
@@ -437,7 +501,46 @@ final class TelegramClient {
                 topicId: nil as MessageTopic?
             )
         }
-        return message.id
+
+        // If message send already finished instantly
+        if message.sendingState == nil {
+            onProgress?(1.0)
+            return message.id
+        }
+
+        let fileId = primaryFile(from: message.content)?.id
+
+        if let fileId, let onProgress {
+            trackingLock.lock()
+            fileProgressHandlers[fileId] = onProgress
+            trackingLock.unlock()
+        }
+
+        // Check if send succeeded before setup
+        trackingLock.lock()
+        if let preResult = completedSends.removeValue(forKey: message.id) {
+            if let fileId { fileProgressHandlers.removeValue(forKey: fileId) }
+            trackingLock.unlock()
+            onProgress?(1.0)
+            return try preResult.get()
+        }
+        trackingLock.unlock()
+
+        // Wait for updateMessageSendSucceeded
+        let finalId = try await withCheckedThrowingContinuation { continuation in
+            trackingLock.lock()
+            pendingSendContinuations[message.id] = continuation
+            trackingLock.unlock()
+        }
+
+        if let fileId {
+            trackingLock.lock()
+            fileProgressHandlers.removeValue(forKey: fileId)
+            trackingLock.unlock()
+        }
+
+        onProgress?(1.0)
+        return finalId
     }
 
     // MARK: - Channel maintenance

@@ -20,6 +20,7 @@ struct FileBrowserView: View {
     @State private var dropTargeted = false
     @State private var columnCount = 4
     @State private var fabHovering = false
+    @Namespace private var viewModeNamespace
     @State private var sortOption: SortOption = .name
 
     enum SortOption { case name, date, size }
@@ -88,9 +89,19 @@ struct FileBrowserView: View {
                 appState.clearSelection()
             }
 
-            // FAB overlay
+            // Transfer pill + FAB overlay
             if appState.selectedDestination != .transfers && appState.selectedDestination != .trash && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
-                fabOverlay
+                VStack(spacing: 12) {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            transferPillOverlay
+                            fabButton
+                        }
+                    }
+                }
+                .padding(24)
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -252,8 +263,9 @@ struct FileBrowserView: View {
             }
             .padding(.horizontal, 12)
             .frame(width: 360, height: 35)
-            .background(Capsule().fill(.white.opacity(0.08)))
-            .overlay(Capsule().strokeBorder(.white.opacity(searchFocused ? 0.35 : 0.08), lineWidth: 1))
+            .contentShape(Capsule())
+            .glassEffect(searchFocused ? .regular.interactive() : .regular, in: .capsule)
+            .onTapGesture { searchFocused = true }
             .background(
                 Button("") { searchFocused = true }
                     .keyboardShortcut("f", modifiers: .command)
@@ -280,35 +292,33 @@ struct FileBrowserView: View {
                     .help("Lock Private Vault")
                 }
 
-                // View Mode Toggle (Grid / List)
-                HStack(spacing: 2) {
-                    Button {
-                        viewModeRaw = "grid"
-                    } label: {
-                        Image(systemName: "square.grid.2x2.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(viewModeRaw == "grid" ? .white : .white.opacity(0.5))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(viewModeRaw == "grid" ? Capsule().fill(XTheme.accent) : Capsule().fill(Color.clear))
+                // View Mode Toggle (Grid / List) with Liquid Glass pill transition
+                HStack(spacing: 0) {
+                    ForEach(["grid", "list"], id: \.self) { mode in
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                viewModeRaw = mode
+                            }
+                        } label: {
+                            Image(systemName: mode == "grid" ? "square.grid.2x2.fill" : "list.bullet")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(viewModeRaw == mode ? .white : .white.opacity(0.5))
+                                .frame(width: 34, height: 28)
+                                .contentShape(Rectangle())
+                                .background {
+                                    if viewModeRaw == mode {
+                                        Capsule()
+                                            .fill(XTheme.accent)
+                                            .glassEffect(.regular.interactive(), in: .capsule)
+                                            .matchedGeometryEffect(id: "viewModePill", in: viewModeNamespace)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        viewModeRaw = "list"
-                    } label: {
-                        Image(systemName: "list.bullet")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(viewModeRaw == "list" ? .white : .white.opacity(0.5))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(viewModeRaw == "list" ? Capsule().fill(XTheme.accent) : Capsule().fill(Color.clear))
-                    }
-                    .buttonStyle(.plain)
                 }
-                .padding(2)
+                .padding(3)
                 .glassEffect(.regular, in: .capsule)
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
 
                 // Sort Menu Button
                 Menu { sortPickerContent } label: {
@@ -343,45 +353,85 @@ struct FileBrowserView: View {
         return appState.selectedDestination.title
     }
 
-    // MARK: - FAB
+    // MARK: - FAB + Transfer Pill
 
-    private var fabOverlay: some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                Menu {
-                    Button { showImporter = true } label: {
-                        Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
-                    }
-                    Divider()
-                    if appState.selectedDestination == .privateVault {
-                        Button {
-                            folderName = ""
-                            showNewPrivateFolder = true
-                        } label: {
-                            Label("New Private Folder", systemImage: "lock.shield.fill")
-                        }
-                    } else {
-                        Button {
-                            folderName = ""
-                            showNewFolder = true
-                        } label: {
-                            Label("New Folder", systemImage: "folder.badge.plus")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .semibold))
+    private var activeTransfers: [TransferCenter.Item] {
+        TransferCenter.shared.items.filter { $0.state == .active }
+    }
+
+    @ViewBuilder
+    private var transferPillOverlay: some View {
+        if let item = activeTransfers.first {
+            Button {
+                appState.selectedDestination = .transfers
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: item.direction == .upload ? "arrow.up" : "arrow.down")
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(XTheme.accent)
-                        .frame(width: 52, height: 52)
-                        .glassEffect(.regular.interactive(), in: .circle)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        ProgressView(value: item.progress)
+                            .progressViewStyle(.linear)
+                            .tint(XTheme.accent)
+                    }
+                    .frame(maxWidth: 140)
+
+                    Text("\(Int(item.progress * 100))%")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    if activeTransfers.count > 1 {
+                        Text("+\(activeTransfers.count - 1)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
                 }
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .glassEffect(.regular.interactive(), in: .capsule)
             }
+            .buttonStyle(.plain)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: activeTransfers.count)
         }
-        .padding(24)
+    }
+
+    private var fabButton: some View {
+        Menu {
+            Button { showImporter = true } label: {
+                Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
+            }
+            Divider()
+            if appState.selectedDestination == .privateVault {
+                Button {
+                    folderName = ""
+                    showNewPrivateFolder = true
+                } label: {
+                    Label("New Private Folder", systemImage: "lock.shield.fill")
+                }
+            } else {
+                Button {
+                    folderName = ""
+                    showNewFolder = true
+                } label: {
+                    Label("New Folder", systemImage: "folder.badge.plus")
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(Circle().fill(XTheme.accent.opacity(0.35)))
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Grid
@@ -411,7 +461,7 @@ struct FileBrowserView: View {
                                 spacing: 10
                             ) {
                                 ForEach(currentFolders) { folder in
-                                    FileGridItem(file: folder, isSelected: appState.selectedFiles.contains(folder.id))
+                                    FileGridItem(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
                                         .onTapGesture(count: 2) { open(folder) }
                                         .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
                                         .contextMenu { menu(for: folder) }
@@ -435,7 +485,7 @@ struct FileBrowserView: View {
                                 spacing: 12
                             ) {
                                 ForEach(currentFiles) { file in
-                                    FileGridItem(file: file, isSelected: appState.selectedFiles.contains(file.id))
+                                    FileGridItem(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
                                         .onTapGesture(count: 2) { open(file) }
                                         .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
                                         .contextMenu { menu(for: file) }
@@ -475,7 +525,7 @@ struct FileBrowserView: View {
 
                         LazyVStack(spacing: 4) {
                             ForEach(currentFolders) { folder in
-                                FileListRow(file: folder, isSelected: appState.selectedFiles.contains(folder.id))
+                                FileListRow(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
                                     .onTapGesture(count: 2) { open(folder) }
                                     .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
                                     .contextMenu { menu(for: folder) }
@@ -495,7 +545,7 @@ struct FileBrowserView: View {
 
                         LazyVStack(spacing: 4) {
                             ForEach(currentFiles) { file in
-                                FileListRow(file: file, isSelected: appState.selectedFiles.contains(file.id))
+                                FileListRow(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
                                     .onTapGesture(count: 2) { open(file) }
                                     .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
                                     .contextMenu { menu(for: file) }
@@ -567,46 +617,9 @@ struct FileBrowserView: View {
         return handled
     }
 
-    // MARK: - Context menu
-
     @ViewBuilder
     private func menu(for file: ObjectRecord) -> some View {
-        if !file.isFolder {
-            Button("Quick Look") { appState.theaterFile = file }
-            Button("Open") { appState.openFile(file) }
-        } else {
-            Button("Open") { appState.openFolder(file) }
-        }
-        Button("Rename…") {
-            renameText = file.name
-            renameTarget = file
-        }
-        if !file.isFolder {
-            Button(file.isFavorite ? "Remove Favorite" : "Add Favorite") {
-                appState.toggleFavorite(file)
-            }
-            Menu("Move to Folder") {
-                Button("Root") { appState.moveObject(id: file.id, to: nil) }
-                ForEach(appState.files.filter {
-                    $0.isFolder && !$0.trashed && $0.id != file.id
-                }) { folder in
-                    Button(folder.name) {
-                        appState.moveObject(id: file.id, to: folder.id)
-                    }
-                }
-            }
-        }
-        Divider()
-        if file.trashed {
-            Button("Restore") { appState.setTrashed(file, false) }
-            Button("Delete Forever", role: .destructive) {
-                appState.deleteForever(file)
-            }
-        } else {
-            Button("Move to Trash", role: .destructive) {
-                appState.setTrashed(file, true)
-            }
-        }
+        FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
     }
 
     // MARK: - Drop overlay
@@ -688,7 +701,7 @@ struct FileBrowserView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -717,12 +730,120 @@ struct FileBrowserView: View {
     }
 }
 
-    // MARK: - Grid Item (Google Drive-style clean card)
+// MARK: - Context Menu View Component
+
+struct FileItemContextMenu: View {
+    @Environment(AppState.self) private var appState
+    let file: ObjectRecord
+    @Binding var renameTarget: ObjectRecord?
+    @Binding var renameText: String
+
+    var body: some View {
+        if !file.isFolder {
+            Button {
+                appState.theaterFile = file
+            } label: {
+                Label("Quick Look", systemImage: "eye")
+            }
+            Button {
+                appState.openFile(file)
+            } label: {
+                Label("Open", systemImage: "arrow.up.forward.app")
+            }
+            Button {
+                saveFileToMac(file)
+            } label: {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
+            Divider()
+        } else {
+            Button {
+                appState.openFolder(file)
+            } label: {
+                Label("Open", systemImage: "folder")
+            }
+        }
+        Button {
+            renameText = file.name
+            renameTarget = file
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        if !file.isFolder {
+            Button {
+                appState.toggleFavorite(file)
+            } label: {
+                Label(file.isFavorite ? "Remove Favorite" : "Add Favorite", systemImage: file.isFavorite ? "star.slash" : "star")
+            }
+            Menu {
+                Button("Root") { appState.moveObject(id: file.id, to: nil) }
+                ForEach(appState.files.filter {
+                    $0.isFolder && !$0.trashed && $0.id != file.id
+                }) { folder in
+                    Button(folder.name) {
+                        appState.moveObject(id: file.id, to: folder.id)
+                    }
+                }
+            } label: {
+                Label("Move to Folder", systemImage: "folder.badge.gearshape")
+            }
+        }
+        Divider()
+        if file.trashed {
+            Button {
+                appState.setTrashed(file, false)
+            } label: {
+                Label("Restore", systemImage: "arrow.uturn.backward")
+            }
+            Button(role: .destructive) {
+                appState.deleteForever(file)
+            } label: {
+                Label("Delete Forever", systemImage: "trash.slash")
+            }
+        } else {
+            Button(role: .destructive) {
+                appState.setTrashed(file, true)
+            } label: {
+                Label("Move to Trash", systemImage: "trash")
+            }
+        }
+    }
+
+    private func saveFileToMac(_ file: ObjectRecord) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = file.name
+        panel.canCreateDirectories = true
+        panel.prompt = "Save"
+
+        panel.begin { response in
+            guard response == .OK, let destinationURL = panel.url else { return }
+            Task {
+                do {
+                    let downloadedURL = try await DownloadEngine.download(object: file) { status, progress in }
+                    let destPath = destinationURL.path(percentEncoded: false)
+                    if FileManager.default.fileExists(atPath: destPath) {
+                        try FileManager.default.removeItem(at: destinationURL)
+                    }
+                    try FileManager.default.copyItem(at: downloadedURL, to: destinationURL)
+                    NSWorkspace.shared.activateFileViewerSelecting([destinationURL])
+                } catch {
+                    Task { @MainActor in
+                        appState.alertMessage = "Download failed: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Grid Item (Google Drive-style clean card)
 
 struct FileGridItem: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
     let isSelected: Bool
+    @Binding var renameTarget: ObjectRecord?
+    @Binding var renameText: String
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var thumbURL: URL? = nil
@@ -782,6 +903,23 @@ struct FileGridItem: View {
             }
 
             Spacer(minLength: 0)
+
+            Menu {
+                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.black.opacity(0.40))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -851,14 +989,33 @@ struct FileGridItem: View {
                 .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.06), lineWidth: isSelected ? 1.5 : 1)
         )
         .overlay(alignment: .topTrailing) {
-            if file.isPrivate {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(Circle().fill(XTheme.categoryRed))
-                    .padding(6)
+            HStack(spacing: 4) {
+                if file.isPrivate {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(Circle().fill(XTheme.categoryRed))
+                }
+
+                Menu {
+                    FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.black.opacity(0.55))
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 24, height: 24)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .contentShape(Circle())
+                }
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
             }
+            .padding(6)
         }
     }
 
@@ -893,6 +1050,8 @@ struct FileListRow: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
     let isSelected: Bool
+    @Binding var renameTarget: ObjectRecord?
+    @Binding var renameText: String
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var thumbURL: URL? = nil
@@ -929,6 +1088,23 @@ struct FileListRow: View {
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textTertiary)
                 .frame(width: 100, alignment: .trailing)
+
+            Menu {
+                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.10))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

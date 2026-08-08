@@ -5,30 +5,50 @@ struct TransfersView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 16) {
+                // Clear finished button
+                if center.items.contains(where: { $0.state != .active }) {
+                    HStack {
+                        Spacer()
+                        Button {
+                            center.clearFinished()
+                        } label: {
+                            Label("Clear Finished", systemImage: "xmark.circle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .glassEffect(.regular.interactive(), in: .capsule)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 if center.items.isEmpty {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 14) {
                         Image(systemName: "arrow.up.arrow.down.circle")
                             .font(.system(size: 46, weight: .light))
-                            .foregroundStyle(.white.opacity(0.6))
-                        Text("No transfers yet")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.7))
+                            .foregroundStyle(XTheme.textTertiary)
+                        Text("No Transfers Yet")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(XTheme.textPrimary)
+                        Text("Upload or download files to see them here.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(XTheme.textSecondary)
                     }
+                    .frame(maxWidth: .infinity)
                     .padding(.top, 80)
-                }
-                ForEach(center.items) { item in
-                    TransferRow(item: item)
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(center.items) { item in
+                            TransferRow(item: item)
+                        }
+                    }
                 }
             }
-            .padding(20)
-        }
-        .toolbar {
-            ToolbarItem {
-                Button("Clear Finished") { center.clearFinished() }
-                    .buttonStyle(.xGlass)
-                    .disabled(!center.items.contains { $0.state != .active })
-            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 80)
         }
     }
 }

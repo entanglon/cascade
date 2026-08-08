@@ -230,7 +230,11 @@ enum UploadEngine {
                 let messageId = try await TelegramClient.shared.sendFile(
                     chatId: vault.channelID,
                     path: tmpURL.path(percentEncoded: false),
-                    kind: kind
+                    kind: kind,
+                    onProgress: { p in
+                        let overallProgress = (Double(item.index) + p) / total
+                        report("Uploading chunk \(n)/\(plan.items.count)", min(overallProgress, 0.99))
+                    }
                 )
 
                 let chunk = ChunkRecord(

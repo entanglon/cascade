@@ -35,13 +35,6 @@ struct RootView: View {
             }
         }
         .ignoresSafeArea(.all, edges: .top)
-        .overlay(alignment: .bottom) {
-            ActiveTransferHUD()
-                .animation(
-                    .spring(response: 0.35, dampingFraction: 0.8),
-                    value: TransferCenter.shared.items.filter { $0.state == .active }.count
-                )
-        }
         .overlay {
             if let file = appState.theaterFile {
                 TheaterView(file: file)

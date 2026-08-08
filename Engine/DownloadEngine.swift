@@ -2,9 +2,20 @@ import Foundation
 import CryptoKit
 import os
 
-enum DownloadError: Error, Sendable {
+enum DownloadError: Error, Sendable, LocalizedError {
     case fileNotFound
     case hashMismatch
+    case noChunks
+    case vaultMissing
+
+    var errorDescription: String? {
+        switch self {
+        case .fileNotFound: return "File not found on Telegram."
+        case .hashMismatch: return "File integrity check failed."
+        case .noChunks: return "No chunks recorded for this file."
+        case .vaultMissing: return "No vault channel configured."
+        }
+    }
 }
 
 enum DownloadEngine {
@@ -59,11 +70,14 @@ enum DownloadEngine {
                 objectKey = try CryptoEngine.unwrap(wrapped, with: master)
             }
 
-            guard let vault = try await DatabaseManager.shared.firstVault() else {
-                throw DownloadError.fileNotFound
+            guard let vault = try DatabaseManager.shared.firstVault() else {
+                throw DownloadError.vaultMissing
             }
-            let chunks = try await DatabaseManager.shared.chunks(for: object.id)
-            guard !chunks.isEmpty else { throw DownloadError.fileNotFound }
+            let chunks = try DatabaseManager.shared.chunks(for: object.id)
+            guard !chunks.isEmpty else { throw DownloadError.noChunks }
+
+            // Pre-fetch messages so TDLib has them in its local cache
+            await TelegramClient.shared.fetchRecentMessages(chatId: vault.channelID, limit: 200)
 
             let fm = FileManager.default
             let destPath = dest.path(percentEncoded: false)
