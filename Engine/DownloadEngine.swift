@@ -103,7 +103,7 @@ enum DownloadEngine {
 
                 report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)
                 let data = try Data(contentsOf: tmp)
-                if objectKey == nil, let expected = chunk.plainHash,
+                if objectKey != nil, let expected = chunk.plainHash,
                    FileHasher.sha256(of: data) != expected {
                     throw DownloadError.hashMismatch
                 }
@@ -129,7 +129,7 @@ enum DownloadEngine {
             }
 
             try handle.close()
-            if let root = object.rootHash,
+            if objectKey != nil, let root = object.rootHash,
                try FileHasher.sha256(of: dest) != root {
                 throw DownloadError.hashMismatch
             }
@@ -137,6 +137,7 @@ enum DownloadEngine {
             report("Complete", 1.0)
             Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
             logger.info("Download complete: \(object.name)")
+            await ThumbnailService.shared.generateAndSaveThumbnail(for: object, from: dest)
             cleanCacheIfOverLimit()
             return dest
         } catch {

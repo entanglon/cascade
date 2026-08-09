@@ -21,6 +21,7 @@ struct NativeAVPlayerView: NSViewRepresentable {
 struct VideoPlaybackView: View {
     let object: ObjectRecord
     @State private var player: AVPlayer?
+    @State private var progress: Double = 0
     @State private var error: String?
 
     var body: some View {
@@ -36,9 +37,10 @@ struct VideoPlaybackView: View {
                 }
             } else {
                 VStack(spacing: 14) {
-                    ProgressView()
+                    ProgressView(value: progress)
+                        .progressViewStyle(.circular)
                         .controlSize(.large)
-                    Text("Streaming from Telegram…")
+                    Text("Fetching video from Telegram… \(Int(progress * 100))%")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.5))
                 }
@@ -52,11 +54,31 @@ struct VideoPlaybackView: View {
     }
 
     private func prepare() async {
-        let item = await VideoStreamingEngine.shared.playerItem(for: object)
-        await MainActor.run {
-            let p = AVPlayer(playerItem: item)
-            self.player = p
-            p.play()
+        if DownloadEngine.isCached(object) {
+            let url = DownloadEngine.cacheURL(for: object)
+            await MainActor.run {
+                let p = AVPlayer(url: url)
+                self.player = p
+                p.play()
+            }
+            return
+        }
+
+        do {
+            let url = try await DownloadEngine.download(object: object) { _, p in
+                Task { @MainActor in
+                    self.progress = p
+                }
+            }
+            await MainActor.run {
+                let p = AVPlayer(url: url)
+                self.player = p
+                p.play()
+            }
+        } catch {
+            await MainActor.run {
+                self.error = error.localizedDescription
+            }
         }
     }
 }

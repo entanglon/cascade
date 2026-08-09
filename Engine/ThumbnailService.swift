@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import AVFoundation
 
 actor ThumbnailService {
     static let shared = ThumbnailService()
@@ -49,6 +50,18 @@ actor ThumbnailService {
             if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
                 try? jpg.write(to: dest)
                 cache[object.id] = dest
+            }
+        } else if object.mime.hasPrefix("video/") {
+            let asset = AVAsset(url: fileURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            if let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) {
+                let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
+                if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
+                    try? jpg.write(to: dest)
+                    cache[object.id] = dest
+                }
             }
         }
     }

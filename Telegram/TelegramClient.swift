@@ -283,10 +283,17 @@ final class TelegramClient {
 
     func downloadFileData(fileId: Int) async throws -> Data? {
         guard let client else { throw TelegramError.notInitialized }
-        let updated = try await client.downloadFile(
+        var file = try await client.downloadFile(
             fileId: fileId, limit: 0, offset: 0, priority: 32, synchronous: true
         )
-        let path = updated.local.path
+        let startTime = Date()
+        while !file.local.isDownloadingCompleted && Date().timeIntervalSince(startTime) < 5.0 {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            if let updated = try? await client.getFile(fileId: fileId) {
+                file = updated
+            }
+        }
+        let path = file.local.path
         guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return nil }
         return try? Data(contentsOf: URL(fileURLWithPath: path))
     }
