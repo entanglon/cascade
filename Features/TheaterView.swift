@@ -68,10 +68,21 @@ struct TheaterView: View {
                 navigationOverlay
             }
 
-            // Key monitor for ESC key handling
-            KeyMonitorView {
-                handleEscapeKey()
-            }
+            // Global window key monitor for ESC, Left/Right Arrows, and Spacebar
+            KeyMonitorView(
+                onEscape: { handleEscapeKey() },
+                onLeftArrow: { navigateMedia(delta: -1) },
+                onRightArrow: { navigateMedia(delta: 1) },
+                onSpacebar: {
+                    if previewKind == .image {
+                        toggleControls()
+                    } else if previewKind == .video {
+                        NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
+                    } else if previewKind == .audio {
+                        AudioPlayerEngine.shared.togglePlayPause()
+                    }
+                }
+            )
             .frame(width: 0, height: 0)
         }
         .focusable()
@@ -724,30 +735,55 @@ struct TheaterAudioPlayerView: View {
 
 struct KeyMonitorView: NSViewRepresentable {
     let onEscape: () -> Void
+    var onLeftArrow: (() -> Void)? = nil
+    var onRightArrow: (() -> Void)? = nil
+    var onSpacebar: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> KeyView {
         let v = KeyView()
         v.onEscape = onEscape
+        v.onLeftArrow = onLeftArrow
+        v.onRightArrow = onRightArrow
+        v.onSpacebar = onSpacebar
         return v
     }
 
     func updateNSView(_ nsView: KeyView, context: Context) {
         nsView.onEscape = onEscape
+        nsView.onLeftArrow = onLeftArrow
+        nsView.onRightArrow = onRightArrow
+        nsView.onSpacebar = onSpacebar
     }
 
     class KeyView: NSView {
         var onEscape: (() -> Void)?
+        var onLeftArrow: (() -> Void)?
+        var onRightArrow: (() -> Void)?
+        var onSpacebar: (() -> Void)?
         private var monitor: Any?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window != nil && monitor == nil {
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                    if event.keyCode == 53 { // 53 = ESC key
-                        DispatchQueue.main.async {
-                            self?.onEscape?()
+                    if event.keyCode == 53 { // ESC key
+                        DispatchQueue.main.async { self?.onEscape?() }
+                        return nil
+                    } else if event.keyCode == 123 { // Left Arrow
+                        if let onLeft = self?.onLeftArrow {
+                            DispatchQueue.main.async { onLeft() }
+                            return nil
                         }
-                        return nil // Swallows event so macOS window full-screen is NEVER toggled!
+                    } else if event.keyCode == 124 { // Right Arrow
+                        if let onRight = self?.onRightArrow {
+                            DispatchQueue.main.async { onRight() }
+                            return nil
+                        }
+                    } else if event.keyCode == 49 { // Spacebar
+                        if let onSpace = self?.onSpacebar {
+                            DispatchQueue.main.async { onSpace() }
+                            return nil
+                        }
                     }
                     return event
                 }
