@@ -72,6 +72,7 @@ final class AppState {
     var downloadProgress: Double = 0
     var alertMessage: String? = nil
     var theaterFile: ObjectRecord? = nil
+    var isTheaterFullScreen: Bool = false
     var identity: TelegramClient.AccountIdentity? = nil
     var profilePhotoData: Data? = nil
 

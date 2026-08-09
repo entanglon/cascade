@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct MiniPlayerView: View {
+    @Environment(AppState.self) private var appState
     @Bindable var audioEngine = AudioPlayerEngine.shared
 
     var body: some View {
@@ -107,8 +108,8 @@ struct MiniPlayerView: View {
 
             // Expand to Full Screen
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    audioEngine.isFullScreen = true
+                withAnimation(.easeOut(duration: 0.2)) {
+                    appState.theaterFile = track
                 }
             } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
@@ -118,7 +119,7 @@ struct MiniPlayerView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Full Screen Player")
+            .help("Expand Player")
 
             // Close Button
             Button {
@@ -277,6 +278,26 @@ struct MiniPlayerView: View {
 
                 Spacer()
             }
+
+            KeyMonitorView {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    audioEngine.isFullScreen = false
+                }
+            }
+            .frame(width: 0, height: 0)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onKeyPress(.space) {
+            audioEngine.togglePlayPause()
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            audioEngine.skipPrevious()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            audioEngine.skipNext()
+            return .handled
         }
     }
 

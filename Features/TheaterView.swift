@@ -122,22 +122,43 @@ struct TheaterView: View {
     // MARK: - Top Controls
 
     private var topControls: some View {
-        HStack(spacing: 14) {
-            // Close button
+        HStack(spacing: 12) {
+            // Minimize button (Background play in Mini Player)
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
+                    if previewKind == .audio {
+                        if AudioPlayerEngine.shared.currentTrack?.id != file.id {
+                            AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
+                        }
+                    }
                     appState.theaterFile = nil
                 }
             } label: {
-                Image(systemName: "xmark")
+                Image(systemName: "chevron.down")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.white.opacity(0.85))
                     .frame(width: 32, height: 32)
                     .contentShape(Circle())
                     .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
-            .help("Close Preview")
+            .help("Minimize to Background")
+
+            // Full Screen toggle button
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    appState.isTheaterFullScreen.toggle()
+                }
+            } label: {
+                Image(systemName: appState.isTheaterFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen (Hide Sidebar)")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
@@ -148,8 +169,28 @@ struct TheaterView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.5))
             }
+            .padding(.leading, 4)
 
             Spacer()
+
+            // Close button (Stops playback completely)
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if previewKind == .audio {
+                        AudioPlayerEngine.shared.stop()
+                    }
+                    appState.theaterFile = nil
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help("Close Player")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)

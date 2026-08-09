@@ -7,43 +7,50 @@ struct RootView: View {
         ZStack {
             AppBackground()
 
-            HStack(spacing: 12) {
-                SidebarView(
-                    selection: Binding(
-                        get: { appState.selectedDestination },
-                        set: {
-                            appState.selectedDestination = $0
-                            appState.currentFolderID = nil
-                        }
+            if appState.isTheaterFullScreen, let file = appState.theaterFile {
+                TheaterView(file: file)
+                    .transition(.opacity)
+                    .zIndex(20)
+            } else {
+                HStack(spacing: 12) {
+                    SidebarView(
+                        selection: Binding(
+                            get: { appState.selectedDestination },
+                            set: {
+                                appState.selectedDestination = $0
+                                appState.currentFolderID = nil
+                            }
+                        )
                     )
-                )
-                .frame(width: 236)
-                .padding(.leading, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
+                    .frame(width: 236)
+                    .padding(.leading, 10)
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
 
-                ZStack {
-                    FileBrowserView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ZStack {
+                        FileBrowserView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if let file = appState.theaterFile {
-                        TheaterView(file: file)
-                            .transition(.opacity)
-                            .zIndex(10)
+                        if let file = appState.theaterFile {
+                            TheaterView(file: file)
+                                .transition(.opacity)
+                                .zIndex(10)
+                        }
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
+                    .padding(.trailing, 10)
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
-                .padding(.trailing, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
             }
         }
         .ignoresSafeArea(.all, edges: .top)
         .animation(.easeOut(duration: 0.18), value: appState.theaterFile?.id)
+        .animation(.easeOut(duration: 0.18), value: appState.isTheaterFullScreen)
         .sheet(isPresented: Binding(
             get: { appState.showOnboarding },
             set: { appState.showOnboarding = $0 }
