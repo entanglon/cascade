@@ -86,11 +86,15 @@ struct SidebarRow: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let dest = item
         guard dest == .trash || dest == .favorites else { return false }
-        for provider in providers {
-            _ = provider.loadObject(ofClass: String.self) { (objectID: String?, _: Error?) in
-                guard let id = objectID else { return }
+        var handled = false
+        for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
+            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                guard let str = object as? String else { return }
+                let ids = str.split(separator: "\n").map(String.init)
+                guard !ids.isEmpty else { return }
                 Task { @MainActor in
-                    if let file = appState.files.first(where: { $0.id == id }) {
+                    for id in ids {
+                        guard let file = appState.files.first(where: { $0.id == id }) else { continue }
                         if dest == .trash {
                             appState.setTrashed(file, true)
                         } else if dest == .favorites && !file.isFavorite {
@@ -99,8 +103,9 @@ struct SidebarRow: View {
                     }
                 }
             }
+            handled = true
         }
-        return true
+        return handled
     }
 
     private var badgeColor: Color {

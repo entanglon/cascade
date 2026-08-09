@@ -49,6 +49,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     var isFolder: Bool = false
     var isPrivate: Bool = false
     var sourcePath: String? = nil
+    var chunkSize: Int64? = nil
 }
 
 extension ObjectRecord {

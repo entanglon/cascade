@@ -79,14 +79,17 @@ final class TelegramClient {
     }
 
     // MARK: - Tracking
-    private var pendingSendContinuations: [Int64: CheckedContinuation<Int64, any Swift.Error>] = [:]
-    private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
-    private var fileDownloadProgressHandlers: [Int: (Double) -> Void] = [:]
-    private var fileUploadProgressHandlers: [Int: (Double) -> Void] = [:]
-    private var fileDownloadContinuations: [Int: CheckedContinuation<String, any Swift.Error>] = [:]
-    private var fileUploadContinuations: [Int: CheckedContinuation<Int, any Swift.Error>] = [:]
-    private let trackingLock = NSLock()
-    private func syncLock<T>(_ work: () -> T) -> T {
+    // These are accessed from TDLib's receive thread (via update handlers) and from
+    // task-cancellation handlers, so they are explicitly nonisolated and guarded by
+    // the lock rather than the MainActor isolation.
+    @ObservationIgnored nonisolated(unsafe) private var pendingSendContinuations: [Int64: CheckedContinuation<Int64, any Swift.Error>] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var fileDownloadProgressHandlers: [Int: (Double) -> Void] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var fileUploadProgressHandlers: [Int: (Double) -> Void] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var fileDownloadContinuations: [Int: CheckedContinuation<String, any Swift.Error>] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var fileUploadContinuations: [Int: CheckedContinuation<Int, any Swift.Error>] = [:]
+    nonisolated private let trackingLock = NSLock()
+    nonisolated private func syncLock<T>(_ work: () -> T) -> T {
         trackingLock.lock()
         defer { trackingLock.unlock() }
         return work()
@@ -151,7 +154,7 @@ final class TelegramClient {
                         handler(isCompleted ? 1.0 : (totalSize > 0 ? min(max(0, uploaded / totalSize), 1.0) : 0))
                     }
 
-                    if isCompleted {
+                    if isCompleted || (totalSize > 0 && uploaded >= totalSize) {
                         let continuation = syncLock { fileUploadContinuations.removeValue(forKey: fileId) }
                         continuation?.resume(returning: fileId)
                     }
@@ -436,8 +439,16 @@ final class TelegramClient {
             localPath = path
             onProgress?(1.0)
         } else {
-            localPath = try await withCheckedThrowingContinuation { continuation in
-                syncLock { fileDownloadContinuations[file.id] = continuation }
+            localPath = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    syncLock { fileDownloadContinuations[file.id] = continuation }
+                }
+            } onCancel: {
+                let continuation = syncLock {
+                    fileDownloadContinuations.removeValue(forKey: file.id)
+                }
+                syncLock { fileDownloadProgressHandlers.removeValue(forKey: file.id) }
+                continuation?.resume(throwing: CancellationError())
             }
             onProgress?(1.0)
         }
@@ -535,8 +546,18 @@ final class TelegramClient {
             syncLock { fileUploadProgressHandlers[file.id] = onProgress }
         }
 
-        let completedFileId = try await withCheckedThrowingContinuation { continuation in
-            syncLock { fileUploadContinuations[file.id] = continuation }
+        let completedFileId = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                syncLock { fileUploadContinuations[file.id] = continuation }
+            }
+        } onCancel: {
+            // Abort immediately: drop the continuation (and progress handler) so a
+            // cancelled upload never posts a message for the abandoned chunk.
+            let continuation = syncLock {
+                fileUploadContinuations.removeValue(forKey: file.id)
+            }
+            syncLock { fileUploadProgressHandlers.removeValue(forKey: file.id) }
+            continuation?.resume(throwing: CancellationError())
         }
 
         if onProgress != nil {
@@ -642,8 +663,24 @@ final class TelegramClient {
             return try preResult.get()
         }
 
-        let finalId = try await withCheckedThrowingContinuation { continuation in
-            syncLock { pendingSendContinuations[message.id] = continuation }
+        // Bound the stale-result cache left behind by cancelled sends.
+        syncLock {
+            if completedSends.count > 64 {
+                completedSends = Dictionary(completedSends.suffix(32), uniquingKeysWith: { first, _ in first })
+            }
+        }
+
+        let finalId = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                syncLock { pendingSendContinuations[message.id] = continuation }
+            }
+        } onCancel: {
+            // Abort immediately: if the message hasn't been confirmed yet, drop the
+            // continuation so the cancelled send throws instead of waiting.
+            let continuation = syncLock {
+                pendingSendContinuations.removeValue(forKey: message.id)
+            }
+            continuation?.resume(throwing: CancellationError())
         }
         return finalId
     }

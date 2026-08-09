@@ -59,6 +59,11 @@ final class AppState {
     var isCryptoReady = false
     var databaseError: String?
 
+    /// True from app launch until the initial catalog load + Telegram reconciliation
+    /// finishes. The file browser shows a loading state instead of the misleading
+    /// "Nothing Here Yet" empty state while this is set.
+    var isInitialLoading = true
+
     var showSetup = false
     var showLogin = false
     var showOnboarding = !UserDefaults.standard.bool(forKey: "xc.hasOnboarded")
@@ -118,19 +123,31 @@ final class AppState {
         }
     }
 
+    /// True when the app is running as a unit-test host. In that case TDLib must not
+    /// start: XCTest exits the process with exit(), which tears down TDLib's C++ core
+    /// while its background receive thread is still polling, crashing with a segfault
+    /// (the app normally avoids this via TerminationHandler's _exit).
+    private var isRunningUnderXCTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     @MainActor
     func bootstrap() async {
+        isInitialLoading = true
+        defer { isInitialLoading = false }
         do {
             try await DatabaseManager.shared.start()
             try await DatabaseManager.shared.selfTest()
             isDatabaseReady = true
-            await loadFiles()
+            await self.loadFiles()
 
             try await ChunkEngine.selfTest()
             isEngineReady = true
 
             try await CryptoEngine.selfTest()
             isCryptoReady = true
+
+            guard !isRunningUnderXCTest else { return }
 
             if let creds = try KeychainStore.loadTelegramCredentials() {
                 await startTelegram(apiID: creds.apiID, apiHash: creds.apiHash)
@@ -142,12 +159,15 @@ final class AppState {
             }
             if TelegramClient.shared.isAuthorized {
                 let changed = await VaultRepair.run()
-                if changed { await loadFiles() }
+                if changed { await self.loadFiles() }
                 identity = try? await TelegramClient.shared.fetchIdentity()
                 if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
                     profilePhotoData = photo
                 }
+                await cleanupExpiredTransfers()
+                await restoreTransferCards()
                 await resumeInterruptedUploads()
+                startTransferCleanupLoop()
             }
         } catch {
             databaseError = error.localizedDescription
@@ -171,10 +191,10 @@ final class AppState {
                     progress: { _, _ in },
                     resumeObject: object
                 )
-                await loadFiles()
+                await self.loadFiles()
             }
         }
-        await loadFiles()
+        await self.loadFiles()
     }
 
     @MainActor
@@ -184,7 +204,7 @@ final class AppState {
         profilePhotoData = nil
         selectedFiles.removeAll()
         theaterFile = nil
-        await loadFiles()
+        await self.loadFiles()
     }
 
     @MainActor
@@ -208,19 +228,123 @@ final class AppState {
 
         Task {
             do {
-                try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
-                    Task { @MainActor in
-                        self?.uploadStatus = status
-                        self?.uploadProgress = p
+                let path = url.path(percentEncoded: false)
+                let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+                var didUpload = true
+
+                // Uploading the same file again resumes its interrupted upload from the last chunk
+                if let existing = all.first(where: {
+                    $0.sourcePath == path && !$0.isFolder && !$0.trashed &&
+                    ($0.state == "paused" || $0.state == "failed")
+                }) {
+                    if FileManager.default.fileExists(atPath: path) {
+                        try await UploadEngine.upload(
+                            fileURL: url,
+                            parentID: existing.parentID,
+                            isPrivate: existing.isPrivate,
+                            progress: { [weak self] status, p in
+                                Task { @MainActor in
+                                    self?.uploadStatus = status
+                                    self?.uploadProgress = p
+                                }
+                            },
+                            resumeObject: existing
+                        )
+                    } else {
+                        // Source file is gone: discard the stale partial, then upload fresh
+                        await UploadEngine.cleanupPartialUpload(objectID: existing.id)
+                        TransferCenter.shared.removeItems(forObjectID: existing.id)
+                        try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
+                            Task { @MainActor in
+                                self?.uploadStatus = status
+                                self?.uploadProgress = p
+                            }
+                        }
+                    }
+                } else if all.contains(where: {
+                    $0.sourcePath == path && !$0.trashed && $0.state == "uploading"
+                }) {
+                    uploadStatus = "Already uploading this file"
+                    didUpload = false
+                } else {
+                    try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
+                        Task { @MainActor in
+                            self?.uploadStatus = status
+                            self?.uploadProgress = p
+                        }
                     }
                 }
-                uploadStatus = "Upload complete ✅"
-                await loadFiles()
+                if didUpload {
+                    uploadStatus = "Upload complete ✅"
+                    await self.loadFiles()
+                }
             } catch {
-                uploadStatus = "Upload failed: \(error.localizedDescription)"
-                await loadFiles()
+                if let uploadError = error as? UploadError, case .cancelled = uploadError {
+                    uploadStatus = "Upload paused — resume anytime from Transfers"
+                } else {
+                    uploadStatus = "Upload failed: \(error.localizedDescription)"
+                }
+                await self.loadFiles()
             }
             isUploading = false
+        }
+    }
+
+    // MARK: - Resumable transfers
+
+    /// Retention window for paused/interrupted uploads before their chunk messages are cleaned from Telegram.
+    static let transferRetention: TimeInterval = 24 * 60 * 60
+
+    /// Re-creates in-memory transfer cards for paused/interrupted uploads that survived an app restart.
+    @MainActor
+    func restoreTransferCards() async {
+        let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+        for object in all where (object.state == "paused" || object.state == "failed") && !object.isFolder {
+            guard let path = object.sourcePath, FileManager.default.fileExists(atPath: path) else { continue }
+            let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
+            let total = max(1, ChunkPlanner.plan(fileSize: object.size).items.count)
+            let done = chunks.filter { ($0.messageID ?? 0) > 0 }.count
+            let stateText = object.state == "paused" ? "Paused" : "Interrupted"
+            TransferCenter.shared.begin(
+                .upload,
+                objectID: object.id,
+                name: object.name,
+                initialProgress: Double(done) / Double(total),
+                statusText: "\(stateText) — \(done)/\(total) chunks uploaded",
+                state: .paused,
+                reuseExisting: true
+            )
+        }
+    }
+
+    /// Removes abandoned partial uploads (older than the retention window) from Telegram and the local DB.
+    @MainActor
+    func cleanupExpiredTransfers() async {
+        let cutoff = Date().addingTimeInterval(-Self.transferRetention)
+        let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+        for object in all where (object.state == "paused" || object.state == "failed") && !object.isFolder && object.modifiedAt < cutoff {
+            await UploadEngine.cleanupPartialUpload(objectID: object.id)
+            TransferCenter.shared.removeItems(forObjectID: object.id)
+        }
+        // Drop dangling upload cards whose object record is gone (e.g. purged by repair)
+        var danglingIDs: [String] = []
+        for item in TransferCenter.shared.items where item.direction == .upload {
+            if (try? await DatabaseManager.shared.object(item.objectID)) == nil {
+                danglingIDs.append(item.objectID)
+            }
+        }
+        for objectID in danglingIDs {
+            TransferCenter.shared.removeItems(forObjectID: objectID)
+        }
+    }
+
+    @MainActor
+    func startTransferCleanupLoop() {
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 6 * 60 * 60 * 1_000_000_000)
+                await cleanupExpiredTransfers()
+            }
         }
     }
 
@@ -256,6 +380,13 @@ final class AppState {
             }
             isDownloading = false
         }
+    }
+
+    @MainActor
+    func selectDestination(_ destination: SidebarDestination) {
+        selectedDestination = destination
+        currentFolderID = nil
+        selectedFiles.removeAll()
     }
 
     @MainActor
@@ -295,12 +426,21 @@ final class AppState {
         let ids = selectedFiles
         Task {
             for id in ids {
-                if let file = files.first(where: { $0.id == id }) {
-                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
-                }
+                try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
             }
             selectedFiles.removeAll()
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Move \(ids.count) Items to Trash") {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
+                }
+                await self.loadFiles()
+            } redo: {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
+                }
+                await self.loadFiles()
+            }
         }
     }
 
@@ -308,11 +448,24 @@ final class AppState {
     func bulkMove(to folderID: String?) {
         let ids = selectedFiles.filter { $0 != folderID }
         Task {
+            var oldParents: [String: String?] = [:]
             for id in ids {
+                oldParents[id] = files.first(where: { $0.id == id })?.parentID
                 try? await DatabaseManager.shared.updateObject(id) { $0.parentID = folderID }
             }
             selectedFiles.removeAll()
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Move \(ids.count) Items") {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.parentID = oldParents[id] ?? nil }
+                }
+                await self.loadFiles()
+            } redo: {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.parentID = folderID }
+                }
+                await self.loadFiles()
+            }
         }
     }
 
@@ -335,11 +488,23 @@ final class AppState {
             for id in ids {
                 try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
             }
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Restore \(ids.count) Items") {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
+                }
+                await self.loadFiles()
+            } redo: {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
+                }
+                await self.loadFiles()
+            }
         }
     }
 
     func visibleFilesInCurrentContext() -> [ObjectRecord] {
+        let files = self.files.filter { $0.state == "ready" }
         switch selectedDestination {
         case .allFiles:
             return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentFolderID }
@@ -393,7 +558,14 @@ final class AppState {
             )
             try? await DatabaseManager.shared.save(folder)
             syncObjectMetadataToTelegram(folder)
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Create Folder") {
+                try? await DatabaseManager.shared.deleteObjectWithChunks(id: folder.id)
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.save(folder)
+                await self.loadFiles()
+            }
         }
     }
 
@@ -421,18 +593,33 @@ final class AppState {
             )
             try? await DatabaseManager.shared.save(folder)
             syncObjectMetadataToTelegram(folder)
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Create \(kind == "video" ? "Playlist" : (kind == "photo" ? "Album" : "Playlist"))") {
+                try? await DatabaseManager.shared.deleteObjectWithChunks(id: folder.id)
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.save(folder)
+                await self.loadFiles()
+            }
         }
     }
 
     @MainActor
     func addToPlaylist(_ file: ObjectRecord, playlistID: String) {
         Task {
+            let oldParent = file.parentID
             var updated = file
             updated.parentID = playlistID
             try? await DatabaseManager.shared.save(updated)
             syncObjectMetadataToTelegram(updated)
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Add to Playlist") {
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = oldParent }
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = playlistID }
+                await self.loadFiles()
+            }
         }
     }
 
@@ -461,7 +648,14 @@ final class AppState {
             )
             try? await DatabaseManager.shared.save(folder)
             syncObjectMetadataToTelegram(folder)
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Create Private Folder") {
+                try? await DatabaseManager.shared.deleteObjectWithChunks(id: folder.id)
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.save(folder)
+                await self.loadFiles()
+            }
         }
     }
 
@@ -469,7 +663,7 @@ final class AppState {
     func moveToFolder(_ file: ObjectRecord, _ folderID: String?) {
         Task {
             try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = folderID }
-            await loadFiles()
+            await self.loadFiles()
         }
     }
 
@@ -490,6 +684,7 @@ final class AppState {
         Task {
             if let obj = files.first(where: { $0.id == id }) {
                 let wasPrivate = obj.isPrivate
+                let oldParent = obj.parentID
                 try? await DatabaseManager.shared.updateObject(id) {
                     $0.parentID = folderID
                     if !targetIsPrivate && wasPrivate {
@@ -505,8 +700,24 @@ final class AppState {
                 if wasPrivate && !targetIsPrivate {
                     await unencryptFileInTelegram(id: id)
                 }
+                await self.loadFiles()
+
+                registerUndo("Move") {
+                    try? await DatabaseManager.shared.updateObject(id) {
+                        $0.parentID = oldParent
+                        $0.isPrivate = wasPrivate
+                    }
+                    await self.loadFiles()
+                } redo: {
+                    try? await DatabaseManager.shared.updateObject(id) {
+                        $0.parentID = folderID
+                        if !targetIsPrivate && wasPrivate {
+                            $0.isPrivate = false
+                        }
+                    }
+                    await self.loadFiles()
+                }
             }
-            await loadFiles()
         }
     }
 
@@ -596,7 +807,7 @@ final class AppState {
             }
             thumbnailVersion += 1
             // Force thumbnails to regenerate on next load
-            await loadFiles()
+            await self.loadFiles()
         }
     }
 
@@ -607,6 +818,65 @@ final class AppState {
             current = files.first { $0.id == cur }?.parentID
         }
         return false
+    }
+
+    // MARK: - Undo / Redo (Finder-style)
+
+    private struct UndoEntry {
+        let name: String
+        let undo: @MainActor () async -> Void
+        let redo: @MainActor () async -> Void
+    }
+
+    private var undoStack: [UndoEntry] = []
+    private var redoStack: [UndoEntry] = []
+    private(set) var canUndo = false
+    private(set) var canRedo = false
+
+    private func registerUndo(
+        _ name: String,
+        undo: @escaping @MainActor () async -> Void,
+        redo: @escaping @MainActor () async -> Void
+    ) {
+        undoStack.append(UndoEntry(name: name, undo: undo, redo: redo))
+        if undoStack.count > 200 { undoStack.removeFirst() }
+        redoStack.removeAll()
+        canUndo = true
+        canRedo = false
+    }
+
+    func undo() {
+        guard let entry = undoStack.popLast() else { return }
+        redoStack.append(entry)
+        canUndo = !undoStack.isEmpty
+        canRedo = true
+        Task { await entry.undo() }
+    }
+
+    func redo() {
+        guard let entry = redoStack.popLast() else { return }
+        undoStack.append(entry)
+        canUndo = true
+        canRedo = !redoStack.isEmpty
+        Task { await entry.redo() }
+    }
+
+    /// Undo for a simple DB-field mutation: captures the before/after state of one
+    /// object and rewrites it on undo/redo, then refreshes the browser.
+    private func registerFieldUndo<Value>(
+        _ name: String,
+        objectID: String,
+        keyPath: WritableKeyPath<ObjectRecord, Value>,
+        oldValue: Value,
+        newValue: Value
+    ) {
+        registerUndo(name) {
+            try? await DatabaseManager.shared.updateObject(objectID) { $0[keyPath: keyPath] = oldValue }
+            await self.loadFiles()
+        } redo: {
+            try? await DatabaseManager.shared.updateObject(objectID) { $0[keyPath: keyPath] = newValue }
+            await self.loadFiles()
+        }
     }
 
     // MARK: - File operations
@@ -669,11 +939,13 @@ final class AppState {
     @MainActor
     func toggleFavorite(_ file: ObjectRecord) {
         Task {
+            let oldValue = file.isFavorite
             try? await DatabaseManager.shared.updateObject(file.id) { $0.isFavorite.toggle() }
             if let updated = try? await DatabaseManager.shared.object(file.id) {
                 syncObjectMetadataToTelegram(updated)
             }
-            await loadFiles()
+            await self.loadFiles()
+            registerFieldUndo("Favorite", objectID: file.id, keyPath: \.isFavorite, oldValue: oldValue, newValue: !oldValue)
         }
     }
 
@@ -697,7 +969,18 @@ final class AppState {
             }
             selectedFiles.subtract(ids)
             if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo(trashed ? "Move \(ids.count) Item\(ids.count == 1 ? "" : "s") to Trash" : "Restore") {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = !trashed }
+                }
+                await self.loadFiles()
+            } redo: {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.trashed = trashed }
+                }
+                await self.loadFiles()
+            }
         }
     }
 
@@ -705,12 +988,20 @@ final class AppState {
     func rename(_ file: ObjectRecord, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let oldName = file.name
         Task {
             try? await DatabaseManager.shared.updateObject(file.id) { $0.name = trimmed }
             if let updated = try? await DatabaseManager.shared.object(file.id) {
                 syncObjectMetadataToTelegram(updated)
             }
-            await loadFiles()
+            await self.loadFiles()
+            registerUndo("Rename") {
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.name = oldName }
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.name = trimmed }
+                await self.loadFiles()
+            }
         }
     }
 
@@ -760,7 +1051,7 @@ final class AppState {
 
             selectedFiles.subtract(ids)
             if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
-            await loadFiles()
+            await self.loadFiles()
             await VaultRepair.purgeOrphanedMessages()
         }
     }
@@ -788,6 +1079,6 @@ final class AppState {
 
         selectedFiles.removeAll()
         currentFolderID = nil
-        await loadFiles()
+        await self.loadFiles()
     }
 }

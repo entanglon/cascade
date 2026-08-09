@@ -27,8 +27,8 @@ enum ChunkPlanner {
     static let maxSafeChunkSize: Int64 = 1_900 * byteMiB
 
     static let streamingChunkSize: Int64 = 64 * byteMiB
-    static let standardChunkSize: Int64 = 256 * byteMiB
-    static let archiveChunkSize: Int64 = 512 * byteMiB
+    static let standardChunkSize: Int64 = 128 * byteMiB
+    static let archiveChunkSize: Int64 = 256 * byteMiB
     static let hugeFileThreshold: Int64 = 50_000 * byteMiB
 
     static func isMedia(mime: String) -> Bool {
@@ -61,12 +61,16 @@ enum ChunkPlanner {
     static func plan(
         fileSize: Int64,
         profile: ChunkProfile = .automatic,
-        mime: String = ""
+        mime: String = "",
+        chunkSize: Int64? = nil
     ) -> ChunkPlan {
-        let chunkSize = chunkSize(for: fileSize, profile: profile, mime: mime)
+        // A stored chunk size (set at upload time) wins over the profile constants so a
+        // resumed upload always re-derives the exact same chunk boundaries — even if the
+        // global constants change between versions.
+        let effectiveChunkSize = chunkSize ?? ChunkPlanner.chunkSize(for: fileSize, profile: profile, mime: mime)
 
         guard fileSize > 0 else {
-            return ChunkPlan(totalSize: 0, chunkSize: chunkSize, items: [])
+            return ChunkPlan(totalSize: 0, chunkSize: effectiveChunkSize, items: [])
         }
 
         var items: [ChunkPlanItem] = []
@@ -75,12 +79,12 @@ enum ChunkPlanner {
 
         while offset < fileSize {
             let remaining = fileSize - offset
-            let size = min(chunkSize, remaining)
+            let size = min(effectiveChunkSize, remaining)
             items.append(ChunkPlanItem(index: index, offset: offset, size: size))
             offset += size
             index += 1
         }
 
-        return ChunkPlan(totalSize: fileSize, chunkSize: chunkSize, items: items)
+        return ChunkPlan(totalSize: fileSize, chunkSize: effectiveChunkSize, items: items)
     }
 }

@@ -16,10 +16,7 @@ struct RootView: View {
                     SidebarView(
                         selection: Binding(
                             get: { appState.selectedDestination },
-                            set: {
-                                appState.selectedDestination = $0
-                                appState.currentFolderID = nil
-                            }
+                            set: { appState.selectDestination($0) }
                         )
                     )
                     .frame(width: 236)
@@ -80,30 +77,49 @@ struct RootView: View {
                 .environment(appState)
         }
         .background(WindowChromeFixer())
+        .onReceive(NotificationCenter.default.publisher(for: .xCloudUploadFinished)) { _ in
+            // Refresh the file list the moment an upload completes so files appear
+            // in the browser in real time (also covers resume/retry completions).
+            Task { await appState.loadFiles() }
+        }
     }
 }
 
 struct WindowChromeFixer: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        let v = NSView()
-        DispatchQueue.main.async {
-            guard let window = v.window else { return }
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.styleMask.insert([.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
-            window.isMovableByWindowBackground = true
-            window.toolbar = nil
-            
-            let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-            for b in buttons {
-                if let btn = window.standardWindowButton(b) {
-                    btn.isHidden = false
-                    btn.superview?.isHidden = false
-                    btn.superview?.alphaValue = 1.0
-                }
-            }
-        }
-        return v
+        WindowChromeView()
     }
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Applies the transparent-titlebar window styling as soon as the view is attached
+/// to a window (and again on every window change), so windowed mode never shows the
+/// default macOS titlebar band over the app's dark UI.
+final class WindowChromeView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.applyChrome()
+        }
+    }
+
+    private func applyChrome() {
+        guard let window else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert([.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
+        window.isMovableByWindowBackground = true
+        window.toolbar = nil
+        window.titlebarSeparatorStyle = .none
+
+        let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        for b in buttons {
+            if let btn = window.standardWindowButton(b) {
+                btn.isHidden = false
+                btn.superview?.isHidden = false
+                btn.superview?.alphaValue = 1.0
+            }
+        }
+    }
 }

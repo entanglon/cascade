@@ -24,6 +24,9 @@ struct FileBrowserView: View {
     @State private var dropTargeted = false
     @State private var columnCount = 4
     @State private var fabHovering = false
+    @State private var itemFrames: [String: CGRect] = [:]
+    @State private var marqueeStart: CGPoint?
+    @State private var marqueeCurrent: CGPoint?
     @Namespace private var viewModeNamespace
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
     @AppStorage("xc.sortAscending") private var sortAscending = false
@@ -65,7 +68,7 @@ struct FileBrowserView: View {
 
     private var visibleFiles: [ObjectRecord] {
         let base: [ObjectRecord] = {
-            let files = appState.files
+            let files = appState.files.filter { $0.state == "ready" }
             switch appState.selectedDestination {
             case .allFiles:
                 return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == appState.currentFolderID }
@@ -158,7 +161,11 @@ struct FileBrowserView: View {
                     if appState.selectedDestination == .transfers {
                         TransfersView()
                     } else if visibleFiles.isEmpty && !appState.isUploading {
-                        emptyStateView
+                        if appState.isInitialLoading {
+                            loadingStateView
+                        } else {
+                            emptyStateView
+                        }
                     } else {
                         if viewModeRaw == "list" { listView } else { gridView }
                     }
@@ -250,6 +257,24 @@ struct FileBrowserView: View {
             }
             return .ignored
         }
+        .onKeyPress("z", phases: .down) { press in
+            // Finder-style undo/redo for moves, trash, restore, rename, favorites.
+            // Leave Cmd+Z to the search field's own text undo while it's focused.
+            guard press.modifiers.contains(.command), !searchFocused else { return .ignored }
+            if press.modifiers.contains(.shift) {
+                appState.redo()
+            } else {
+                appState.undo()
+            }
+            return .handled
+        }
+        .onChange(of: appState.theaterFile?.id) { _, newID in
+            // When the viewer closes, hand keyboard control back to the browser so
+            // space re-opens the preview and arrows move the selection again.
+            if newID == nil {
+                gridFocused = true
+            }
+        }
         .onKeyPress("o", phases: .down) { press in
             if press.modifiers.contains(.command), let f = appState.selectedFile {
                 open(f)
@@ -277,7 +302,7 @@ struct FileBrowserView: View {
         .onKeyPress(.rightArrow) { keyNav(1, isVertical: false); return .handled }
         .onKeyPress(.space) {
             if let file = appState.selectedFile {
-                open(file)
+                quickLook(file)
                 return .handled
             }
             return .ignored
@@ -368,6 +393,52 @@ struct FileBrowserView: View {
 
     // MARK: - Top Bar
 
+    /// Right-click menu for a page's empty area. Carries the page-specific actions
+    /// (New Album/Playlist, Lock Now, Empty Trash) so the top bar stays uniform and
+    /// the search bar can be perfectly centered on every page.
+    @ViewBuilder
+    private var pageContextMenu: some View {
+        Button("Upload Files…") { showImporter = true }
+
+        if appState.selectedDestination == .trash {
+            if !visibleFiles.isEmpty {
+                Button("Empty Trash", role: .destructive) {
+                    showEmptyTrashAlert = true
+                }
+            }
+        } else {
+            Button("New Folder") {
+                folderName = ""
+                showNewFolder = true
+            }
+            Button("New Private Folder") {
+                folderName = ""
+                showNewPrivateFolder = true
+            }
+            if appState.selectedDestination == .photos {
+                Button("New Album") {
+                    playlistName = ""
+                    showNewPlaylist = true
+                }
+            } else if appState.selectedDestination == .video || appState.selectedDestination == .audio {
+                Button("New Playlist") {
+                    playlistName = ""
+                    showNewPlaylist = true
+                }
+            }
+        }
+
+        if appState.selectedDestination == .privateVault && appState.isPrivateVaultUnlocked {
+            Divider()
+            Button("Lock Now") {
+                appState.isPrivateVaultUnlocked = false
+            }
+        }
+
+        Divider()
+        Menu("Sort By") { sortPickerContent }
+    }
+
     @ViewBuilder
     private var sortPickerContent: some View {
         Picker("Sort By", selection: Binding(
@@ -398,7 +469,7 @@ struct FileBrowserView: View {
 
     private var topBar: some View {
         @Bindable var appState = appState
-        return ZStack {
+        return HStack(spacing: 10) {
             // LEFT — page heading
             HStack(spacing: 10) {
                 if appState.currentFolderID != nil {
@@ -429,17 +500,22 @@ struct FileBrowserView: View {
                 Text(headingTitle)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
                 Text("\(visibleFiles.count)")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.5))
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Capsule().fill(.white.opacity(0.08)))
-
-                Spacer()
             }
+            .frame(width: 210, alignment: .leading)
 
-            // CENTER — search, truly centered via ZStack
+            Spacer(minLength: 8)
+
+            // CENTER — search. The left/right sides reserve symmetric 210pt, so the
+            // search stays perfectly centered on every page; it shrinks instead of
+            // overlapping the side controls in narrow windows.
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12, weight: .medium))
@@ -459,7 +535,8 @@ struct FileBrowserView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(width: 360, height: 35)
+            .frame(minWidth: 140, maxWidth: 360)
+            .frame(height: 35)
             .contentShape(Capsule())
             .glassEffect(searchFocused ? .regular.interactive() : .regular, in: .capsule)
             .overlay(
@@ -478,63 +555,11 @@ struct FileBrowserView: View {
                     .hidden()
             )
 
-            // RIGHT — controls
+            Spacer(minLength: 8)
+
+            // RIGHT — controls. Uniform on every page (page-specific actions like
+            // New Album/Playlist, Lock Now, Empty Trash live in the context menu).
             HStack(spacing: 10) {
-                Spacer()
-
-                if appState.selectedDestination == .audio || appState.selectedDestination == .video || appState.selectedDestination == .photos {
-                    Button {
-                        playlistName = ""
-                        showNewPlaylist = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .bold))
-                            Text(appState.selectedDestination == .photos ? "New Album" : "New Playlist")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(.white.opacity(0.85))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .glassEffect(.regular, in: .capsule)
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .help(appState.selectedDestination == .photos ? "Create New Photo Album" : "Create New Playlist")
-                }
-
-                if appState.selectedDestination == .trash && !visibleFiles.isEmpty {
-                    Button(role: .destructive) {
-                        showEmptyTrashAlert = true
-                    } label: {
-                        Image(systemName: "trash.slash")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.red)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                            .glassEffect(.regular.interactive(), in: .circle)
-                            .overlay(Circle().strokeBorder(.red.opacity(0.3), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Empty Trash")
-                }
-
-                if appState.selectedDestination == .privateVault && appState.isPrivateVaultUnlocked {
-                    Button {
-                        appState.isPrivateVaultUnlocked = false
-                    } label: {
-                        Label("Lock Now", systemImage: "lock.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.red)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassEffect(.regular, in: .capsule)
-                            .overlay(Capsule().strokeBorder(.red.opacity(0.3), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Lock Private Vault")
-                }
-
                 // View Mode Toggle (Grid / List) with Liquid Glass pill transition
                 HStack(spacing: 0) {
                     ForEach(["grid", "list"], id: \.self) { mode in
@@ -584,6 +609,7 @@ struct FileBrowserView: View {
                 .buttonStyle(.plain)
                 .help("Sort options")
             }
+            .frame(width: 210, alignment: .trailing)
         }
         .padding(.horizontal, 20)
         .frame(height: 52)
@@ -737,7 +763,8 @@ struct FileBrowserView: View {
                                         .onTapGesture(count: 2) { open(folder) }
                                         .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
                                         .contextMenu { menu(for: folder) }
-                                        .onDrag { NSItemProvider(object: folder.id as NSString) }
+                                        .onDrag { dragProvider(for: folder) }
+                                        .reportGridFrame(id: folder.id)
                                 }
                             }
                         }
@@ -761,7 +788,8 @@ struct FileBrowserView: View {
                                         .onTapGesture(count: 2) { open(file) }
                                         .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
                                         .contextMenu { menu(for: file) }
-                                        .onDrag { NSItemProvider(object: file.id as NSString) }
+                                        .onDrag { dragProvider(for: file) }
+                                        .reportGridFrame(id: file.id)
                                 }
                             }
                         }
@@ -770,14 +798,16 @@ struct FileBrowserView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
                 .padding(.bottom, 80)
+                .coordinateSpace(name: "gridContent")
+                .onPreferenceChange(GridFrameKey.self) { itemFrames = $0 }
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(marqueeDrag)
+                }
+                .overlay(alignment: .topLeading) { marqueeOverlay }
             }
-            .contextMenu {
-                Button("New Folder") { showNewFolder = true }
-                Button("New Private Folder") { showNewPrivateFolder = true }
-                Button("Upload Files…") { showImporter = true }
-                Divider()
-                Menu("Sort By") { sortPickerContent }
-            }
+            .contextMenu { pageContextMenu }
             .onChange(of: geo.size.width, initial: true) {
                 columnCount = max(2, Int(geo.size.width / cardWidth))
             }
@@ -801,7 +831,8 @@ struct FileBrowserView: View {
                                     .onTapGesture(count: 2) { open(folder) }
                                     .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
                                     .contextMenu { menu(for: folder) }
-                                    .onDrag { NSItemProvider(object: folder.id as NSString) }
+                                    .onDrag { dragProvider(for: folder) }
+                                    .reportGridFrame(id: folder.id)
                             }
                         }
                     }
@@ -821,7 +852,8 @@ struct FileBrowserView: View {
                                     .onTapGesture(count: 2) { open(file) }
                                     .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
                                     .contextMenu { menu(for: file) }
-                                    .onDrag { NSItemProvider(object: file.id as NSString) }
+                                    .onDrag { dragProvider(for: file) }
+                                    .reportGridFrame(id: file.id)
                             }
                         }
                     }
@@ -830,6 +862,14 @@ struct FileBrowserView: View {
             .padding(.horizontal, 24)
             .padding(.top, 20)
             .padding(.bottom, 80)
+            .coordinateSpace(name: "gridContent")
+            .onPreferenceChange(GridFrameKey.self) { itemFrames = $0 }
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(marqueeDrag)
+            }
+            .overlay(alignment: .topLeading) { marqueeOverlay }
         }
         .contextMenu {
             Button("New Folder") { showNewFolder = true }
@@ -840,12 +880,83 @@ struct FileBrowserView: View {
         }
     }
 
+    // MARK: - Marquee (rectangle) selection & multi-drag
+
+    private var marqueeDrag: some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("gridContent"))
+            .onChanged { value in
+                if marqueeStart == nil {
+                    // Never start a marquee when the press began on a file card.
+                    let beganOnItem = itemFrames.values.contains { $0.contains(value.startLocation) }
+                    guard !beganOnItem else { return }
+                    marqueeStart = value.startLocation
+                    if !NSEvent.modifierFlags.contains(.command) {
+                        appState.clearSelection()
+                    }
+                }
+                marqueeCurrent = value.location
+            }
+            .onEnded { _ in
+                defer { marqueeStart = nil; marqueeCurrent = nil }
+                guard let start = marqueeStart, let current = marqueeCurrent else { return }
+                let rect = marqueeRect(from: start, to: current)
+                let hit = Set(itemFrames.filter { $0.value.intersects(rect) }.map(\.key))
+                if NSEvent.modifierFlags.contains(.command) || NSEvent.modifierFlags.contains(.shift) {
+                    appState.selectedFiles.formUnion(hit)
+                } else {
+                    appState.selectedFiles = hit
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var marqueeOverlay: some View {
+        if let start = marqueeStart, let current = marqueeCurrent {
+            let rect = marqueeRect(from: start, to: current)
+            Rectangle()
+                .fill(XTheme.accent.opacity(0.12))
+                .overlay(
+                    Rectangle().strokeBorder(XTheme.accent.opacity(0.7), lineWidth: 1)
+                )
+                .frame(width: rect.width, height: rect.height)
+                .offset(x: rect.minX, y: rect.minY)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func marqueeRect(from a: CGPoint, to b: CGPoint) -> CGRect {
+        CGRect(
+            x: min(a.x, b.x), y: min(a.y, b.y),
+            width: abs(a.x - b.x), height: abs(a.y - b.y)
+        )
+    }
+
+    /// Drags the whole selection when the dragged file is part of it (Finder behavior).
+    /// Payload is a newline-joined list of object IDs, parsed by the drop targets.
+    private func dragProvider(for file: ObjectRecord) -> NSItemProvider {
+        let ids = appState.selectedFiles.contains(file.id)
+            ? Array(appState.selectedFiles)
+            : [file.id]
+        return NSItemProvider(object: ids.joined(separator: "\n") as NSString)
+    }
+
     // MARK: - Actions
 
     private func open(_ file: ObjectRecord) {
         if file.isFolder {
             appState.openFolder(file)
         } else if appState.selectedDestination == .audio {
+            AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
+        } else {
+            appState.theaterFile = file
+        }
+    }
+
+    /// Finder-style Quick Look: space previews the selected item. Folders and
+    /// unsupported files show a details panel; it never navigates into folders
+    /// (double-click / Enter still do that via `open`).
+    private func quickLook(_ file: ObjectRecord) {
+        if appState.selectedDestination == .audio, !file.isFolder {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
             appState.theaterFile = file
@@ -869,21 +980,61 @@ struct FileBrowserView: View {
             return
         }
 
-        let item = files[current]
-        let step: Int
-        if isVertical {
-            if viewModeRaw == "list" {
-                step = delta > 0 ? 1 : -1
-            } else {
-                let currentCols = item.isFolder ? min(columnCount, 4) : columnCount
-                step = delta > 0 ? currentCols : -currentCols
-            }
+        let nextIndex: Int
+        if isVertical && viewModeRaw == "grid" {
+            nextIndex = gridVerticalNavigation(current: current, delta: delta, files: files)
         } else {
-            step = delta
+            nextIndex = min(max(current + delta, 0), files.count - 1)
+        }
+        appState.selectedFiles = [files[nextIndex].id]
+    }
+
+    /// Row-aware up/down navigation for the two-section grid (folder row(s) with up to
+    /// 4 columns, then a full-width files grid). Moves to the item in the same column of
+    /// the next/previous row — so going down from a folder selects the file directly
+    /// beneath it (or the folder below, when a second folder row exists), instead of
+    /// jumping by a fixed column count that lands on the wrong row.
+    private func gridVerticalNavigation(current: Int, delta: Int, files: [ObjectRecord]) -> Int {
+        FileBrowserView.gridVerticalStep(current: current, delta: delta, files: files, cols: columnCount)
+    }
+
+    /// Pure grid row/column math (static so it's unit-testable). `files` must be the
+    /// navigable list (folders first, then files). Returns the flat index to select.
+    static func gridVerticalStep(current: Int, delta: Int, files: [ObjectRecord], cols: Int) -> Int {
+        let cols = max(2, cols)
+        let folderCols = min(cols, 4)
+        let folderCount = files.prefix { $0.isFolder }.count
+        let folderRows = folderCount == 0 ? 0 : (folderCount + folderCols - 1) / folderCols
+
+        // Visual (row, col) of every item: folders occupy the first rows, files after.
+        var positions: [(row: Int, col: Int)] = []
+        positions.reserveCapacity(files.count)
+        for i in 0..<files.count {
+            if i < folderCount {
+                positions.append((i / folderCols, i % folderCols))
+            } else {
+                let j = i - folderCount
+                positions.append((folderRows + j / cols, j % cols))
+            }
         }
 
-        let nextIndex = min(max(current + step, 0), files.count - 1)
-        appState.selectedFiles = [files[nextIndex].id]
+        let currentPos = positions[current]
+        let targetRow = currentPos.row + delta
+        guard positions.contains(where: { $0.row == targetRow }) else { return current }
+
+        // Prefer the exact same column; fall back to the closest column in that row
+        // (handles the folder row having fewer columns than the files grid).
+        var best = current
+        var bestColDist = Int.max
+        for (index, pos) in positions.enumerated() where pos.row == targetRow {
+            let dist = abs(pos.col - currentPos.col)
+            if dist == 0 { return index }
+            if dist < bestColDist {
+                bestColDist = dist
+                best = index
+            }
+        }
+        return best
     }
 
     private func select(_ file: ObjectRecord) {
@@ -1048,7 +1199,123 @@ struct FileBrowserView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
+        .contextMenu { pageContextMenu }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Shown while the app is still loading the catalog at startup. A YouTube-style
+    /// skeleton feed of placeholder cards (not the empty state) so the user never
+    /// sees a misleading "Nothing Here Yet" flash before the files appear.
+    private var loadingStateView: some View {
+        GeometryReader { geo in
+            let cols = max(2, Int(geo.size.width / cardWidth))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    // Folders section skeleton (two rows so the feed feels full)
+                    VStack(alignment: .leading, spacing: 12) {
+                        skeletonBar(width: 70)
+                        ForEach(0..<2, id: \.self) { _ in
+                            LazyVGrid(
+                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: min(cols, 4)),
+                                spacing: 10
+                            ) {
+                                ForEach(0..<min(cols, 4), id: \.self) { _ in
+                                    folderSkeletonCard
+                                }
+                            }
+                        }
+                    }
+
+                    // Files section skeleton
+                    VStack(alignment: .leading, spacing: 12) {
+                        skeletonBar(width: 50)
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
+                            spacing: 12
+                        ) {
+                            ForEach(0..<(cols * 3), id: \.self) { _ in
+                                fileSkeletonCard
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.bottom, 80)
+            }
+        }
+    }
+
+    private func skeletonBar(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(Color.white.opacity(0.08))
+            .frame(width: width, height: 15)
+            .modifier(ShimmerModifier())
+    }
+
+    private var folderSkeletonCard: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 90, height: 10)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 56, height: 8)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(height: 54)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+        .modifier(ShimmerModifier())
+    }
+
+    private var fileSkeletonCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(0.03))
+                .frame(height: 115)
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 12, height: 12)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 110, height: 10)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.white.opacity(0.05))
+                        .frame(width: 48, height: 8)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.04))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .modifier(ShimmerModifier())
     }
 
     private var emptyIcon: String {
@@ -1084,6 +1351,17 @@ struct FileItemContextMenu: View {
     @Binding var renameTarget: ObjectRecord?
     @Binding var renameText: String
 
+    /// The files this menu's actions apply to: the whole selection when the
+    /// right-clicked file is part of a multi-selection, otherwise just that file
+    /// (Finder behavior).
+    private var actionTargets: [ObjectRecord] {
+        let selected = appState.selectedFiles
+        if selected.contains(file.id) && selected.count > 1 {
+            return appState.files.filter { selected.contains($0.id) }
+        }
+        return [file]
+    }
+
     var body: some View {
         if !file.isFolder {
             Button {
@@ -1117,7 +1395,7 @@ struct FileItemContextMenu: View {
         }
         if !file.isFolder {
             Button {
-                appState.toggleFavorite(file)
+                for target in actionTargets { appState.toggleFavorite(target) }
             } label: {
                 Label(file.isFavorite ? "Remove Favorite" : "Add Favorite", systemImage: file.isFavorite ? "star.slash" : "star")
             }
@@ -1137,7 +1415,9 @@ struct FileItemContextMenu: View {
                     } else {
                         ForEach(collections) { collection in
                             Button(collection.name) {
-                                appState.addToPlaylist(file, playlistID: collection.id)
+                                for target in actionTargets {
+                                    appState.addToPlaylist(target, playlistID: collection.id)
+                                }
                             }
                         }
                     }
@@ -1147,40 +1427,45 @@ struct FileItemContextMenu: View {
             }
 
             Menu {
-                Button("Root") { appState.moveObject(id: file.id, to: nil) }
+                Button("Root") {
+                    for target in actionTargets { appState.moveObject(id: target.id, to: nil) }
+                }
                 ForEach(appState.files.filter {
                     $0.isFolder && !$0.trashed && $0.id != file.id
                 }) { folder in
                     Button(folder.name) {
-                        appState.moveObject(id: file.id, to: folder.id)
+                        for target in actionTargets { appState.moveObject(id: target.id, to: folder.id) }
                     }
                 }
             } label: {
-                Label("Move to Folder", systemImage: "folder.badge.gearshape")
+                Label(
+                    actionTargets.count > 1 ? "Move \(actionTargets.count) Items to Folder" : "Move to Folder",
+                    systemImage: "folder.badge.gearshape"
+                )
             }
         }
         Divider()
         if file.trashed {
             Button {
-                appState.setTrashed(file, false)
+                for target in actionTargets { appState.setTrashed(target, false) }
             } label: {
-                Label("Restore", systemImage: "arrow.uturn.backward")
+                Label(actionTargets.count > 1 ? "Restore \(actionTargets.count) Items" : "Restore", systemImage: "arrow.uturn.backward")
             }
             Button(role: .destructive) {
-                appState.deleteForever(file)
+                for target in actionTargets { appState.deleteForever(target) }
             } label: {
-                Label("Delete Forever", systemImage: "trash.slash")
+                Label(actionTargets.count > 1 ? "Delete \(actionTargets.count) Items Forever" : "Delete Forever", systemImage: "trash.slash")
             }
         } else {
             Button(role: .destructive) {
-                appState.setTrashed(file, true)
+                for target in actionTargets { appState.setTrashed(target, true) }
             } label: {
-                Label("Move to Trash", systemImage: "trash")
+                Label(actionTargets.count > 1 ? "Move \(actionTargets.count) Items to Trash" : "Move to Trash", systemImage: "trash")
             }
             Button(role: .destructive) {
-                appState.deleteForever(file)
+                for target in actionTargets { appState.deleteForever(target) }
             } label: {
-                Label("Delete Permanently", systemImage: "trash.slash")
+                Label(actionTargets.count > 1 ? "Delete \(actionTargets.count) Items Permanently" : "Delete Permanently", systemImage: "trash.slash")
             }
         }
     }
@@ -1214,6 +1499,73 @@ struct FileItemContextMenu: View {
 
 // MARK: - Grid Item (Google Drive-style clean card)
 
+/// A soft highlight that sweeps across a view once on appear, then loops —
+/// gives loading placeholders the classic "shimmer" look.
+private struct ShimmerModifier: ViewModifier {
+    @State private var swept = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.10), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 0.5)
+                    .offset(x: swept ? geo.size.width * 1.5 : -geo.size.width * 0.5)
+                    .allowsHitTesting(false)
+                }
+                .clipped()
+            }
+            .onAppear {
+                withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) {
+                    swept = true
+                }
+            }
+    }
+}
+
+/// Collects each file card's frame in the browser's named coordinate space, so the
+/// marquee (rectangle) selection can hit-test which cards the drag rectangle covers.
+private struct GridFrameKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+private struct ReportGridFrame: ViewModifier {
+    let id: String
+    let space: String
+
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { geo in
+                Color.clear
+                    .preference(
+                        key: GridFrameKey.self,
+                        value: [id: geo.frame(in: .named(space))]
+                    )
+            }
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private extension View {
+    func reportGridFrame(id: String, space: String = "gridContent") -> some View {
+        modifier(ReportGridFrame(id: id, space: space))
+    }
+}
+
+/// Parses a drag payload (newline-joined object IDs) into the list of IDs to act on.
+private func parseDroppedObjectIDs(_ object: Any?) -> [String] {
+    guard let str = object as? String else { return [] }
+    return str.split(separator: "\n").map(String.init)
+}
+
 struct FileGridItem: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
@@ -1246,6 +1598,23 @@ struct FileGridItem: View {
         .onDrop(of: [UTType.text], isTargeted: $dropTargeted) { providers in
             guard file.isFolder else { return false }
             return dropIntoFolder(providers)
+        }
+        .overlay {
+            // When a selected card is part of a multi-selection, tint it and show the
+            // count so the drag preview communicates that the whole selection moves.
+            if isSelected && hovering && appState.selectedFiles.count > 1 {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(XTheme.accent.opacity(0.22))
+                    .overlay {
+                        Text("\(appState.selectedFiles.count) items")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(Color.black.opacity(0.55)))
+                    }
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -1423,9 +1792,12 @@ struct FileGridItem: View {
         var handled = false
         for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
             _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                guard let targetID = object as? String else { return }
+                let ids = parseDroppedObjectIDs(object)
+                guard !ids.isEmpty else { return }
                 Task { @MainActor in
-                    appState.moveObject(id: targetID, to: file.id)
+                    for id in ids {
+                        appState.moveObject(id: id, to: file.id)
+                    }
                 }
             }
             handled = true
@@ -1530,14 +1902,34 @@ struct FileListRow: View {
             var handled = false
             for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
                 _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                    guard let id = object as? String else { return }
+                    let ids = (object as? String).map {
+                        $0.split(separator: "\n").map(String.init)
+                    } ?? []
+                    guard !ids.isEmpty else { return }
                     Task { @MainActor in
-                        appState.moveObject(id: id, to: file.id)
+                        for id in ids {
+                            appState.moveObject(id: id, to: file.id)
+                        }
                     }
                 }
                 handled = true
             }
             return handled
+        }
+        .overlay {
+            if isSelected && hovering && appState.selectedFiles.count > 1 {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(XTheme.accent.opacity(0.22))
+                    .overlay {
+                        Text("\(appState.selectedFiles.count) items")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(Color.black.opacity(0.55)))
+                    }
+                    .allowsHitTesting(false)
+            }
         }
     }
 

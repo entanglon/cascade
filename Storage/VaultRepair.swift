@@ -112,21 +112,30 @@ enum VaultRepair {
                                 changed = true
                             }
                         } else {
-                            let newChunk = ChunkRecord(
-                                id: UUID().uuidString,
-                                objectID: objectID,
-                                index: index,
-                                size: size / Int64(max(1, totalChunks)),
-                                plainHash: nil,
-                                cipherHash: nil,
-                                state: "uploaded",
-                                messageID: message.id,
-                                fileUniqueID: nil,
-                                channelID: vault.channelID,
-                                createdAt: .now
-                            )
-                            try? await DatabaseManager.shared.save(newChunk)
-                            changed = true
+                            // Never fabricate missing chunk records for an existing object that is
+                            // still being uploaded (paused/failed/uploading). Those are resumable
+                            // partial uploads managed by the upload engine; adding records here
+                            // would make a cancelled upload look complete and resurrect it as a
+                            // phantom "ready" file in the folder.
+                            let existingObject = objectDict[objectID]
+                            let isResumablePartial = existingObject != nil && existingObject?.state != "ready"
+                            if !isResumablePartial {
+                                let newChunk = ChunkRecord(
+                                    id: UUID().uuidString,
+                                    objectID: objectID,
+                                    index: index,
+                                    size: size / Int64(max(1, totalChunks)),
+                                    plainHash: nil,
+                                    cipherHash: nil,
+                                    state: "uploaded",
+                                    messageID: message.id,
+                                    fileUniqueID: nil,
+                                    channelID: vault.channelID,
+                                    createdAt: .now
+                                )
+                                try? await DatabaseManager.shared.save(newChunk)
+                                changed = true
+                            }
                         }
                         continue
                     }
@@ -150,9 +159,13 @@ enum VaultRepair {
             }
         }
 
-        // 2. Promote failed or uploading objects to ready if all chunks have real message IDs
+        // 2. Promote failed or uploading objects to ready if all chunks have real message IDs.
+        //    Local partial uploads (they carry a sourcePath) are the upload engine's resumable
+        //    state and must never be promoted here — a cancelled upload would otherwise
+        //    reappear as a phantom "ready" file in the folder.
         let currentObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
         for var object in currentObjects where object.state != "ready" {
+            if object.sourcePath != nil { continue }
             let objChunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
             guard !objChunks.isEmpty else { continue }
             if objChunks.allSatisfy({ ($0.messageID ?? 0) > 0 }) {
@@ -167,7 +180,9 @@ enum VaultRepair {
         let allChunksNow = (try? await DatabaseManager.shared.allChunks()) ?? []
         let validObjectIDsWithChunks = Set(allChunksNow.compactMap { ($0.messageID ?? 0) > 0 ? $0.objectID : nil })
         for obj in allObjectsNow {
-            if !obj.isFolder && !validObjectIDsWithChunks.contains(obj.id) {
+            // Only ready objects are candidates for purging — paused/failed/uploading objects are
+            // resumable partial uploads and must be kept until their retention window expires.
+            if !obj.isFolder && obj.state == "ready" && !validObjectIDsWithChunks.contains(obj.id) {
                 try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
                 changed = true
             } else if obj.isFolder && obj.name == "Uploads" {

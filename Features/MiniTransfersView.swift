@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MiniTransfersView: View {
     @Environment(AppState.self) private var appState
-    @State private var items = TransferCenter.shared.items
+    private var center: TransferCenter { TransferCenter.shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -15,7 +15,7 @@ struct MiniTransfersView: View {
                 Spacer()
 
                 Button("View All") {
-                    appState.selectedDestination = .transfers
+                    appState.selectDestination(.transfers)
                 }
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(XTheme.accent)
@@ -26,7 +26,7 @@ struct MiniTransfersView: View {
 
             Divider().overlay(.white.opacity(0.1))
 
-            if items.isEmpty {
+            if center.items.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 24, weight: .light))
@@ -40,7 +40,7 @@ struct MiniTransfersView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 8) {
-                        ForEach(items.prefix(5)) { item in
+                        ForEach(center.items.prefix(5)) { item in
                             HStack(spacing: 10) {
                                 Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                                     .font(.system(size: 18))
@@ -54,15 +54,19 @@ struct MiniTransfersView: View {
 
                                     ProgressView(value: item.progress)
                                         .progressViewStyle(.linear)
-                                        .tint(XTheme.accent)
+                                        .tint(item.accentColor)
+                                        .animation(.easeInOut(duration: 0.25), value: item.progress)
                                 }
 
                                 Text("\(Int(item.progress * 100))%")
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                                     .foregroundStyle(.white.opacity(0.7))
+
+                                TransferItemActions(item: item)
                             }
                             .padding(10)
                             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10))
+                            .contextMenu { TransferItemMenuContent(item: item) }
                         }
                     }
                     .padding(.horizontal, 14)
@@ -72,8 +76,5 @@ struct MiniTransfersView: View {
             }
         }
         .frame(width: 280)
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TransferCenterUpdated"))) { _ in
-            items = TransferCenter.shared.items
-        }
     }
 }

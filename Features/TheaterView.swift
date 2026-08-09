@@ -19,7 +19,10 @@ struct TheaterView: View {
     @State private var showControls = true
     @State private var controlsTimer: Timer?
     @AppStorage("xc.canvasBackground") private var canvasBackground: CanvasBackground = .dark
+    // Keep the same sort option AND direction as the file browser, so left/right
+    // navigation follows the exact on-screen order of the files.
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
+    @AppStorage("xc.sortAscending") private var sortAscending = false
 
     enum CanvasBackground: String, CaseIterable, Codable {
         case dark = "Dark"
@@ -36,6 +39,7 @@ struct TheaterView: View {
     }
 
     private var previewKind: PreviewKind {
+        if file.isFolder { return .folder }
         let ext = (file.name as NSString).pathExtension.lowercased()
         if file.mime.hasPrefix("image/") { return .image }
         if file.mime.hasPrefix("video/") { return .video }
@@ -45,7 +49,14 @@ struct TheaterView: View {
         return .other
     }
 
-    enum PreviewKind { case image, video, audio, pdf, text, other }
+    enum PreviewKind { case image, video, audio, pdf, text, other, folder }
+
+    /// Kinds that render a metadata/details panel without downloading the file's
+    /// contents (folders have nothing to download; unsupported types show Finder-style
+    /// info and only fetch on demand when the user asks to open them).
+    private var isMetadataOnly: Bool {
+        previewKind == .folder || previewKind == .pdf || previewKind == .text || previewKind == .other
+    }
 
     var body: some View {
         ZStack {
@@ -54,7 +65,9 @@ struct TheaterView: View {
 
             // Content
             Group {
-                if let errorMessage {
+                if isMetadataOnly {
+                    detailsView
+                } else if let errorMessage {
                     errorView(errorMessage)
                 } else if url != nil {
                     contentView
@@ -90,8 +103,9 @@ struct TheaterView: View {
                 onLeftArrow: { navigateMedia(delta: -1) },
                 onRightArrow: { navigateMedia(delta: 1) },
                 onSpacebar: {
-                    if previewKind == .image {
-                        toggleControls()
+                    if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
+                        // Space toggles the viewer (Quick Look style): close it.
+                        appState.theaterFile = nil
                     } else if previewKind == .video {
                         NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
                     } else if previewKind == .audio {
@@ -163,8 +177,9 @@ struct TheaterView: View {
             return .handled
         }
         .onKeyPress(.space) {
-            if previewKind == .image {
-                toggleControls()
+            if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
+                // Space toggles the viewer (Quick Look style): close it.
+                appState.theaterFile = nil
             } else if previewKind == .video {
                 NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
             } else if previewKind == .audio {
@@ -370,20 +385,55 @@ struct TheaterView: View {
         case .audio:
             TheaterAudioPlayerView(file: file, mediaFiles: mediaFiles)
         default:
-            VStack(spacing: 16) {
-                Image(systemName: iconForFile)
-                    .font(.system(size: 56, weight: .light))
-                    .foregroundStyle(XTheme.accent.opacity(0.6))
-                Text(file.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text("This file type can't be previewed.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.4))
+            // Folders and unsupported types get a Finder-style details panel.
+            detailsView
+        }
+    }
+
+    // MARK: - Details Panel (folders & unsupported files)
+
+    private var detailsView: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 116, height: 116)
+
+                Image(systemName: previewKind == .folder ? "folder.fill" : iconForFile)
+                    .font(.system(size: 54, weight: .light))
+                    .foregroundStyle(previewKind == .folder ? XTheme.accent : XTheme.accent.opacity(0.65))
+            }
+
+            Text(file.name)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            VStack(spacing: 10) {
+                detailRow("Kind", kindText)
+                detailRow("Size", sizeText)
+                if previewKind == .folder {
+                    detailRow("Items", itemCountText)
+                }
+                if !file.mime.isEmpty && previewKind != .folder {
+                    detailRow("Format", file.mime)
+                }
+                detailRow("Created", file.createdAt.formatted(date: .abbreviated, time: .shortened))
+                detailRow("Modified", file.modifiedAt.formatted(date: .abbreviated, time: .shortened))
+            }
+            .frame(maxWidth: 420)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 18)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+
+            if previewKind != .folder {
                 Button {
-                    if let url {
-                        NSWorkspace.shared.open(url)
-                    }
+                    openWithDefaultApp()
                 } label: {
                     Label("Open with Default App", systemImage: "arrow.up.right.square")
                         .font(.system(size: 12, weight: .semibold))
@@ -396,7 +446,76 @@ struct TheaterView: View {
                 .buttonStyle(.plain)
             }
         }
+        .padding(40)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
     }
+
+    private func openWithDefaultApp() {
+        Task {
+            if let cached = activeLocalURL {
+                NSWorkspace.shared.open(cached)
+                return
+            }
+            let downloaded = try? await DownloadEngine.download(object: file) { _, _ in }
+            if let downloaded {
+                NSWorkspace.shared.open(downloaded)
+            }
+        }
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.4))
+            Spacer()
+            Text(value)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var kindText: String {
+        if previewKind == .folder { return "Folder" }
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        if !ext.isEmpty { return "\(ext.uppercased()) File" }
+        return file.mime.isEmpty ? "File" : file.mime
+    }
+
+    private var sizeText: String {
+        if previewKind == .folder {
+            return XTheme.formatBytes(totalFolderSize)
+        }
+        return ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)
+    }
+
+    private var itemCountText: String {
+        let count = folderChildren.count
+        return "\(count) item\(count == 1 ? "" : "s")"
+    }
+
+    private var folderChildren: [ObjectRecord] {
+        appState.files.filter { $0.parentID == file.id && !$0.trashed }
+    }
+
+    /// Total size of everything inside this folder, recursing through subfolders.
+    private var totalFolderSize: Int64 {
+        var seen = Set<String>()
+        var total: Int64 = 0
+        var stack = folderChildren
+        while let item = stack.popLast() {
+            guard seen.insert(item.id).inserted else { continue }
+            if item.isFolder {
+                stack.append(contentsOf: appState.files.filter { $0.parentID == item.id && !$0.trashed })
+            } else {
+                total += item.size
+            }
+        }
+        return total
+    }
+
+    // MARK: - Download Progress
 
     // MARK: - Download Progress
 
@@ -569,6 +688,9 @@ struct TheaterView: View {
         return "doc.fill"
     }
 
+    /// The files left/right arrow keys navigate through, in the EXACT same order
+    /// they appear in the file browser (same filters, sort option, and direction),
+    /// so navigating 1 → 2 → 3 … matches what the user sees on screen.
     private var mediaFiles: [ObjectRecord] {
         let base: [ObjectRecord] = {
             let files = appState.files
@@ -582,14 +704,27 @@ struct TheaterView: View {
             case .favorites:
                 return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
             case .photos:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
-                    ($0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())) }
+                if let currentID = appState.currentFolderID {
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+                } else {
+                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
+                        $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
+                    ) }
+                }
             case .video:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("video/") }
+                if let currentID = appState.currentFolderID {
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+                } else {
+                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && $0.mime.hasPrefix("video/") }
+                }
             case .audio:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
-                    $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
-                ) }
+                if let currentID = appState.currentFolderID {
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+                } else {
+                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
+                        $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
+                    ) }
+                }
             case .documents:
                 return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
                     ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
@@ -606,12 +741,22 @@ struct TheaterView: View {
         let searched = query.isEmpty ? filtered : filtered.filter { $0.name.lowercased().contains(query) }
 
         switch sortOptionRaw {
-        case "date":
-            return searched.sorted { $0.createdAt > $1.createdAt }
+        case "dateCreated":
+            return searched.sorted { sortAscending ? $0.createdAt < $1.createdAt : $0.createdAt > $1.createdAt }
+        case "dateModified":
+            return searched.sorted { sortAscending ? $0.modifiedAt < $1.modifiedAt : $0.modifiedAt > $1.modifiedAt }
         case "size":
-            return searched.sorted { $0.size > $1.size }
+            return searched.sorted { sortAscending ? $0.size < $1.size : $0.size > $1.size }
+        case "kind":
+            return searched.sorted {
+                let res = $0.mime.localizedCaseInsensitiveCompare($1.mime)
+                return sortAscending ? res == .orderedAscending : res == .orderedDescending
+            }
         default: // "name"
-            return searched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return searched.sorted {
+                let res = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return sortAscending ? res == .orderedAscending : res == .orderedDescending
+            }
         }
     }
 
@@ -657,7 +802,11 @@ struct TheaterView: View {
         guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
         let nextIndex = min(max(currentIndex + delta, 0), files.count - 1)
         guard nextIndex != currentIndex else { return }
-        appState.theaterFile = files[nextIndex]
+        let next = files[nextIndex]
+        appState.theaterFile = next
+        // Keep the browser's selection in sync so closing the viewer (space) and
+        // reopening it shows the image we were just looking at.
+        appState.selectedFiles = [next.id]
     }
     private var activeLocalURL: URL? {
         if let url { return url }
@@ -748,6 +897,10 @@ struct TheaterView: View {
 
     private func loadFile() async {
         refreshTimerIfVisible()
+
+        // Metadata-only kinds (folders, unsupported types) render instantly from the
+        // catalog — no download needed. They fetch on demand when "Open" is tapped.
+        guard !isMetadataOnly else { return }
 
         imageScale = 1.0
         lastScale = 1.0
@@ -945,24 +1098,22 @@ struct KeyMonitorView: NSViewRepresentable {
             super.viewDidMoveToWindow()
             if window != nil && monitor == nil {
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                    // If this view is no longer attached to a window (viewer closed),
+                    // don't swallow keys — pass everything through so the browser's own
+                    // space/arrow handling works again.
+                    guard let self, self.window != nil else { return event }
                     if event.keyCode == 53 { // ESC key
-                        DispatchQueue.main.async { self?.onEscape?() }
+                        DispatchQueue.main.async { self.onEscape?() }
                         return nil
-                    } else if event.keyCode == 123 { // Left Arrow
-                        if let onLeft = self?.onLeftArrow {
-                            DispatchQueue.main.async { onLeft() }
-                            return nil
-                        }
-                    } else if event.keyCode == 124 { // Right Arrow
-                        if let onRight = self?.onRightArrow {
-                            DispatchQueue.main.async { onRight() }
-                            return nil
-                        }
-                    } else if event.keyCode == 49 { // Spacebar
-                        if let onSpace = self?.onSpacebar {
-                            DispatchQueue.main.async { onSpace() }
-                            return nil
-                        }
+                    } else if event.keyCode == 123, let onLeft = self.onLeftArrow { // Left Arrow
+                        DispatchQueue.main.async { onLeft() }
+                        return nil
+                    } else if event.keyCode == 124, let onRight = self.onRightArrow { // Right Arrow
+                        DispatchQueue.main.async { onRight() }
+                        return nil
+                    } else if event.keyCode == 49, let onSpace = self.onSpacebar { // Spacebar
+                        DispatchQueue.main.async { onSpace() }
+                        return nil
                     }
                     return event
                 }

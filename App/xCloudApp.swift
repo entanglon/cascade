@@ -44,7 +44,9 @@ struct xCloudApp: App {
                     .disabled(appState.selectedFiles.isEmpty)
             }
 
-            CommandMenu("View") {
+            // Add "Reload Page" to the system's existing View menu instead of
+            // creating a duplicate "View" menu in the menu bar.
+            CommandGroup(after: .toolbar) {
                 Button("Reload Page") {
                     Task {
                         await appState.loadFiles()

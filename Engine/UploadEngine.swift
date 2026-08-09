@@ -5,10 +5,22 @@ import UniformTypeIdentifiers
 import QuickLookThumbnailing
 import AppKit
 
-enum UploadError: Error, Sendable {
+enum UploadError: Error, Sendable, LocalizedError {
     case notAuthorized
     case readFailed
     case uploadFailed
+    case cancelled
+    case fileChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .notAuthorized: return "Not authorized on Telegram."
+        case .readFailed: return "Could not read the file."
+        case .uploadFailed: return "Upload failed."
+        case .cancelled: return "Upload cancelled."
+        case .fileChanged: return "The file changed since this upload was interrupted. The partial upload was discarded — please upload the file again."
+        }
+    }
 }
 
 enum UploadEngine {
@@ -108,10 +120,20 @@ enum UploadEngine {
             }
         }
 
-        let plan = ChunkPlanner.plan(fileSize: fileSize)
+        // Resume must re-derive the exact chunk boundaries used by the original upload,
+        // so the stored chunk size wins over the global profile constants.
+        let plan = ChunkPlanner.plan(fileSize: fileSize, chunkSize: resumeObject?.chunkSize)
         let rootHash = try FileHasher.sha256(of: fileURL)
         let mime = UTType(filenameExtension: fileURL.pathExtension)?
             .preferredMIMEType ?? "application/octet-stream"
+
+        // If the file on disk changed since the upload was interrupted, the stored chunks
+        // no longer match it. Discard the stale partial rather than producing a corrupt file.
+        if let resumeObject, let originalHash = resumeObject.rootHash, rootHash != originalHash {
+            await cleanupPartialUpload(objectID: resumeObject.id)
+            Task { @MainActor in TransferCenter.shared.removeItems(forObjectID: resumeObject.id) }
+            throw UploadError.fileChanged
+        }
 
         var isParentPrivate = resumeObject?.isPrivate ?? isPrivate
         if resumeObject == nil, let parentID {
@@ -156,12 +178,28 @@ enum UploadEngine {
                 parentID: parentID,
                 isFolder: false,
                 isPrivate: isParentPrivate,
-                sourcePath: fileURL.path(percentEncoded: false)
+                sourcePath: fileURL.path(percentEncoded: false),
+                chunkSize: plan.chunkSize
             )
             try await DatabaseManager.shared.save(object)
         }
 
-        let transferID = await TransferCenter.shared.begin(.upload, objectID: objectID, name: displayName)
+        var doneIndexes: Set<Int> = []
+        var initialProgress: Double = 0
+        if let resumeObject {
+            let existing = (try? await DatabaseManager.shared.chunks(for: resumeObject.id)) ?? []
+            doneIndexes = Set(existing.compactMap { $0.messageID != nil ? $0.index : nil })
+            initialProgress = Double(doneIndexes.count) / Double(max(1, plan.items.count))
+        }
+
+        let transferID = await TransferCenter.shared.begin(
+            .upload,
+            objectID: objectID,
+            name: displayName,
+            initialProgress: initialProgress,
+            totalWork: Double(max(1, plan.items.count)),
+            reuseExisting: resumeObject != nil
+        )
         func report(_ s: String, _ p: Double) {
             progress(s, p)
             Task { @MainActor in TransferCenter.shared.update(transferID, progress: p, text: s) }
@@ -180,130 +218,186 @@ enum UploadEngine {
             kind = .document
         }
 
-        var doneIndexes: Set<Int> = []
-        if let resumeObject {
-            let existing = (try? await DatabaseManager.shared.chunks(for: resumeObject.id)) ?? []
-            doneIndexes = Set(existing.compactMap { $0.messageID != nil ? $0.index : nil })
+        // Pause aborts immediately: the in-flight chunk's send is cancelled (its
+        // continuation is resumed with a cancellation error, so no message is posted
+        // for it) and the token stops any chunk from starting at the next boundary.
+        // The last fully-recorded chunk is untouched, so resume continues from there.
+        let pauseToken = UploadPauseToken()
+
+        let work = Task { () throws -> Void in
+            do {
+                let handle = try FileHandle(forReadingFrom: fileURL)
+                defer { try? handle.close() }
+
+                let tmpDir = try tempDirectory()
+                let total = Double(plan.items.count)
+
+                for item in plan.items where !doneIndexes.contains(item.index) {
+                    if pauseToken.isCancelled { break }
+                    let n = item.index + 1
+                    report("Reading chunk \(n)/\(plan.items.count)",
+                           Double(item.index) / total)
+
+                    try handle.seek(toOffset: UInt64(item.offset))
+                    let plain = try readExactly(handle, count: Int(item.size))
+                    guard !plain.isEmpty else { throw UploadError.readFailed }
+                    let plainHash = FileHasher.sha256(of: plain)
+
+                    let chunkFileName: String
+                    if isParentPrivate || plan.items.count > 1 {
+                        chunkFileName = "\(objectID)-\(item.index).bin"
+                    } else {
+                        chunkFileName = displayName
+                    }
+                    let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
+
+                    if let key = objectKey {
+                        // ENCRYPT: Slice into 1MB chunks and seal with AES-GCM
+                        var encrypted = Data()
+                        encrypted.reserveCapacity(plain.count + 64)
+                        var offset = 0
+                        var sliceIndex = 0
+                        while offset < plain.count {
+                            let end = min(offset + CryptoEngine.sliceSize, plain.count)
+                            let slice = plain.subdata(in: offset..<end)
+                            let sealed = try CryptoEngine.encryptSlice(slice, objectKey: key, index: sliceIndex)
+                            encrypted.append(sealed)
+                            offset = end
+                            sliceIndex += 1
+                        }
+                        try encrypted.write(to: tmpURL)
+                    } else {
+                        // PLAINTEXT: Standard Telegram-native upload
+                        try plain.write(to: tmpURL)
+                    }
+
+                    report("Uploading chunk \(n)/\(plan.items.count)", Double(item.index) / total)
+
+                    var captionString: String? = nil
+                    let meta: [String: Any] = [
+                        "id": objectID,
+                        "name": displayName,
+                        "size": fileSize,
+                        "mime": mime,
+                        "parentID": parentID ?? "",
+                        "isPrivate": isParentPrivate,
+                        "isFolder": false,
+                        "trashed": false,
+                        "isFavorite": false,
+                        "index": item.index,
+                        "totalChunks": plan.items.count,
+                        "wrappedKey": wrappedKey?.base64EncodedString() ?? ""
+                    ]
+                    if let jsonData = try? JSONSerialization.data(withJSONObject: meta),
+                       let jsonStr = String(data: jsonData, encoding: .utf8) {
+                        captionString = "xcloud:v1:" + jsonStr
+                    }
+
+                    let messageId = try await TelegramClient.shared.sendFile(
+                        chatId: vault.channelID,
+                        path: tmpURL.path(percentEncoded: false),
+                        kind: kind,
+                        caption: captionString,
+                        onProgress: { p in
+                            let overallProgress = (Double(item.index) + min(max(0.0, p), 1.0)) / total
+                            report("Uploading chunk \(n)/\(plan.items.count)", min(overallProgress, 0.99))
+                        }
+                    )
+
+                    let chunk = ChunkRecord(
+                        id: UUID().uuidString,
+                        objectID: objectID,
+                        index: item.index,
+                        size: item.size,
+                        plainHash: plainHash,
+                        cipherHash: nil,
+                        state: "uploaded",
+                        messageID: messageId,
+                        fileUniqueID: nil,
+                        channelID: vault.channelID,
+                        createdAt: .now
+                    )
+                    try await DatabaseManager.shared.save(chunk)
+
+                    report("Uploaded chunk \(n)/\(plan.items.count)", Double(n) / total)
+                }
+
+                if pauseToken.isCancelled {
+                    // Paused between chunks: every posted chunk was recorded, so resume
+                    // continues exactly from here.
+                    _ = try? await DatabaseManager.shared.updateObject(objectID) {
+                        $0.state = "paused"
+                        $0.modifiedAt = .now
+                    }
+                    let done = ((try? await DatabaseManager.shared.chunks(for: objectID)) ?? [])
+                        .filter { ($0.messageID ?? 0) > 0 }.count
+                    let total = plan.items.count
+                    Task { @MainActor in
+                        TransferCenter.shared.pause(
+                            transferID,
+                            progress: total > 0 ? Double(done) / Double(total) : 0,
+                            text: "Paused — \(done)/\(total) chunks uploaded"
+                        )
+                    }
+                    throw UploadError.cancelled
+                }
+
+                try await DatabaseManager.shared.updateObject(objectID) { $0.state = "ready" }
+
+                // Populate local cache for instant (0ms) double-click previews
+                if let cacheDir = try? DownloadEngine.cacheDirectory() {
+                    let ext = fileURL.pathExtension
+                    let fileName = ext.isEmpty ? objectID : "\(objectID).\(ext)"
+                    let dest = cacheDir.appendingPathComponent(fileName)
+                    let fm = FileManager.default
+                    if !fm.fileExists(atPath: dest.path(percentEncoded: false)) {
+                        try? fm.copyItem(at: fileURL, to: dest)
+                    }
+                }
+
+                report("Complete", 1.0)
+                Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
+                logger.info("Upload complete: \(plan.items.count) chunk(s) stored in vault")
+            } catch {
+                // Pause requested mid-chunk or the task was cancelled externally: keep the
+                // uploaded chunks in Telegram + DB so the upload can resume from the last
+                // recorded chunk. Chunks posted before the cancellation were recorded.
+                if pauseToken.isCancelled || Task.isCancelled {
+                    _ = try? await DatabaseManager.shared.updateObject(objectID) {
+                        $0.state = "paused"
+                        $0.modifiedAt = .now
+                    }
+                    let done = ((try? await DatabaseManager.shared.chunks(for: objectID)) ?? [])
+                        .filter { ($0.messageID ?? 0) > 0 }.count
+                    let total = plan.items.count
+                    Task { @MainActor in
+                        TransferCenter.shared.pause(
+                            transferID,
+                            progress: total > 0 ? Double(done) / Double(total) : 0,
+                            text: "Paused — \(done)/\(total) chunks uploaded"
+                        )
+                    }
+                    throw UploadError.cancelled
+                }
+                _ = try? await DatabaseManager.shared.updateObject(objectID) {
+                    $0.state = "failed"
+                    $0.modifiedAt = .now
+                }
+                Task { @MainActor in
+                    TransferCenter.shared.finish(transferID, success: false, error: error.localizedDescription)
+                }
+                throw error
+            }
+        }
+        await TransferCenter.shared.registerCancel(transferID) {
+            pauseToken.cancel()
+            work.cancel()
         }
 
         do {
-            let handle = try FileHandle(forReadingFrom: fileURL)
-            defer { try? handle.close() }
-
-            let tmpDir = try tempDirectory()
-            let total = Double(plan.items.count)
-
-            for item in plan.items where !doneIndexes.contains(item.index) {
-                let n = item.index + 1
-                report("Reading chunk \(n)/\(plan.items.count)",
-                       Double(item.index) / total)
-
-                try handle.seek(toOffset: UInt64(item.offset))
-                let plain = try readExactly(handle, count: Int(item.size))
-                guard !plain.isEmpty else { throw UploadError.readFailed }
-                let plainHash = FileHasher.sha256(of: plain)
-
-                let chunkFileName: String
-                if isParentPrivate || plan.items.count > 1 {
-                    chunkFileName = "\(objectID)-\(item.index).bin"
-                } else {
-                    chunkFileName = displayName
-                }
-                let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
-
-                if let key = objectKey {
-                    // ENCRYPT: Slice into 1MB chunks and seal with AES-GCM
-                    var encrypted = Data()
-                    encrypted.reserveCapacity(plain.count + 64)
-                    var offset = 0
-                    var sliceIndex = 0
-                    while offset < plain.count {
-                        let end = min(offset + CryptoEngine.sliceSize, plain.count)
-                        let slice = plain.subdata(in: offset..<end)
-                        let sealed = try CryptoEngine.encryptSlice(slice, objectKey: key, index: sliceIndex)
-                        encrypted.append(sealed)
-                        offset = end
-                        sliceIndex += 1
-                    }
-                    try encrypted.write(to: tmpURL)
-                } else {
-                    // PLAINTEXT: Standard Telegram-native upload
-                    try plain.write(to: tmpURL)
-                }
-
-                report("Uploading chunk \(n)/\(plan.items.count)", Double(item.index) / total)
-
-                var captionString: String? = nil
-                let meta: [String: Any] = [
-                    "id": objectID,
-                    "name": displayName,
-                    "size": fileSize,
-                    "mime": mime,
-                    "parentID": parentID ?? "",
-                    "isPrivate": isParentPrivate,
-                    "isFolder": false,
-                    "trashed": false,
-                    "isFavorite": false,
-                    "index": item.index,
-                    "totalChunks": plan.items.count,
-                    "wrappedKey": wrappedKey?.base64EncodedString() ?? ""
-                ]
-                if let jsonData = try? JSONSerialization.data(withJSONObject: meta),
-                   let jsonStr = String(data: jsonData, encoding: .utf8) {
-                    captionString = "xcloud:v1:" + jsonStr
-                }
-
-                let messageId = try await TelegramClient.shared.sendFile(
-                    chatId: vault.channelID,
-                    path: tmpURL.path(percentEncoded: false),
-                    kind: kind,
-                    caption: captionString,
-                    onProgress: { p in
-                        let overallProgress = (Double(item.index) + min(max(0.0, p), 1.0)) / total
-                        report("Uploading chunk \(n)/\(plan.items.count)", min(overallProgress, 0.99))
-                    }
-                )
-
-                let chunk = ChunkRecord(
-                    id: UUID().uuidString,
-                    objectID: objectID,
-                    index: item.index,
-                    size: item.size,
-                    plainHash: plainHash,
-                    cipherHash: nil,
-                    state: "uploaded",
-                    messageID: messageId,
-                    fileUniqueID: nil,
-                    channelID: vault.channelID,
-                    createdAt: .now
-                )
-                try await DatabaseManager.shared.save(chunk)
-
-                report("Uploaded chunk \(n)/\(plan.items.count)", Double(n) / total)
-            }
-
-            try await DatabaseManager.shared.updateObject(objectID) { $0.state = "ready" }
-
-            // Populate local cache for instant (0ms) double-click previews
-            if let cacheDir = try? DownloadEngine.cacheDirectory() {
-                let ext = fileURL.pathExtension
-                let fileName = ext.isEmpty ? objectID : "\(objectID).\(ext)"
-                let dest = cacheDir.appendingPathComponent(fileName)
-                let fm = FileManager.default
-                if !fm.fileExists(atPath: dest.path(percentEncoded: false)) {
-                    try? fm.copyItem(at: fileURL, to: dest)
-                }
-            }
-
-            report("Complete", 1.0)
-            Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
-            logger.info("Upload complete: \(plan.items.count) chunk(s) stored in vault")
-        } catch {
-            try? await DatabaseManager.shared.updateObject(objectID) { $0.state = "failed" }
-            Task { @MainActor in
-                TransferCenter.shared.finish(transferID, success: false, error: error.localizedDescription)
-            }
-            throw error
+            try await work.value
+        } catch is CancellationError {
+            throw UploadError.cancelled
         }
     }
 
@@ -330,6 +424,41 @@ enum UploadEngine {
     }
 
     // MARK: - Helpers
+
+    /// Deletes a partial upload from Telegram and the local database (used by discard and TTL cleanup).
+    static func cleanupPartialUpload(objectID: String) async {
+        let chunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
+        let msgIDs = chunks.compactMap { $0.messageID }
+        if !msgIDs.isEmpty, let vault = try? await DatabaseManager.shared.firstVault() {
+            for i in stride(from: 0, to: msgIDs.count, by: 100) {
+                let batch = Array(msgIDs[i..<min(i + 100, msgIDs.count)])
+                try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: batch)
+            }
+        }
+        try? await DatabaseManager.shared.deleteObjectWithChunks(id: objectID)
+        if let thumb = thumbnailURL(for: objectID) {
+            try? FileManager.default.removeItem(at: thumb)
+        }
+    }
+
+    /// Thread-safe cooperative pause flag. The upload engine only reads it between
+    /// chunks, so an in-flight chunk always finishes posting and being recorded first.
+    private final class UploadPauseToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+
+        func cancel() {
+            lock.lock()
+            flag = true
+            lock.unlock()
+        }
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return flag
+        }
+    }
 
     private static func readExactly(
         _ handle: FileHandle,

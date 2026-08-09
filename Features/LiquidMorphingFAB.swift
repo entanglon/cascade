@@ -89,10 +89,15 @@ struct LiquidMorphingFAB: View {
         TransferCenter.shared.items.filter { $0.state == .active }
     }
 
+    /// Collective progress across ALL active transfers, weighted by how much work
+    /// each one represents (chunk count). This is the true "X% of everything done"
+    /// value instead of a per-file percentage.
     private var overallProgress: Double {
         guard !activeTransfers.isEmpty else { return 0 }
-        let total = activeTransfers.reduce(0.0) { $0 + $1.progress }
-        return total / Double(activeTransfers.count)
+        let totalWork = activeTransfers.reduce(0.0) { $0 + $1.totalWork }
+        guard totalWork > 0 else { return 0 }
+        let done = activeTransfers.reduce(0.0) { $0 + $1.progress * $1.totalWork }
+        return min(1.0, done / totalWork)
     }
 
     private var isTransferring: Bool {
@@ -114,6 +119,17 @@ struct LiquidMorphingFAB: View {
                         .scaleEffect(transferHovering ? 1.08 : 1.0)
                         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: transferHovering)
                         .onHover { transferHovering = $0 }
+                        .overlay(alignment: .topTrailing) {
+                            if activeTransfers.count > 1 {
+                                Text("\(activeTransfers.count)")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 17, height: 17)
+                                    .background(Circle().fill(XTheme.accent))
+                                    .overlay(Circle().strokeBorder(Color.black.opacity(0.4), lineWidth: 1.5))
+                                    .offset(x: 5, y: -5)
+                            }
+                        }
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $showMiniTransfersPopover, arrowEdge: .trailing) {

@@ -107,6 +107,12 @@ actor DatabaseManager {
                 t.add(column: "sourcePath", .text)
             }
         }
+
+        migrator.registerMigration("v6-chunk-size") { db in
+            try db.alter(table: "objects") { t in
+                t.add(column: "chunkSize", .integer)
+            }
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
