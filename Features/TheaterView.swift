@@ -86,6 +86,8 @@ struct TheaterView: View {
         .onKeyPress(.space) {
             if previewKind == .image {
                 toggleControls()
+            } else if previewKind == .video {
+                NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
             }
             return .handled
         }
@@ -126,24 +128,6 @@ struct TheaterView: View {
             }
 
             Spacer()
-
-            // Open Externally
-            Button {
-                if let url {
-                    NSWorkspace.shared.open(url)
-                } else {
-                    appState.openFile(file)
-                }
-            } label: {
-                Label("Open Externally", systemImage: "arrow.up.right.square")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .contentShape(Capsule())
-                    .glassEffect(.regular.interactive(), in: .capsule)
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
@@ -174,6 +158,24 @@ struct TheaterView: View {
                     .padding(.vertical, 6)
                     .glassEffect(.regular, in: .capsule)
             }
+
+            // Open Externally button at bottom right
+            Button {
+                if let url {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    appState.openFile(file)
+                }
+            } label: {
+                Label("Open Externally", systemImage: "arrow.up.right.square")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14)

@@ -184,8 +184,8 @@ struct FileBrowserView: View {
         .onKeyPress(.leftArrow)  { keyNav(-1); return .handled }
         .onKeyPress(.rightArrow) { keyNav(1); return .handled }
         .onKeyPress(.space) {
-            if let file = appState.selectedFile, !file.isFolder {
-                appState.theaterFile = file
+            if let file = appState.selectedFile {
+                open(file)
                 return .handled
             }
             return .ignored

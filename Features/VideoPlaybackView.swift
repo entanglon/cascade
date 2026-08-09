@@ -2,6 +2,10 @@ import SwiftUI
 import AVKit
 import AppKit
 
+extension Notification.Name {
+    static let toggleVideoPlayback = Notification.Name("xcloud_toggleVideoPlayback")
+}
+
 struct NativeAVPlayerView: NSViewRepresentable {
     let player: AVPlayer
 
@@ -52,6 +56,11 @@ struct VideoPlaybackView: View {
             }
         }
         .task { await prepare() }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleVideoPlayback)) { _ in
+            if let player {
+                togglePlayOrReplay(player: player)
+            }
+        }
         .onDisappear {
             player?.pause()
             player = nil

@@ -148,14 +148,20 @@ enum VaultRepair {
             }
         }
 
-        // 3. Purge invalid/orphaned ObjectRecords in SQLite that have no chunks (except folders)
+        // 3. Purge invalid/orphaned ObjectRecords in SQLite that have no chunks or invalid message IDs (except user folders)
         let allObjectsNow = (try? await DatabaseManager.shared.allObjects()) ?? []
         let allChunksNow = (try? await DatabaseManager.shared.allChunks()) ?? []
-        let validObjectIDsWithChunks = Set(allChunksNow.map(\.objectID))
-        for obj in allObjectsNow where !obj.isFolder {
-            if !validObjectIDsWithChunks.contains(obj.id) {
+        let validObjectIDsWithChunks = Set(allChunksNow.compactMap { ($0.messageID ?? 0) > 10_000_000 ? $0.objectID : nil })
+        for obj in allObjectsNow {
+            if !obj.isFolder && !validObjectIDsWithChunks.contains(obj.id) {
                 try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
                 changed = true
+            } else if obj.isFolder && obj.name == "Uploads" {
+                let hasChildren = allObjectsNow.contains(where: { $0.parentID == obj.id })
+                if !hasChildren {
+                    try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
+                    changed = true
+                }
             }
         }
 
