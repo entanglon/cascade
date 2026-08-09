@@ -205,7 +205,13 @@ enum UploadEngine {
                 guard !plain.isEmpty else { throw UploadError.readFailed }
                 let plainHash = FileHasher.sha256(of: plain)
 
-                let tmpURL = tmpDir.appendingPathComponent("\(objectID)-\(item.index).bin")
+                let chunkFileName: String
+                if isParentPrivate || plan.items.count > 1 {
+                    chunkFileName = "\(objectID)-\(item.index).bin"
+                } else {
+                    chunkFileName = displayName
+                }
+                let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
 
                 if let key = objectKey {
                     // ENCRYPT: Slice into 1MB chunks and seal with AES-GCM

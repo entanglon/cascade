@@ -187,8 +187,10 @@ enum VaultRepair {
         let validIDs = Set(validChunks.compactMap(\.messageID))
 
         let orphanedIDs = allMessages.filter { msg in
-            if case .messageDocument(let doc) = msg.content, doc.caption.text.hasPrefix("xcloud:dbsnapshot:") {
-                return true
+            if case .messageDocument(let doc) = msg.content {
+                if doc.caption.text.hasPrefix("xcloud:dbsnapshot:") || doc.document.fileName.hasPrefix("xcloud-db-") || doc.document.fileName.hasSuffix(".sqlite") {
+                    return true
+                }
             }
             return !validIDs.contains(msg.id)
         }.map(\.id)
