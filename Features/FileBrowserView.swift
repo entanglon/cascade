@@ -1185,6 +1185,10 @@ struct FileGridItem: View {
                     Image(systemName: "film.stack")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(XTheme.categoryCyan)
+                } else if file.mime == "xcloud/album-photo" {
+                    Image(systemName: "photo.stack.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(XTheme.categoryPink)
                 } else {
                     Image(systemName: "folder.fill")
                         .font(.system(size: 26, weight: .regular))
@@ -1465,10 +1469,27 @@ struct FileListRow: View {
     @ViewBuilder
     private var rowIcon: some View {
         if file.isFolder {
-            Image(systemName: file.isPrivate ? "number" : "folder.fill")
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
-                .frame(width: 32, height: 32)
+            if file.mime == "xcloud/playlist-audio" {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(XTheme.accent)
+                    .frame(width: 32, height: 32)
+            } else if file.mime == "xcloud/playlist-video" {
+                Image(systemName: "film.stack")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(XTheme.categoryCyan)
+                    .frame(width: 32, height: 32)
+            } else if file.mime == "xcloud/album-photo" {
+                Image(systemName: "photo.stack.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(XTheme.categoryPink)
+                    .frame(width: 32, height: 32)
+            } else {
+                Image(systemName: file.isPrivate ? "number" : "folder.fill")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
+                    .frame(width: 32, height: 32)
+            }
         } else if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
             Image(nsImage: ns)
                 .resizable()
