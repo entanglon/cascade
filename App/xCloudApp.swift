@@ -43,6 +43,16 @@ struct xCloudApp: App {
                     .keyboardShortcut(.delete, modifiers: [])
                     .disabled(appState.selectedFiles.isEmpty)
             }
+
+            CommandMenu("View") {
+                Button("Reload Page") {
+                    Task {
+                        await appState.loadFiles()
+                        appState.thumbnailVersion += 1
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+            }
         }
 
         Window("About", id: "about") {

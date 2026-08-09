@@ -31,7 +31,19 @@ actor ThumbnailService {
             return quick
         }
 
-        // 4. Re-fetch thumbnail from Telegram for media/documents
+        // 4. If video is cached on disk, generate thumbnail from video asset
+        if object.mime.hasPrefix("video/") && DownloadEngine.isCached(object) {
+            let cacheURL = DownloadEngine.cacheURL(for: object)
+            generateAndSaveThumbnail(for: object, from: cacheURL)
+            let baseDir = (try? UploadEngine.thumbnailsDirectory()) ?? URL.temporaryDirectory
+            let thumb = baseDir.appendingPathComponent("\(object.id).jpg")
+            if fm.fileExists(atPath: thumb.path(percentEncoded: false)) {
+                cache[object.id] = thumb
+                return thumb
+            }
+        }
+
+        // 5. Re-fetch thumbnail from Telegram for media/documents
         if let url = await fetchFromTelegram(object) {
             cache[object.id] = url
             return url
@@ -75,10 +87,9 @@ actor ThumbnailService {
         guard let vault = try? await DatabaseManager.shared.firstVault(),
               let chunk = (try? await DatabaseManager.shared.chunks(for: object.id))?.first,
               let messageId = chunk.messageID,
-              let fileId = try? await TelegramClient.shared.thumbnailFileId(
+              let data = try? await TelegramClient.shared.thumbnailData(
                   forMessage: messageId, chatId: vault.channelID
-              ),
-              let data = try? await TelegramClient.shared.downloadFileData(fileId: fileId)
+              )
         else { return nil }
         let url = telegramPath(for: object.id)
         try? data.write(to: url)

@@ -281,6 +281,29 @@ final class TelegramClient {
         }
     }
 
+    func thumbnailData(forMessage messageId: Int64, chatId: Int64) async throws -> Data? {
+        let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
+
+        // 1. Check for Embedded Minithumbnail Data
+        switch message.content {
+        case .messagePhoto(let ph):
+            if let mini = ph.photo.minithumbnail { return mini.data }
+        case .messageVideo(let vid):
+            if let mini = vid.video.minithumbnail { return mini.data }
+        case .messageDocument(let doc):
+            if let mini = doc.document.minithumbnail { return mini.data }
+        default:
+            break
+        }
+
+        // 2. Fall back to downloading thumbnail file
+        if let fileId = try await thumbnailFileId(forMessage: messageId, chatId: chatId) {
+            return try await downloadFileData(fileId: fileId)
+        }
+
+        return nil
+    }
+
     func downloadFileData(fileId: Int) async throws -> Data? {
         guard let client else { throw TelegramError.notInitialized }
         var file = try await client.downloadFile(

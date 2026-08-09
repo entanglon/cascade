@@ -148,6 +148,16 @@ struct FileBrowserView: View {
             }
             return .ignored
         }
+        .onKeyPress("r", phases: .down) { press in
+            if press.modifiers.contains(.command) {
+                Task {
+                    await appState.loadFiles()
+                    appState.thumbnailVersion += 1
+                }
+                return .handled
+            }
+            return .ignored
+        }
         .onKeyPress("o", phases: .down) { press in
             if press.modifiers.contains(.command), let f = appState.selectedFile {
                 open(f)
