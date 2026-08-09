@@ -17,6 +17,7 @@ struct TheaterView: View {
     @State private var errorMessage: String?
     @State private var showControls = true
     @State private var controlsTimer: Timer?
+    @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
 
     private var previewKind: PreviewKind {
         let ext = (file.name as NSString).pathExtension.lowercased()
@@ -475,30 +476,42 @@ struct TheaterView: View {
             let files = appState.files
             switch appState.selectedDestination {
             case .allFiles:
-                return files.filter { !$0.trashed && $0.parentID == appState.currentFolderID }
+                return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == appState.currentFolderID }
+            case .privateVault:
+                return files.filter { !$0.trashed && $0.isPrivate && $0.parentID == appState.currentFolderID }
             case .recent:
-                return Array(files.filter { !$0.trashed && !$0.isFolder }.prefix(20))
+                return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
             case .favorites:
-                return files.filter { $0.isFavorite && !$0.trashed }
+                return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
             case .video:
-                return files.filter { !$0.trashed && !$0.isFolder && $0.mime.hasPrefix("video/") }
+                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("video/") }
             case .audio:
-                return files.filter { !$0.trashed && !$0.isFolder && (
+                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                     $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
                 ) }
             case .documents:
-                return files.filter { !$0.trashed && !$0.isFolder &&
+                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
                     ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
                      $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
-            case .privateVault, .transfers, .trash:
-                return files.filter { !$0.trashed && !$0.isFolder }
+            case .transfers:
+                return []
+            case .trash:
+                return files.filter { $0.trashed }
             }
         }()
 
         let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filtered = base.filter { !$0.isFolder }
-        if query.isEmpty { return filtered }
-        return filtered.filter { $0.name.lowercased().contains(query) }
+        let searched = query.isEmpty ? filtered : filtered.filter { $0.name.lowercased().contains(query) }
+
+        switch sortOptionRaw {
+        case "date":
+            return searched.sorted { $0.createdAt > $1.createdAt }
+        case "size":
+            return searched.sorted { $0.size > $1.size }
+        default: // "name"
+            return searched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
     }
 
     private func canNavigate(_ delta: Int) -> Bool {

@@ -23,7 +23,24 @@ struct FileBrowserView: View {
     @State private var columnCount = 4
     @State private var fabHovering = false
     @Namespace private var viewModeNamespace
-    @State private var sortOption: SortOption = .name
+    @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
+
+    private var sortOption: SortOption {
+        get {
+            switch sortOptionRaw {
+            case "date": return .date
+            case "size": return .size
+            default: return .name
+            }
+        }
+        nonmutating set {
+            switch newValue {
+            case .name: sortOptionRaw = "name"
+            case .date: sortOptionRaw = "date"
+            case .size: sortOptionRaw = "size"
+            }
+        }
+    }
 
     enum SortOption { case name, date, size }
 
