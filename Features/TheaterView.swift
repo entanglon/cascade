@@ -345,7 +345,7 @@ struct TheaterView: View {
             imageViewer
                 .onTapGesture { toggleControls() }
         case .video:
-            VideoPlaybackView(object: file)
+            VideoPlaybackView(object: file, showControls: showControls)
         case .audio:
             TheaterAudioPlayerView(file: file, mediaFiles: mediaFiles)
         default:
@@ -892,12 +892,18 @@ struct KeyMonitorView: NSViewRepresentable {
     }
 }
 
+class NonMenuWKWebView: WKWebView {
+    override func menu(for event: NSEvent) -> NSMenu? {
+        return nil
+    }
+}
+
 struct SVGWebView: NSViewRepresentable {
     let url: URL
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = NonMenuWKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         return webView

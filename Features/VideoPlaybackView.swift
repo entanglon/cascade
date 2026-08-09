@@ -8,11 +8,12 @@ extension Notification.Name {
 
 struct NativeAVPlayerView: NSViewRepresentable {
     let player: AVPlayer
+    let showControls: Bool
 
     func makeNSView(context: Context) -> AVPlayerView {
         let playerView = AVPlayerView()
         playerView.player = player
-        playerView.controlsStyle = .inline
+        playerView.controlsStyle = showControls ? .inline : .none
         playerView.showsSharingServiceButton = false
         playerView.showsFullScreenToggleButton = false
         return playerView
@@ -20,11 +21,16 @@ struct NativeAVPlayerView: NSViewRepresentable {
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = player
+        let targetStyle: AVPlayerViewControlsStyle = showControls ? .inline : .none
+        if nsView.controlsStyle != targetStyle {
+            nsView.controlsStyle = targetStyle
+        }
     }
 }
 
 struct VideoPlaybackView: View {
     let object: ObjectRecord
+    let showControls: Bool
     @State private var player: AVPlayer?
     @State private var progress: Double = 0
     @State private var error: String?
@@ -32,7 +38,7 @@ struct VideoPlaybackView: View {
     var body: some View {
         ZStack {
             if let player {
-                NativeAVPlayerView(player: player)
+                NativeAVPlayerView(player: player, showControls: showControls)
                     .onKeyPress(.space) {
                         togglePlayOrReplay(player: player)
                         return .handled
