@@ -10,6 +10,7 @@ struct NativeAVPlayerView: NSViewRepresentable {
         playerView.player = player
         playerView.controlsStyle = .inline
         playerView.showsSharingServiceButton = false
+        playerView.showsFullScreenToggleButton = false
         return playerView
     }
 
@@ -28,6 +29,10 @@ struct VideoPlaybackView: View {
         ZStack {
             if let player {
                 NativeAVPlayerView(player: player)
+                    .onKeyPress(.space) {
+                        togglePlayOrReplay(player: player)
+                        return .handled
+                    }
             } else if let error {
                 VStack(spacing: 10) {
                     Image(systemName: "wifi.exclamationmark")
@@ -50,6 +55,24 @@ struct VideoPlaybackView: View {
         .onDisappear {
             player?.pause()
             player = nil
+        }
+    }
+
+    private func togglePlayOrReplay(player: AVPlayer) {
+        guard let currentItem = player.currentItem else { return }
+        let duration = currentItem.duration
+        let currentTime = player.currentTime()
+        
+        let isAtEnd = duration.isValid && !duration.isIndefinite && (duration.seconds - currentTime.seconds <= 0.5)
+        
+        if isAtEnd {
+            player.seek(to: .zero) { _ in
+                player.play()
+            }
+        } else if player.timeControlStatus == .playing {
+            player.pause()
+        } else {
+            player.play()
         }
     }
 

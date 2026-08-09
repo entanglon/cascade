@@ -113,7 +113,7 @@ struct TheaterView: View {
                     .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
-            .help("Close (ESC)")
+            .help("Close Preview")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
@@ -126,20 +126,6 @@ struct TheaterView: View {
             }
 
             Spacer()
-
-            // Fullscreen
-            Button {
-                NSApp.keyWindow?.toggleFullScreen(nil)
-            } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
-            .help("Toggle Full Screen")
 
             // Open Externally
             Button {
@@ -159,9 +145,9 @@ struct TheaterView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(.black.opacity(0.4))
     }
 
     // MARK: - Bottom Info

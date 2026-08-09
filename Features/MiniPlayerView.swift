@@ -68,30 +68,37 @@ struct MiniPlayerView: View {
             .frame(width: 240)
 
             // Playback Controls
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button { audioEngine.skipPrevious() } label: {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
 
                 Button { audioEngine.togglePlayPause() } label: {
                     ZStack {
                         Circle().fill(XTheme.accent)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 34, height: 34)
+                            .shadow(color: XTheme.accent.opacity(0.4), radius: 4, y: 2)
                         Image(systemName: audioEngine.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
                             .offset(x: audioEngine.isPlaying ? 0 : 1)
                     }
+                    .frame(width: 34, height: 34)
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
 
                 Button { audioEngine.skipNext() } label: {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
             }
@@ -105,8 +112,10 @@ struct MiniPlayerView: View {
                 }
             } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .help("Full Screen Player")
@@ -117,7 +126,9 @@ struct MiniPlayerView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .help("Close Player")
@@ -234,6 +245,8 @@ struct MiniPlayerView: View {
                         Image(systemName: "backward.fill")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundStyle(.white.opacity(0.85))
+                            .frame(width: 50, height: 50)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
 
@@ -247,6 +260,8 @@ struct MiniPlayerView: View {
                                 .foregroundStyle(.white)
                                 .offset(x: audioEngine.isPlaying ? 0 : 2)
                         }
+                        .frame(width: 68, height: 68)
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
 
@@ -254,6 +269,8 @@ struct MiniPlayerView: View {
                         Image(systemName: "forward.fill")
                             .font(.system(size: 24, weight: .bold))
                             .foregroundStyle(.white.opacity(0.85))
+                            .frame(width: 50, height: 50)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                 }
