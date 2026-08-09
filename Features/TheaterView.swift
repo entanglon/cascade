@@ -609,37 +609,29 @@ struct TheaterAudioPlayerView: View {
             }
             .padding(.horizontal, 32)
 
-            // Apple Native AVPlayerView (Provides Apple native scrubber, volume controls, AirPlay selector)
-            if let avPlayer = audioEngine.player, audioEngine.currentTrack?.id == file.id {
-                NativeAVPlayerView(player: avPlayer)
-                    .frame(maxWidth: 520, maxHeight: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.horizontal, 32)
-            } else {
-                // Scrubber Bar
-                VStack(spacing: 8) {
-                    Slider(
-                        value: Binding(
-                            get: { audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0 },
-                            set: { audioEngine.seek(to: $0) }
-                        ),
-                        in: 0...max(1, audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 1)
-                    )
-                    .tint(XTheme.accent)
+            // Scrubber Bar
+            VStack(spacing: 8) {
+                Slider(
+                    value: Binding(
+                        get: { audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0 },
+                        set: { audioEngine.seek(to: $0) }
+                    ),
+                    in: 0...max(1, audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 1)
+                )
+                .tint(XTheme.accent)
 
-                    HStack {
-                        Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0))
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Spacer()
-                        Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 0))
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
+                HStack {
+                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Spacer()
+                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 0))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
                 }
-                .frame(maxWidth: 440)
-                .padding(.horizontal, 32)
             }
+            .frame(maxWidth: 440)
+            .padding(.horizontal, 32)
 
             // Playback Controls
             HStack(spacing: 32) {

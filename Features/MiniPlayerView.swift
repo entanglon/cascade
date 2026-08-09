@@ -327,22 +327,30 @@ struct MiniPlayerView: View {
 
 struct EqualizerWaveformView: View {
     let barCount: Int
-    @State private var animate = false
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 3) {
-            ForEach(0..<barCount, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(.white)
-                    .frame(height: animate ? CGFloat.random(in: 6...30) : 10)
-                    .animation(
-                        .easeInOut(duration: 0.35)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(index) * 0.08),
-                        value: animate
-                    )
+        TimelineView(.animation) { timeline in
+            let date = timeline.date.timeIntervalSince1970
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    let phase = Double(index) * 0.85
+                    let speed = 4.5 + Double(index % 3) * 1.5
+                    let primary = sin(date * speed + phase) * 0.45 + 0.55
+                    let secondary = sin(date * 8.5 + phase * 2.2) * 0.25
+                    let factor = max(0.18, min(1.0, primary + secondary))
+
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [.white, XTheme.accent.opacity(0.85)],
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
+                        )
+                        .frame(width: 4, height: CGFloat(factor * 44))
+                        .shadow(color: XTheme.accent.opacity(0.4), radius: 2)
+                }
             }
         }
-        .onAppear { animate = true }
     }
 }
