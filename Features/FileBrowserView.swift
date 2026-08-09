@@ -181,6 +181,20 @@ struct FileBrowserView: View {
             }
             return .ignored
         }
+        .onKeyPress("c", phases: .down) { press in
+            if press.modifiers.contains(.command) {
+                copySelectedFilesToClipboard()
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress("v", phases: .down) { press in
+            if press.modifiers.contains(.command) {
+                pasteFromClipboard()
+                return .handled
+            }
+            return .ignored
+        }
         .onKeyPress("r", phases: .down) { press in
             if press.modifiers.contains(.command) {
                 Task {
@@ -236,10 +250,12 @@ struct FileBrowserView: View {
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [.item],
-            allowsMultipleSelection: false
+            allowsMultipleSelection: true
         ) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                appState.startUpload(url: url)
+            if case .success(let urls) = result {
+                for url in urls {
+                    appState.startUpload(url: url)
+                }
             }
         }
         .alert("New Folder", isPresented: $showNewFolder) {
@@ -779,6 +795,56 @@ struct FileBrowserView: View {
             }
         } else {
             appState.selectedFiles = [file.id]
+        }
+    }
+
+    private func copySelectedFilesToClipboard() {
+        let selectedIDs = appState.selectedFiles
+        let targetFiles = visibleFiles.filter { selectedIDs.contains($0.id) }
+        guard !targetFiles.isEmpty else { return }
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        var fileURLs: [NSURL] = []
+        var fileNames: [String] = []
+
+        for file in targetFiles {
+            if DownloadEngine.isCached(file) {
+                let localURL = DownloadEngine.cacheURL(for: file)
+                fileURLs.append(localURL as NSURL)
+            }
+            fileNames.append(file.name)
+        }
+
+        if !fileURLs.isEmpty {
+            pb.writeObjects(fileURLs)
+        } else {
+            pb.setString(fileNames.joined(separator: "\n"), forType: .string)
+        }
+    }
+
+    private func pasteFromClipboard() {
+        let pb = NSPasteboard.general
+
+        // 1. Check for File URLs copied from Finder, Desktop, Downloads, etc.
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty {
+            for url in urls {
+                appState.startUpload(url: url)
+            }
+            return
+        }
+
+        // 2. Check for Copied Image Data (Screenshots, browser images)
+        if let image = NSImage(pasteboard: pb), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+            if let pngData = rep.representation(using: .png, properties: [:]) {
+                let tempDir = FileManager.default.temporaryDirectory
+                let fileName = "Pasted_Image_\(Int(Date().timeIntervalSince1970)).png"
+                let tempURL = tempDir.appendingPathComponent(fileName)
+                try? pngData.write(to: tempURL)
+                appState.startUpload(url: tempURL)
+                return
+            }
         }
     }
 
