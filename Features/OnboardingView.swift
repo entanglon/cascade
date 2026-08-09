@@ -39,7 +39,7 @@ struct OnboardingView: View {
                 )
 
                 featureRow(
-                    icon: "lock.shield.fill",
+                    icon: "asterisk",
                     color: .red,
                     title: "Zero-Knowledge Private Folders",
                     description: "Files in private folders are AES-GCM encrypted on your Mac before upload. Telegram only sees noise."

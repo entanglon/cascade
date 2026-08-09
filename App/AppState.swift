@@ -24,7 +24,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .allFiles: return "square.grid.2x2"
-        case .privateVault: return "lock.square.stack.fill"
+        case .privateVault: return "asterisk"
         case .recent: return "clock"
         case .favorites: return "star"
         case .video: return "play.rectangle"
@@ -419,13 +419,89 @@ final class AppState {
         }
     }
 
+    private func isFolderPrivate(_ folderID: String?) -> Bool {
+        guard let folderID else { return false }
+        guard let folder = files.first(where: { $0.id == folderID }) else { return false }
+        if folder.isPrivate { return true }
+        return isFolderPrivate(folder.parentID)
+    }
+
     @MainActor
     func moveObject(id: String, to folderID: String?) {
         guard id != folderID else { return }
         if let folderID, isDescendant(folderID, of: id) { return }
+
+        let targetIsPrivate = isFolderPrivate(folderID)
+
         Task {
-            try? await DatabaseManager.shared.updateObject(id) { $0.parentID = folderID }
+            if let obj = files.first(where: { $0.id == id }) {
+                let wasPrivate = obj.isPrivate
+                try? await DatabaseManager.shared.updateObject(id) {
+                    $0.parentID = folderID
+                    if !targetIsPrivate && wasPrivate {
+                        $0.isPrivate = false
+                    }
+                }
+
+                // If moved out of private vault into a public folder, unencrypt in Telegram
+                if wasPrivate && !targetIsPrivate {
+                    await unencryptFileInTelegram(id: id)
+                }
+            }
             await loadFiles()
+        }
+    }
+
+    private func unencryptFileInTelegram(id: String) async {
+        guard let file = files.first(where: { $0.id == id }) else { return }
+        if file.isFolder {
+            // Unencrypt child objects recursively
+            let children = files.filter { $0.parentID == file.id }
+            for child in children {
+                await unencryptFileInTelegram(id: child.id)
+            }
+            return
+        }
+
+        // Fetch decrypted temp file using DownloadEngine
+        guard let decryptedURL = try? await DownloadEngine.download(object: file, progress: { _, _ in }) else { return }
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+
+        let chunks = (try? await DatabaseManager.shared.chunks(for: file.id)) ?? []
+        guard let oldChunk = chunks.first, let oldMsgID = oldChunk.messageID else { return }
+
+        // Send unencrypted file to Telegram channel
+        let meta: [String: Any] = [
+            "id": file.id,
+            "name": file.name,
+            "size": file.size,
+            "mime": file.mime,
+            "parentID": file.parentID ?? "",
+            "isPrivate": false,
+            "index": 0,
+            "totalChunks": 1,
+            "wrappedKey": ""
+        ]
+
+        var captionString: String? = nil
+        if let jsonData = try? JSONSerialization.data(withJSONObject: meta),
+           let jsonStr = String(data: jsonData, encoding: .utf8) {
+            captionString = "xcloud:v1:" + jsonStr
+        }
+
+        if let messageId = try? await TelegramClient.shared.sendFile(
+            chatId: vault.channelID,
+            path: decryptedURL.path(percentEncoded: false),
+            kind: .document,
+            caption: captionString,
+            onProgress: nil
+        ) {
+            // Delete old encrypted Telegram message
+            _ = try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: [oldMsgID])
+
+            // Update chunk record with new unencrypted message ID
+            try? await DatabaseManager.shared.updateChunk(oldChunk.id) { $0.messageID = messageId }
+            try? await DatabaseManager.shared.updateObject(file.id) { $0.isPrivate = false }
         }
     }
 

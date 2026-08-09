@@ -279,7 +279,7 @@ struct FileBrowserView: View {
                 }
 
                 if appState.selectedDestination == .privateVault {
-                    Image(systemName: "lock.fill")
+                    Image(systemName: "asterisk")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.red)
                 }
@@ -500,7 +500,7 @@ struct FileBrowserView: View {
                     folderName = ""
                     showNewPrivateFolder = true
                 } label: {
-                    Label("New Private Folder", systemImage: "lock.shield.fill")
+                    Label("New Private Folder", systemImage: "asterisk")
                 }
             } else {
                 Button {
@@ -981,7 +981,7 @@ struct FileGridItem: View {
                     .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
 
                 if file.isPrivate {
-                    Image(systemName: "lock.fill")
+                    Image(systemName: "asterisk")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(2)
@@ -1091,7 +1091,7 @@ struct FileGridItem: View {
         .overlay(alignment: .topTrailing) {
             HStack(spacing: 4) {
                 if file.isPrivate {
-                    Image(systemName: "lock.fill")
+                    Image(systemName: "asterisk")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(4)
@@ -1223,7 +1223,7 @@ struct FileListRow: View {
         )
         .overlay(alignment: .trailing) {
             if file.isPrivate {
-                Image(systemName: "lock.fill")
+                Image(systemName: "asterisk")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(3)
@@ -1254,7 +1254,7 @@ struct FileListRow: View {
     @ViewBuilder
     private var rowIcon: some View {
         if file.isFolder {
-            Image(systemName: file.isPrivate ? "lock.folder.fill" : "folder.fill")
+            Image(systemName: file.isPrivate ? "asterisk" : "folder.fill")
                 .font(.system(size: 22, weight: .regular))
                 .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
                 .frame(width: 32, height: 32)
@@ -1305,7 +1305,7 @@ struct PrivateVaultLockView: View {
             VStack(spacing: 24) {
                 ZStack {
                     Circle().fill(XTheme.accent.opacity(0.15)).frame(width: 72, height: 72)
-                    Image(systemName: "lock.shield.fill")
+                    Image(systemName: "asterisk")
                         .font(.system(size: 30)).foregroundStyle(XTheme.accent)
                 }
                 VStack(spacing: 6) {
