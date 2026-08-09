@@ -138,6 +138,7 @@ struct TransferGridCard: View {
             ProgressView(value: item.progress)
                 .progressViewStyle(.linear)
                 .tint(item.state == .failed ? .red : XTheme.accent)
+                .animation(.easeInOut(duration: 0.25), value: item.progress)
         }
         .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
@@ -178,6 +179,7 @@ struct TransferRow: View {
                 ProgressView(value: item.progress)
                     .progressViewStyle(.linear)
                     .tint(item.state == .failed ? .red : XTheme.accent)
+                    .animation(.easeInOut(duration: 0.25), value: item.progress)
 
                 HStack {
                     Text(item.statusText)

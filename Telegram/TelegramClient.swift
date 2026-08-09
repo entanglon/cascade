@@ -81,9 +81,10 @@ final class TelegramClient {
     // MARK: - Tracking
     private var pendingSendContinuations: [Int64: CheckedContinuation<Int64, any Swift.Error>] = [:]
     private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
-    private var fileProgressHandlers: [Int: (Double) -> Void] = [:]
-    private var messageProgressHandlers: [Int64: (Double) -> Void] = [:]
+    private var fileDownloadProgressHandlers: [Int: (Double) -> Void] = [:]
+    private var fileUploadProgressHandlers: [Int: (Double) -> Void] = [:]
     private var fileDownloadContinuations: [Int: CheckedContinuation<String, any Swift.Error>] = [:]
+    private var fileUploadContinuations: [Int: CheckedContinuation<Int, any Swift.Error>] = [:]
     private let trackingLock = NSLock()
     private func syncLock<T>(_ work: () -> T) -> T {
         trackingLock.lock()
@@ -105,10 +106,12 @@ final class TelegramClient {
 
         switch type {
         case "updateAuthorizationState":
-            if let authState = json["authorization_state"] as? [String: Any],
-               let stateType = authState["@type"] as? String {
-                await MainActor.run {
+            if let state = json["authorization_state"] as? [String: Any],
+               let stateType = state["@type"] as? String {
+                Task { @MainActor in
                     switch stateType {
+                    case "authorizationStateWaitTdlibParameters":
+                        self.authStep = .unknown
                     case "authorizationStateWaitPhoneNumber":
                         self.authStep = .phone
                         self.isConnected = true
@@ -132,39 +135,39 @@ final class TelegramClient {
                 }
             }
 
-        case "updateMessageSendProgress":
-            if let oldId = parseInt64(json["old_message_id"]) ?? parseInt64(json["message_id"]) {
-                let progressObj = (json["send_progress"] as? [String: Any]) ?? json
-                let uploaded = (progressObj["uploaded_size"] as? NSNumber)?.doubleValue ?? (progressObj["uploadedSize"] as? NSNumber)?.doubleValue ?? 0
-                let total = (progressObj["total_size"] as? NSNumber)?.doubleValue ?? (progressObj["totalSize"] as? NSNumber)?.doubleValue ?? 0
-                if total > 0 {
-                    let handler = syncLock { messageProgressHandlers[oldId] }
-                    handler?(min(max(0, uploaded / total), 1.0))
-                }
-            }
-
         case "updateFile":
             if let file = json["file"] as? [String: Any],
                let fileId = file["id"] as? Int {
-                let handler = syncLock { fileProgressHandlers[fileId] }
 
                 let totalSize = (file["expected_size"] as? NSNumber)?.doubleValue ?? (file["size"] as? NSNumber)?.doubleValue ?? 0
-                if let handler, totalSize > 0 {
-                    var current: Double = 0
-                    if let remote = file["remote"] as? [String: Any] {
-                        let uploaded = (remote["uploaded_size"] as? NSNumber)?.doubleValue ?? (remote["uploadedSize"] as? NSNumber)?.doubleValue ?? 0
-                        current = max(current, uploaded)
+
+                // Upload tracking (remote branch ONLY)
+                if let remote = file["remote"] as? [String: Any] {
+                    let isUploading = (remote["is_uploading_active"] as? Bool) ?? false
+                    let isCompleted = (remote["is_uploading_completed"] as? Bool) ?? false
+                    let uploaded = (remote["uploaded_size"] as? NSNumber)?.doubleValue ?? (remote["uploadedSize"] as? NSNumber)?.doubleValue ?? 0
+
+                    if (isUploading || isCompleted || uploaded > 0), let handler = syncLock({ fileUploadProgressHandlers[fileId] }) {
+                        handler(isCompleted ? 1.0 : (totalSize > 0 ? min(max(0, uploaded / totalSize), 1.0) : 0))
                     }
-                    if let local = file["local"] as? [String: Any] {
-                        let downloaded = (local["downloaded_size"] as? NSNumber)?.doubleValue ?? (local["downloadedSize"] as? NSNumber)?.doubleValue ?? 0
-                        current = max(current, downloaded)
+
+                    if isCompleted {
+                        let continuation = syncLock { fileUploadContinuations.removeValue(forKey: fileId) }
+                        continuation?.resume(returning: fileId)
                     }
-                    handler(min(max(0, current / totalSize), 1.0))
                 }
 
+                // Download tracking (local branch ONLY)
                 if let local = file["local"] as? [String: Any] {
-                    let isCompleted = (local["is_downloading_completed"] as? Bool == true) || (local["isDownloadingCompleted"] as? Bool == true)
+                    let isDownloading = (local["is_downloading_active"] as? Bool) ?? false
+                    let isCompleted = (local["is_downloading_completed"] as? Bool) ?? false || (local["isDownloadingCompleted"] as? Bool) ?? false
+                    let downloaded = (local["downloaded_size"] as? NSNumber)?.doubleValue ?? (local["downloadedSize"] as? NSNumber)?.doubleValue ?? 0
                     let path = (local["path"] as? String) ?? ""
+
+                    if (isDownloading || isCompleted || downloaded > 0), let handler = syncLock({ fileDownloadProgressHandlers[fileId] }) {
+                        handler(isCompleted ? 1.0 : (totalSize > 0 ? min(max(0, downloaded / totalSize), 1.0) : 0))
+                    }
+
                     if isCompleted && !path.isEmpty {
                         let continuation = syncLock { fileDownloadContinuations.removeValue(forKey: fileId) }
                         continuation?.resume(returning: path)
@@ -417,7 +420,7 @@ final class TelegramClient {
         }
 
         if let onProgress {
-            syncLock { fileProgressHandlers[file.id] = onProgress }
+            syncLock { fileDownloadProgressHandlers[file.id] = onProgress }
         }
 
         let updated = try await client?.downloadFile(
@@ -440,7 +443,7 @@ final class TelegramClient {
         }
 
         if onProgress != nil {
-            syncLock { fileProgressHandlers.removeValue(forKey: file.id) }
+            syncLock { fileDownloadProgressHandlers.removeValue(forKey: file.id) }
         }
 
         let dest = destination.path(percentEncoded: false)
@@ -514,6 +517,36 @@ final class TelegramClient {
         }
     }
 
+    func uploadFile(path: String, onProgress: (@Sendable (Double) -> Void)? = nil) async throws -> Int {
+        guard let client else { throw TelegramError.notInitialized }
+
+        let file = try await client.preliminaryUploadFile(
+            file: .inputFileLocal(InputFileLocal(path: path)),
+            fileType: .fileTypeDocument,
+            priority: 32
+        )
+
+        if file.remote.isUploadingCompleted {
+            onProgress?(1.0)
+            return file.id
+        }
+
+        if let onProgress {
+            syncLock { fileUploadProgressHandlers[file.id] = onProgress }
+        }
+
+        let completedFileId = try await withCheckedThrowingContinuation { continuation in
+            syncLock { fileUploadContinuations[file.id] = continuation }
+        }
+
+        if onProgress != nil {
+            syncLock { fileUploadProgressHandlers.removeValue(forKey: file.id) }
+        }
+
+        onProgress?(1.0)
+        return completedFileId
+    }
+
     func sendFile(
         chatId: Int64,
         path: String,
@@ -523,15 +556,18 @@ final class TelegramClient {
     ) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
 
-        let formattedCaption: FormattedText? = caption.map { FormattedText(entities: [], text: $0) }
+        // Step 1: Upload the file and track real-time byte-level upload progress via updateFile
+        let fileId = try await uploadFile(path: path, onProgress: onProgress)
 
+        // Step 2: Post the message attaching the uploaded inputFileId
+        let formattedCaption: FormattedText? = caption.map { FormattedText(entities: [], text: $0) }
         let content: InputMessageContent
         switch kind {
         case .photo:
             let inputPhoto = InputPhoto(
                 addedStickerFileIds: [],
                 height: 0,
-                photo: .inputFileLocal(InputFileLocal(path: path)),
+                photo: .inputFileId(InputFileId(id: fileId)),
                 thumbnail: nil as InputThumbnail?,
                 video: nil as InputFile?,
                 width: 0
@@ -552,7 +588,7 @@ final class TelegramClient {
                 startTimestamp: 0,
                 supportsStreaming: true,
                 thumbnail: nil as InputThumbnail?,
-                video: .inputFileLocal(InputFileLocal(path: path)),
+                video: .inputFileId(InputFileId(id: fileId)),
                 width: 0
             )
             content = .inputMessageVideo(InputMessageVideo(
@@ -565,7 +601,7 @@ final class TelegramClient {
         case .document:
             let inputDocument = InputDocument(
                 disableContentTypeDetection: false,
-                document: .inputFileLocal(InputFileLocal(path: path)),
+                document: .inputFileId(InputFileId(id: fileId)),
                 thumbnail: nil as InputThumbnail?
             )
             content = .inputMessageDocument(InputMessageDocument(
@@ -597,45 +633,18 @@ final class TelegramClient {
             )
         }
 
-        // If message send already finished instantly
         if message.sendingState == nil {
-            onProgress?(1.0)
             return message.id
         }
 
-        let fileId = primaryFile(from: message.content)?.id
-
-        if let onProgress {
-            if let fileId {
-                syncLock { fileProgressHandlers[fileId] = onProgress }
-            }
-            syncLock { messageProgressHandlers[message.id] = onProgress }
-        }
-
-        // Check if send succeeded before setup
         let preResult = syncLock { completedSends.removeValue(forKey: message.id) }
         if let preResult {
-            if let onProgress {
-                if let fileId { syncLock { fileProgressHandlers.removeValue(forKey: fileId) } }
-                syncLock { messageProgressHandlers.removeValue(forKey: message.id) }
-            }
-            onProgress?(1.0)
             return try preResult.get()
         }
 
-        // Wait for updateMessageSendSucceeded
         let finalId = try await withCheckedThrowingContinuation { continuation in
             syncLock { pendingSendContinuations[message.id] = continuation }
         }
-
-        if let onProgress {
-            if let fileId {
-                syncLock { fileProgressHandlers.removeValue(forKey: fileId) }
-            }
-            syncLock { messageProgressHandlers.removeValue(forKey: message.id) }
-        }
-
-        onProgress?(1.0)
         return finalId
     }
 
