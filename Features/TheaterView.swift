@@ -66,6 +66,17 @@ struct TheaterView: View {
             if showControls, url != nil {
                 navigationOverlay
             }
+
+            // Key monitor for ESC key handling
+            KeyMonitorView {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if previewKind == .audio {
+                        AudioPlayerEngine.shared.stop()
+                    }
+                    appState.theaterFile = nil
+                }
+            }
+            .frame(width: 0, height: 0)
         }
         .focusable()
         .focused($isFocused)
@@ -73,8 +84,18 @@ struct TheaterView: View {
         .onAppear {
             isFocused = true
         }
+        .onDisappear {
+            if previewKind == .audio {
+                AudioPlayerEngine.shared.stop()
+            }
+        }
         .onExitCommand {
-            appState.theaterFile = nil
+            withAnimation(.easeOut(duration: 0.2)) {
+                if previewKind == .audio {
+                    AudioPlayerEngine.shared.stop()
+                }
+                appState.theaterFile = nil
+            }
         }
         .onKeyPress(.leftArrow) {
             navigateMedia(delta: -1)
@@ -422,7 +443,34 @@ struct TheaterView: View {
     }
 
     private var mediaFiles: [ObjectRecord] {
-        appState.files.filter { !$0.trashed && !$0.isFolder && $0.parentID == file.parentID }
+        let base: [ObjectRecord] = {
+            let files = appState.files
+            switch appState.selectedDestination {
+            case .allFiles:
+                return files.filter { !$0.trashed && $0.parentID == appState.currentFolderID }
+            case .recent:
+                return Array(files.filter { !$0.trashed && !$0.isFolder }.prefix(20))
+            case .favorites:
+                return files.filter { $0.isFavorite && !$0.trashed }
+            case .video:
+                return files.filter { !$0.trashed && !$0.isFolder && $0.mime.hasPrefix("video/") }
+            case .audio:
+                return files.filter { !$0.trashed && !$0.isFolder && (
+                    $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
+                ) }
+            case .documents:
+                return files.filter { !$0.trashed && !$0.isFolder &&
+                    ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
+                     $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
+            case .privateVault, .transfers, .trash:
+                return files.filter { !$0.trashed && !$0.isFolder }
+            }
+        }()
+
+        let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = base.filter { !$0.isFolder }
+        if query.isEmpty { return filtered }
+        return filtered.filter { $0.name.lowercased().contains(query) }
     }
 
     private func canNavigate(_ delta: Int) -> Bool {
@@ -447,6 +495,10 @@ struct TheaterView: View {
     }
 
     private func loadFile() async {
+        if previewKind != .audio {
+            AudioPlayerEngine.shared.stop()
+        }
+
         imageScale = 1.0
         lastScale = 1.0
         imageOffset = .zero
@@ -599,5 +651,48 @@ struct TheaterAudioPlayerView: View {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+// MARK: - Key Monitor for Reliable Escape Key Interception
+
+struct KeyMonitorView: NSViewRepresentable {
+    let onEscape: () -> Void
+
+    func makeNSView(context: Context) -> KeyView {
+        let v = KeyView()
+        v.onEscape = onEscape
+        return v
+    }
+
+    func updateNSView(_ nsView: KeyView, context: Context) {
+        nsView.onEscape = onEscape
+    }
+
+    class KeyView: NSView {
+        var onEscape: (() -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil && monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                    if event.keyCode == 53 { // 53 = ESC key
+                        DispatchQueue.main.async {
+                            self?.onEscape?()
+                        }
+                        return nil // Swallows event so macOS window full-screen is NEVER toggled!
+                    }
+                    return event
+                }
+            } else if window == nil && monitor != nil {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
     }
 }
