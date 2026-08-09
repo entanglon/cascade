@@ -18,7 +18,22 @@ struct TheaterView: View {
     @State private var errorMessage: String?
     @State private var showControls = true
     @State private var controlsTimer: Timer?
+    @State private var canvasBackground: CanvasBackground = .dark
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
+
+    enum CanvasBackground: String, CaseIterable {
+        case dark = "Dark"
+        case slate = "Slate"
+        case light = "Light"
+
+        var color: Color {
+            switch self {
+            case .dark: return Color.black.opacity(0.96)
+            case .slate: return Color(red: 0.20, green: 0.20, blue: 0.24)
+            case .light: return Color(red: 0.92, green: 0.92, blue: 0.94)
+            }
+        }
+    }
 
     private var previewKind: PreviewKind {
         let ext = (file.name as NSString).pathExtension.lowercased()
@@ -34,8 +49,8 @@ struct TheaterView: View {
 
     var body: some View {
         ZStack {
-            // Full-bleed background
-            Color.black.opacity(0.96).ignoresSafeArea()
+            // Adaptable canvas background (Dark / Slate / Light)
+            canvasBackground.color.ignoresSafeArea()
 
             // Content
             Group {
@@ -86,11 +101,17 @@ struct TheaterView: View {
             )
             .frame(width: 0, height: 0)
         }
+        .onContinuousHover { phase in
+            if case .active = phase {
+                resetControlsTimer()
+            }
+        }
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
         .onAppear {
             isFocused = true
+            resetControlsTimer()
         }
         .onExitCommand {
             handleEscapeKey()
@@ -160,14 +181,26 @@ struct TheaterView: View {
             .buttonStyle(.plain)
             .help(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen (Hide Sidebar)")
 
+            if previewKind == .image {
+                Picker("", selection: $canvasBackground) {
+                    Text("Dark").tag(CanvasBackground.dark)
+                    Text("Slate").tag(CanvasBackground.slate)
+                    Text("Light").tag(CanvasBackground.light)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 140)
+                .help("Canvas Background Mode (Dark / Slate / Light)")
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(canvasBackground == .light ? .black : .white)
                     .lineLimit(1)
                 Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(canvasBackground == .light ? .black.opacity(0.6) : .white.opacity(0.5))
             }
             .padding(.leading, 4)
 
@@ -542,7 +575,24 @@ struct TheaterView: View {
         return next >= 0 && next < files.count
     }
 
+    private func resetControlsTimer() {
+        controlsTimer?.invalidate()
+        if !showControls {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showControls = true
+            }
+        }
+        controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { _ in
+            Task { @MainActor in
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showControls = false
+                }
+            }
+        }
+    }
+
     private func navigateMedia(delta: Int) {
+        resetControlsTimer()
         let files = mediaFiles
         guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
         let nextIndex = min(max(currentIndex + delta, 0), files.count - 1)
@@ -551,12 +601,18 @@ struct TheaterView: View {
     }
 
     private func toggleControls() {
-        withAnimation {
-            showControls.toggle()
+        if showControls {
+            controlsTimer?.invalidate()
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showControls = false
+            }
+        } else {
+            resetControlsTimer()
         }
     }
 
     private func handleEscapeKey() {
+        controlsTimer?.invalidate()
         withAnimation(.easeOut(duration: 0.2)) {
             let isMediaPlaying = (previewKind == .audio && AudioPlayerEngine.shared.isPlaying) || previewKind == .video
             if isMediaPlaying {
@@ -576,6 +632,7 @@ struct TheaterView: View {
     }
 
     private func loadFile() async {
+        resetControlsTimer()
         if previewKind != .audio {
             AudioPlayerEngine.shared.stop()
         }
