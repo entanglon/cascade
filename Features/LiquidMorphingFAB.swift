@@ -134,7 +134,7 @@ struct LiquidMorphingFAB: View {
                         folderName = ""
                         showNewPrivateFolder = true
                     } label: {
-                        Label("New Private Folder", systemImage: "asterisk")
+                        Label("New Private Folder", systemImage: "number")
                     }
                 } else {
                     Button {

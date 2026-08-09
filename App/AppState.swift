@@ -3,7 +3,7 @@ import Observation
 import AppKit
 
 enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
-    case allFiles, privateVault, recent, favorites, video, audio, documents, transfers, trash
+    case allFiles, privateVault, recent, favorites, photos, video, audio, documents, transfers, trash
 
     var id: String { rawValue }
 
@@ -13,6 +13,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         case .privateVault: return "Private Vault"
         case .recent: return "Recent"
         case .favorites: return "Favorites"
+        case .photos: return "Photos"
         case .video: return "Video"
         case .audio: return "Audio"
         case .documents: return "Documents"
@@ -24,9 +25,10 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .allFiles: return "square.grid.2x2"
-        case .privateVault: return "asterisk"
+        case .privateVault: return "number"
         case .recent: return "clock"
         case .favorites: return "star"
+        case .photos: return "photo.fill"
         case .video: return "play.rectangle"
         case .audio: return "music.note"
         case .documents: return "doc.text"
@@ -341,6 +343,9 @@ final class AppState {
             return files.filter { $0.trashed }
         case .favorites:
             return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+        case .photos:
+            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
+                ($0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())) }
         case .recent:
             return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
         case .video:

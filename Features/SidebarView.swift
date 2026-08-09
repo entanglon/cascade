@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @Binding var selection: SidebarDestination
@@ -48,13 +49,14 @@ struct SidebarRow: View {
     let item: SidebarDestination
     let isSelected: Bool
     let action: () -> Void
+    @State private var isTargeted = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: item.icon)
                     .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? .white : XTheme.accent)
+                    .foregroundStyle(isTargeted && item == .trash ? .red : (isSelected ? .white : XTheme.accent))
                     .frame(width: 20, alignment: .center)
 
                 Text(item.title)
@@ -70,12 +72,35 @@ struct SidebarRow: View {
         .buttonStyle(.plain)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? XTheme.accent.opacity(0.22) : .clear)
+                .fill(isTargeted && item == .trash ? Color.red.opacity(0.25) : (isSelected ? XTheme.accent.opacity(0.22) : .clear))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(isSelected ? XTheme.accent.opacity(0.4) : .clear, lineWidth: 1)
+                .strokeBorder(isTargeted && item == .trash ? Color.red.opacity(0.8) : (isSelected ? XTheme.accent.opacity(0.4) : .clear), lineWidth: 1)
         )
+        .onDrop(of: [.text, .plainText, .item], isTargeted: $isTargeted) { providers in
+            handleDrop(providers: providers)
+        }
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        let dest = item
+        guard dest == .trash || dest == .favorites else { return false }
+        for provider in providers {
+            _ = provider.loadObject(ofClass: String.self) { (objectID: String?, _: Error?) in
+                guard let id = objectID else { return }
+                Task { @MainActor in
+                    if let file = appState.files.first(where: { $0.id == id }) {
+                        if dest == .trash {
+                            appState.setTrashed(file, true)
+                        } else if dest == .favorites && !file.isFavorite {
+                            appState.toggleFavorite(file)
+                        }
+                    }
+                }
+            }
+        }
+        return true
     }
 
     private var badgeColor: Color {
@@ -93,14 +118,22 @@ struct SidebarRow: View {
             return files.filter { !$0.trashed && !$0.isFolder }.count
         case .favorites:
             return files.filter { $0.isFavorite && !$0.trashed }.count
+        case .photos:
+            return files.filter { f in
+                guard !f.trashed && !f.isFolder else { return false }
+                if f.mime.hasPrefix("image/") { return true }
+                let ext = (f.name as NSString).pathExtension.lowercased()
+                return ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(ext)
+            }.count
         case .video:
             return files.filter { !$0.trashed && !$0.isFolder && $0.mime.hasPrefix("video/") }.count
         case .audio:
             return files.filter { !$0.trashed && !$0.isFolder && $0.mime.hasPrefix("audio/") }.count
         case .documents:
-            return files.filter { !$0.trashed && !$0.isFolder &&
-                ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
-                 $0.mime.contains("msword") || $0.mime.contains("officedocument")) }.count
+            return files.filter { f in
+                guard !f.trashed && !f.isFolder else { return false }
+                return f.mime.contains("pdf") || f.mime.hasPrefix("text/") || f.mime.contains("msword") || f.mime.contains("officedocument")
+            }.count
         case .transfers:
             return TransferCenter.shared.items.filter { $0.state == .active }.count
         case .trash:

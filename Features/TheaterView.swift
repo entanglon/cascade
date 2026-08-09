@@ -494,6 +494,9 @@ struct TheaterView: View {
                 return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
             case .favorites:
                 return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+            case .photos:
+                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
+                    ($0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())) }
             case .video:
                 return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("video/") }
             case .audio:

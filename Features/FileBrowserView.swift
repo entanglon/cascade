@@ -58,6 +58,9 @@ struct FileBrowserView: View {
                 return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
             case .favorites:
                 return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+            case .photos:
+                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
+                    ($0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())) }
             case .video:
                 if let currentID = appState.currentFolderID {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
@@ -356,7 +359,7 @@ struct FileBrowserView: View {
                 }
 
                 if appState.selectedDestination == .privateVault {
-                    Image(systemName: "asterisk")
+                    Image(systemName: "number")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.red)
                 }
@@ -607,7 +610,7 @@ struct FileBrowserView: View {
                     folderName = ""
                     showNewPrivateFolder = true
                 } label: {
-                    Label("New Private Folder", systemImage: "asterisk")
+                    Label("New Private Folder", systemImage: "number")
                 }
             } else {
                 if appState.selectedDestination == .audio || appState.selectedDestination == .video {
@@ -970,6 +973,7 @@ struct FileBrowserView: View {
         switch appState.selectedDestination {
         case .trash: return "trash"
         case .favorites: return "star"
+        case .photos: return "photo.fill"
         case .video: return "play.rectangle"
         case .audio: return "music.note"
         case .documents: return "doc.text"
@@ -1178,7 +1182,7 @@ struct FileGridItem: View {
                 }
 
                 if file.isPrivate {
-                    Image(systemName: "asterisk")
+                    Image(systemName: "number")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(2)
@@ -1288,7 +1292,7 @@ struct FileGridItem: View {
         .overlay(alignment: .topTrailing) {
             HStack(spacing: 4) {
                 if file.isPrivate {
-                    Image(systemName: "asterisk")
+                    Image(systemName: "number")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(4)
@@ -1420,7 +1424,7 @@ struct FileListRow: View {
         )
         .overlay(alignment: .trailing) {
             if file.isPrivate {
-                Image(systemName: "asterisk")
+                Image(systemName: "number")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(3)
@@ -1451,7 +1455,7 @@ struct FileListRow: View {
     @ViewBuilder
     private var rowIcon: some View {
         if file.isFolder {
-            Image(systemName: file.isPrivate ? "asterisk" : "folder.fill")
+            Image(systemName: file.isPrivate ? "number" : "folder.fill")
                 .font(.system(size: 22, weight: .regular))
                 .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
                 .frame(width: 32, height: 32)
@@ -1502,7 +1506,7 @@ struct PrivateVaultLockView: View {
             VStack(spacing: 24) {
                 ZStack {
                     Circle().fill(XTheme.accent.opacity(0.15)).frame(width: 72, height: 72)
-                    Image(systemName: "asterisk")
+                    Image(systemName: "number")
                         .font(.system(size: 30)).foregroundStyle(XTheme.accent)
                 }
                 VStack(spacing: 6) {
@@ -1579,6 +1583,10 @@ struct PrivateVaultLockView: View {
         .onAppear {
             focused = true
             phase = KeychainStore.loadVaultPINHash() == nil ? .create : .enter
+        }
+        .task(id: appState.selectedDestination) {
+            try? await Task.sleep(for: .milliseconds(50))
+            focused = true
         }
         .onTapGesture { focused = true }
     }
