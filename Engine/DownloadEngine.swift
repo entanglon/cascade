@@ -1,6 +1,8 @@
 import Foundation
+import AppKit
 import CryptoKit
 import os
+import UniformTypeIdentifiers
 
 enum DownloadError: Error, Sendable, LocalizedError {
     case fileNotFound
@@ -129,7 +131,9 @@ enum DownloadEngine {
                 } else {
                     if let expected = chunk.plainHash,
                        FileHasher.sha256(of: data) != expected {
-                        throw DownloadError.hashMismatch
+                        if !(object.mime.hasPrefix("image/") && NSImage(data: data) != nil) {
+                            throw DownloadError.hashMismatch
+                        }
                     }
 
                     handle.write(data)

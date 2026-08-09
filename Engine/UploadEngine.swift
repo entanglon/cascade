@@ -174,9 +174,7 @@ enum UploadEngine {
 
         // Single-chunk media goes in as real Telegram photo/video (if not private)
         let kind: TelegramClient.MediaKind
-        if !isParentPrivate && plan.items.count == 1 && mime.hasPrefix("image/") && mime != "image/gif" {
-            kind = .photo
-        } else if !isParentPrivate && plan.items.count == 1 && mime.hasPrefix("video/") {
+        if !isParentPrivate && plan.items.count == 1 && mime.hasPrefix("video/") {
             kind = .video
         } else {
             kind = .document

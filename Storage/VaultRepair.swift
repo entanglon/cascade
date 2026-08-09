@@ -133,7 +133,7 @@ enum VaultRepair {
                 }
 
                 // B. Fallback: Match filename pattern "OBJECT_ID-INDEX.bin"
-                let brokenChunks = chunks.filter { $0.messageID == nil || ($0.messageID ?? 0) <= 10_000_000 }
+                let brokenChunks = chunks.filter { $0.messageID == nil || ($0.messageID ?? 0) <= 0 }
                 if let fn = fileName, fn.hasSuffix(".bin") {
                     let nameWithoutExt = (fn as NSString).deletingPathExtension
                     let parts = nameWithoutExt.split(separator: "-")
@@ -155,7 +155,7 @@ enum VaultRepair {
         for var object in currentObjects where object.state != "ready" {
             let objChunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
             guard !objChunks.isEmpty else { continue }
-            if objChunks.allSatisfy({ ($0.messageID ?? 0) > 10_000_000 }) {
+            if objChunks.allSatisfy({ ($0.messageID ?? 0) > 0 }) {
                 object.state = "ready"
                 try? await DatabaseManager.shared.save(object)
                 changed = true
@@ -165,7 +165,7 @@ enum VaultRepair {
         // 3. Purge invalid/orphaned ObjectRecords in SQLite that have no chunks or invalid message IDs (except user folders)
         let allObjectsNow = (try? await DatabaseManager.shared.allObjects()) ?? []
         let allChunksNow = (try? await DatabaseManager.shared.allChunks()) ?? []
-        let validObjectIDsWithChunks = Set(allChunksNow.compactMap { ($0.messageID ?? 0) > 10_000_000 ? $0.objectID : nil })
+        let validObjectIDsWithChunks = Set(allChunksNow.compactMap { ($0.messageID ?? 0) > 0 ? $0.objectID : nil })
         for obj in allObjectsNow {
             if !obj.isFolder && !validObjectIDsWithChunks.contains(obj.id) {
                 try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
