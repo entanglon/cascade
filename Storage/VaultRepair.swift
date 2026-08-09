@@ -44,6 +44,11 @@ enum VaultRepair {
                     break
                 }
 
+                // Ignore database snapshot messages
+                if let caption = captionText, caption.hasPrefix("xcloud:dbsnapshot:") {
+                    continue
+                }
+
                 // A. Reconstruct from JSON metadata caption (xcloud:v1:...)
                 if let caption = captionText, caption.hasPrefix("xcloud:v1:") {
                     let jsonString = String(caption.dropFirst(10))
@@ -127,14 +132,6 @@ enum VaultRepair {
                             changed = true
                         }
                     }
-                } else if fileSize > 0 {
-                    // Match single-chunk photos/videos by file size
-                    if let targetChunk = brokenChunks.first(where: { $0.size == fileSize }) {
-                        try? await DatabaseManager.shared.updateChunk(targetChunk.id) {
-                            $0.messageID = message.id
-                        }
-                        changed = true
-                    }
                 }
             }
         }
@@ -151,7 +148,18 @@ enum VaultRepair {
             }
         }
 
-        // 3. Purge any orphaned messages in Telegram channel that no longer belong to active chunks
+        // 3. Purge invalid/orphaned ObjectRecords in SQLite that have no chunks (except folders)
+        let allObjectsNow = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let allChunksNow = (try? await DatabaseManager.shared.allChunks()) ?? []
+        let validObjectIDsWithChunks = Set(allChunksNow.map(\.objectID))
+        for obj in allObjectsNow where !obj.isFolder {
+            if !validObjectIDsWithChunks.contains(obj.id) {
+                try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
+                changed = true
+            }
+        }
+
+        // 4. Purge any orphaned messages in Telegram channel that no longer belong to active chunks
         let purgedCount = await purgeOrphanedMessages()
         if purgedCount > 0 {
             changed = true
@@ -172,7 +180,13 @@ enum VaultRepair {
         let validChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
         let validIDs = Set(validChunks.compactMap(\.messageID))
 
-        let orphanedIDs = allMessages.map(\.id).filter { !validIDs.contains($0) }
+        let orphanedIDs = allMessages.filter { msg in
+            if case .messageDocument(let doc) = msg.content, doc.caption.text.hasPrefix("xcloud:dbsnapshot:") {
+                return true
+            }
+            return !validIDs.contains(msg.id)
+        }.map(\.id)
+
         guard !orphanedIDs.isEmpty else { return 0 }
 
         logger.info("Purging \(orphanedIDs.count) orphaned message(s) from Telegram channel...")

@@ -267,28 +267,6 @@ actor DatabaseManager {
         logger.info("Database self-test passed")
     }
 
-    func mergeSnapshot(from snapshotURL: URL) throws {
-        guard let currentPool = pool else { throw StorageError.notStarted }
-        let snapshotPool = try DatabasePool(path: snapshotURL.path(percentEncoded: false))
-
-        let snapshotObjects = try snapshotPool.read { db in
-            try ObjectRecord.fetchAll(db)
-        }
-        let snapshotChunks = try snapshotPool.read { db in
-            try ChunkRecord.fetchAll(db)
-        }
-
-        try currentPool.write { db in
-            for obj in snapshotObjects {
-                try obj.save(db)
-            }
-            for chunk in snapshotChunks {
-                try chunk.save(db)
-            }
-        }
-        logger.info("Merged \(snapshotObjects.count) objects and \(snapshotChunks.count) chunks from snapshot.")
-    }
-
     private static func databaseFileURL() throws -> URL {
         let fm = FileManager.default
         let support = try fm.url(
