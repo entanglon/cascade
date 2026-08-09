@@ -34,13 +34,12 @@ struct SettingsView: View {
                 }
             }
         }
-        .frame(width: 520, height: 580)
-        .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+        .frame(width: 500, height: 560)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
         .confirmationDialog(
             "Clear local cache? This deletes downloaded previews and thumbnails. Your files in Telegram are safe.",
             isPresented: $showClearCacheConfirm, titleVisibility: .visible
@@ -74,45 +73,22 @@ struct SettingsView: View {
                     Image(nsImage: ns)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 56, height: 56)
+                        .frame(width: 52, height: 52)
                         .clipShape(Circle())
-                        .overlay(Circle().strokeBorder(XTheme.brandGradient, lineWidth: 2))
-                        .shadow(color: XTheme.accent.opacity(0.4), radius: 8)
                 } else {
                     ZStack {
                         Circle().fill(XTheme.brandGradient)
                         Text(initials)
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(.white)
                     }
-                    .frame(width: 56, height: 56)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1.5))
-                    .shadow(color: XTheme.accent.opacity(0.3), radius: 8)
+                    .frame(width: 52, height: 52)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(displayName)
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(tg.isAuthorized ? Color.green : Color.orange)
-                                .frame(width: 6, height: 6)
-                            Text(tg.isAuthorized ? "Active" : "Offline")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(tg.isAuthorized ? Color.green : Color.orange)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule().fill((tg.isAuthorized ? Color.green : Color.orange).opacity(0.15))
-                        )
-                        .overlay(
-                            Capsule().strokeBorder((tg.isAuthorized ? Color.green : Color.orange).opacity(0.3), lineWidth: 1)
-                        )
-                    }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayName)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
 
                     if let id = identity, !id.phone.isEmpty {
                         Text("+\(id.phone)")
@@ -138,7 +114,7 @@ struct SettingsView: View {
                 Divider().overlay(Color.white.opacity(0.06))
                 statRow("Total Folders", value: "\(stats.folders)")
                 Divider().overlay(Color.white.opacity(0.06))
-                statRow("Cloud Storage Used", value: ByteCountFormatter.string(fromByteCount: stats.size, countStyle: .file))
+                statRow("Cloud Storage Used", value: XTheme.formatBytes(stats.size))
             }
         }
     }
@@ -156,7 +132,7 @@ struct SettingsView: View {
                             .foregroundStyle(.white.opacity(0.45))
                     }
                     Spacer()
-                    Text(ByteCountFormatter.string(fromByteCount: appState.localCacheBytes, countStyle: .file))
+                    Text(XTheme.formatBytes(appState.localCacheBytes))
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundStyle(XTheme.accent)
                 }
@@ -173,9 +149,9 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.red.opacity(0.12)))
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12).strokeBorder(Color.red.opacity(0.25), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -224,10 +200,10 @@ struct SettingsGroup<Content: View>: View {
                 content
             }
             .padding(16)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
+            .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             )
         }
     }

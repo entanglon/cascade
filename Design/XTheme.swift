@@ -59,4 +59,14 @@ enum XTheme {
     static let textPrimary = Color.white
     static let textSecondary = Color.white.opacity(0.55)
     static let textTertiary = Color.white.opacity(0.35)
+
+    // MARK: - Byte Formatter (Bytes, KB, MB, GB, TB)
+    static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB, .useTB]
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: bytes)
+    }
 }
