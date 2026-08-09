@@ -100,7 +100,11 @@ enum DownloadEngine {
                 try await TelegramClient.shared.downloadMessageFile(
                     messageId: messageId,
                     chatId: vault.channelID,
-                    to: tmp
+                    to: tmp,
+                    onProgress: { p in
+                        let overallProgress = (Double(i) + min(max(0.0, p), 1.0)) / total
+                        report("Downloading chunk \(n)/\(chunks.count)", min(overallProgress, 0.99))
+                    }
                 )
 
                 report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)

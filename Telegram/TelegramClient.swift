@@ -82,6 +82,8 @@ final class TelegramClient {
     private var pendingSendContinuations: [Int64: CheckedContinuation<Int64, any Swift.Error>] = [:]
     private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
     private var fileProgressHandlers: [Int: (Double) -> Void] = [:]
+    private var messageProgressHandlers: [Int64: (Double) -> Void] = [:]
+    private var fileDownloadContinuations: [Int: CheckedContinuation<String, any Swift.Error>] = [:]
     private let trackingLock = NSLock()
     private func syncLock<T>(_ work: () -> T) -> T {
         trackingLock.lock()
@@ -130,24 +132,42 @@ final class TelegramClient {
                 }
             }
 
+        case "updateMessageSendProgress":
+            if let oldId = parseInt64(json["old_message_id"]) ?? parseInt64(json["message_id"]) {
+                let progressObj = (json["send_progress"] as? [String: Any]) ?? json
+                let uploaded = (progressObj["uploaded_size"] as? NSNumber)?.doubleValue ?? (progressObj["uploadedSize"] as? NSNumber)?.doubleValue ?? 0
+                let total = (progressObj["total_size"] as? NSNumber)?.doubleValue ?? (progressObj["totalSize"] as? NSNumber)?.doubleValue ?? 0
+                if total > 0 {
+                    let handler = syncLock { messageProgressHandlers[oldId] }
+                    handler?(min(max(0, uploaded / total), 1.0))
+                }
+            }
+
         case "updateFile":
             if let file = json["file"] as? [String: Any],
                let fileId = file["id"] as? Int {
                 let handler = syncLock { fileProgressHandlers[fileId] }
 
-                if let handler {
-                    let totalSize = (file["size"] as? NSNumber)?.doubleValue ?? (file["expected_size"] as? NSNumber)?.doubleValue ?? 0
-                    if totalSize > 0 {
-                        var current: Double = 0
-                        if let remote = file["remote"] as? [String: Any],
-                           let uploaded = (remote["uploaded_size"] as? NSNumber)?.doubleValue {
-                            current = max(current, uploaded)
-                        }
-                        if let local = file["local"] as? [String: Any],
-                           let downloaded = (local["downloaded_size"] as? NSNumber)?.doubleValue {
-                            current = max(current, downloaded)
-                        }
-                        handler(min(max(0, current / totalSize), 1.0))
+                let totalSize = (file["expected_size"] as? NSNumber)?.doubleValue ?? (file["size"] as? NSNumber)?.doubleValue ?? 0
+                if let handler, totalSize > 0 {
+                    var current: Double = 0
+                    if let remote = file["remote"] as? [String: Any] {
+                        let uploaded = (remote["uploaded_size"] as? NSNumber)?.doubleValue ?? (remote["uploadedSize"] as? NSNumber)?.doubleValue ?? 0
+                        current = max(current, uploaded)
+                    }
+                    if let local = file["local"] as? [String: Any] {
+                        let downloaded = (local["downloaded_size"] as? NSNumber)?.doubleValue ?? (local["downloadedSize"] as? NSNumber)?.doubleValue ?? 0
+                        current = max(current, downloaded)
+                    }
+                    handler(min(max(0, current / totalSize), 1.0))
+                }
+
+                if let local = file["local"] as? [String: Any] {
+                    let isCompleted = (local["is_downloading_completed"] as? Bool == true) || (local["isDownloadingCompleted"] as? Bool == true)
+                    let path = (local["path"] as? String) ?? ""
+                    if isCompleted && !path.isEmpty {
+                        let continuation = syncLock { fileDownloadContinuations.removeValue(forKey: fileId) }
+                        continuation?.resume(returning: path)
                     }
                 }
             }
@@ -385,10 +405,19 @@ final class TelegramClient {
 
     // MARK: - Download
 
-    func downloadMessageFile(messageId: Int64, chatId: Int64, to destination: URL) async throws {
+    func downloadMessageFile(
+        messageId: Int64,
+        chatId: Int64,
+        to destination: URL,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
         guard let file = primaryFile(from: message.content) else {
             throw DownloadError.fileNotFound
+        }
+
+        if let onProgress {
+            syncLock { fileProgressHandlers[file.id] = onProgress }
         }
 
         let updated = try await client?.downloadFile(
@@ -396,16 +425,29 @@ final class TelegramClient {
             limit: 0,
             offset: 0,
             priority: 32,
-            synchronous: true
+            synchronous: false
         )
-        guard let updated, let path = Optional(updated.local.path), !path.isEmpty, FileManager.default.fileExists(atPath: path) else {
-            throw DownloadError.fileNotFound
+
+        let localPath: String
+        if let path = updated?.local.path, !path.isEmpty, updated?.local.isDownloadingCompleted == true {
+            localPath = path
+            onProgress?(1.0)
+        } else {
+            localPath = try await withCheckedThrowingContinuation { continuation in
+                syncLock { fileDownloadContinuations[file.id] = continuation }
+            }
+            onProgress?(1.0)
         }
+
+        if onProgress != nil {
+            syncLock { fileProgressHandlers.removeValue(forKey: file.id) }
+        }
+
         let dest = destination.path(percentEncoded: false)
         if FileManager.default.fileExists(atPath: dest) {
             try FileManager.default.removeItem(at: destination)
         }
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: destination)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: localPath), to: destination)
     }
 
     func getFileId(chatId: Int64, messageId: Int64) async throws -> Int {
@@ -563,14 +605,20 @@ final class TelegramClient {
 
         let fileId = primaryFile(from: message.content)?.id
 
-        if let fileId, let onProgress {
-            syncLock { fileProgressHandlers[fileId] = onProgress }
+        if let onProgress {
+            if let fileId {
+                syncLock { fileProgressHandlers[fileId] = onProgress }
+            }
+            syncLock { messageProgressHandlers[message.id] = onProgress }
         }
 
         // Check if send succeeded before setup
         let preResult = syncLock { completedSends.removeValue(forKey: message.id) }
         if let preResult {
-            if let fileId { syncLock { fileProgressHandlers.removeValue(forKey: fileId) } }
+            if let onProgress {
+                if let fileId { syncLock { fileProgressHandlers.removeValue(forKey: fileId) } }
+                syncLock { messageProgressHandlers.removeValue(forKey: message.id) }
+            }
             onProgress?(1.0)
             return try preResult.get()
         }
@@ -580,8 +628,11 @@ final class TelegramClient {
             syncLock { pendingSendContinuations[message.id] = continuation }
         }
 
-        if let fileId {
-            syncLock { fileProgressHandlers.removeValue(forKey: fileId) }
+        if let onProgress {
+            if let fileId {
+                syncLock { fileProgressHandlers.removeValue(forKey: fileId) }
+            }
+            syncLock { messageProgressHandlers.removeValue(forKey: message.id) }
         }
 
         onProgress?(1.0)
