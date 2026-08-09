@@ -4,6 +4,7 @@ import AppKit
 struct MiniPlayerView: View {
     @Environment(AppState.self) private var appState
     @Bindable var audioEngine = AudioPlayerEngine.shared
+    @State private var thumbURL: URL? = nil
 
     var body: some View {
         if let track = audioEngine.currentTrack {
@@ -16,6 +17,9 @@ struct MiniPlayerView: View {
             }
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: audioEngine.isFullScreen)
+            .task(id: track.id) {
+                thumbURL = await ThumbnailService.shared.thumbnailURL(for: track)
+            }
         }
     }
 
@@ -25,18 +29,28 @@ struct MiniPlayerView: View {
         HStack(spacing: 14) {
             // Album Art Badge with Equalizer
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(XTheme.brandGradient)
-                    .frame(width: 44, height: 44)
-                    .shadow(color: XTheme.accent.opacity(0.4), radius: 6, y: 3)
-
-                if audioEngine.isPlaying {
-                    EqualizerWaveformView(barCount: 4)
-                        .frame(width: 20, height: 18)
+                if let thumbURL, let nsImage = NSImage(contentsOf: thumbURL) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .shadow(color: XTheme.accent.opacity(0.4), radius: 6, y: 3)
                 } else {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(XTheme.brandGradient)
+                        .frame(width: 44, height: 44)
+                        .shadow(color: XTheme.accent.opacity(0.4), radius: 6, y: 3)
+
+                    if audioEngine.isPlaying {
+                        EqualizerWaveformView(barCount: 4)
+                            .frame(width: 20, height: 18)
+                    } else {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
                 }
             }
 

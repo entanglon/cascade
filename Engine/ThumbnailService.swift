@@ -24,13 +24,15 @@ actor ThumbnailService {
             return local
         }
 
-        // 3. If video is cached on disk, generate thumbnail from video asset immediately
-        if object.mime.hasPrefix("video/") && DownloadEngine.isCached(object) {
+        // 3. If video or audio is cached on disk, generate thumbnail immediately
+        if DownloadEngine.isCached(object) {
             let cacheURL = DownloadEngine.cacheURL(for: object)
-            generateAndSaveThumbnail(for: object, from: cacheURL)
-            if let thumb = localThumbnailOnDisk(for: object.id) {
-                cache[object.id] = thumb
-                return thumb
+            if object.mime.hasPrefix("video/") || object.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((object.name as NSString).pathExtension.lowercased()) {
+                generateAndSaveThumbnail(for: object, from: cacheURL)
+                if let thumb = localThumbnailOnDisk(for: object.id) {
+                    cache[object.id] = thumb
+                    return thumb
+                }
             }
         }
 
@@ -74,6 +76,20 @@ actor ThumbnailService {
                     }
                     if let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: destPNG)
+                    }
+                }
+            }
+        } else if object.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((object.name as NSString).pathExtension.lowercased()) {
+            let asset = AVAsset(url: fileURL)
+            for item in asset.metadata {
+                if item.commonKey == .commonKeyArtwork, let data = item.dataValue, let image = NSImage(data: data) {
+                    let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
+                    if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                        if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+                            try? jpg.write(to: destJPG)
+                            cache[object.id] = destJPG
+                            return
+                        }
                     }
                 }
             }
