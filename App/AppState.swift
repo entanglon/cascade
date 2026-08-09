@@ -401,7 +401,7 @@ final class AppState {
                 vaultID: vault?.id ?? "local",
                 name: trimmed,
                 size: 0,
-                mime: kind == "video" ? "xcloud/playlist-video" : "xcloud/playlist-audio",
+                mime: kind == "video" ? "xcloud/playlist-video" : (kind == "photo" ? "xcloud/album-photo" : "xcloud/playlist-audio"),
                 state: "ready",
                 rootHash: nil,
                 wrappedKey: nil,

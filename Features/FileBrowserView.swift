@@ -59,8 +59,15 @@ struct FileBrowserView: View {
             case .favorites:
                 return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
             case .photos:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
-                    ($0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())) }
+                if let currentID = appState.currentFolderID {
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+                } else {
+                    let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/album-photo" }
+                    let photoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
+                        $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
+                    ) }
+                    return albums + photoFiles
+                }
             case .video:
                 if let currentID = appState.currentFolderID {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
@@ -281,16 +288,16 @@ struct FileBrowserView: View {
         } message: {
             Text("Files inside a private folder are encrypted on your Mac before upload. Telegram only sees noise.")
         }
-        .alert("New Playlist", isPresented: $showNewPlaylist) {
-            TextField("Playlist name", text: $playlistName)
+        .alert(appState.selectedDestination == .photos ? "New Photo Album" : "New Playlist", isPresented: $showNewPlaylist) {
+            TextField(appState.selectedDestination == .photos ? "Album name" : "Playlist name", text: $playlistName)
             Button("Cancel", role: .cancel) {}
             Button("Create") {
-                let kind = appState.selectedDestination == .video ? "video" : "audio"
+                let kind = appState.selectedDestination == .video ? "video" : (appState.selectedDestination == .photos ? "photo" : "audio")
                 appState.createPlaylist(named: playlistName, kind: kind)
                 playlistName = ""
             }
         } message: {
-            Text("Create a new \(appState.selectedDestination == .video ? "video" : "audio") playlist.")
+            Text("Create a new \(appState.selectedDestination == .photos ? "photo album" : (appState.selectedDestination == .video ? "video playlist" : "audio playlist")).")
         }
         .alert("Rename", isPresented: Binding(
             get: { renameTarget != nil },
@@ -420,7 +427,7 @@ struct FileBrowserView: View {
             HStack(spacing: 10) {
                 Spacer()
 
-                if appState.selectedDestination == .audio || appState.selectedDestination == .video {
+                if appState.selectedDestination == .audio || appState.selectedDestination == .video || appState.selectedDestination == .photos {
                     Button {
                         playlistName = ""
                         showNewPlaylist = true
@@ -428,7 +435,7 @@ struct FileBrowserView: View {
                         HStack(spacing: 5) {
                             Image(systemName: "plus")
                                 .font(.system(size: 11, weight: .bold))
-                            Text("New Playlist")
+                            Text(appState.selectedDestination == .photos ? "New Album" : "New Playlist")
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .foregroundStyle(.white.opacity(0.85))
@@ -438,7 +445,7 @@ struct FileBrowserView: View {
                         .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .help("Create New Playlist")
+                    .help(appState.selectedDestination == .photos ? "Create New Photo Album" : "Create New Playlist")
                 }
 
                 if appState.selectedDestination == .trash && !visibleFiles.isEmpty {
@@ -1039,25 +1046,28 @@ struct FileItemContextMenu: View {
             } label: {
                 Label(file.isFavorite ? "Remove Favorite" : "Add Favorite", systemImage: file.isFavorite ? "star.slash" : "star")
             }
-            // Add to Playlist Menu
+            // Add to Playlist / Album Menu
             let isAudio = file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((file.name as NSString).pathExtension.lowercased())
             let isVideo = file.mime.hasPrefix("video/")
-            let targetPlaylistMime = isAudio ? "xcloud/playlist-audio" : (isVideo ? "xcloud/playlist-video" : nil)
+            let isPhoto = file.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains((file.name as NSString).pathExtension.lowercased())
+            let targetPlaylistMime = isAudio ? "xcloud/playlist-audio" : (isVideo ? "xcloud/playlist-video" : (isPhoto ? "xcloud/album-photo" : nil))
 
             if let targetPlaylistMime {
-                let playlists = appState.files.filter { $0.isFolder && !$0.trashed && $0.mime == targetPlaylistMime }
+                let collections = appState.files.filter { $0.isFolder && !$0.trashed && $0.mime == targetPlaylistMime }
+                let menuTitle = isPhoto ? "Add to Album" : "Add to Playlist"
+                let menuIcon = isPhoto ? "photo.stack" : "plus.square.on.square"
                 Menu {
-                    if playlists.isEmpty {
-                        Text("No playlists yet").font(.caption)
+                    if collections.isEmpty {
+                        Text(isPhoto ? "No albums yet" : "No playlists yet").font(.caption)
                     } else {
-                        ForEach(playlists) { playlist in
-                            Button(playlist.name) {
-                                appState.addToPlaylist(file, playlistID: playlist.id)
+                        ForEach(collections) { collection in
+                            Button(collection.name) {
+                                appState.addToPlaylist(file, playlistID: collection.id)
                             }
                         }
                     }
                 } label: {
-                    Label("Add to Playlist", systemImage: "plus.square.on.square")
+                    Label(menuTitle, systemImage: menuIcon)
                 }
             }
 
