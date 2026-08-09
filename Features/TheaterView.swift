@@ -22,12 +22,13 @@ struct TheaterView: View {
         let ext = (file.name as NSString).pathExtension.lowercased()
         if file.mime.hasPrefix("image/") { return .image }
         if file.mime.hasPrefix("video/") { return .video }
+        if file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(ext) { return .audio }
         if file.mime.contains("pdf") || ext == "pdf" { return .pdf }
         if file.mime.hasPrefix("text/") || ["txt", "md", "json", "log", "csv", "swift"].contains(ext) { return .text }
         return .other
     }
 
-    enum PreviewKind { case image, video, pdf, text, other }
+    enum PreviewKind { case image, video, audio, pdf, text, other }
 
     var body: some View {
         ZStack {
@@ -224,6 +225,8 @@ struct TheaterView: View {
                 .onTapGesture { toggleControls() }
         case .video:
             VideoPlaybackView(object: file)
+        case .audio:
+            TheaterAudioPlayerView(file: file, mediaFiles: mediaFiles)
         default:
             VStack(spacing: 16) {
                 Image(systemName: iconForFile)
@@ -471,5 +474,130 @@ struct TheaterView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+// MARK: - Theater Audio Player View
+
+struct TheaterAudioPlayerView: View {
+    let file: ObjectRecord
+    let mediaFiles: [ObjectRecord]
+    @Bindable var audioEngine = AudioPlayerEngine.shared
+
+    var body: some View {
+        VStack(spacing: 28) {
+            Spacer()
+
+            // Large Glowing Disc with Animated Equalizer Waveform
+            ZStack {
+                Circle()
+                    .fill(XTheme.brandGradient)
+                    .frame(width: 200, height: 200)
+                    .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
+
+                if audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id {
+                    EqualizerWaveformView(barCount: 7)
+                        .frame(width: 90, height: 80)
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 72, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+
+            // Track Details
+            VStack(spacing: 6) {
+                Text(file.name)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 32)
+
+            // Scrubber Bar
+            VStack(spacing: 8) {
+                Slider(
+                    value: Binding(
+                        get: { audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0 },
+                        set: { audioEngine.seek(to: $0) }
+                    ),
+                    in: 0...max(1, audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 1)
+                )
+                .tint(XTheme.accent)
+
+                HStack {
+                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Spacer()
+                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 0))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .frame(maxWidth: 440)
+            .padding(.horizontal, 32)
+
+            // Playback Controls
+            HStack(spacing: 32) {
+                Button { audioEngine.skipPrevious() } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 48, height: 48)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    if audioEngine.currentTrack?.id == file.id {
+                        audioEngine.togglePlayPause()
+                    } else {
+                        audioEngine.play(file: file, in: mediaFiles)
+                    }
+                } label: {
+                    ZStack {
+                        Circle().fill(XTheme.accent)
+                            .frame(width: 64, height: 64)
+                            .shadow(color: XTheme.accent.opacity(0.6), radius: 12, y: 5)
+                        Image(systemName: (audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id) ? "pause.fill" : "play.fill")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                            .offset(x: (audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id) ? 0 : 2)
+                    }
+                    .frame(width: 64, height: 64)
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+
+                Button { audioEngine.skipNext() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 48, height: 48)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .onAppear {
+            if audioEngine.currentTrack?.id != file.id {
+                audioEngine.play(file: file, in: mediaFiles)
+            }
+        }
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard !seconds.isNaN && !seconds.isInfinite && seconds >= 0 else { return "0:00" }
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
     }
 }

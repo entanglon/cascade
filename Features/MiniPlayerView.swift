@@ -143,8 +143,8 @@ struct MiniPlayerView: View {
 
     private func audioTheaterOverlay(track: ObjectRecord) -> some View {
         ZStack {
-            // Full screen backdrop
-            Color.black.opacity(0.95).ignoresSafeArea()
+            // Full screen backdrop with rounded corners
+            Color.black.opacity(0.96)
 
             VStack(spacing: 32) {
                 // Top Header

@@ -671,7 +671,7 @@ struct FileBrowserView: View {
     private func open(_ file: ObjectRecord) {
         if file.isFolder {
             appState.openFolder(file)
-        } else if isAudioFile(file) {
+        } else if appState.selectedDestination == .audio {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
             appState.theaterFile = file

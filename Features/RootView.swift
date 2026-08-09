@@ -22,26 +22,27 @@ struct RootView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 10)
 
-                FileBrowserView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                    )
-                    .padding(.trailing, 10)
-                    .padding(.top, 10)
-                    .padding(.bottom, 10)
+                ZStack {
+                    FileBrowserView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if let file = appState.theaterFile {
+                        TheaterView(file: file)
+                            .transition(.opacity)
+                            .zIndex(10)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .padding(.trailing, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 10)
             }
         }
         .ignoresSafeArea(.all, edges: .top)
-        .overlay {
-            if let file = appState.theaterFile {
-                TheaterView(file: file)
-                    .transition(.opacity)
-                    .zIndex(10)
-            }
-        }
         .animation(.easeOut(duration: 0.18), value: appState.theaterFile?.id)
         .sheet(isPresented: Binding(
             get: { appState.showOnboarding },
