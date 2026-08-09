@@ -42,6 +42,7 @@ final class AppState {
     var searchText = ""
     var selectedFiles: Set<String> = []
     var isPrivateVaultUnlocked = false
+    var thumbnailVersion = 0
 
     // Computed property to keep the Inspector working (only shows if exactly 1 is selected)
     var selectedFile: ObjectRecord? {
@@ -515,6 +516,7 @@ final class AppState {
             if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
                 try? FileManager.default.removeItem(at: thumbDir)
             }
+            thumbnailVersion += 1
             // Force thumbnails to regenerate on next load
             await loadFiles()
         }

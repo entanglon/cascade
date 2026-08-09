@@ -963,7 +963,7 @@ struct FileGridItem: View {
         .contentShape(Rectangle())
         .scaleEffect(hovering ? 1.02 : 1.0)
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .task(id: file.id) {
+        .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
             thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)
         }
         .onHover { hovering = $0 }
@@ -1231,7 +1231,7 @@ struct FileListRow: View {
                     .padding(.trailing, 6)
             }
         }
-        .task(id: file.id) {
+        .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
             thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)
         }
         .onHover { hovering = $0 }
