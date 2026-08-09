@@ -18,32 +18,23 @@ actor ThumbnailService {
             return hit
         }
 
-        // 2. Local Telegram Thumbnail file on disk
-        let tgURL = telegramPath(for: object.id)
-        if fm.fileExists(atPath: tgURL.path(percentEncoded: false)) {
-            cache[object.id] = tgURL
-            return tgURL
+        // 2. Check local disk for generated or downloaded thumbnail (.png, .jpg, -tg.jpg)
+        if let local = localThumbnailOnDisk(for: object.id) {
+            cache[object.id] = local
+            return local
         }
 
-        // 3. Local QuickLook / Generated Thumbnail on disk
-        if let quick = UploadEngine.thumbnailURL(for: object.id), fm.fileExists(atPath: quick.path(percentEncoded: false)) {
-            cache[object.id] = quick
-            return quick
-        }
-
-        // 4. If video is cached on disk, generate thumbnail from video asset
+        // 3. If video is cached on disk, generate thumbnail from video asset immediately
         if object.mime.hasPrefix("video/") && DownloadEngine.isCached(object) {
             let cacheURL = DownloadEngine.cacheURL(for: object)
             generateAndSaveThumbnail(for: object, from: cacheURL)
-            let baseDir = (try? UploadEngine.thumbnailsDirectory()) ?? URL.temporaryDirectory
-            let thumb = baseDir.appendingPathComponent("\(object.id).jpg")
-            if fm.fileExists(atPath: thumb.path(percentEncoded: false)) {
+            if let thumb = localThumbnailOnDisk(for: object.id) {
                 cache[object.id] = thumb
                 return thumb
             }
         }
 
-        // 5. Re-fetch thumbnail from Telegram for media/documents
+        // 4. Re-fetch high-resolution thumbnail directly from Telegram
         if let url = await fetchFromTelegram(object) {
             cache[object.id] = url
             return url
@@ -55,13 +46,19 @@ actor ThumbnailService {
     func generateAndSaveThumbnail(for object: ObjectRecord, from fileURL: URL) {
         guard object.mime.hasPrefix("image/") || object.mime.hasPrefix("video/") else { return }
         guard let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
-        let dest = thumbDir.appendingPathComponent("\(object.id).jpg")
+        let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
+        let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
 
         if object.mime.hasPrefix("image/"), let image = NSImage(contentsOf: fileURL) {
             let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
-            if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
-                try? jpg.write(to: dest)
-                cache[object.id] = dest
+            if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+                    try? jpg.write(to: destJPG)
+                    cache[object.id] = destJPG
+                }
+                if let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: destPNG)
+                }
             }
         } else if object.mime.hasPrefix("video/") {
             let asset = AVAsset(url: fileURL)
@@ -70,12 +67,35 @@ actor ThumbnailService {
             if let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) {
                 let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
                 let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
-                if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff), let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
-                    try? jpg.write(to: dest)
-                    cache[object.id] = dest
+                if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                    if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+                        try? jpg.write(to: destJPG)
+                        cache[object.id] = destJPG
+                    }
+                    if let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: destPNG)
+                    }
                 }
             }
         }
+    }
+
+    private func localThumbnailOnDisk(for id: String) -> URL? {
+        let fm = FileManager.default
+        guard let dir = try? UploadEngine.thumbnailsDirectory() else { return nil }
+
+        let candidates = [
+            dir.appendingPathComponent("\(id).jpg"),
+            dir.appendingPathComponent("\(id).png"),
+            dir.appendingPathComponent("\(id)-tg.jpg")
+        ]
+
+        for cand in candidates {
+            if fm.fileExists(atPath: cand.path(percentEncoded: false)) {
+                return cand
+            }
+        }
+        return nil
     }
 
     private func telegramPath(for id: String) -> URL {

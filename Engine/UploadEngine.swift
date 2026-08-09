@@ -50,15 +50,18 @@ enum UploadEngine {
 
     static func thumbnailURL(for objectID: String) -> URL? {
         let fm = FileManager.default
-        guard let support = try? fm.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: false
-        ) else { return nil }
-        let url = support.appendingPathComponent("xCloud/thumbs/\(objectID).png")
-        guard fm.fileExists(atPath: url.path(percentEncoded: false)) else { return nil }
-        return url
+        guard let dir = try? thumbnailsDirectory() else { return nil }
+        let candidates = [
+            dir.appendingPathComponent("\(objectID).jpg"),
+            dir.appendingPathComponent("\(objectID).png"),
+            dir.appendingPathComponent("\(objectID)-tg.jpg")
+        ]
+        for cand in candidates {
+            if fm.fileExists(atPath: cand.path(percentEncoded: false)) {
+                return cand
+            }
+        }
+        return nil
     }
 
     // MARK: - Upload (plaintext, Telegram-native)
