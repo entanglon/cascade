@@ -138,8 +138,11 @@ final class AppState {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
             if TelegramClient.shared.isAuthorized {
+                let restored = await DBSnapshotEngine.restoreLatestSnapshot()
+                if restored { await loadFiles() }
                 let changed = await VaultRepair.run()
                 if changed { await loadFiles() }
+                Task { await DBSnapshotEngine.uploadSnapshot() }
                 identity = try? await TelegramClient.shared.fetchIdentity()
                 if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
                     profilePhotoData = photo
