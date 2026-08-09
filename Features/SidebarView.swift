@@ -30,7 +30,7 @@ struct SidebarView: View {
                 .padding(.horizontal, 10)
             }
             .safeAreaInset(edge: .bottom) {
-                AccountCard()
+                SidebarProfileCard()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -109,14 +109,14 @@ struct SidebarRow: View {
     }
 }
 
-struct AccountCard: View {
+struct SidebarProfileCard: View {
     @Environment(AppState.self) private var appState
-    @State private var showLogoutConfirm = false
-
     private var tg: TelegramClient { TelegramClient.shared }
+    @State private var showLogoutConfirm = false
+    @State private var cardHovered = false
 
     private var totalVaultBytes: Int64 {
-        appState.files.filter { !$0.trashed && !$0.isFolder }.reduce(0) { $0 + $1.size }
+        appState.files.filter { !$0.isFolder && !$0.trashed }.reduce(0) { $0 + $1.size }
     }
 
     var body: some View {
@@ -150,7 +150,6 @@ struct AccountCard: View {
                 }
             }
 
-            // Storage used indicator (Unlimited Cloud Storage)
             if tg.isAuthorized {
                 HStack {
                     Text("Vault Storage")
@@ -194,10 +193,23 @@ struct AccountCard: View {
 
             Spacer()
 
-            Circle().fill(statusColor).frame(width: 8, height: 8)
+            ZStack {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: statusColor.opacity(0.8), radius: 4, x: 0, y: 0)
+            }
         }
         .padding(10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
+        .glassEffect(cardHovered ? .regular.interactive() : .regular, in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(cardHovered ? XTheme.accent.opacity(0.5) : Color.white.opacity(0.10), lineWidth: 1)
+        )
+        .shadow(color: cardHovered ? XTheme.accent.opacity(0.25) : .clear, radius: 8, y: 0)
+        .scaleEffect(cardHovered ? 1.02 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: cardHovered)
+        .onHover { cardHovered = $0 }
         .contentShape(.rect(cornerRadius: 16))
     }
 
@@ -209,6 +221,7 @@ struct AccountCard: View {
                 .scaledToFill()
                 .frame(width: 32, height: 32)
                 .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
         } else {
             ZStack {
                 Circle().fill(XTheme.brandGradient)
@@ -217,6 +230,7 @@ struct AccountCard: View {
                     .foregroundStyle(.white)
             }
             .frame(width: 32, height: 32)
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
         }
     }
 

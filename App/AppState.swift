@@ -545,6 +545,27 @@ final class AppState {
     }
 
     @MainActor
+    var localCacheBytes: Int64 {
+        var total: Int64 = 0
+        let fm = FileManager.default
+        if let cacheDir = try? DownloadEngine.cacheDirectory(),
+           let urls = try? fm.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: [.fileSizeKey]) {
+            for url in urls {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                total += Int64(size)
+            }
+        }
+        if let thumbDir = try? UploadEngine.thumbnailsDirectory(),
+           let urls = try? fm.contentsOfDirectory(at: thumbDir, includingPropertiesForKeys: [.fileSizeKey]) {
+            for url in urls {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    @MainActor
     func clearLocalCache() {
         Task {
             await ThumbnailService.shared.clearMemoryCache()
