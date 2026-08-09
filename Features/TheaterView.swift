@@ -669,7 +669,35 @@ struct TheaterView: View {
 
     private func availableApps(for fileURL: URL) -> [(name: String, appURL: URL)] {
         let appURLs = NSWorkspace.shared.urlsForApplications(toOpen: fileURL)
-        return appURLs.map { appURL in
+        let ext = fileURL.pathExtension.lowercased()
+        let isVideoOrAudio = ["mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(ext) || previewKind == .video || previewKind == .audio
+        
+        let knownMediaPlayers: Set<String> = [
+            "vlc", "iina", "quicktime player", "elmedia player", "infuse", "mpv", 
+            "mplayer", "kmplayer", "movist", "omniplayer", "soda player", "plex"
+        ]
+        
+        let filtered = appURLs.filter { appURL in
+            let name = FileManager.default.displayName(atPath: appURL.path).replacingOccurrences(of: ".app", with: "").lowercased()
+            let bundleID = (Bundle(url: appURL)?.bundleIdentifier ?? "").lowercased()
+            
+            if isVideoOrAudio {
+                return knownMediaPlayers.contains(name) ||
+                       name.contains("player") ||
+                       name.contains("vlc") ||
+                       name.contains("iina") ||
+                       name.contains("quicktime") ||
+                       bundleID.contains("vlc") ||
+                       bundleID.contains("iina") ||
+                       bundleID.contains("quicktime") ||
+                       bundleID.contains("player")
+            } else {
+                let excluded: Set<String> = ["xcode", "textedit", "coteditor", "sublime text", "visual studio code", "vscode", "terminal"]
+                return !excluded.contains(name)
+            }
+        }
+        
+        return filtered.map { appURL in
             let name = FileManager.default.displayName(atPath: appURL.path).replacingOccurrences(of: ".app", with: "")
             return (name: name, appURL: appURL)
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
