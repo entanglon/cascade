@@ -13,6 +13,8 @@ enum CryptoError: Error, Sendable {
 enum CryptoEngine {
     /// Plaintext size of one encrypted slice.
     static let sliceSize = 1024 * 1024
+    /// Ciphertext size of one encrypted slice (nonce 12B + tag 16B = 28B overhead).
+    static let sealedSliceSize = sliceSize + 28
     
     private static let logger = Logger(
         subsystem: "com.xcloud.app",

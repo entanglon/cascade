@@ -241,8 +241,14 @@ final class AppState {
                 }
                 downloadStatus = nil
                 if !NSWorkspace.shared.open(url) {
-                    print("xCloud: NSWorkspace refused to open \(url.path())")
-                    alertMessage = "macOS refused to open \(file.name)."
+                    let ext = (file.name as NSString).pathExtension.lowercased()
+                    if ext == "svg" || file.mime.contains("svg") {
+                        theaterFile = file
+                    } else if let appURL = NSWorkspace.shared.urlForApplication(toOpen: url) {
+                        try? await NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+                    } else {
+                        theaterFile = file
+                    }
                 }
             } catch {
                 print("xCloud open error: \(error)")

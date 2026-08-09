@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVKit
+import WebKit
 
 struct TheaterView: View {
     @Environment(AppState.self) private var appState
@@ -417,7 +418,13 @@ struct TheaterView: View {
 
     @ViewBuilder
     private var imageViewer: some View {
-        if let url, let nsImage = NSImage(contentsOf: url) {
+        let isSVG = (file.name as NSString).pathExtension.lowercased() == "svg" || file.mime.contains("svg")
+        if let url, isSVG {
+            SVGWebView(url: url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(20)
+                .transition(.opacity)
+        } else if let url, let nsImage = NSImage(contentsOf: url) {
             Image(nsImage: nsImage)
                 .resizable()
                 .interpolation(.high)
@@ -799,5 +806,21 @@ struct KeyMonitorView: NSViewRepresentable {
         deinit {
             if let monitor { NSEvent.removeMonitor(monitor) }
         }
+    }
+}
+
+struct SVGWebView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        return webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        nsView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
     }
 }

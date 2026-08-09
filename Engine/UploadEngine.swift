@@ -28,9 +28,6 @@ enum UploadEngine {
             create: true
         )
         let dir = support.appendingPathComponent("xCloud/tmp", isDirectory: true)
-        if fm.fileExists(atPath: dir.path(percentEncoded: false)) {
-            try? fm.removeItem(at: dir)
-        }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

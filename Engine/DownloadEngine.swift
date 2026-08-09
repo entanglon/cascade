@@ -103,24 +103,35 @@ enum DownloadEngine {
 
                 report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)
                 let data = try Data(contentsOf: tmp)
-                if objectKey != nil, let expected = chunk.plainHash,
-                   FileHasher.sha256(of: data) != expected {
-                    throw DownloadError.hashMismatch
-                }
 
                 if let key = objectKey {
-                    // DECRYPT: Unseal 1MB AES-GCM slices
+                    // DECRYPT: Unseal AES-GCM slices using sealedSliceSize (sliceSize + 28B overhead)
                     var offset = 0
                     var sliceIndex = 0
+                    var decryptedChunkData = Data()
+                    decryptedChunkData.reserveCapacity(data.count)
+
                     while offset < data.count {
-                        let end = min(offset + CryptoEngine.sliceSize, data.count)
+                        let end = min(offset + CryptoEngine.sealedSliceSize, data.count)
                         let slice = data.subdata(in: offset..<end)
                         let decrypted = try CryptoEngine.decryptSlice(slice, objectKey: key, index: sliceIndex)
-                        handle.write(decrypted)
+                        decryptedChunkData.append(decrypted)
                         offset = end
                         sliceIndex += 1
                     }
+
+                    if let expected = chunk.plainHash,
+                       FileHasher.sha256(of: decryptedChunkData) != expected {
+                        throw DownloadError.hashMismatch
+                    }
+
+                    handle.write(decryptedChunkData)
                 } else {
+                    if let expected = chunk.plainHash,
+                       FileHasher.sha256(of: data) != expected {
+                        throw DownloadError.hashMismatch
+                    }
+
                     handle.write(data)
                 }
 
