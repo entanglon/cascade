@@ -259,9 +259,14 @@ final class TelegramClient {
         if let msg = try? await client.getMessage(chatId: chatId, messageId: messageId) {
             return msg
         }
-        let res = try await client.getMessages(chatId: chatId, messageIds: [messageId])
-        if let msgs = res.messages, let first = msgs.first {
+        if let res = try? await client.getMessages(chatId: chatId, messageIds: [messageId]),
+           let msgs = res.messages, let first = msgs.compactMap({ $0 }).first {
             return first
+        }
+        // Force TDLib to sync recent channel history from server
+        _ = try? await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false)
+        if let msg = try? await client.getMessage(chatId: chatId, messageId: messageId) {
+            return msg
         }
         throw DownloadError.fileNotFound
     }
@@ -284,7 +289,13 @@ final class TelegramClient {
     func thumbnailData(forMessage messageId: Int64, chatId: Int64) async throws -> Data? {
         let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
 
-        // 1. Check for Embedded Minithumbnail Data
+        // 1. Try High-Resolution Thumbnail File FIRST
+        if let fileId = try await thumbnailFileId(forMessage: messageId, chatId: chatId),
+           let data = try await downloadFileData(fileId: fileId), !data.isEmpty {
+            return data
+        }
+
+        // 2. Fallback to Embedded Minithumbnail Data ONLY if high-res file is absent
         switch message.content {
         case .messagePhoto(let ph):
             if let mini = ph.photo.minithumbnail { return mini.data }
@@ -294,11 +305,6 @@ final class TelegramClient {
             if let mini = doc.document.minithumbnail { return mini.data }
         default:
             break
-        }
-
-        // 2. Fall back to downloading thumbnail file
-        if let fileId = try await thumbnailFileId(forMessage: messageId, chatId: chatId) {
-            return try await downloadFileData(fileId: fileId)
         }
 
         return nil
