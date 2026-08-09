@@ -386,6 +386,43 @@ final class AppState {
     }
 
     @MainActor
+    func createPlaylist(named name: String, kind: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Task {
+            let vault = try? await DatabaseManager.shared.firstVault()
+            let folder = ObjectRecord(
+                id: UUID().uuidString,
+                vaultID: vault?.id ?? "local",
+                name: trimmed,
+                size: 0,
+                mime: kind == "video" ? "xcloud/playlist-video" : "xcloud/playlist-audio",
+                state: "ready",
+                rootHash: nil,
+                wrappedKey: nil,
+                createdAt: .now,
+                modifiedAt: .now,
+                isFavorite: false,
+                trashed: false,
+                parentID: nil,
+                isFolder: true
+            )
+            try? await DatabaseManager.shared.save(folder)
+            await loadFiles()
+        }
+    }
+
+    @MainActor
+    func addToPlaylist(_ file: ObjectRecord, playlistID: String) {
+        Task {
+            var updated = file
+            updated.parentID = playlistID
+            try? await DatabaseManager.shared.save(updated)
+            await loadFiles()
+        }
+    }
+
+    @MainActor
     func createPrivateFolder(named name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

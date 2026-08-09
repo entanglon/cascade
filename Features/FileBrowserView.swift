@@ -13,6 +13,8 @@ struct FileBrowserView: View {
     @State private var showNewFolder = false
     @State private var showNewPrivateFolder = false
     @State private var folderName = ""
+    @State private var showNewPlaylist = false
+    @State private var playlistName = ""
     @State private var renameTarget: ObjectRecord?
     @State private var renameText = ""
     @FocusState private var gridFocused: Bool
@@ -57,9 +59,23 @@ struct FileBrowserView: View {
             case .favorites:
                 return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
             case .video:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("video/") }
+                if let currentID = appState.currentFolderID {
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+                } else {
+                    let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-video" }
+                    let videoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && $0.mime.hasPrefix("video/") }
+                    return playlists + videoFiles
+                }
             case .audio:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("audio/") }
+                if let currentID = appState.currentFolderID {
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+                } else {
+                    let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-audio" }
+                    let audioFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
+                        $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
+                    ) }
+                    return playlists + audioFiles
+                }
             case .documents:
                 return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
                     ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
@@ -246,6 +262,17 @@ struct FileBrowserView: View {
         } message: {
             Text("Files inside a private folder are encrypted on your Mac before upload. Telegram only sees noise.")
         }
+        .alert("New Playlist", isPresented: $showNewPlaylist) {
+            TextField("Playlist name", text: $playlistName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let kind = appState.selectedDestination == .video ? "video" : "audio"
+                appState.createPlaylist(named: playlistName, kind: kind)
+                playlistName = ""
+            }
+        } message: {
+            Text("Create a new \(appState.selectedDestination == .video ? "video" : "audio") playlist.")
+        }
         .alert("Rename", isPresented: Binding(
             get: { renameTarget != nil },
             set: { if !$0 { renameTarget = nil } }
@@ -357,6 +384,27 @@ struct FileBrowserView: View {
             // RIGHT — controls
             HStack(spacing: 10) {
                 Spacer()
+
+                if appState.selectedDestination == .audio || appState.selectedDestination == .video {
+                    Button {
+                        playlistName = ""
+                        showNewPlaylist = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("New Playlist")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .glassEffect(.regular, in: .capsule)
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Create New Playlist")
+                }
 
                 if appState.selectedDestination == .trash && !visibleFiles.isEmpty {
                     Button(role: .destructive) {
@@ -530,6 +578,14 @@ struct FileBrowserView: View {
                     Label("New Private Folder", systemImage: "asterisk")
                 }
             } else {
+                if appState.selectedDestination == .audio || appState.selectedDestination == .video {
+                    Button {
+                        playlistName = ""
+                        showNewPlaylist = true
+                    } label: {
+                        Label("New Playlist", systemImage: "plus.square.on.square")
+                    }
+                }
                 Button {
                     folderName = ""
                     showNewFolder = true
@@ -897,6 +953,28 @@ struct FileItemContextMenu: View {
             } label: {
                 Label(file.isFavorite ? "Remove Favorite" : "Add Favorite", systemImage: file.isFavorite ? "star.slash" : "star")
             }
+            // Add to Playlist Menu
+            let isAudio = file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((file.name as NSString).pathExtension.lowercased())
+            let isVideo = file.mime.hasPrefix("video/")
+            let targetPlaylistMime = isAudio ? "xcloud/playlist-audio" : (isVideo ? "xcloud/playlist-video" : nil)
+
+            if let targetPlaylistMime {
+                let playlists = appState.files.filter { $0.isFolder && !$0.trashed && $0.mime == targetPlaylistMime }
+                Menu {
+                    if playlists.isEmpty {
+                        Text("No playlists yet").font(.caption)
+                    } else {
+                        ForEach(playlists) { playlist in
+                            Button(playlist.name) {
+                                appState.addToPlaylist(file, playlistID: playlist.id)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Add to Playlist", systemImage: "plus.square.on.square")
+                }
+            }
+
             Menu {
                 Button("Root") { appState.moveObject(id: file.id, to: nil) }
                 ForEach(appState.files.filter {
@@ -1003,9 +1081,19 @@ struct FileGridItem: View {
     private var folderCard: some View {
         HStack(spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 26, weight: .regular))
-                    .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
+                if file.mime == "xcloud/playlist-audio" {
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(XTheme.accent)
+                } else if file.mime == "xcloud/playlist-video" {
+                    Image(systemName: "film.stack")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(XTheme.categoryCyan)
+                } else {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 26, weight: .regular))
+                        .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
+                }
 
                 if file.isPrivate {
                     Image(systemName: "asterisk")
