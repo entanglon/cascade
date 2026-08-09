@@ -335,14 +335,21 @@ struct FileBrowserView: View {
         @Bindable var appState = appState
         return ZStack {
             // LEFT — page heading
-            HStack(spacing: 8) {
-                if appState.selectedDestination == .allFiles && appState.currentFolderID != nil {
+            HStack(spacing: 10) {
+                if appState.currentFolderID != nil {
                     Button {
                         appState.navigateBack()
                     } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.8))
+                        ZStack {
+                            Circle()
+                                .fill(Color.white.opacity(0.08))
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                        .frame(width: 32, height: 32)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .help("Back")
