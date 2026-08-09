@@ -26,25 +26,42 @@ struct FileBrowserView: View {
     @State private var fabHovering = false
     @Namespace private var viewModeNamespace
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
+    @AppStorage("xc.sortAscending") private var sortAscending = false
 
     private var sortOption: SortOption {
         get {
             switch sortOptionRaw {
-            case "date": return .date
-            case "size": return .size
-            default: return .name
+            case "dateCreated": .dateCreated
+            case "dateModified": .dateModified
+            case "size": .size
+            case "kind": .kind
+            default: .name
             }
         }
         nonmutating set {
-            switch newValue {
-            case .name: sortOptionRaw = "name"
-            case .date: sortOptionRaw = "date"
-            case .size: sortOptionRaw = "size"
-            }
+            sortOptionRaw = newValue.rawValue
         }
     }
 
-    enum SortOption { case name, date, size }
+    enum SortOption: String, CaseIterable, Identifiable {
+        case name = "Name"
+        case dateCreated = "Date Created"
+        case dateModified = "Date Modified"
+        case size = "Size"
+        case kind = "Kind"
+
+        var id: String { rawValue }
+
+        var iconName: String {
+            switch self {
+            case .name: "textformat.abc"
+            case .dateCreated: "calendar.badge.plus"
+            case .dateModified: "calendar"
+            case .size: "arrow.up.and.down.square"
+            case .kind: "square.grid.3x3.square"
+            }
+        }
+    }
 
     private var visibleFiles: [ObjectRecord] {
         let base: [ObjectRecord] = {
@@ -102,11 +119,29 @@ struct FileBrowserView: View {
 
         switch sortOption {
         case .name:
-            return filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        case .date:
-            return filtered.sorted { $0.createdAt > $1.createdAt }
+            return filtered.sorted {
+                let res = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return sortAscending ? res == .orderedAscending : res == .orderedDescending
+            }
+        case .dateCreated:
+            return filtered.sorted {
+                sortAscending ? $0.createdAt < $1.createdAt : $0.createdAt > $1.createdAt
+            }
+        case .dateModified:
+            return filtered.sorted {
+                sortAscending ? $0.modifiedAt < $1.modifiedAt : $0.modifiedAt > $1.modifiedAt
+            }
         case .size:
-            return filtered.sorted { $0.size > $1.size }
+            return filtered.sorted {
+                sortAscending ? $0.size < $1.size : $0.size > $1.size
+            }
+        case .kind:
+            return filtered.sorted {
+                let k0 = $0.isFolder ? "0_\($0.mime)" : "1_\($0.mime)"
+                let k1 = $1.isFolder ? "0_\($1.mime)" : "1_\($1.mime)"
+                let res = k0.localizedCaseInsensitiveCompare(k1)
+                return sortAscending ? res == .orderedAscending : res == .orderedDescending
+            }
         }
     }
 
@@ -227,7 +262,7 @@ struct FileBrowserView: View {
                 open(f)
                 return .handled
             }
-            keyNav(columnCount)
+            keyNav(1, isVertical: true)
             return .handled
         }
         .onKeyPress(.upArrow, phases: .down) { press in
@@ -235,11 +270,11 @@ struct FileBrowserView: View {
                 appState.navigateBack()
                 return .handled
             }
-            keyNav(-columnCount)
+            keyNav(-1, isVertical: true)
             return .handled
         }
-        .onKeyPress(.leftArrow)  { keyNav(-1); return .handled }
-        .onKeyPress(.rightArrow) { keyNav(1); return .handled }
+        .onKeyPress(.leftArrow)  { keyNav(-1, isVertical: false); return .handled }
+        .onKeyPress(.rightArrow) { keyNav(1, isVertical: false); return .handled }
         .onKeyPress(.space) {
             if let file = appState.selectedFile {
                 open(file)
@@ -333,11 +368,48 @@ struct FileBrowserView: View {
 
     // MARK: - Top Bar
 
+    @ViewBuilder
     private var sortPickerContent: some View {
-        Group {
-            Button("Sort by Name") { sortOption = .name }
-            Button("Sort by Date") { sortOption = .date }
-            Button("Sort by Size") { sortOption = .size }
+        Section("Sort By") {
+            ForEach(SortOption.allCases) { option in
+                Button {
+                    if sortOption == option {
+                        sortAscending.toggle()
+                    } else {
+                        sortOption = option
+                        sortAscending = (option == .name || option == .kind)
+                    }
+                } label: {
+                    HStack {
+                        Label(option.rawValue, systemImage: option.iconName)
+                        Spacer()
+                        if sortOption == option {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+        Divider()
+        Section("Order") {
+            Button {
+                sortAscending = true
+            } label: {
+                HStack {
+                    Label(sortOption == .name ? "A to Z" : (sortOption == .size ? "Smallest First" : "Oldest First"), systemImage: "arrow.up")
+                    Spacer()
+                    if sortAscending { Image(systemName: "checkmark") }
+                }
+            }
+            Button {
+                sortAscending = false
+            } label: {
+                HStack {
+                    Label(sortOption == .name ? "Z to A" : (sortOption == .size ? "Largest First" : "Newest First"), systemImage: "arrow.down")
+                    Spacer()
+                    if !sortAscending { Image(systemName: "checkmark") }
+                }
+            }
         }
     }
 
@@ -509,21 +581,28 @@ struct FileBrowserView: View {
                 .glassEffect(.regular, in: .capsule)
 
                 // Sort Menu Button
-                Menu { sortPickerContent } label: {
-                    HStack(spacing: 4) {
+                Menu {
+                    sortPickerContent
+                } label: {
+                    HStack(spacing: 5) {
                         Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 11, weight: .bold))
+                        Text(sortOption.rawValue)
+                            .font(.system(size: 12, weight: .medium))
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.5))
                     }
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(.white.opacity(0.90))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .glassEffect(.regular, in: .capsule)
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
+                .help("Sort items by name, date, size, or kind")
             }
         }
         .padding(.horizontal, 20)
@@ -798,17 +877,33 @@ struct FileBrowserView: View {
         return file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(ext)
     }
 
-    private func keyNav(_ delta: Int) {
-        let files = visibleFiles
+    private var navigableFiles: [ObjectRecord] {
+        currentFolders + currentFiles
+    }
+
+    private func keyNav(_ delta: Int, isVertical: Bool = false) {
+        let files = navigableFiles
         guard !files.isEmpty else { return }
-        let current = files.firstIndex { appState.selectedFiles.contains($0.id) }
-        let next: Int
-        if let current {
-            next = min(max(current + delta, 0), files.count - 1)
-        } else {
-            next = delta > 0 ? 0 : files.count - 1
+        guard let current = files.firstIndex(where: { appState.selectedFiles.contains($0.id) }) else {
+            appState.selectedFiles = [files[0].id]
+            return
         }
-        appState.selectedFiles = [files[next].id]
+
+        let item = files[current]
+        let step: Int
+        if isVertical {
+            if viewModeRaw == "list" {
+                step = delta > 0 ? 1 : -1
+            } else {
+                let currentCols = item.isFolder ? min(columnCount, 4) : columnCount
+                step = delta > 0 ? currentCols : -currentCols
+            }
+        } else {
+            step = delta
+        }
+
+        let nextIndex = min(max(current + step, 0), files.count - 1)
+        appState.selectedFiles = [files[nextIndex].id]
     }
 
     private func select(_ file: ObjectRecord) {
