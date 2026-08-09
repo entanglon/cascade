@@ -575,7 +575,7 @@ struct FileBrowserView: View {
                             .foregroundStyle(.white.opacity(0.5))
                     }
                     .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 38, height: 28)
+                    .frame(width: 46, height: 28)
                     .contentShape(Capsule())
                     .glassEffect(.regular.interactive(), in: .capsule)
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))

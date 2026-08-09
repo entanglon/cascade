@@ -620,6 +620,48 @@ final class TelegramClient {
         try await client.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: true)
     }
 
+    func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async throws {
+        guard let client else { throw TelegramError.notInitialized }
+        let formattedText = FormattedText(entities: [], text: caption)
+        try await client.editMessageCaption(
+            caption: formattedText,
+            chatId: chatId,
+            messageId: messageId,
+            replyMarkup: nil,
+            showCaptionAboveMedia: false
+        )
+    }
+
+    func sendMetadataMessage(chatId: Int64, text: String) async throws -> Int64? {
+        guard let client else { throw TelegramError.notInitialized }
+        let content = InputMessageContent.inputMessageText(InputMessageText(
+            clearDraft: false,
+            linkPreviewOptions: nil,
+            text: FormattedText(entities: [], text: text)
+        ))
+        let msg = try await client.sendMessage(
+            chatId: chatId,
+            inputMessageContent: content,
+            options: MessageSendOptions(
+                allowPaidBroadcast: false,
+                disableNotification: true,
+                effectId: 0,
+                fromBackground: false,
+                onlyPreview: false,
+                paidMessageStarCount: 0,
+                protectContent: true,
+                schedulingState: nil as MessageSchedulingState?,
+                sendingId: 0,
+                suggestedPostInfo: nil as InputSuggestedPostInfo?,
+                updateOrderOfInstalledStickerSets: false
+            ),
+            replyMarkup: nil as ReplyMarkup?,
+            replyTo: nil as InputMessageReplyTo?,
+            topicId: nil as MessageTopic?
+        )
+        return msg.id
+    }
+
     // MARK: - Paths
 
     private func databasePath() -> String {

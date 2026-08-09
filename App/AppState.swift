@@ -386,6 +386,7 @@ final class AppState {
                 isFolder: true
             )
             try? await DatabaseManager.shared.save(folder)
+            syncObjectMetadataToTelegram(folder)
             await loadFiles()
         }
     }
@@ -413,6 +414,7 @@ final class AppState {
                 isFolder: true
             )
             try? await DatabaseManager.shared.save(folder)
+            syncObjectMetadataToTelegram(folder)
             await loadFiles()
         }
     }
@@ -423,6 +425,7 @@ final class AppState {
             var updated = file
             updated.parentID = playlistID
             try? await DatabaseManager.shared.save(updated)
+            syncObjectMetadataToTelegram(updated)
             await loadFiles()
         }
     }
@@ -451,6 +454,7 @@ final class AppState {
                 isPrivate: true
             )
             try? await DatabaseManager.shared.save(folder)
+            syncObjectMetadataToTelegram(folder)
             await loadFiles()
         }
     }
@@ -485,6 +489,10 @@ final class AppState {
                     if !targetIsPrivate && wasPrivate {
                         $0.isPrivate = false
                     }
+                }
+
+                if let updated = try? await DatabaseManager.shared.object(id) {
+                    syncObjectMetadataToTelegram(updated)
                 }
 
                 // If moved out of private vault into a public folder, unencrypt in Telegram
@@ -598,9 +606,67 @@ final class AppState {
     // MARK: - File operations
 
     @MainActor
+    func syncObjectMetadataToTelegram(_ object: ObjectRecord) {
+        Task.detached {
+            guard TelegramClient.shared.isAuthorized else { return }
+            guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+            let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
+
+            let meta: [String: Any] = [
+                "id": object.id,
+                "name": object.name,
+                "size": object.size,
+                "mime": object.mime,
+                "parentID": object.parentID ?? "",
+                "isPrivate": object.isPrivate,
+                "isFolder": object.isFolder,
+                "trashed": object.trashed,
+                "isFavorite": object.isFavorite,
+                "totalChunks": max(1, chunks.count),
+                "wrappedKey": object.wrappedKey?.base64EncodedString() ?? ""
+            ]
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: meta),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else { return }
+            let captionString = "xcloud:v1:" + jsonStr
+
+            if object.isFolder {
+                if let folderChunk = chunks.first, let msgID = folderChunk.messageID {
+                    try? await TelegramClient.shared.editMessageCaption(chatId: vault.channelID, messageId: msgID, caption: captionString)
+                } else {
+                    if let msgID = try? await TelegramClient.shared.sendMetadataMessage(chatId: vault.channelID, text: captionString) {
+                        let record = ChunkRecord(
+                            id: UUID().uuidString,
+                            objectID: object.id,
+                            index: 0,
+                            size: 0,
+                            plainHash: nil,
+                            cipherHash: nil,
+                            state: "uploaded",
+                            messageID: msgID,
+                            fileUniqueID: nil,
+                            channelID: vault.channelID,
+                            createdAt: .now
+                        )
+                        try? await DatabaseManager.shared.save(record)
+                    }
+                }
+            } else {
+                for chunk in chunks {
+                    if let msgID = chunk.messageID {
+                        try? await TelegramClient.shared.editMessageCaption(chatId: vault.channelID, messageId: msgID, caption: captionString)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
     func toggleFavorite(_ file: ObjectRecord) {
         Task {
             try? await DatabaseManager.shared.updateObject(file.id) { $0.isFavorite.toggle() }
+            if let updated = try? await DatabaseManager.shared.object(file.id) {
+                syncObjectMetadataToTelegram(updated)
+            }
             await loadFiles()
         }
     }
@@ -619,6 +685,9 @@ final class AppState {
             }
             for id in ids {
                 try? await DatabaseManager.shared.updateObject(id) { $0.trashed = trashed }
+                if let updated = try? await DatabaseManager.shared.object(id) {
+                    syncObjectMetadataToTelegram(updated)
+                }
             }
             selectedFiles.subtract(ids)
             if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
@@ -632,6 +701,9 @@ final class AppState {
         guard !trimmed.isEmpty else { return }
         Task {
             try? await DatabaseManager.shared.updateObject(file.id) { $0.name = trimmed }
+            if let updated = try? await DatabaseManager.shared.object(file.id) {
+                syncObjectMetadataToTelegram(updated)
+            }
             await loadFiles()
         }
     }

@@ -62,12 +62,26 @@ enum VaultRepair {
 
                         let parentID = meta["parentID"] as? String
                         let isPrivate = meta["isPrivate"] as? Bool ?? false
+                        let trashed = meta["trashed"] as? Bool ?? false
+                        let isFavorite = meta["isFavorite"] as? Bool ?? false
+                        let isFolder = meta["isFolder"] as? Bool ?? false
                         let totalChunks = meta["totalChunks"] as? Int ?? 1
                         let wrappedKeyStr = meta["wrappedKey"] as? String ?? ""
                         let wrappedKey = Data(base64Encoded: wrappedKeyStr)
+                        let cleanParentID = (parentID == nil || parentID?.isEmpty == true) ? nil : parentID
 
-                        // Restore Object if missing in SQLite
-                        if objectDict[objectID] == nil {
+                        // Restore or Update Object in SQLite
+                        if let existing = objectDict[objectID] {
+                            if existing.trashed != trashed || existing.name != name || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {
+                                var updated = existing
+                                updated.name = name
+                                updated.parentID = cleanParentID
+                                updated.trashed = trashed
+                                updated.isFavorite = isFavorite
+                                try? await DatabaseManager.shared.save(updated)
+                                changed = true
+                            }
+                        } else {
                             let newObj = ObjectRecord(
                                 id: objectID,
                                 vaultID: vault.id,
@@ -79,10 +93,10 @@ enum VaultRepair {
                                 wrappedKey: wrappedKey,
                                 createdAt: .now,
                                 modifiedAt: .now,
-                                isFavorite: false,
-                                trashed: false,
-                                parentID: (parentID == nil || parentID?.isEmpty == true) ? nil : parentID,
-                                isFolder: false,
+                                isFavorite: isFavorite,
+                                trashed: trashed,
+                                parentID: cleanParentID,
+                                isFolder: isFolder,
                                 isPrivate: isPrivate,
                                 sourcePath: nil
                             )

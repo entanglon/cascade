@@ -173,11 +173,17 @@ actor DatabaseManager {
         try read { db in try VaultRecord.fetchOne(db) }
     }
 
-    func updateObject(_ id: String, _ mutate: (inout ObjectRecord) -> Void) throws {
+    func object(_ id: String) throws -> ObjectRecord? {
+        try read { db in try ObjectRecord.fetchOne(db, id: id) }
+    }
+
+    @discardableResult
+    func updateObject(_ id: String, _ mutate: (inout ObjectRecord) -> Void) throws -> ObjectRecord? {
         try write { db in
-            guard var object = try ObjectRecord.fetchOne(db, id: id) else { return }
+            guard var object = try ObjectRecord.fetchOne(db, id: id) else { return nil }
             mutate(&object)
             try object.update(db)
+            return object
         }
     }
 

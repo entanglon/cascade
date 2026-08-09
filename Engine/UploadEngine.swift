@@ -243,6 +243,9 @@ enum UploadEngine {
                     "mime": mime,
                     "parentID": parentID ?? "",
                     "isPrivate": isParentPrivate,
+                    "isFolder": false,
+                    "trashed": false,
+                    "isFavorite": false,
                     "index": item.index,
                     "totalChunks": plan.items.count,
                     "wrappedKey": wrappedKey?.base64EncodedString() ?? ""
