@@ -116,9 +116,12 @@ enum UploadEngine {
         let mime = UTType(filenameExtension: fileURL.pathExtension)?
             .preferredMIMEType ?? "application/octet-stream"
 
-        var isParentPrivate = resumeObject?.isPrivate ?? false
+        var isParentPrivate = resumeObject?.isPrivate ?? isPrivate
         if resumeObject == nil, let parentID {
-            isParentPrivate = (try? await DatabaseManager.shared.allObjects())?.first { $0.id == parentID }?.isPrivate ?? false
+            let parentObj = (try? await DatabaseManager.shared.allObjects())?.first { $0.id == parentID }
+            if let parentObj {
+                isParentPrivate = parentObj.isPrivate
+            }
         }
 
         var objectKey: SymmetricKey? = nil

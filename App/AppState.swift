@@ -203,8 +203,8 @@ final class AppState {
         isUploading = true
         uploadStatus = "Preparing…"
         uploadProgress = 0
-        let isPrivate = (selectedDestination == .privateVault)
-        let parent = (selectedDestination == .allFiles || isPrivate) ? currentFolderID : nil
+        let isPrivate = (selectedDestination == .privateVault || isFolderPrivate(currentFolderID))
+        let parent = (selectedDestination == .allFiles || selectedDestination == .privateVault) ? currentFolderID : nil
 
         Task {
             do {
