@@ -274,6 +274,8 @@ final class TelegramClient {
             return best?.photo.id
         case .messageVideo(let vid):
             return vid.video.thumbnail?.file.id
+        case .messageDocument(let doc):
+            return doc.document.thumbnail?.file.id
         default:
             return nil
         }

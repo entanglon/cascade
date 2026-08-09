@@ -508,6 +508,7 @@ final class AppState {
     @MainActor
     func clearLocalCache() {
         Task {
+            await ThumbnailService.shared.clearMemoryCache()
             if let cacheDir = try? DownloadEngine.cacheDirectory() {
                 try? FileManager.default.removeItem(at: cacheDir)
             }
