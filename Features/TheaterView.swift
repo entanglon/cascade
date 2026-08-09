@@ -84,11 +84,6 @@ struct TheaterView: View {
         .onAppear {
             isFocused = true
         }
-        .onDisappear {
-            if previewKind == .audio {
-                AudioPlayerEngine.shared.stop()
-            }
-        }
         .onExitCommand {
             withAnimation(.easeOut(duration: 0.2)) {
                 if previewKind == .audio {
@@ -110,6 +105,8 @@ struct TheaterView: View {
                 toggleControls()
             } else if previewKind == .video {
                 NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
+            } else if previewKind == .audio {
+                AudioPlayerEngine.shared.togglePlayPause()
             }
             return .handled
         }
@@ -126,7 +123,7 @@ struct TheaterView: View {
             // Minimize button (Background play in Mini Player)
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
-                    if previewKind == .audio {
+                    if previewKind == .audio || previewKind == .video {
                         if AudioPlayerEngine.shared.currentTrack?.id != file.id {
                             AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
                         }
@@ -612,29 +609,37 @@ struct TheaterAudioPlayerView: View {
             }
             .padding(.horizontal, 32)
 
-            // Scrubber Bar
-            VStack(spacing: 8) {
-                Slider(
-                    value: Binding(
-                        get: { audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0 },
-                        set: { audioEngine.seek(to: $0) }
-                    ),
-                    in: 0...max(1, audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 1)
-                )
-                .tint(XTheme.accent)
+            // Apple Native AVPlayerView (Provides Apple native scrubber, volume controls, AirPlay selector)
+            if let avPlayer = audioEngine.player, audioEngine.currentTrack?.id == file.id {
+                NativeAVPlayerView(player: avPlayer)
+                    .frame(maxWidth: 520, maxHeight: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, 32)
+            } else {
+                // Scrubber Bar
+                VStack(spacing: 8) {
+                    Slider(
+                        value: Binding(
+                            get: { audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0 },
+                            set: { audioEngine.seek(to: $0) }
+                        ),
+                        in: 0...max(1, audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 1)
+                    )
+                    .tint(XTheme.accent)
 
-                HStack {
-                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0))
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
-                    Spacer()
-                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 0))
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                    HStack {
+                        Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.5))
+                        Spacer()
+                        Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 0))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
                 }
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 32)
             }
-            .frame(maxWidth: 440)
-            .padding(.horizontal, 32)
 
             // Playback Controls
             HStack(spacing: 32) {

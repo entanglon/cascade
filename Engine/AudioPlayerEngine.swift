@@ -18,7 +18,7 @@ final class AudioPlayerEngine {
         didSet { player?.volume = Float(volume) }
     }
 
-    private var player: AVPlayer?
+    private(set) var player: AVPlayer?
     private var timeObserver: Any?
 
     private init() {}
