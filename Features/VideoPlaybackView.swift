@@ -13,7 +13,7 @@ struct NativeAVPlayerView: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let playerView = AVPlayerView()
         playerView.player = player
-        playerView.controlsStyle = showControls ? .inline : .none
+        playerView.controlsStyle = showControls ? .floating : .none
         playerView.showsSharingServiceButton = false
         playerView.showsFullScreenToggleButton = false
         return playerView
@@ -21,7 +21,7 @@ struct NativeAVPlayerView: NSViewRepresentable {
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = player
-        let targetStyle: AVPlayerViewControlsStyle = showControls ? .inline : .none
+        let targetStyle: AVPlayerViewControlsStyle = showControls ? .floating : .none
         if nsView.controlsStyle != targetStyle {
             nsView.controlsStyle = targetStyle
         }

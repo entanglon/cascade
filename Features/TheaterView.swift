@@ -18,10 +18,10 @@ struct TheaterView: View {
     @State private var errorMessage: String?
     @State private var showControls = true
     @State private var controlsTimer: Timer?
-    @State private var canvasBackground: CanvasBackground = .dark
+    @AppStorage("xc.canvasBackground") private var canvasBackground: CanvasBackground = .dark
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
 
-    enum CanvasBackground: String, CaseIterable {
+    enum CanvasBackground: String, CaseIterable, Codable {
         case dark = "Dark"
         case slate = "Slate"
         case light = "Light"
