@@ -141,7 +141,7 @@ struct TheaterView: View {
         }
         .onContinuousHover { phase in
             if case .active = phase {
-                resetControlsTimer()
+                onMouseActivity()
             }
         }
         .focusable()
@@ -149,7 +149,7 @@ struct TheaterView: View {
         .focusEffectDisabled()
         .onAppear {
             isFocused = true
-            resetControlsTimer()
+            onMouseActivity()
         }
         .onExitCommand {
             handleEscapeKey()
@@ -601,7 +601,7 @@ struct TheaterView: View {
         return next >= 0 && next < files.count
     }
 
-    private func resetControlsTimer() {
+    private func onMouseActivity() {
         controlsTimer?.invalidate()
         if !showControls {
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -617,8 +617,21 @@ struct TheaterView: View {
         }
     }
 
+    private func refreshTimerIfVisible() {
+        if showControls {
+            controlsTimer?.invalidate()
+            controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { _ in
+                Task { @MainActor in
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showControls = false
+                    }
+                }
+            }
+        }
+    }
+
     private func navigateMedia(delta: Int) {
-        resetControlsTimer()
+        refreshTimerIfVisible()
         let files = mediaFiles
         guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
         let nextIndex = min(max(currentIndex + delta, 0), files.count - 1)
@@ -633,7 +646,7 @@ struct TheaterView: View {
                 showControls = false
             }
         } else {
-            resetControlsTimer()
+            onMouseActivity()
         }
     }
 
@@ -658,7 +671,7 @@ struct TheaterView: View {
     }
 
     private func loadFile() async {
-        resetControlsTimer()
+        refreshTimerIfVisible()
         if previewKind != .audio {
             AudioPlayerEngine.shared.stop()
         }
