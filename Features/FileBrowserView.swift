@@ -397,6 +397,15 @@ struct FileBrowserView: View {
             .frame(width: 360, height: 35)
             .contentShape(Capsule())
             .glassEffect(searchFocused ? .regular.interactive() : .regular, in: .capsule)
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        searchFocused ? XTheme.accent : Color.white.opacity(0.12),
+                        lineWidth: searchFocused ? 1.5 : 1
+                    )
+            )
+            .shadow(color: searchFocused ? XTheme.accent.opacity(0.4) : .clear, radius: 8, y: 0)
+            .animation(.easeInOut(duration: 0.15), value: searchFocused)
             .onTapGesture { searchFocused = true }
             .background(
                 Button("") { searchFocused = true }
