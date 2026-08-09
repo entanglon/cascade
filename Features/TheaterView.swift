@@ -279,23 +279,46 @@ struct TheaterView: View {
                     .glassEffect(.regular, in: .capsule)
             }
 
-            // Open Externally button at bottom right
-            Button {
-                if let url {
-                    NSWorkspace.shared.open(url)
+            // Open Externally button at bottom right (Icon-only with Open With app options)
+            Menu {
+                if let targetURL = activeLocalURL {
+                    let apps = availableApps(for: targetURL)
+                    if !apps.isEmpty {
+                        Section("Open With") {
+                            ForEach(apps, id: \.appURL) { item in
+                                Button {
+                                    NSWorkspace.shared.open([targetURL], withApplicationAt: item.appURL, configuration: NSWorkspace.OpenConfiguration())
+                                } label: {
+                                    Text(item.name)
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+
+                    Button("Default App") {
+                        NSWorkspace.shared.open(targetURL)
+                    }
+
+                    Button("Choose App…") {
+                        showOpenWithPanel(for: targetURL)
+                    }
                 } else {
-                    appState.openFile(file)
+                    Button("Open Default App") {
+                        appState.openFile(file)
+                    }
                 }
             } label: {
-                Label("Open Externally", systemImage: "arrow.up.right.square")
-                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .contentShape(Capsule())
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
             }
+            .menuIndicator(.hidden)
             .buttonStyle(.plain)
+            .help("Open With / External Player")
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
@@ -635,6 +658,35 @@ struct TheaterView: View {
         let nextIndex = min(max(currentIndex + delta, 0), files.count - 1)
         guard nextIndex != currentIndex else { return }
         appState.theaterFile = files[nextIndex]
+    }
+    private var activeLocalURL: URL? {
+        if let url { return url }
+        if DownloadEngine.isCached(file) {
+            return DownloadEngine.cacheURL(for: file)
+        }
+        return nil
+    }
+
+    private func availableApps(for fileURL: URL) -> [(name: String, appURL: URL)] {
+        let appURLs = NSWorkspace.shared.urlsForApplications(toOpen: fileURL)
+        return appURLs.map { appURL in
+            let name = FileManager.default.displayName(atPath: appURL.path).replacingOccurrences(of: ".app", with: "")
+            return (name: name, appURL: appURL)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func showOpenWithPanel(for fileURL: URL) {
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Select Application to Open \(fileURL.lastPathComponent)"
+        openPanel.directoryURL = URL(fileURLWithPath: "/Applications")
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = [.application]
+        
+        if openPanel.runModal() == .OK, let appURL = openPanel.url {
+            NSWorkspace.shared.open([fileURL], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+        }
     }
 
     private func toggleControls() {
