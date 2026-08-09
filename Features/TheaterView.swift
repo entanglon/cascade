@@ -69,12 +69,7 @@ struct TheaterView: View {
 
             // Key monitor for ESC key handling
             KeyMonitorView {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    if previewKind == .audio {
-                        AudioPlayerEngine.shared.stop()
-                    }
-                    appState.theaterFile = nil
-                }
+                handleEscapeKey()
             }
             .frame(width: 0, height: 0)
         }
@@ -85,12 +80,7 @@ struct TheaterView: View {
             isFocused = true
         }
         .onExitCommand {
-            withAnimation(.easeOut(duration: 0.2)) {
-                if previewKind == .audio {
-                    AudioPlayerEngine.shared.stop()
-                }
-                appState.theaterFile = nil
-            }
+            handleEscapeKey()
         }
         .onKeyPress(.leftArrow) {
             navigateMedia(delta: -1)
@@ -532,6 +522,25 @@ struct TheaterView: View {
         }
     }
 
+    private func handleEscapeKey() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            let isMediaPlaying = (previewKind == .audio && AudioPlayerEngine.shared.isPlaying) || previewKind == .video
+            if isMediaPlaying {
+                if previewKind == .audio || previewKind == .video {
+                    if AudioPlayerEngine.shared.currentTrack?.id != file.id {
+                        AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
+                    }
+                }
+                appState.theaterFile = nil
+            } else {
+                if previewKind == .audio {
+                    AudioPlayerEngine.shared.stop()
+                }
+                appState.theaterFile = nil
+            }
+        }
+    }
+
     private func loadFile() async {
         if previewKind != .audio {
             AudioPlayerEngine.shared.stop()
@@ -573,6 +582,7 @@ struct TheaterAudioPlayerView: View {
     let file: ObjectRecord
     let mediaFiles: [ObjectRecord]
     @Bindable var audioEngine = AudioPlayerEngine.shared
+    @State private var thumbURL: URL? = nil
 
     var body: some View {
         VStack(spacing: 28) {
@@ -580,18 +590,22 @@ struct TheaterAudioPlayerView: View {
 
             // Large Glowing Disc with Animated Equalizer Waveform
             ZStack {
-                Circle()
-                    .fill(XTheme.brandGradient)
-                    .frame(width: 200, height: 200)
-                    .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
-
-                if audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id {
-                    EqualizerWaveformView(barCount: 7)
-                        .frame(width: 90, height: 80)
+                if let thumbURL, let nsImage = NSImage(contentsOf: thumbURL) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                        .frame(width: 200, height: 200)
+                        .clipShape(Circle())
+                        .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
                 } else {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 72, weight: .bold))
-                        .foregroundStyle(.white)
+                    Circle()
+                        .fill(XTheme.brandGradient)
+                        .frame(width: 200, height: 200)
+                        .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
+
+                    EqualizerWaveformView(barCount: 7, isPlaying: audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id)
+                        .frame(width: 90, height: 80)
                 }
             }
 
@@ -677,7 +691,8 @@ struct TheaterAudioPlayerView: View {
 
             Spacer()
         }
-        .onAppear {
+        .task(id: file.id) {
+            thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)
             if audioEngine.currentTrack?.id != file.id {
                 audioEngine.play(file: file, in: mediaFiles)
             }

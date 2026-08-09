@@ -27,7 +27,7 @@ struct MiniPlayerView: View {
 
     private func miniBar(track: ObjectRecord) -> some View {
         HStack(spacing: 14) {
-            // Album Art Badge with Equalizer
+            // Album Art Badge with Equalizer (Round Circle)
             ZStack {
                 if let thumbURL, let nsImage = NSImage(contentsOf: thumbURL) {
                     Image(nsImage: nsImage)
@@ -35,22 +35,16 @@ struct MiniPlayerView: View {
                         .interpolation(.high)
                         .scaledToFill()
                         .frame(width: 44, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(Circle())
                         .shadow(color: XTheme.accent.opacity(0.4), radius: 6, y: 3)
                 } else {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    Circle()
                         .fill(XTheme.brandGradient)
                         .frame(width: 44, height: 44)
                         .shadow(color: XTheme.accent.opacity(0.4), radius: 6, y: 3)
 
-                    if audioEngine.isPlaying {
-                        EqualizerWaveformView(barCount: 4)
-                            .frame(width: 20, height: 18)
-                    } else {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
+                    EqualizerWaveformView(barCount: 4, isPlaying: audioEngine.isPlaying)
+                        .frame(width: 20, height: 20)
                 }
             }
 
@@ -327,17 +321,21 @@ struct MiniPlayerView: View {
 
 struct EqualizerWaveformView: View {
     let barCount: Int
+    var isPlaying: Bool = true
 
     var body: some View {
         TimelineView(.animation) { timeline in
             let date = timeline.date.timeIntervalSince1970
             HStack(alignment: .bottom, spacing: 3) {
                 ForEach(0..<barCount, id: \.self) { index in
-                    let phase = Double(index) * 0.85
-                    let speed = 4.5 + Double(index % 3) * 1.5
-                    let primary = sin(date * speed + phase) * 0.45 + 0.55
-                    let secondary = sin(date * 8.5 + phase * 2.2) * 0.25
-                    let factor = max(0.18, min(1.0, primary + secondary))
+                    let factor: Double = {
+                        guard isPlaying else { return 0.08 }
+                        let phase = Double(index) * 0.85
+                        let speed = 4.5 + Double(index % 3) * 1.5
+                        let primary = sin(date * speed + phase) * 0.45 + 0.55
+                        let secondary = sin(date * 8.5 + phase * 2.2) * 0.25
+                        return max(0.18, min(1.0, primary + secondary))
+                    }()
 
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(
