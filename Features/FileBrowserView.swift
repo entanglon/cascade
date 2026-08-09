@@ -370,47 +370,30 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private var sortPickerContent: some View {
-        Section("Sort By") {
+        Picker("Sort By", selection: Binding(
+            get: { sortOption },
+            set: { newOption in
+                if sortOption == newOption {
+                    sortAscending.toggle()
+                } else {
+                    sortOption = newOption
+                    sortAscending = (newOption == .name || newOption == .kind)
+                }
+            }
+        )) {
             ForEach(SortOption.allCases) { option in
-                Button {
-                    if sortOption == option {
-                        sortAscending.toggle()
-                    } else {
-                        sortOption = option
-                        sortAscending = (option == .name || option == .kind)
-                    }
-                } label: {
-                    HStack {
-                        Label(option.rawValue, systemImage: option.iconName)
-                        Spacer()
-                        if sortOption == option {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
+                Text(option.rawValue).tag(option)
             }
         }
+        .pickerStyle(.inline)
+
         Divider()
-        Section("Order") {
-            Button {
-                sortAscending = true
-            } label: {
-                HStack {
-                    Label(sortOption == .name ? "A to Z" : (sortOption == .size ? "Smallest First" : "Oldest First"), systemImage: "arrow.up")
-                    Spacer()
-                    if sortAscending { Image(systemName: "checkmark") }
-                }
-            }
-            Button {
-                sortAscending = false
-            } label: {
-                HStack {
-                    Label(sortOption == .name ? "Z to A" : (sortOption == .size ? "Largest First" : "Newest First"), systemImage: "arrow.down")
-                    Spacer()
-                    if !sortAscending { Image(systemName: "checkmark") }
-                }
-            }
+
+        Picker("Order", selection: $sortAscending) {
+            Text(sortOption == .name ? "Ascending (A to Z)" : (sortOption == .size ? "Ascending (Smallest First)" : "Ascending (Oldest First)")).tag(true)
+            Text(sortOption == .name ? "Descending (Z to A)" : (sortOption == .size ? "Descending (Largest First)" : "Descending (Newest First)")).tag(false)
         }
+        .pickerStyle(.inline)
     }
 
     private var topBar: some View {
@@ -584,25 +567,22 @@ struct FileBrowserView: View {
                 Menu {
                     sortPickerContent
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.system(size: 11, weight: .bold))
-                        Text(sortOption.rawValue)
-                            .font(.system(size: 12, weight: .medium))
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white.opacity(0.5))
                     }
-                    .foregroundStyle(.white.opacity(0.90))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 38, height: 28)
                     .contentShape(Capsule())
                     .glassEffect(.regular.interactive(), in: .capsule)
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
-                .help("Sort items by name, date, size, or kind")
+                .help("Sort options")
             }
         }
         .padding(.horizontal, 20)
