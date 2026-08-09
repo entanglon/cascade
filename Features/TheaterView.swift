@@ -101,6 +101,44 @@ struct TheaterView: View {
             )
             .frame(width: 0, height: 0)
         }
+        .contextMenu {
+            Menu("Canvas Background") {
+                Button {
+                    canvasBackground = .dark
+                } label: {
+                    if canvasBackground == .dark {
+                        Label("Dark", systemImage: "checkmark")
+                    } else {
+                        Text("Dark")
+                    }
+                }
+                Button {
+                    canvasBackground = .slate
+                } label: {
+                    if canvasBackground == .slate {
+                        Label("Slate", systemImage: "checkmark")
+                    } else {
+                        Text("Slate")
+                    }
+                }
+                Button {
+                    canvasBackground = .light
+                } label: {
+                    if canvasBackground == .light {
+                        Label("Light", systemImage: "checkmark")
+                    } else {
+                        Text("Light")
+                    }
+                }
+            }
+            Divider()
+            Button(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen") {
+                withAnimation { appState.isTheaterFullScreen.toggle() }
+            }
+            Button("Close Viewer") {
+                handleEscapeKey()
+            }
+        }
         .onContinuousHover { phase in
             if case .active = phase {
                 resetControlsTimer()
@@ -181,26 +219,14 @@ struct TheaterView: View {
             .buttonStyle(.plain)
             .help(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen (Hide Sidebar)")
 
-            if previewKind == .image {
-                Picker("", selection: $canvasBackground) {
-                    Text("Dark").tag(CanvasBackground.dark)
-                    Text("Slate").tag(CanvasBackground.slate)
-                    Text("Light").tag(CanvasBackground.light)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 140)
-                .help("Canvas Background Mode (Dark / Slate / Light)")
-            }
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(canvasBackground == .light ? .black : .white)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
                     .font(.system(size: 11))
-                    .foregroundStyle(canvasBackground == .light ? .black.opacity(0.6) : .white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.5))
             }
             .padding(.leading, 4)
 
