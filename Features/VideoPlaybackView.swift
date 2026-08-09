@@ -31,16 +31,16 @@ struct NativeAVPlayerView: NSViewRepresentable {
 struct VideoPlaybackView: View {
     let object: ObjectRecord
     let showControls: Bool
-    @State private var player: AVPlayer?
+    @Bindable var audioEngine = AudioPlayerEngine.shared
     @State private var progress: Double = 0
     @State private var error: String?
 
     var body: some View {
         ZStack {
-            if let player {
+            if let player = audioEngine.player, audioEngine.currentTrack?.id == object.id {
                 NativeAVPlayerView(player: player, showControls: showControls)
                     .onKeyPress(.space) {
-                        togglePlayOrReplay(player: player)
+                        audioEngine.togglePlayPause()
                         return .handled
                     }
             } else if let error {
@@ -61,62 +61,13 @@ struct VideoPlaybackView: View {
                 }
             }
         }
-        .task { await prepare() }
+        .task(id: object.id) {
+            if audioEngine.currentTrack?.id != object.id {
+                audioEngine.play(file: object)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .toggleVideoPlayback)) { _ in
-            if let player {
-                togglePlayOrReplay(player: player)
-            }
-        }
-        .onDisappear {
-            player?.pause()
-            player = nil
-        }
-    }
-
-    private func togglePlayOrReplay(player: AVPlayer) {
-        guard let currentItem = player.currentItem else { return }
-        let duration = currentItem.duration
-        let currentTime = player.currentTime()
-        
-        let isAtEnd = duration.isValid && !duration.isIndefinite && (duration.seconds - currentTime.seconds <= 0.5)
-        
-        if isAtEnd {
-            player.seek(to: .zero) { _ in
-                player.play()
-            }
-        } else if player.timeControlStatus == .playing {
-            player.pause()
-        } else {
-            player.play()
-        }
-    }
-
-    private func prepare() async {
-        if DownloadEngine.isCached(object) {
-            let url = DownloadEngine.cacheURL(for: object)
-            await MainActor.run {
-                let p = AVPlayer(url: url)
-                self.player = p
-                p.play()
-            }
-            return
-        }
-
-        do {
-            let url = try await DownloadEngine.download(object: object) { _, p in
-                Task { @MainActor in
-                    self.progress = p
-                }
-            }
-            await MainActor.run {
-                let p = AVPlayer(url: url)
-                self.player = p
-                p.play()
-            }
-        } catch {
-            await MainActor.run {
-                self.error = error.localizedDescription
-            }
+            audioEngine.togglePlayPause()
         }
     }
 }

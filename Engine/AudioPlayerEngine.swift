@@ -25,9 +25,20 @@ final class AudioPlayerEngine {
 
     @MainActor
     func play(file: ObjectRecord, in trackList: [ObjectRecord] = []) {
+        // If already playing this exact track and player exists, don't restart it
+        if currentTrack?.id == file.id, let player {
+            player.play()
+            isPlaying = true
+            return
+        }
+
         currentTrack = file
         if !trackList.isEmpty {
-            playlist = trackList.filter { $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased()) }
+            playlist = trackList.filter {
+                $0.mime.hasPrefix("audio/") ||
+                $0.mime.hasPrefix("video/") ||
+                ["mp3", "m4a", "wav", "flac", "aac", "ogg", "mp4", "mov", "mkv", "webm", "avi", "m4v"].contains(($0.name as NSString).pathExtension.lowercased())
+            }
         }
         isLoading = true
         isPlaying = false
@@ -76,6 +87,9 @@ final class AudioPlayerEngine {
             self.currentTime = time.seconds
             if let dur = self.player?.currentItem?.duration.seconds, !dur.isNaN, dur > 0 {
                 self.duration = dur
+            }
+            if let status = self.player?.timeControlStatus {
+                self.isPlaying = (status == .playing || status == .waitingToPlayAtSpecifiedRate)
             }
             if self.currentTime >= self.duration - 0.5 && self.duration > 0 {
                 self.skipNext()

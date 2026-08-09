@@ -184,11 +184,9 @@ struct TheaterView: View {
         HStack(spacing: 12) {
             // Minimize button (Background play in Mini Player)
             Button {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    if previewKind == .audio || previewKind == .video {
-                        if AudioPlayerEngine.shared.currentTrack?.id != file.id {
-                            AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
-                        }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    if (previewKind == .audio || previewKind == .video) && !AudioPlayerEngine.shared.isPlaying {
+                        AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
                     }
                     appState.theaterFile = nil
                 }
@@ -205,7 +203,7 @@ struct TheaterView: View {
 
             // Full Screen toggle button
             Button {
-                withAnimation(.easeOut(duration: 0.2)) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                     appState.isTheaterFullScreen.toggle()
                 }
             } label: {
@@ -234,8 +232,8 @@ struct TheaterView: View {
 
             // Close button (Stops playback completely)
             Button {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    if previewKind == .audio {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    if previewKind == .audio || previewKind == .video {
                         AudioPlayerEngine.shared.stop()
                     }
                     appState.theaterFile = nil
@@ -652,19 +650,17 @@ struct TheaterView: View {
 
     private func handleEscapeKey() {
         controlsTimer?.invalidate()
-        withAnimation(.easeOut(duration: 0.2)) {
-            let isMediaPlaying = (previewKind == .audio && AudioPlayerEngine.shared.isPlaying) || previewKind == .video
-            if isMediaPlaying {
-                if previewKind == .audio || previewKind == .video {
-                    if AudioPlayerEngine.shared.currentTrack?.id != file.id {
-                        AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
-                    }
-                }
-                appState.theaterFile = nil
-            } else {
-                if previewKind == .audio {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            if previewKind == .audio || previewKind == .video {
+                if AudioPlayerEngine.shared.isPlaying {
+                    // Seamlessly transition to MiniPlayer without interrupting playback
+                    appState.theaterFile = nil
+                } else {
+                    // Fully exit and stop playback when paused
                     AudioPlayerEngine.shared.stop()
+                    appState.theaterFile = nil
                 }
+            } else {
                 appState.theaterFile = nil
             }
         }
@@ -672,9 +668,6 @@ struct TheaterView: View {
 
     private func loadFile() async {
         refreshTimerIfVisible()
-        if previewKind != .audio {
-            AudioPlayerEngine.shared.stop()
-        }
 
         imageScale = 1.0
         lastScale = 1.0
