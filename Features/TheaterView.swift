@@ -809,7 +809,9 @@ struct TheaterView: View {
         appState.selectedFiles = [next.id]
     }
     private var activeLocalURL: URL? {
-        if let url { return url }
+        // The xcloud-stream:// URL is not a real file — only expose real local files
+        // to "Open With" / "Open Externally".
+        if let url, url.isFileURL { return url }
         if DownloadEngine.isCached(file) {
             return DownloadEngine.cacheURL(for: file)
         }
@@ -913,6 +915,17 @@ struct TheaterView: View {
 
         if DownloadEngine.isCached(file) {
             url = DownloadEngine.cacheURL(for: file)
+            return
+        }
+
+        // Uncached videos stream byte-by-byte from Telegram via mpv instead of
+        // downloading the whole file first. mpv demuxes any container (mkv, webm,
+        // avi, ...) from the local byte-range server; mpvStreamURL returns nil when
+        // the layout can't load, so those fall through to the full download below.
+        // VideoPlaybackView picks the item up via AudioPlayerEngine once `url` is set.
+        if previewKind == .video,
+           await VideoStreamingEngine.shared.mpvStreamURL(for: file) != nil {
+            url = URL(string: "xcloud-stream://object-\(file.id)")
             return
         }
 

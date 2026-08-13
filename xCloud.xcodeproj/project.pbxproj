@@ -17,11 +17,13 @@
 		F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD58B3023306500135A65 /* GlassButtonStyle.swift */; };
 		F783B6513023365500326355 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F783B6503023365500326355 /* GRDB */; };
 		F783B662302340F500326355 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = F783B661302340F500326355 /* TDLibKit */; };
+		F7C0FF00000000000000A002 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7C0FF00000000000000A001 /* MPVKit */; };
 		F783B6683023416F00326355 /* TelegramSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6673023416F00326355 /* TelegramSetupView.swift */; };
 		F783B66A3023476900326355 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6693023476900326355 /* LoginView.swift */; };
 		F783B672302364AF00326355 /* FileBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B671302364AF00326355 /* FileBrowserView.swift */; };
 		F783B67830236D5C00326355 /* TerminationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B67730236D5C00326355 /* TerminationHandler.swift */; };
 		F783B67D3023700000326355 /* VideoPlaybackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B67E3023700000326355 /* VideoPlaybackView.swift */; };
+		F7C0FF00000000000000A011 /* MPVVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C0FF00000000000000A010 /* MPVVideoView.swift */; };
 		F783B6853023800000326355 /* TransfersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6863023800000326355 /* TransfersView.swift */; };
 		F783B68C3023900000326355 /* ActiveTransferHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B68D3023900000326355 /* ActiveTransferHUD.swift */; };
 		F783B6933024000000326355 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6943024000000326355 /* SettingsView.swift */; };
@@ -31,6 +33,8 @@
 		F783B6A13024000000326355 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A23024000000326355 /* MiniPlayerView.swift */; };
 		F783B6A33024000000326355 /* MiniTransfersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A43024000000326355 /* MiniTransfersView.swift */; };
 		F783B6A53024000000326355 /* LiquidMorphingFAB.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A63024000000326355 /* LiquidMorphingFAB.swift */; };
+		F783B7013025000000326355 /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B7023025000000326355 /* NotesView.swift */; };
+		F783B7033025000000326355 /* NoteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B7043025000000326355 /* NoteEditorSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +80,9 @@
 		F783B6A23024000000326355 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
 		F783B6A43024000000326355 /* MiniTransfersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniTransfersView.swift; sourceTree = "<group>"; };
 		F783B6A63024000000326355 /* LiquidMorphingFAB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidMorphingFAB.swift; sourceTree = "<group>"; };
+		F783B7023025000000326355 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
+		F783B7043025000000326355 /* NoteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteEditorSheet.swift; sourceTree = "<group>"; };
+		F7C0FF00000000000000A010 /* MPVVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVVideoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -123,6 +130,7 @@
 			files = (
 				F783B6513023365500326355 /* GRDB in Frameworks */,
 				F783B662302340F500326355 /* TDLibKit in Frameworks */,
+				F7C0FF00000000000000A002 /* MPVKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -209,6 +217,9 @@
 				F783B6A23024000000326355 /* MiniPlayerView.swift */,
 				F783B6A43024000000326355 /* MiniTransfersView.swift */,
 				F783B6A63024000000326355 /* LiquidMorphingFAB.swift */,
+				F783B7023025000000326355 /* NotesView.swift */,
+				F783B7043025000000326355 /* NoteEditorSheet.swift */,
+				F7C0FF00000000000000A010 /* MPVVideoView.swift */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -239,6 +250,7 @@
 			packageProductDependencies = (
 				F783B6503023365500326355 /* GRDB */,
 				F783B661302340F500326355 /* TDLibKit */,
+				F7C0FF00000000000000A001 /* MPVKit */,
 			);
 			productName = xCloud;
 			productReference = F71DD5493023297400135A65 /* xCloud.app */;
@@ -325,6 +337,7 @@
 			packageReferences = (
 				F783B64F3023365500326355 /* XCRemoteSwiftPackageReference "GRDB" */,
 				F783B660302340F500326355 /* XCRemoteSwiftPackageReference "TDLibKit" */,
+				F7C0FF00000000000000A000 /* XCLocalSwiftPackageReference "LocalPackages/LocalMPVKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F71DD54A3023297400135A65 /* Products */;
@@ -369,6 +382,7 @@
 			files = (
 				F783B67D3023700000326355 /* VideoPlaybackView.swift in Sources */,
 				F783B69D3023700000326355 /* TheaterView.swift in Sources */,
+				F7C0FF00000000000000A011 /* MPVVideoView.swift in Sources */,
 				F783B6853023800000326355 /* TransfersView.swift in Sources */,
 				F783B68C3023900000326355 /* ActiveTransferHUD.swift in Sources */,
 				F783B6933024000000326355 /* SettingsView.swift in Sources */,
@@ -377,6 +391,8 @@
 				F783B6A13024000000326355 /* MiniPlayerView.swift in Sources */,
 				F783B6A33024000000326355 /* MiniTransfersView.swift in Sources */,
 				F783B6A53024000000326355 /* LiquidMorphingFAB.swift in Sources */,
+				F783B7013025000000326355 /* NotesView.swift in Sources */,
+				F783B7033025000000326355 /* NoteEditorSheet.swift in Sources */,
 				F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */,
 				F783B672302364AF00326355 /* FileBrowserView.swift in Sources */,
 				F783B6683023416F00326355 /* TelegramSetupView.swift in Sources */,
@@ -594,7 +610,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = A6388Z7T5U;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
@@ -768,6 +784,13 @@
 		};
 /* End XCRemoteSwiftPackageReference section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		F7C0FF00000000000000A000 /* XCLocalSwiftPackageReference "LocalPackages/LocalMPVKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/LocalMPVKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		F783B6503023365500326355 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -778,6 +801,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F783B660302340F500326355 /* XCRemoteSwiftPackageReference "TDLibKit" */;
 			productName = TDLibKit;
+		};
+		F7C0FF00000000000000A001 /* MPVKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MPVKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

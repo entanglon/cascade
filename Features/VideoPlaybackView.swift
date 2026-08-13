@@ -37,12 +37,31 @@ struct VideoPlaybackView: View {
 
     var body: some View {
         ZStack {
-            if let player = audioEngine.player, audioEngine.currentTrack?.id == object.id {
-                NativeAVPlayerView(player: player, showControls: showControls)
-                    .onKeyPress(.space) {
-                        audioEngine.togglePlayPause()
-                        return .handled
-                    }
+            if audioEngine.currentTrack?.id == object.id {
+                if audioEngine.isMPVPlayback, let mpv = audioEngine.mpvController {
+                    // mpv (libmpv) streams any container from the local byte-range server.
+                    MPVVideoView(controller: mpv)
+                        .id(ObjectIdentifier(mpv)) // rebuild the view when a new controller takes over
+                        .onKeyPress(.space) {
+                            audioEngine.togglePlayPause()
+                            return .handled
+                        }
+                } else if let player = audioEngine.player {
+                    NativeAVPlayerView(player: player, showControls: showControls)
+                        .onKeyPress(.space) {
+                            audioEngine.togglePlayPause()
+                            return .handled
+                        }
+                } else {
+                    loadingView
+                }
+            } else if let playbackError = audioEngine.playbackError {
+                VStack(spacing: 10) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(.red.opacity(0.8))
+                    Text(playbackError).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                }
             } else if let error {
                 VStack(spacing: 10) {
                     Image(systemName: "wifi.exclamationmark")
@@ -51,14 +70,7 @@ struct VideoPlaybackView: View {
                     Text(error).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
                 }
             } else {
-                VStack(spacing: 14) {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.circular)
-                        .controlSize(.large)
-                    Text("Fetching video from Telegram… \(Int(progress * 100))%")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
+                loadingView
             }
         }
         .task(id: object.id) {
@@ -68,6 +80,17 @@ struct VideoPlaybackView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleVideoPlayback)) { _ in
             audioEngine.togglePlayPause()
+        }
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 14) {
+            ProgressView(value: progress)
+                .progressViewStyle(.circular)
+                .controlSize(.large)
+            Text("Fetching video from Telegram… \(Int(progress * 100))%")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.5))
         }
     }
 }
