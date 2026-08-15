@@ -50,6 +50,9 @@ struct BookReaderView: View {
     @AppStorage("xc.reader.comicMode") private var comicModeRaw = "paged"
 
     private var progressKey: String { "xc.reader.progress.\(file.id)" }
+    /// Fractional position (0...1) — the Library shelf reads this to draw the
+    /// Apple Books-style progress bar on the cover.
+    private var progressFractionKey: String { "xc.reader.progressFraction.\(file.id)" }
 
     private var theme: ReaderTheme {
         ReaderTheme(rawValue: themeRaw) ?? .sepia
@@ -89,6 +92,12 @@ struct BookReaderView: View {
         }
         .onChange(of: chapterIndex) { _, newIndex in
             UserDefaults.standard.set(newIndex, forKey: progressKey)
+            if format == .comic && pages.count > 1 {
+                UserDefaults.standard.set(
+                    min(max(Double(newIndex) / Double(pages.count - 1), 0), 1),
+                    forKey: progressFractionKey
+                )
+            }
         }
         .overlay {
             if isLoading {
@@ -133,6 +142,7 @@ struct BookReaderView: View {
                     onScroll: { fraction, chapter in
                         scrollFraction = fraction
                         if chapterIndex != chapter { chapterIndex = chapter }
+                        persistScrollFraction(fraction)
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -600,6 +610,15 @@ struct BookReaderView: View {
                 }
             }
         }
+    }
+
+    /// Throttled fraction write (0...1) so scroll events don't hammer
+    /// UserDefaults — only meaningful deltas (>= 0.5%) are persisted.
+    private func persistScrollFraction(_ fraction: Double) {
+        guard fraction > 0 else { return }
+        let clamped = min(max(fraction, 0), 1)
+        guard abs(clamped - UserDefaults.standard.double(forKey: progressFractionKey)) > 0.005 else { return }
+        UserDefaults.standard.set(clamped, forKey: progressFractionKey)
     }
 
     @MainActor

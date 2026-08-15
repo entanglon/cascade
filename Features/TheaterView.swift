@@ -871,17 +871,40 @@ struct TheaterView: View {
         }
     }
 
-    /// Files only — drives audio playback queues and the filmstrip.
+    /// Files only — drives audio playback queues and the filmstrip. On the
+    /// Photos/Videos pages this follows the grid's reported visual order
+    /// (albums/playlists, then day-grouped media) so the queue, counter, and
+    /// filmstrip all match what's on screen.
     private var mediaFiles: [ObjectRecord] {
-        sortedMediaBase.filter { !$0.isFolder }
+        let files = sortedMediaBase.filter { !$0.isFolder }
+        guard appState.selectedDestination == .photos || appState.selectedDestination == .video else { return files }
+        return orderedFromGrid(files)
+    }
+
+    /// Reorders `files` to the exact sequence the Photos/Videos grid reports
+    /// (AppState.mediaOrderedIDs). Falls back to the input order if the grid
+    /// hasn't reported yet — never empty, never a different order than the grid.
+    private func orderedFromGrid(_ files: [ObjectRecord]) -> [ObjectRecord] {
+        guard !appState.mediaOrderedIDs.isEmpty else { return files }
+        let byID = Dictionary(files.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let ordered = appState.mediaOrderedIDs.compactMap { byID[$0] }
+        return ordered.isEmpty ? files : ordered
     }
 
     /// Navigable arrow-key order, matching the browser grid: the folder section
     /// first (up to 4 columns), then the files. Includes folders so that a folder
     /// preview can navigate on both axes — previously folders were stripped here,
-    /// so previewing a folder made every arrow key a no-op.
+    /// so previewing a folder made every arrow key a no-op. On the Photos/Videos
+    /// pages the order is the grid's own reported sequence (day-grouped), never
+    /// the global sort — this is what keeps the viewer's arrows in lockstep with
+    /// the visible grid.
     private var navigableFiles: [ObjectRecord] {
-        sortedMediaBase.filter(\.isFolder) + sortedMediaBase.filter { !$0.isFolder }
+        let folders = sortedMediaBase.filter(\.isFolder)
+        let files = sortedMediaBase.filter { !$0.isFolder }
+        guard appState.selectedDestination == .photos || appState.selectedDestination == .video else {
+            return folders + files
+        }
+        return orderedFromGrid(folders + files)
     }
 
     private func canNavigate(_ delta: Int) -> Bool {

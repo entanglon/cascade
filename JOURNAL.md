@@ -2,7 +2,7 @@
 
 > Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-15 — first commit of the accumulated work (see end).
+> 2026-08-15 — photos page fixes (see end).
 
 ---
 
@@ -182,3 +182,58 @@ to `main` in one commit. Generated junk excluded + gitignored: the worktree
 copy (`.freebuff/worktrees/`), `*.dmg`, `*.profraw`, `website/`
 (275 MB node_modules), the dev Telegram DBs, and `LocalMPVKit/.swiftpm/`.
 New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
+
+---
+
+## 2026-08-15 — Library shelf polish (book covers)
+
+- **Menu button leak fixed**: the ellipsis overlay was attached AFTER the
+  breathing-room padding, so it aligned to the padded box and its top edge
+  poked above the cover. Moved INSIDE the cover's own bounds (attached right
+  after the clip) with a clean 8 pt inset (`FileBrowserView.bookPosterCard`).
+- **Menu button style matched**: same look as every other card's menu —
+  full opacity, `Color.black.opacity(0.40)` circle + glass (the hover-fade
+  was rejected by the user).
+- **Reading-progress bar**: Apple Books-style 4 pt accent bar pinned to the
+  cover's bottom edge once a book is > 2% read. The reader now persists a
+  throttled 0–1 scroll fraction (`xc.reader.progressFraction.<id>`,
+  `BookReaderView.persistScrollFraction`); comics report page position.
+  Covers read it live via dynamic-key `@AppStorage` on the grid item.
+- **Richer placeholder**: muted gradient "dust jacket" + serif spine-style
+  title instead of a bare icon.
+
+## 2026-08-15 — Photos page: transfer progress + keyboard navigation
+
+### Upload progress stutter (30 → 27, 70 → 68) — two root causes, both fixed
+1. **Chunk retry resets**: TDLib resets a retried segment's
+   `uploaded_size`, so an in-flight chunk's fraction dipped and dragged the
+   aggregate down. `ParallelUploadProgress.setFraction` is now monotonic per
+   chunk (`UploadEngine.swift`).
+2. **Parallel uploads finishing**: the FAB averaged only ACTIVE transfers,
+   so when one of several parallel photos completed, its done work left the
+   denominator and the overall jumped backward. TransferCenter now keeps a
+   `settledWork` accumulator + `settledItems` set: completed transfers count
+   at 100% until the batch ends (a new batch starts when an active transfer
+   begins with nothing else active; unsettle on discard/remove/clear/evict).
+   New `TransferCenter.batchProgress` is monotonic by construction; the FAB
+   uses it. `update()` clamps defensively too.
+
+### "Random photo opens on →" — the recurring row/column navigation bug
+- **Why it kept coming back**: the grid and the preview built their orders
+  from DIFFERENT sources. The Photos/Videos grids show albums/playlists then
+  day-grouped media (`MediaGridLayout.dayGroups`: newest day first, oldest
+  first within a day) — an order no single global sort expresses. The
+  theater's arrows re-derived the order from the browser's GLOBAL sort
+  option (`sortedMediaBase`), so → jumped to whatever the global sort put
+  next — a different, "random" photo.
+- **The fix — one order source**: the grid's reported order now lives in
+  `AppState.mediaOrderedIDs` (was browser-local `@State`); the theater's
+  `navigableFiles`/`mediaFiles` walk exactly that sequence on Photos/Videos
+  (fallback to the sorted list only before the grid reports). The filmstrip,
+  "x of y" counter, audio queue, and up/down column math now all follow the
+  on-screen grid. Media grids also publish their adaptive column count to
+  `appState.gridColumnCount` (previously only the standard grid did, so the
+  theater's vertical stepping used the wrong column count on media pages).
+- This is why Apple Photos / Google Drive never hit it: the viewer consumes
+  the grid's own layout. Lesson: the preview must never rebuild navigation
+  order from a different source than the visible grid.

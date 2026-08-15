@@ -35,6 +35,38 @@ final class TransferCenter {
 
     private(set) var items: [Item] = []
     private var cancelHandlers: [String: () -> Void] = [:]
+    /// Work (chunk counts) of transfers that finished during the current upload
+    /// batch. Completed items drop out of `items`-state filtering, so without
+    /// this the FAB's aggregate would reweight only the still-active transfers
+    /// and jump BACKWARD the moment one of several parallel uploads finishes
+    /// (e.g. 30% -> 27%): the finished file's 1.0 * totalWork left both sides.
+    /// Keeping it settled keeps the aggregate monotonic: a completed item moves
+    /// its work from the active side (at 1.0) to the settled side (at 1.0).
+    private var settledWork: Double = 0
+    private var settledItems: Set<String> = []
+
+    /// Aggregate progress across the current batch of transfers, weighted by
+    /// work (chunk count): completed items count at 1.0 through `settledWork`,
+    /// active ones at their current fraction. Never goes backward while items
+    /// complete, unlike a plain average over active transfers.
+    var batchProgress: Double {
+        let active = items.filter { $0.state == .active }
+        guard !active.isEmpty else { return 0 }
+        let totalWork = settledWork + active.reduce(0.0) { $0 + $1.totalWork }
+        guard totalWork > 0 else { return 0 }
+        let done = settledWork + active.reduce(0.0) { $0 + $1.progress * $1.totalWork }
+        return min(1.0, done / totalWork)
+    }
+
+    /// Removes a settled (completed-this-batch) item's contribution. Safe to
+    /// call for any item — only items actually settled are adjusted.
+    private func unsettle(_ id: String) {
+        guard settledItems.contains(id) else { return }
+        if let i = items.firstIndex(where: { $0.id == id }) {
+            settledWork = max(0, settledWork - items[i].totalWork)
+        }
+        settledItems.remove(id)
+    }
 
     // MARK: - Persistence (transfer history)
 
@@ -88,6 +120,13 @@ final class TransferCenter {
         totalWork: Double = 1,
         reuseExisting: Bool = false
     ) -> String {
+        // A batch starts when an active transfer begins with nothing else
+        // active — the settled-work accumulator belongs to the previous batch.
+        let hadActive = items.contains(where: { $0.state == .active })
+        if state == .active && !hadActive {
+            settledWork = 0
+            settledItems.removeAll()
+        }
         // Reuse a paused/failed card for the same object so a resume keeps one card per file
         if reuseExisting,
            let existingIndex = items.firstIndex(where: {
@@ -120,6 +159,7 @@ final class TransferCenter {
             // so it doesn't resurrect on the next launch.
             let evicted = items.removeLast()
             if evicted.state == .complete || evicted.state == .failed {
+                unsettle(evicted.id)
                 unpersist(ids: [evicted.id])
             }
         }
@@ -158,7 +198,9 @@ final class TransferCenter {
     func update(_ id: String, progress: Double, text: String) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         if items[i].state != .active { return }
-        items[i].progress = progress
+        // Monotonic: never let a stale/out-of-order report walk the progress
+        // backward (the engine already clamps per chunk; this is defense in depth).
+        items[i].progress = max(items[i].progress, min(max(progress, 0), 1))
         items[i].statusText = text
     }
 
@@ -167,6 +209,14 @@ final class TransferCenter {
         items[i].state = success ? .complete : .failed
         items[i].progress = success ? 1 : items[i].progress
         items[i].statusText = success ? "Complete" : (error ?? "Failed")
+        if success {
+            // Move this transfer's work into the settled bucket so the FAB's
+            // aggregate stays monotonic when parallel transfers finish.
+            if !settledItems.contains(id) {
+                settledItems.insert(id)
+                settledWork += items[i].totalWork
+            }
+        }
         cancelHandlers.removeValue(forKey: id)
         persist(items[i])
         if success, items[i].direction == .upload {
@@ -233,6 +283,7 @@ final class TransferCenter {
     /// its chunk messages from Telegram and the local record.
     func discard(_ id: String) {
         guard let item = items.first(where: { $0.id == id }) else { return }
+        unsettle(id)
         unpersist(ids: [item.id])
         items.removeAll { $0.id == id }
         // Stop the upload task first so it doesn't keep posting chunks after cleanup
@@ -247,12 +298,14 @@ final class TransferCenter {
 
     func removeItems(forObjectID objectID: String) {
         let removed = items.filter { $0.objectID == objectID }
+        for item in removed { unsettle(item.id) }
         unpersist(ids: removed.map(\.id))
         items.removeAll { $0.objectID == objectID }
     }
 
     func clearFinished() {
         let finished = items.filter { $0.state == .complete || $0.state == .failed }
+        for item in finished { unsettle(item.id) }
         unpersist(ids: finished.map(\.id))
         items.removeAll { $0.state == .complete || $0.state == .failed }
     }

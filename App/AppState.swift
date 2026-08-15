@@ -59,6 +59,13 @@ final class AppState {
     /// TheaterView preview can navigate up/down through the same rows/columns the
     /// user sees in the browser (instead of being limited to left/right).
     var gridColumnCount = 4
+    /// The exact visual order the Photos/Videos grid is showing (albums/playlists
+    /// first, then day-grouped media). Reported by the grid via onOrderedChange;
+    /// the TheaterView preview walks THIS order for its arrow navigation so the
+    /// viewer always follows what the user sees on screen (the grid's day-grouped
+    /// order is not expressible as a single global sort, which is why the theater
+    /// used to drift to a "random" photo).
+    var mediaOrderedIDs: [String] = []
 
     /// Files shared WITH me — incoming share records, each keyed to the vault
     /// object its import created. Loaded at launch; shown under "Shared".

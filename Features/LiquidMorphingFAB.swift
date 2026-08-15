@@ -89,15 +89,13 @@ struct LiquidMorphingFAB: View {
         TransferCenter.shared.items.filter { $0.state == .active }
     }
 
-    /// Collective progress across ALL active transfers, weighted by how much work
-    /// each one represents (chunk count). This is the true "X% of everything done"
-    /// value instead of a per-file percentage.
+    /// Collective progress across the current transfer batch, weighted by work
+    /// (chunk count). Computed by TransferCenter (batchProgress) so that files
+    /// that finished during the batch keep counting at 100% — a plain average
+    /// over active transfers jumps backward when one of several parallel
+    /// uploads completes (30% -> 27%).
     private var overallProgress: Double {
-        guard !activeTransfers.isEmpty else { return 0 }
-        let totalWork = activeTransfers.reduce(0.0) { $0 + $1.totalWork }
-        guard totalWork > 0 else { return 0 }
-        let done = activeTransfers.reduce(0.0) { $0 + $1.progress * $1.totalWork }
-        return min(1.0, done / totalWork)
+        TransferCenter.shared.batchProgress
     }
 
     private var isTransferring: Bool {

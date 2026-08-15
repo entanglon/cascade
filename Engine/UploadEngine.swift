@@ -612,7 +612,10 @@ enum UploadEngine {
 
         func setFraction(_ index: Int, _ f: Double) {
             lock.lock()
-            fractions[index] = min(max(f, 0), 1)
+            // Monotonic per chunk: TDLib can report a retried segment's progress
+            // going backward (its uploaded_size resets while re-uploading the
+            // part), which would make the aggregate dip (e.g. 70% -> 68%).
+            fractions[index] = max(fractions[index] ?? 0, min(max(f, 0), 1))
             lock.unlock()
         }
 

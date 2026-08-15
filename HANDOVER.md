@@ -85,6 +85,9 @@ Branch: **main**. The entire accumulated work (2026-08-14 + 2026-08-15) was
 committing per task from here on; check `git status` first — other agents/user may have
 edited files.
 
+A second commit followed the same day (Library cover polish, transfer-progress
+monotonicity, photos keyboard navigation unification — items 40–42 below).
+
 ---
 
 ## 4. Work completed in this conversation (all uncommitted)
@@ -824,10 +827,78 @@ edited files.
       `onCoreReady` (4 s timeout so a failed init can't hang), then tears it down —
       dylib, codec tables, and core init all happen at launch, off the play path.
 
+40. **Library book-cover polish (2026-08-15, post-commit)** (`Features/FileBrowserView.swift`,
+    `Features/BookReaderView.swift`)
+    - **Menu button leak fixed**: the ellipsis overlay was attached AFTER the
+      breathing-room padding, so `.overlay(alignment: .topTrailing)` aligned to the
+      padded box and the button's top edge poked above the cover. Now attached
+      directly to the clipped cover (before the paddings) — the alignment box IS the
+      cover, button fully inside the top-right corner with an 8 pt inset.
+    - **Button style matched to the other cards**: always-visible, full opacity,
+      `Color.black.opacity(0.40)` circle + glass (user rejected the hover-fade idea —
+      wants the button identical to folder/file card menus).
+    - **Reading-progress bar**: Apple Books-style 4 pt accent bar at the cover's
+      bottom edge when a book is > 2% read. Reader persists a throttled 0–1 scroll
+      fraction to `xc.reader.progressFraction.<id>` (`persistScrollFraction`, delta
+      ≥ 0.005); comics persist `pageIndex / (pages-1)` in the chapterIndex onChange.
+      The grid item reads it live via a dynamic-key `@AppStorage`
+      (`FileGridItem.init` — the grid struct gained a custom init with the same
+      signature as the old memberwise one).
+    - **Richer placeholder**: muted gradient "dust jacket" + serif title.
+    - Verified by the user (covers + button placement). Note: progress bars only
+      appear for books opened AFTER this change (fraction wasn't persisted before).
+
+41. **Upload progress stutter fixed — "30 then back to 27, 70 then back to 68"**
+    (2026-08-15, user report on the photos page) (`Engine/UploadEngine.swift`,
+    `Engine/TransferCenter.swift`, `Features/LiquidMorphingFAB.swift`)
+    - **Root cause 1 — TDLib chunk retries**: TDLib resets a retried segment's
+      `uploaded_size`, so a chunk's fraction dipped backward and dragged the
+      aggregate down. `ParallelUploadProgress.setFraction` is now MONOTONIC per
+      chunk (`max(existing, new)`).
+    - **Root cause 2 — parallel uploads finishing**: the FAB's aggregate averaged
+      only ACTIVE transfers; when one of several parallel photo uploads completed,
+      its 1.0 × totalWork left both numerator and denominator — the remaining
+      files' progress was reweighted and the overall jumped backward. TransferCenter
+      now keeps `settledWork` + `settledItems`: successful `finish()` moves the
+      item's work into the settled bucket (completion is exactly neutral), a new
+      batch starts when an active transfer begins with nothing else active
+      (resets the bucket), and discard/removeItems/clearFinished/eviction unsettle.
+      New `TransferCenter.batchProgress` is monotonic by construction; the FAB uses
+      it. `update()` clamps progress to never decrease (defense in depth).
+    - Unit tests still green (transfer tests untouched — behavior superset).
+
+42. **Photos keyboard navigation — "random photo opens on →" FIXED PROPERLY**
+    (2026-08-15; this bug has recurred several times — root cause finally unified)
+    (`App/AppState.swift`, `Features/FileBrowserView.swift`, `Features/TheaterView.swift`)
+    - **Why it kept coming back**: the grid and the preview built their orders from
+      DIFFERENT sources. The Photos/Videos grids show albums/playlists first, then
+      day-grouped media (`MediaGridLayout.dayGroups` — newest day first, oldest first
+      within a day), an order no single global sort can express. The theater's arrow
+      keys re-derived the walk order from the browser's GLOBAL sort option
+      (`sortedMediaBase` — name/date/size…), so → jumped to whatever that sort put
+      next — a different, "random" photo. Each previous fix patched one surface
+      (grid keys vs theater keys) without unifying the source.
+    - **The fix — ONE order source**: the grids' reported order now lives in
+      `AppState.mediaOrderedIDs` (was browser-local `@State`); `FileBrowserView`
+      writes it, its grid keyNav reads it, and the TheaterView's `navigableFiles`
+      and `mediaFiles` walk EXACTLY that sequence on Photos/Videos (falling back to
+      the sorted list only if the grid hasn't reported yet). The filmstrip, "x of y"
+      counter, audio queue, and up/down column math (`gridVerticalStep`) all follow
+      the on-screen grid now. Media grids also publish their adaptive column count
+      to `appState.gridColumnCount` (previously only the standard grid did, so the
+      preview's vertical stepping used the wrong column count on media pages).
+    - This is why Apple Photos / Google Drive never hit it — the viewer consumes the
+      grid's own layout. Rule going forward: the preview must never rebuild
+      navigation order from a different source than the visible grid.
+
 ---
 
 ## 5. Pending / next steps
 
+- **DONE 2026-08-15 (user verified):** Library poster cards — covers, corner menu
+  button (placement + style), progress bars (books opened after this change only);
+  photos upload progress (no more backward stutter); photos arrow-key navigation
+  (→ now opens the actual next photo in grid order, not a random one).
 - **User verification (2026-08-15):** Photos/Videos pages — arrows walk the grid
   rows/columns; drag a photo onto an album tile and confirm it stays put (move-revert
   bug fixed) + auto cover appears; "Add to Album" context-menu path; inside-album
@@ -877,7 +948,9 @@ edited files.
   (clean ghost catalog rows, Transfers download history + upload/download separation,
   verify streaming). Keep this file in sync with the HANDOVER.
 - **DONE 2026-08-15:** the accumulated work is committed to `main` (one commit,
-  junk excluded + gitignored). See §3 and JOURNAL.md for what went in.
+  junk excluded + gitignored). **DONE 2026-08-15 (2nd commit):** Library cover
+  polish + transfer-progress monotonicity + photos keyboard-navigation unification
+  (items 40–42). See §3 and JOURNAL.md for what went in.
 
 ---
 

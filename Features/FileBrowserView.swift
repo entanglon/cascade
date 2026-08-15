@@ -34,8 +34,9 @@ struct FileBrowserView: View {
     @State private var scrollTargetID: String?
     /// Keyboard navigation state reported by the Photos/Videos media grids
     /// (their visual order differs from folders-first and their columns are
-    /// adaptive, so they own the math).
-    @State private var mediaOrderedIDs: [String] = []
+    /// adaptive, so they own the math). The order itself lives in AppState
+    /// (mediaOrderedIDs) so the TheaterView preview can navigate the same
+    /// on-screen sequence.
     @State private var mediaColumnCount = 5
     @Namespace private var viewModeNamespace
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
@@ -951,8 +952,8 @@ struct FileBrowserView: View {
                     onOpen: { open($0) },
                     onSelect: { select($0) },
                     menuProvider: { AnyView(menu(for: $0)) },
-                    onOrderedChange: { mediaOrderedIDs = $0 },
-                    onColumnCountChange: { mediaColumnCount = $0 },
+                    onOrderedChange: { appState.mediaOrderedIDs = $0 },
+                    onColumnCountChange: { mediaColumnCount = $0; appState.gridColumnCount = $0 },
                     scrollTargetID: $scrollTargetID
                 )
             )
@@ -965,8 +966,8 @@ struct FileBrowserView: View {
                     onOpen: { open($0) },
                     onSelect: { select($0) },
                     menuProvider: { AnyView(menu(for: $0)) },
-                    onOrderedChange: { mediaOrderedIDs = $0 },
-                    onColumnCountChange: { mediaColumnCount = $0 },
+                    onOrderedChange: { appState.mediaOrderedIDs = $0 },
+                    onColumnCountChange: { mediaColumnCount = $0; appState.gridColumnCount = $0 },
                     scrollTargetID: $scrollTargetID
                 )
             )
@@ -1273,7 +1274,7 @@ struct FileBrowserView: View {
 
     private var navigableFiles: [ObjectRecord] {
         if mediaGridActive {
-            return mediaOrderedIDs.compactMap { id in appState.files.first(where: { $0.id == id }) }
+            return appState.mediaOrderedIDs.compactMap { id in appState.files.first(where: { $0.id == id }) }
         }
         return currentFolders + currentFiles
     }
@@ -2083,6 +2084,17 @@ struct FileGridItem: View {
     @State private var revealPulse = 0.0
     @State private var revealScale: CGFloat = 1.0
     @State private var revealTaskActive = false
+    /// Reading position (0...1) persisted by BookReaderView — drives the
+    /// Apple Books-style progress bar at the bottom of library covers.
+    @AppStorage private var bookProgressFraction: Double
+
+    init(file: ObjectRecord, isSelected: Bool, renameTarget: Binding<ObjectRecord?>, renameText: Binding<String>) {
+        self.file = file
+        self.isSelected = isSelected
+        self._renameTarget = renameTarget
+        self._renameText = renameText
+        self._bookProgressFraction = AppStorage(wrappedValue: 0, "xc.reader.progressFraction.\(file.id)")
+    }
 
     private var itemCount: Int {
         appState.files.filter { $0.parentID == file.id && !$0.trashed }.count
@@ -2261,7 +2273,9 @@ struct FileGridItem: View {
 
     /// Library poster card: just the book cover in a clean 2:3 portrait frame.
     /// No name, no size — the cover art is the card (double-click / menu still
-    /// offer the full file actions; hover reveals the title).
+    /// offer the full file actions; hover reveals the title and the menu button).
+    /// A reading-progress bar sits at the bottom edge once the book has been
+    /// opened, so the shelf shows where each book was left off.
     private var bookPosterCard: some View {
         // Apple Books-style shelf card: the cover art IS the card. Covers render
         // a little smaller than the cell (breathing room + room for the shadow).
@@ -2277,17 +2291,42 @@ struct FileGridItem: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
                 } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "book.closed.fill")
-                            .font(.system(size: 34, weight: .light))
-                            .foregroundStyle(XTheme.textTertiary)
-                        Text(file.name)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(XTheme.textTertiary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 8)
+                    // Stylized placeholder: muted gradient "dust jacket" with the
+                    // title set like a book spine, instead of a bare icon.
+                    ZStack {
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.10),
+                                Color.white.opacity(0.04),
+                                Color.black.opacity(0.18)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        VStack(spacing: 10) {
+                            Image(systemName: "book.closed.fill")
+                                .font(.system(size: 30, weight: .light))
+                                .foregroundStyle(XTheme.textTertiary)
+                            Text(file.name)
+                                .font(.system(size: 11, weight: .semibold, design: .serif))
+                                .foregroundStyle(XTheme.textTertiary)
+                                .lineLimit(3)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 12)
+                        }
                     }
+                }
+
+                // Reading progress: thin accent bar pinned to the bottom edge.
+                if bookProgressFraction > 0.02 {
+                    Rectangle()
+                        .fill(Color.black.opacity(0.35))
+                        .frame(height: 4)
+                        .overlay(alignment: .leading) {
+                            Rectangle()
+                                .fill(XTheme.accent)
+                                .frame(width: max(4, geo.size.width * bookProgressFraction))
+                        }
                 }
 
                 if hovering {
@@ -2307,6 +2346,28 @@ struct FileGridItem: View {
         }
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        // The menu button lives INSIDE the cover's own bounds (attached before
+        // the breathing-room padding, so its alignment box is the cover, not the
+        // padded cell) — pinned to the top-right corner, clearly inset.
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.black.opacity(0.40))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .padding(8)
+        }
         .shadow(color: .black.opacity(hovering ? 0.5 : 0.35), radius: 5, y: 3)
         .overlay {
             if isSelected {
@@ -2318,25 +2379,6 @@ struct FileGridItem: View {
         // cover itself, not to a padded box around it.
         .padding(.horizontal, 4)
         .padding(.vertical, 7)
-        .overlay(alignment: .topTrailing) {
-            Menu {
-                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.black.opacity(0.55))
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 24, height: 24)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .contentShape(Circle())
-            }
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
-            .padding(6)
-        }
     }
 
     private var fileCard: some View {
