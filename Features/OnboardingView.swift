@@ -65,8 +65,9 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity)
 
                 Button {
+                    // The login gate takes over once onboarding closes — it handles the
+                    // API credentials step and the phone/code/password login flow.
                     completeOnboarding()
-                    appState.showSetup = true
                 } label: {
                     Text("Connect Telegram")
                         .fontWeight(.semibold)

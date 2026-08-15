@@ -16,6 +16,22 @@ enum VaultRepair {
 
         // 1. Fetch channel messages from Telegram
         let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        logger.info("Repair scan: channel \(vault.channelID, privacy: .public) returned \(messages.count, privacy: .public) messages")
+        // TEMP DIAGNOSTIC: enumerate the real channel contents so we can compare
+        // against the local catalog and find which message IDs fail to resolve.
+        for message in messages {
+            let text = caption(of: message) ?? ""
+            let prefix = String(text.prefix(42))
+            var fileName = ""
+            var contentKind = "text"
+            switch message.content {
+            case .messageDocument(let doc): fileName = doc.document.fileName; contentKind = "doc"
+            case .messageVideo(let vid): fileName = vid.video.fileName ?? ""; contentKind = "video"
+            case .messagePhoto(let ph): contentKind = "photo"
+            default: break
+            }
+            logger.info("xCloud diag: id=\(message.id, privacy: .public) kind=\(contentKind, privacy: .public) cap=\(prefix, privacy: .public) file=\(fileName, privacy: .public)")
+        }
         let chunks = (try? await DatabaseManager.shared.allChunks()) ?? []
         let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
 
@@ -67,7 +83,14 @@ enum VaultRepair {
                         let isFolder = meta["isFolder"] as? Bool ?? false
                         let totalChunks = meta["totalChunks"] as? Int ?? 1
                         let wrappedKeyStr = meta["wrappedKey"] as? String ?? ""
-                        let wrappedKey = Data(base64Encoded: wrappedKeyStr)
+                        // Empty base64 string (public/unencrypted files carry "") must
+                        // become nil, NOT empty Data — DownloadEngine guards unwrap on
+                        // nil but an empty non-nil Data makes AES.GCM throw a CryptoKit
+                        // error when it tries to open the zero-length sealed box.
+                        let wrappedKey: Data? = {
+                            guard !wrappedKeyStr.isEmpty else { return nil }
+                            return Data(base64Encoded: wrappedKeyStr)
+                        }()
                         let cleanParentID = (parentID == nil || parentID?.isEmpty == true) ? nil : parentID
 
                         // Restore or Update Object in SQLite
@@ -78,7 +101,11 @@ enum VaultRepair {
                                 updated.parentID = cleanParentID
                                 updated.trashed = trashed
                                 updated.isFavorite = isFavorite
-                                try? await DatabaseManager.shared.save(updated)
+                                do {
+                                    try await DatabaseManager.shared.save(updated)
+                                } catch {
+                                    logger.error("VaultRepair: failed to save updated object \(objectID): \(error.localizedDescription)")
+                                }
                                 changed = true
                             }
                         } else {
@@ -100,15 +127,27 @@ enum VaultRepair {
                                 isPrivate: isPrivate,
                                 sourcePath: nil
                             )
-                            try? await DatabaseManager.shared.save(newObj)
+                            do {
+                                try await DatabaseManager.shared.save(newObj)
+                            } catch {
+                                logger.error("VaultRepair: failed to save reconstructed object \(objectID): \(error.localizedDescription)")
+                            }
                             changed = true
                         }
 
+                        // Folders never have chunk records — their metadata message is
+                        // the whole file. Fabricating a chunk row here pollutes the
+                        // catalog and poisons the orphan purge's reference checks.
+                        if !isFolder {
                         // Restore Chunk if missing or update messageID
                         let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
                         if let target = existingChunks.first(where: { $0.index == index }) {
                             if target.messageID != message.id {
-                                try? await DatabaseManager.shared.updateChunk(target.id) { $0.messageID = message.id }
+                                do {
+                                    try await DatabaseManager.shared.updateChunk(target.id) { $0.messageID = message.id }
+                                } catch {
+                                    logger.error("VaultRepair: failed to update chunk messageID for \(objectID)/\(index): \(error.localizedDescription)")
+                                }
                                 changed = true
                             }
                         } else {
@@ -133,9 +172,14 @@ enum VaultRepair {
                                     channelID: vault.channelID,
                                     createdAt: .now
                                 )
-                                try? await DatabaseManager.shared.save(newChunk)
+                                do {
+                                    try await DatabaseManager.shared.save(newChunk)
+                                } catch {
+                                    logger.error("VaultRepair: failed to save reconstructed chunk \(objectID)/\(index): \(error.localizedDescription)")
+                                }
                                 changed = true
                             }
+                        }
                         }
                         continue
                     }
@@ -175,35 +219,91 @@ enum VaultRepair {
             }
         }
 
-        // 3. Purge invalid/orphaned ObjectRecords in SQLite that have no chunks or invalid message IDs (except user folders)
+        // 3. DIAGNOSTIC ONLY — ready objects whose chunks carry no valid message ID.
+        //    NEVER auto-purge (2026-08-15 incident): an incomplete channel fetch or a
+        //    restored catalog can temporarily lack chunk IDs, and purging here fed the
+        //    orphan purge that deleted the entire vault's chunk documents from
+        //    Telegram. Reconstruction fills missing records; removal is exclusively the
+        //    user's explicit trash/delete action.
         let allObjectsNow = (try? await DatabaseManager.shared.allObjects()) ?? []
         let allChunksNow = (try? await DatabaseManager.shared.allChunks()) ?? []
         let validObjectIDsWithChunks = Set(allChunksNow.compactMap { ($0.messageID ?? 0) > 0 ? $0.objectID : nil })
-        for obj in allObjectsNow {
-            // Only ready objects are candidates for purging — paused/failed/uploading objects are
-            // resumable partial uploads and must be kept until their retention window expires.
-            if !obj.isFolder && obj.state == "ready" && !validObjectIDsWithChunks.contains(obj.id) {
-                try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
-                changed = true
-            } else if obj.isFolder && obj.name == "Uploads" {
-                let hasChildren = allObjectsNow.contains(where: { $0.parentID == obj.id })
-                if !hasChildren {
-                    try? await DatabaseManager.shared.deleteObjectWithChunks(id: obj.id)
-                    changed = true
+        let missingChunkRefs = allObjectsNow.filter { !$0.isFolder && $0.state == "ready" && !validObjectIDsWithChunks.contains($0.id) }
+        if !missingChunkRefs.isEmpty {
+            logger.info("Repair: \(missingChunkRefs.count, privacy: .public) ready file(s) lack valid chunk message IDs — left in place (reconstruction only)")
+        }
+
+        // 3b. DIAGNOSTIC ONLY — ready objects whose chunk messages are absent from
+        //     the channel. NEVER purge: a partial channel fetch looks identical, and
+        //     this purge was half of the 2026-08-15 data-loss chain. A file genuinely
+        //     removed from the cloud is the user's explicit trash/delete action.
+        if !messages.isEmpty {
+            let liveIDs = Set(messages.map(\.id))
+            var absent = 0
+            for obj in allObjectsNow where !obj.isFolder && obj.state == "ready" {
+                let objChunks = (try? await DatabaseManager.shared.chunks(for: obj.id)) ?? []
+                let chunkIDs = objChunks.compactMap { $0.messageID }
+                if !chunkIDs.isEmpty, chunkIDs.allSatisfy({ !liveIDs.contains($0) }) {
+                    absent += 1
                 }
+            }
+            if absent > 0 {
+                logger.info("Repair: \(absent, privacy: .public) ready file(s) have all chunks absent from the channel — left in place (reconstruction only)")
             }
         }
 
-        // 4. Purge any orphaned messages in Telegram channel that no longer belong to active chunks
-        let purgedCount = await purgeOrphanedMessages()
-        if purgedCount > 0 {
-            changed = true
-        }
+        // 4. Telegram-message removal was DELETED from the automatic repair
+        //    (2026-08-15: the orphan purge destroyed the vault's chunk documents when
+        //    the local catalog had been collapsed by a bad restore).
+        //    `purgeOrphanedMessages()` still exists for EXPLICIT operator use only.
 
         return changed
     }
 
-    /// Scans Telegram channel and deletes any messages that are not associated with active chunks in SQLite.
+    /// Debug hook: dump the full channel message list to /tmp/xcloud-channel.txt so
+    /// the real channel state can be compared against the local catalog.
+    static func dumpChannelToFile() async {
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+        let msgs = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        var out = "channel messages: \(msgs.count)\n"
+        for m in msgs {
+            let text = caption(of: m) ?? ""
+            var fileName = ""
+            var kind = "text"
+            switch m.content {
+            case .messageDocument(let d): fileName = d.document.fileName; kind = "doc"
+            case .messageVideo(let v): fileName = v.video.fileName ?? ""; kind = "video"
+            case .messagePhoto(let p): kind = "photo"
+            default: break
+            }
+            out += "id=\(m.id) kind=\(kind) cap=\(String(text.prefix(70))) file=\(fileName)\n"
+        }
+        try? out.write(toFile: "/tmp/xcloud-channel.txt", atomically: true, encoding: .utf8)
+        logger.info("Channel dump written: \(msgs.count) messages")
+    }
+
+    /// Extracts a message's text caption regardless of media kind (document, video,
+    /// photo, plain text). Shared by the repair scan and the Rescan diagnostic.
+    static func caption(of message: Message) -> String? {
+        switch message.content {
+        case .messageText(let mt): return mt.text.text
+        case .messageDocument(let doc): return doc.caption.text
+        case .messageVideo(let vid): return vid.caption.text
+        case .messagePhoto(let ph): return ph.caption.text
+        default: return nil
+        }
+    }
+
+    /// Scans the channel and deletes ONLY messages that are provably orphaned chunk
+    /// documents: xCloud chunk messages whose owning object no longer exists in the
+    /// local catalog at all. Everything else — text messages (folder metadata, vault
+    /// key records, welcome messages), catalog checkpoints/deltas, and any chunk
+    /// whose object still exists (even with a wrong/old message ID — the scan fixes
+    /// those, never deletes them) — is left untouched.
+    ///
+    /// This is deliberately conservative: the old version deleted ANY message not in
+    /// the DB's chunk table, which destroyed real folder metadata and files whose
+    /// chunk IDs were stale, and was how the vault PIN appeared to reset.
     @discardableResult
     static func purgeOrphanedMessages() async -> Int {
         guard TelegramClient.shared.isAuthorized else { return 0 }
@@ -213,20 +313,84 @@ enum VaultRepair {
         guard !allMessages.isEmpty else { return 0 }
 
         let validChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+
+        // SAFETY (hardened 2026-08-15): never purge when the local DB has no chunk
+        // records at all, AND only trust a catalog that still contains at least one
+        // ready FILE object with a valid chunk message ID. The old gate only checked
+        // the first condition — after a collapsed restore the chunks table held only
+        // folder rows, the gate passed, and every file's chunk document was deleted
+        // from Telegram. A catalog without real ready files is never authoritative
+        // enough to authorize deletion.
+        guard !validChunks.isEmpty else {
+            logger.warning("Skipping orphan purge: local DB has no chunk records")
+            return 0
+        }
+        let readyFileObjects = ((try? await DatabaseManager.shared.allObjects()) ?? []).filter { !$0.isFolder && $0.state == "ready" }
+        var hasTrustedReadyFile = false
+        for obj in readyFileObjects {
+            let objChunks = (try? await DatabaseManager.shared.chunks(for: obj.id)) ?? []
+            if objChunks.contains(where: { ($0.messageID ?? 0) > 0 }) {
+                hasTrustedReadyFile = true
+                break
+            }
+        }
+        guard hasTrustedReadyFile else {
+            logger.warning("Skipping orphan purge: no ready file object has a valid chunk message ID (catalog not authoritative)")
+            return 0
+        }
+
+        // Ratio guard (2026-08-15 hardening): if fewer than half of ready files
+        // have valid chunk message IDs, the catalog is likely a partial restore —
+        // refuse to purge, because the "orphaned" messages may belong to the files
+        // the partial restore didn't reconstruct.
+        let allReadyFiles = readyFileObjects
+        let trustedCount = allReadyFiles.filter { obj in
+            validChunks.contains { $0.objectID == obj.id && ($0.messageID ?? 0) > 0 }
+        }.count
+        if allReadyFiles.count > 1 && trustedCount < (allReadyFiles.count + 1) / 2 {
+            logger.warning("Skipping orphan purge: only \(trustedCount)/\(allReadyFiles.count) ready files trusted (ratio guard)")
+            return 0
+        }
+
         let validIDs = Set(validChunks.compactMap(\.messageID))
+        let objectIDs = Set((try? await DatabaseManager.shared.allObjects())?.map(\.id) ?? [])
 
         let orphanedIDs = allMessages.filter { msg in
-            if case .messageDocument(let doc) = msg.content {
-                if doc.caption.text.hasPrefix("xcloud:dbsnapshot:") || doc.document.fileName.hasPrefix("xcloud-db-") || doc.document.fileName.hasSuffix(".sqlite") {
-                    return true
+            let text = caption(of: msg) ?? ""
+            // Never purge xCloud's own metadata (key records, the delta log,
+            // checkpoints) — protected regardless of what the local DB contains.
+            if text.hasPrefix("xcloud:vaultkey:") || text.hasPrefix("xcloud:dbdelta:") || text.hasPrefix("xcloud:dbsnapshot:") {
+                return false
+            }
+            // Only CHUNK DOCUMENTS are ever candidates. Text messages (folder
+            // metadata, welcome messages, anything caption-less) are never purged.
+            guard case .messageDocument(let doc) = msg.content else { return false }
+            guard text.hasPrefix("xcloud:v1:") || doc.document.fileName.hasSuffix(".bin") else { return false }
+
+            // Resolve which object this chunk belongs to (caption JSON, or the
+            // OBJECT_ID-INDEX.bin filename for old-format chunks). If that object
+            // still exists in the catalog, its messages are NEVER purged — a wrong
+            // message ID is repaired by the scan, never fixed by deletion.
+            var chunkObjectID: String? = nil
+            if text.hasPrefix("xcloud:v1:") {
+                if let data = String(text.dropFirst(10)).data(using: .utf8),
+                   let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    chunkObjectID = meta["id"] as? String
+                }
+            } else {
+                let name = (doc.document.fileName as NSString).deletingPathExtension
+                let parts = name.split(separator: "-")
+                if parts.count >= 2 {
+                    chunkObjectID = parts.dropLast().joined(separator: "-")
                 }
             }
+            if let chunkObjectID, objectIDs.contains(chunkObjectID) { return false }
             return !validIDs.contains(msg.id)
         }.map(\.id)
 
         guard !orphanedIDs.isEmpty else { return 0 }
 
-        logger.info("Purging \(orphanedIDs.count) orphaned message(s) from Telegram channel...")
+        logger.info("Purging \(orphanedIDs.count) provably-orphaned chunk message(s) from Telegram channel...")
         for i in stride(from: 0, to: orphanedIDs.count, by: 100) {
             let batch = Array(orphanedIDs[i..<min(i + 100, orphanedIDs.count)])
             try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: batch)

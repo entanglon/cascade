@@ -7,6 +7,12 @@ enum XTheme {
     static let cornerL: CGFloat = 22
     static let cornerXL: CGFloat = 30
 
+    /// Combined width of the top bar's right-hand controls: the grid/list view
+    /// toggle (two 34pt buttons + 6pt capsule padding) + 10pt spacing + the 46pt
+    /// sort button. The Transfers "Clear Finished" button is sized to match so it
+    /// lines up directly beneath those controls.
+    static let topBarControlsWidth: CGFloat = 130
+
     // MARK: - Spacing Scale
     static let spaceXS: CGFloat = 4
     static let spaceS: CGFloat = 8

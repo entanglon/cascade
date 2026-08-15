@@ -1,10 +1,166 @@
 import Foundation
 import AppKit
-import AVFoundation
+import Vision
+import OSLog
+
+extension Notification.Name {
+    static let xcThumbnailReady = Notification.Name("xc.thumbnailReady")
+}
+
+/// Squares and downscales an image for thumbnails, centering the crop on the
+/// SUBJECT so the important content (a model's face!) stays visible instead of
+/// being cut off by a naive center crop: the largest face wins, then the
+/// attention-saliency region, then the plain center. EXIF orientation is baked
+/// into upright pixels first so Vision sees the photo the way the user does.
+enum ThumbnailCrop {
+    static func subjectSquare(_ image: NSImage, target: CGFloat) -> NSImage? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cg = rep.cgImage else { return nil }
+        let w = CGFloat(cg.width)
+        let h = CGFloat(cg.height)
+        let side = min(w, h)
+        guard side > 0 else { return nil }
+
+        guard let cropped = cg.cropping(to: subjectCropRect(cg: cg, side: side)) else { return nil }
+
+        // Downscale with a CGContext (deterministic and thread-safe — this runs on
+        // ThumbnailService's actor executor, not the main thread).
+        let target = Int(target.rounded())
+        guard target > 0,
+              let ctx = CGContext(
+                  data: nil, width: target, height: target,
+                  bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: target, height: target))
+        guard let outCG = ctx.makeImage() else { return nil }
+        return NSImage(cgImage: outCG, size: NSSize(width: target, height: target))
+    }
+
+    /// Largest square crop rect anchored on the subject. Vision returns normalized
+    /// rects with the origin at the BOTTOM-left; CGImage.cropping works in
+    /// TOP-left pixel coordinates, so the Y axis is flipped back.
+    private static func subjectCropRect(cg: CGImage, side: CGFloat) -> CGRect {
+        let w = CGFloat(cg.width)
+        let h = CGFloat(cg.height)
+
+        // Normalized anchor in Vision space (bottom-left origin, 0...1): center by
+        // default, largest face if any, else the most salient region.
+        var anchor = CGPoint(x: 0.5, y: 0.5)
+        let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+
+        let faceReq = VNDetectFaceRectanglesRequest()
+        try? handler.perform([faceReq])
+        if let face = faceReq.results?.first {
+            anchor = CGPoint(x: face.boundingBox.midX, y: face.boundingBox.midY)
+        } else {
+            let salReq = VNGenerateAttentionBasedSaliencyImageRequest()
+            try? handler.perform([salReq])
+            if let sal = salReq.results?.first as? VNSaliencyImageObservation,
+               let obj = sal.salientObjects?.first {
+                anchor = CGPoint(x: obj.boundingBox.midX, y: obj.boundingBox.midY)
+            }
+        }
+
+        // Clamp so the square stays fully inside the image, then flip Y for
+        // CGImage's top-left pixel space.
+        let minNormX = side / (2 * w)
+        let maxNormX = 1 - minNormX
+        let minNormY = side / (2 * h)
+        let maxNormY = 1 - minNormY
+        let cx = min(max(anchor.x, minNormX), maxNormX) * w
+        let cy = min(max(anchor.y, minNormY), maxNormY) * h
+
+        var rect = CGRect(x: cx - side / 2, y: (h - cy) - side / 2, width: side, height: side)
+        // Snap to integer pixels and clamp inside bounds (cropping fails on
+        // fractional/out-of-bounds rects).
+        rect.origin.x = rect.origin.x.rounded()
+        rect.origin.y = rect.origin.y.rounded()
+        rect.size.width = rect.size.width.rounded()
+        rect.size.height = rect.size.height.rounded()
+        if rect.maxX > w { rect.origin.x = w - rect.width }
+        if rect.maxY > h { rect.origin.y = h - rect.height }
+        if rect.minX < 0 { rect.origin.x = 0 }
+        if rect.minY < 0 { rect.origin.y = 0 }
+        return rect
+    }
+
+    /// Book covers are portrait — downscale the cover art as-is (no square crop)
+    /// so the Library's poster cards show the full cover, not a center chunk.
+    static func aspectFit(_ image: NSImage, maxDimension: CGFloat) -> NSImage? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cg = rep.cgImage else { return nil }
+        let w = CGFloat(cg.width)
+        let h = CGFloat(cg.height)
+        guard w > 0, h > 0 else { return nil }
+        let scale = min(1, maxDimension / max(w, h))
+        let outW = Int((w * scale).rounded())
+        let outH = Int((h * scale).rounded())
+        guard outW > 0, outH > 0,
+              let ctx = CGContext(
+                  data: nil, width: outW, height: outH,
+                  bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+        guard let outCG = ctx.makeImage() else { return nil }
+        return NSImage(cgImage: outCG, size: NSSize(width: outW, height: outH))
+    }
+
+    /// Book-cover crop: center-crops to a 2:3 portrait frame when the artwork
+    /// isn't already close to 2:3, then downscales. Imperfect covers (odd
+    /// dimensions, PDF first pages) get cropped to fit the poster shape instead
+    /// of letterboxing — books whose covers are already 2:3 are untouched.
+    static func coverPortrait(_ image: NSImage, maxDimension: CGFloat) -> NSImage? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cg = rep.cgImage else { return nil }
+        let w = CGFloat(cg.width)
+        let h = CGFloat(cg.height)
+        guard w > 0, h > 0 else { return nil }
+
+        let targetRatio: CGFloat = 2.0 / 3.0
+        let sourceRatio = w / h
+        var cropRect = CGRect(x: 0, y: 0, width: w, height: h)
+        if sourceRatio > targetRatio + 0.01 {
+            let newW = h * targetRatio
+            cropRect = CGRect(x: (w - newW) / 2, y: 0, width: newW, height: h)
+        } else if sourceRatio < targetRatio - 0.01 {
+            let newH = w / targetRatio
+            cropRect = CGRect(x: 0, y: (h - newH) / 2, width: w, height: newH)
+        }
+        guard let cropped = cg.cropping(to: cropRect.integral.standardized) else { return nil }
+
+        let outH = Int(maxDimension.rounded())
+        let outW = Int((CGFloat(outH) * targetRatio).rounded())
+        guard outW > 0, outH > 0,
+              let ctx = CGContext(
+                  data: nil, width: outW, height: outH,
+                  bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: outW, height: outH))
+        guard let outCG = ctx.makeImage() else { return nil }
+        return NSImage(cgImage: outCG, size: NSSize(width: outW, height: outH))
+    }
+}
 
 actor ThumbnailService {
     static let shared = ThumbnailService()
     private var cache: [String: URL] = [:]
+
+    private let logger = Logger(
+        subsystem: "com.xcloud.app",
+        category: "thumbnail"
+    )
 
     func clearMemoryCache() {
         cache.removeAll()
@@ -18,17 +174,80 @@ actor ThumbnailService {
             return hit
         }
 
-        // 2. Check local disk for generated or downloaded thumbnail (.png, .jpg, -tg.jpg)
+        // 2. Books: portrait cover art wins over the square thumbnail — the cover
+        //    is the true representation of a book (the square thumb would be
+        //    cropped again in the Library's portrait cards).
+        if object.isBook, let cover = bookCoverOnDisk(for: object.id) {
+            cache[object.id] = cover
+            return cover
+        }
+
+        // 2b. Albums/playlists: the folder's cover photo thumbnail represents it
+        //     (auto-set to the first photo moved in, or chosen manually).
+        if object.isFolder, let coverID = object.coverObjectID {
+            if let cover = localThumbnailOnDisk(for: coverID) {
+                cache[object.id] = cover
+                return cover
+            }
+            // Kick off thumbnail generation when the cover photo is cached.
+            if let coverObj = try? await DatabaseManager.shared.object(coverID),
+               DownloadEngine.isCached(coverObj) {
+                generateAndSaveThumbnail(for: coverObj, from: DownloadEngine.cacheURL(for: coverObj))
+                if let cover = localThumbnailOnDisk(for: coverID) {
+                    cache[object.id] = cover
+                    return cover
+                }
+            }
+        }
+
+        // 3. Check local disk for generated or downloaded thumbnail (.png, .jpg, -tg.jpg)
         if let local = localThumbnailOnDisk(for: object.id) {
             cache[object.id] = local
             return local
         }
 
-        // 3. If video or audio is cached on disk, generate thumbnail immediately
+        // 4. Photos cached on disk generate a square thumbnail immediately. Video
+        //    previews are extracted locally with the direct-FFmpeg frame extractor
+        //    (no AVFoundation — the bundled libavformat/libavcodec/libswscale), and
+        //    audio previews come from Telegram's own attached thumbnail below,
+        //    which works for any codec with zero CPU cost.
         if DownloadEngine.isCached(object) {
             let cacheURL = DownloadEngine.cacheURL(for: object)
-            if object.mime.hasPrefix("video/") || object.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((object.name as NSString).pathExtension.lowercased()) {
-                generateAndSaveThumbnail(for: object, from: cacheURL)
+            if object.isPhoto {
+                if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 {
+                    // Fall through to the Telegram thumbnail instead of retrying.
+                } else {
+                    generateAndSaveThumbnail(for: object, from: cacheURL)
+                    if let thumb = localThumbnailOnDisk(for: object.id) {
+                        cache[object.id] = thumb
+                        return thumb
+                    }
+                }
+            } else if object.isVideo {
+                if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 {
+                    // Fall through to the Telegram thumbnail instead of retrying.
+                } else {
+                    await generateAndSaveVideoThumbnail(for: object, from: cacheURL)
+                    if let thumb = localThumbnailOnDisk(for: object.id) {
+                        cache[object.id] = thumb
+                        return thumb
+                    }
+                }
+            } else if object.isBook {
+                Task { await UploadEngine.generateBookCover(for: cacheURL, objectID: object.id) }
+                if let cover = bookCoverOnDisk(for: object.id) {
+                    cache[object.id] = cover
+                }
+            }
+        } else if object.isVideo {
+            // Never-downloaded videos (they stream via the byte-range server) still
+            // get a real frame: the extractor opens the loopback stream URL and
+            // seeks with a few byte-range requests — no whole-file download. This is
+            // what gives streamed files like House of the Dragon a thumbnail.
+            if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 {
+                // Fall through to the Telegram thumbnail instead of retrying.
+            } else if let streamURL = await VideoStreamingEngine.shared.mpvStreamURL(for: object) {
+                await generateAndSaveVideoThumbnail(for: object, from: streamURL)
                 if let thumb = localThumbnailOnDisk(for: object.id) {
                     cache[object.id] = thumb
                     return thumb
@@ -36,24 +255,171 @@ actor ThumbnailService {
             }
         }
 
-        // 4. Re-fetch high-resolution thumbnail directly from Telegram
+        // 5. Re-fetch high-resolution thumbnail directly from Telegram
         if let url = await fetchFromTelegram(object) {
             cache[object.id] = url
             return url
         }
 
+        // 6. LAST RESORT — thumbnail-only download for PHOTOS ONLY: quietly pull
+        //    the file down, generate a thumbnail, then delete the cached copy so
+        //    we never hold the whole file. Videos/audio are deliberately excluded:
+        //    their previews come from Telegram's attached thumbnail, and a
+        //    whole-file download just to produce nothing is wasteful (a video can
+        //    be gigabytes). This is the guarantee that every photo — including
+        //    uploads that predate Telegram thumbnail attachment — eventually
+        //    gets a preview. Single-flight so a grid of placeholders never
+        //    starts a download storm.
+        if !object.isFolder, !object.isPrivate, object.isPhoto {
+            await ensureThumbnailByDownload(object)
+            if let thumb = localThumbnailOnDisk(for: object.id) {
+                cache[object.id] = thumb
+                return thumb
+            }
+        }
+
         return nil
     }
 
+    /// True for media that can have a preview: photos (local generation),
+    /// videos and audio (Telegram's attached thumbnail). Used by the warm-up
+    /// pass so every file eventually gets a preview without opening the grid.
+    private func isThumbnailable(_ object: ObjectRecord) -> Bool {
+        if object.isPhoto { return true }
+        if object.isVideo { return true }
+        if object.mime.hasPrefix("audio/") { return true }
+        return ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((object.name as NSString).pathExtension.lowercased())
+    }
+
+    /// Background pass that guarantees a thumbnail for every media file that
+    /// doesn't have one yet. Runs at low priority after login; videos are
+    /// processed last since their thumbnail-only downloads are the heaviest.
+    func warmUpMissingThumbnails() async {
+        let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let missing = all
+            .filter { $0.state == "ready" && !$0.isFolder && !$0.trashed && !$0.isPrivate && isThumbnailable($0) }
+            .filter { localThumbnailOnDisk(for: $0.id) == nil }
+            .sorted { lhs, rhs in
+                // Videos sink to the end of the queue.
+                if lhs.isVideo != rhs.isVideo { return !lhs.isVideo }
+                return lhs.createdAt < rhs.createdAt
+            }
+        guard !missing.isEmpty else { return }
+        logger.info("xCloud thumbs: warming up \(missing.count) missing thumbnails")
+        for object in missing {
+            if Task.isCancelled { return }
+            _ = await thumbnailURL(for: object)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+    }
+
+    private var generatingIDs: Set<String> = []
+    private var failedIDs: [String: Date] = [:]
+
+    /// Downloads a file purely to produce its thumbnail, then removes the
+    /// download so the cache holds no more than a few seconds of it.
+    private func ensureThumbnailByDownload(_ object: ObjectRecord) async {
+        // Single-flight: one thumbnail-only download at a time.
+        if generatingIDs.contains(object.id) { return }
+        // A thumb may have landed between the check and the gate.
+        if localThumbnailOnDisk(for: object.id) != nil { return }
+        // Back off after a failed attempt (corrupt file, no chunks...) so a
+        // broken record doesn't loop forever.
+        if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 { return }
+        if DownloadEngine.isCached(object) {
+            // Cached but generation failed earlier — try once more from disk.
+            generateAndSaveThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
+        } else {
+            generatingIDs.insert(object.id)
+            defer { generatingIDs.remove(object.id) }
+            do {
+                let url = try await DownloadEngine.download(object: object, progress: { _, _ in }, quiet: true)
+                generateAndSaveThumbnail(for: object, from: url)
+                // The file was only needed for its preview — drop it.
+                try? FileManager.default.removeItem(at: url)
+            } catch {
+                failedIDs[object.id] = Date()
+            }
+        }
+        if localThumbnailOnDisk(for: object.id) != nil {
+            failedIDs.removeValue(forKey: object.id)
+        }
+        // Wake up any open grid so it re-requests and finds the new thumbnail.
+        NotificationCenter.default.post(name: .xcThumbnailReady, object: nil)
+    }
+
+    /// Portrait cover URL for a book, generating it on demand if missing. Only
+    /// ever sourced from the local cache — opening the Library with many uncached
+    /// books must NOT start a concurrent download storm (the thumbnail pipeline
+    /// has a single-flight gate for exactly this reason); books uploaded before
+    /// cover generation get their covers when they're next downloaded (reading
+    /// the book), which DownloadEngine handles. The square thumbnail is
+    /// deliberately NEVER returned here — the Library's poster cards must show
+    /// full cover art, not a cropped thumb.
+    func bookCoverURL(for object: ObjectRecord) async -> URL? {
+        guard object.isBook else { return nil }
+        if let cover = bookCoverOnDisk(for: object.id) {
+            cache[object.id] = cover
+            return cover
+        }
+        guard DownloadEngine.isCached(object) else { return nil }
+        let source = DownloadEngine.cacheURL(for: object)
+        await UploadEngine.generateBookCover(for: source, objectID: object.id)
+        if let cover = bookCoverOnDisk(for: object.id) {
+            cache[object.id] = cover
+            return cover
+        }
+        return nil
+    }
+
+    /// Extracts a representative (non-black) frame from a VIDEO and saves the
+    /// square thumbnails. Works on both cached files and the loopback stream URL
+    /// (never-downloaded files) — direct FFmpeg, no AVFoundation, no window.
+    /// Single-flight with the photo gate so a grid of missing video thumbs never
+    /// starts an extraction storm.
+    func generateAndSaveVideoThumbnail(for object: ObjectRecord, from url: URL) async {
+        guard object.isVideo, !generatingIDs.contains(object.id) else { return }
+        generatingIDs.insert(object.id)
+        defer { generatingIDs.remove(object.id) }
+        defer {
+            if localThumbnailOnDisk(for: object.id) != nil {
+                failedIDs.removeValue(forKey: object.id)
+            } else {
+                failedIDs[object.id] = Date()
+            }
+            // Wake up any open grid so it re-requests and finds the new thumbnail.
+            NotificationCenter.default.post(name: .xcThumbnailReady, object: nil)
+        }
+
+        guard let frame = await VideoFrameExtractor.representativeFrame(from: url),
+              let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
+        let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
+        let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
+        if let tiff = frame.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff) {
+            if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+                try? jpg.write(to: destJPG)
+                cache[object.id] = destJPG
+            }
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: destPNG)
+            }
+        }
+    }
+
+    /// Squares + downscales a PHOTO into its thumbnail. Videos and audio are
+    /// deliberately not handled here: their previews come from Telegram's
+    /// attached thumbnail (AVFoundation — the only local frame/artwork
+    /// extractor — is fully removed from the app; mpv is the sole media engine).
     func generateAndSaveThumbnail(for object: ObjectRecord, from fileURL: URL) {
-        guard object.mime.hasPrefix("image/") || object.mime.hasPrefix("video/") else { return }
+        guard object.mime.hasPrefix("image/") else { return }
         guard let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
 
-        if object.mime.hasPrefix("image/"), let image = NSImage(contentsOf: fileURL) {
-            let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
-            if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+        if let image = NSImage(contentsOf: fileURL) {
+            if let resized = ThumbnailCrop.subjectSquare(image, target: 320),
+               let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
                 if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
                     try? jpg.write(to: destJPG)
                     cache[object.id] = destJPG
@@ -62,37 +428,8 @@ actor ThumbnailService {
                     try? png.write(to: destPNG)
                 }
             }
-        } else if object.mime.hasPrefix("video/") {
-            let asset = AVAsset(url: fileURL)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            if let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) {
-                let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
-                if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
-                    if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
-                        try? jpg.write(to: destJPG)
-                        cache[object.id] = destJPG
-                    }
-                    if let png = rep.representation(using: .png, properties: [:]) {
-                        try? png.write(to: destPNG)
-                    }
-                }
-            }
-        } else if object.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((object.name as NSString).pathExtension.lowercased()) {
-            let asset = AVAsset(url: fileURL)
-            for item in asset.metadata {
-                if item.commonKey == .commonKeyArtwork, let data = item.dataValue, let image = NSImage(data: data) {
-                    let resized = resize(image: image, targetSize: NSSize(width: 320, height: 320))
-                    if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
-                        if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
-                            try? jpg.write(to: destJPG)
-                            cache[object.id] = destJPG
-                            return
-                        }
-                    }
-                }
-            }
+            // Photo intelligence: faces + people for the Photos page.
+            Task { await FaceEngine.shared.indexIfNeeded(fileURL: fileURL, objectID: object.id) }
         }
     }
 
@@ -114,31 +451,38 @@ actor ThumbnailService {
         return nil
     }
 
+    private func bookCoverOnDisk(for id: String) -> URL? {
+        let fm = FileManager.default
+        guard let dir = try? UploadEngine.thumbnailsDirectory() else { return nil }
+        let cover = dir.appendingPathComponent("\(id)-cover.jpg")
+        return fm.fileExists(atPath: cover.path(percentEncoded: false)) ? cover : nil
+    }
+
     private func telegramPath(for id: String) -> URL {
         let base = (try? UploadEngine.thumbnailsDirectory()) ?? URL.temporaryDirectory
         return base.appendingPathComponent("\(id)-tg.jpg")
     }
 
     private func fetchFromTelegram(_ object: ObjectRecord) async -> URL? {
-        guard let vault = try? await DatabaseManager.shared.firstVault(),
-              let chunk = (try? await DatabaseManager.shared.chunks(for: object.id))?.first,
-              let messageId = chunk.messageID,
-              let data = try? await TelegramClient.shared.thumbnailData(
-                  forMessage: messageId, chatId: vault.channelID
-              )
-        else { return nil }
-        let url = telegramPath(for: object.id)
-        try? data.write(to: url)
-        return FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) ? url : nil
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }
+        // Iterate every chunk message — uploads now attach the same thumbnail to each
+        // chunk, so the first one with a stored thumbnail wins. This also keeps older
+        // files fetchable if their first chunk predates thumbnails.
+        let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
+        for chunk in chunks {
+            guard let messageId = chunk.messageID,
+                  let data = try? await TelegramClient.shared.thumbnailData(
+                      forMessage: messageId, chatId: vault.channelID
+                  ),
+                  !data.isEmpty
+            else { continue }
+            let url = telegramPath(for: object.id)
+            try? data.write(to: url)
+            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+                return url
+            }
+        }
+        return nil
     }
 
-    private func resize(image: NSImage, targetSize: NSSize) -> NSImage {
-        let aspect = min(targetSize.width / image.size.width, targetSize.height / image.size.height)
-        let newSize = NSSize(width: image.size.width * aspect, height: image.size.height * aspect)
-        let newImage = NSImage(size: newSize)
-        newImage.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: newSize), from: NSRect(origin: .zero, size: image.size), operation: .copy, fraction: 1.0)
-        newImage.unlockFocus()
-        return newImage
-    }
 }

@@ -21,12 +21,15 @@
 
 ## Tier 1 — the big strategic wins
 
-### 1. Parallel chunk uploads
-**Why:** the single biggest speed lever. Currently one chunk uploads at a time; uploading
-3–4 chunks concurrently can cut a 1 GB transfer by 60–70%. No competitor does this well.
-**How:** architecture already supports it — independent chunk objects, per-chunk completion
-records, per-chunk resume. Work is a concurrency limit + FLOOD_WAIT backoff in `UploadEngine`.
-Respect the daily message cap and per-chat flood limits; back off on `FLOOD_WAIT_X`.
+### 1. Parallel chunk uploads — ✅ *implemented 2026-08-10*
+Up to 3 chunks of one file upload concurrently (`UploadEngine.maxConcurrentChunkUploads`).
+Each chunk is an independent Telegram document, so TDLib pipelines them; per-chunk rows keep
+pause/resume identical (pause cancels every in-flight send — none post a message — and
+resume re-uploads only missing chunks). Each chunk opens its own file handle to avoid seek
+races; `ParallelUploadProgress` aggregates per-chunk fractions for smooth card progress.
+Honest caveat: parallelism never exceeds the ISP's raw cap — it wins when per-connection/
+per-session throttling or latency is the real bottleneck. A "max concurrent transfers" knob
+(parallel files) is a possible follow-up.
 
 ### 2. Folder watch / auto-sync
 **Why:** turns the app from "a manual uploader" into "a real backup tool" (Dropbox-style,
@@ -46,23 +49,58 @@ so the recovery phrase alone (or with minimal entropy) can't be brute-forced.
 
 ---
 
+### 4. `yt-dlp` Link Saver ("Save to Cloud from URL") — *discussed 2026-08-10, deferred*
+**Honest assessment:** architecturally one of the *easiest* features — the upload side (chunking,
+encryption, Telegram, resume, transfer cards) is done; yt-dlp's only job is "produce a local
+file", then it's just `UploadEngine.upload(fileURL:)`. But it's operationally the *riskiest*
+feature, ~70/30 easy/hard:
+
+- **Packaging (the #1 risk):** yt-dlp's official releases are Python zipapps needing `python3`
+  (not guaranteed on a fresh Mac without CLT). Options: frozen/PyInstaller binary (unofficial,
+  third-party trust issue for an app that uploads the output), user-installed (kills UX),
+  or zipapp + auto-python. Research the cleanest macOS story before writing code.
+- **ffmpeg dependency:** most YouTube media are separate DASH video/audio streams; without
+  ffmpeg to merge, downloads produce silent video or audio-only files. That's a second binary
+  and a silent-failure mode if unhandled.
+- **YouTube fights back:** "Sign in to confirm you're not a bot" walls and rate limits make the
+  marquee site the flakiest; Twitter/X, Vimeo, SoundCloud, and the other 1,000+ sites are
+  generally cooperative.
+- **Long downloads:** a 4K movie is 5–20 GB → long download + long upload + 40–160 Telegram
+  messages (daily cap!). Needs temp-space cleanup on cancel/failure and pause = kill/resume
+  process (`yt-dlp -c`) wired through the transfer cards.
+
+**Recommended v1 scope (audio-first):** "Save audio (mp3/m4a) from link" via `yt-dlp -x` —
+one stream, no ffmpeg merge, small files, reliable on YouTube *and* everything else. Then
+video with a quality picker + honest errors ("YouTube is blocking this right now"), and a
+Settings pane for the yt-dlp/ffmpeg binaries with a one-click install. Ship behind a
+"may be flaky" note.
+
+### 5. Encrypted Notes (Google Keep-style) — ✅ *implemented 2026-08-10*
+A "Notes" sidebar destination with Keep-style color cards, pinning, tags, markdown preview,
+trash lifecycle (inline with Trash page), keyboard shortcuts, multi-select drag, and a
+SwiftUI `TextEditor`-based editor (rich NSTextView experiment was abandoned — input was
+unreliable in a sheet; see git history for the research). Notes are currently **local-only**
+(DB table + RTF column; not yet synced to Telegram).
+
+---
+
 ## Tier 2 — competitive polish
 
-### 4. Menu bar presence + background transfers
+### 6. Menu bar presence + background transfers
 Transfers continue when the window closes; menu bar icon shows collective progress (the
 liquid FAB condensed to a small dot). Clicking opens the main window / mini transfer list.
 Every serious macOS cloud app has this; its absence reads as "not production software".
 
-### 5. Duplicate detection
+### 7. Duplicate detection
 Hash a file before upload; if identical content already exists, link to it instead of burning
 a daily-message slot and channel space. Saves the user's quota and keeps the channel clean.
 Pairs well with the existing VaultRepair orphan/duplicate purge.
 
-### 6. Smart folders / saved searches
+### 8. Smart folders / saved searches
 "Recently Added", "Large Files", "Videos over 1 GB", "Favorites in Photos" — saved-search
 predicates like macOS smart folders. Cheap to build on the existing sort/filter machinery.
 
-### 7. Storage analytics
+### 9. Storage analytics
 A "Storage" screen: usage per file type and per folder, top-10 files, daily message usage with
 a warning before approaching flood limits. All the data already exists; this is presentation.
 
@@ -70,21 +108,21 @@ a warning before approaching flood limits. All the data already exists; this is 
 
 ## Tier 3 — ambitious / fun
 
-### 8. Finder integration
+### 10. Finder integration
 Right-click any file in Finder → "Upload to xCloud" via a Share / Finder-Sync extension.
 High fame-per-effort for the OSS story.
 
-### 9. Offline pinning
+### 11. Offline pinning
 Mark files "available offline" and pre-download into the LRU cache (Google-Drive-pin style)
 so they open instantly with no network.
 
-### 10. Share links via a small bot
+### 12. Share links via a small bot
 A Telegram bot that hands out expiring download links for individual files. Turns a private
 vault into a sharing tool; strong "why this is different" story.
 
-### 11. AI organization (hold)
-Auto-tagging, similar-image grouping, face-based albums. Coolest-sounding, most expensive,
-least aligned with the app's identity right now. Hold until the core is bulletproof.
+### 13. S3-Compatible Local Gateway
+Run a lightweight embedded S3 server (`http://127.0.0.1:9000`) so tools like rclone, Cyberduck,
+Restic, or custom apps can use xCloud as an S3 cloud storage backend.
 
 ---
 
@@ -102,10 +140,79 @@ least aligned with the app's identity right now. Hold until the core is bulletpr
 
 ---
 
-## Recommended order (my honest top 3)
+## Recommended order (updated 2026-08-10 — notes + parallel uploads done)
 
-1. **Parallel chunk uploads** — speed.
-2. **Folder auto-sync** — category shift (backup tool, not uploader).
-3. **Vault recovery key** — trust.
+1. **Folder auto-sync** — continuous background backup; category shift.
+2. **Vault recovery key** — maximum trust & seed-phrase recovery.
+3. **`yt-dlp` Link Saver** — audio-first v1 as scoped above; do the packaging research first.
+4. **Note sync to Telegram** — encrypt + upload note payloads so notes survive reinstalls.
+5. **Max concurrent transfers** — the simpler "parallel files" win across the queue.
 
-Together they tell a story no Telegram-storage app tells: *fast, automatic, and safe*.
+---
+
+## Decisions & deferred plans — 2026-08-14
+
+### Finder integration: File Provider, iCloud/Drive-style — DECIDED, DEFERRED
+
+User explicitly rejected both alternatives after discussion:
+- ❌ **WebDAV over the existing stream server** ("this dav method isn't good") — old network-drive feel, not what Drive/iCloud are.
+- ❌ **Local sync folder (Mega/Dropbox-classic model)** — real local copies, no eviction, plaintext on disk.
+- ✅ **File Provider extension** — "we gotta do it exactly like cloud and google drive": on-demand materialization, automatic eviction, cloud badges, Open/Save dialogs. This is what iCloud/Drive/Dropbox actually run.
+
+**Project state that makes this viable:** macOS 26.5 deployment target, signing team `A6388Z7T5U`, bundle `com.nemesys.xcloud.xCloud`. No entitlements files exist yet (app is non-sandboxed) — extension work starts from zero.
+
+**Build plan (each milestone working/verifiable):**
+1. **Skeleton** — extension target, File Provider + App Group entitlements, shared container; vault shows as a browsable folder in Finder.
+2. **Materialization** — double-click downloads from Telegram, opens; eviction + badges follow.
+3. **Writing** — drag-in upload, new folder, rename, move, delete (existing upload engine).
+4. **Live sync** — in-app changes push to Finder via `signalEnumerator`; two-way.
+5. **Polish** — Open/Save dialogs, working set, conflict handling, badges everywhere.
+
+**Three hard problems to solve (recorded design notes):**
+1. *Signing/entitlements* — new Xcode target + App Group capability on the team (non-App-Store OK with Developer ID).
+2. *Catalog mirror* — extension keeps its own SQLite item DB (required by File Provider); app mirrors catalog changes into the shared container and signals; extension imports; extension reports uploads/deletes back.
+3. *Keys in the sandbox* — extension can't touch the app's keychain/DB; share wrapped vault key via shared container + shared Keychain group so the extension decrypts chunks itself (reuse existing decrypt-streaming pipeline).
+
+### Auto backup & restore — DEFERRED ON MAC (user decision 2026-08-14)
+
+"Leave the auto backup aside for now. I think we won't need it on a mac, right?" — agreed: with File Provider the Mac gets on-demand materialization (files land locally when used) and the existing evictable stream cache; the local copy *is* the Mac-side redundancy. The catalog-sync / chunk-repair / restore machinery remains **valuable for the future mobile client** (see below) but is not being built now.
+
+### Mobile support — FUTURE GOAL (recurring user intent)
+
+Everything is being built with a future iOS/Android client in mind: the stack is Telegram-native (TDLib + crypto), so a mobile app is "sign in + enter vault PIN + scan vault channel (VaultRepair) → cloud reassembles." The PIN-recovery mechanism already enables cross-device restore with no new server infrastructure. When mobile arrives: reuse the restore path, and revisit auto-backup (catalog sync + health checks) for phones.
+
+### Storage analytics — PARTIALLY DONE (2026-08-14)
+
+Roadmap item #9 ("Storage screen"): the **Settings → Vault Usage** card now shows an Apple-style stacked storage bar (Images/Videos/Audio/Documents/Other with sizes + percentages, live from the catalog). Remaining: per-folder usage, top-10 files, daily message usage / flood-limit warnings.
+
+### Private vault stealth — DEFERRED (brainstorm 2026-08-14, user decided not needed now)
+
+Goal: hide the vault's *presence* and make locking frictionless. Current state: 4-digit PIN lock screen exists; the sidebar always advertises "Private Vault"; locking is only via the page context menu. Honest boundary: hiding the UI is anti-discovery for casual observers, NOT anti-forensics — the PIN stays the real gate.
+
+**Tier 1 — shortcuts + auto-lock (recommended first):**
+- `⌘L` lock vault instantly (set locked + navigate away to All Files); `⌘⇧U` jump to vault + focus PIN field.
+- Auto-lock: idle timer (1/5/15/never, settable), on app deactivate (`didResignActive`), on screen sleep.
+- Panic shortcut: lock + switch to All Files + clear selection (one keystroke = zero trace).
+
+**Tier 2 — actual hiding:**
+- **Stealth Mode toggle (Settings):** sidebar row disappears entirely; access via keyboard-only (`⌥⌘V` shows vault + lock screen).
+- **Disguise:** user-renameable vault label (e.g. "Archive") + plain folder icon (drop the `number` icon giveaway).
+
+**Tier 3 — ambitious (parked for now):**
+- Touch ID unlock via LocalAuthentication (fallback to PIN) — best unlock UX win, small code.
+- Decoy vault on wrong PIN (plausible empty folder) — real deniability but a security-design decision; easy to get wrong; parked.
+
+### Edit files with system apps — DEFERRED (brainstorm 2026-08-14, user decided not needed now)
+
+Open a cloud file in the default macOS app, edit, and save back to the vault (Drive-style in-place editing). Feasible: the basic loop (stage copy → open externally → watch for changes → re-upload) is buildable with existing machinery in ~a day.
+
+**Design sketch:**
+- "Edit" action (or pencil icon) → copy object bytes into a stable **staging dir** (separate from the evictable LRU cache so mid-edit eviction can't lose changes) → `NSWorkspace.open` → watch the staging dir (FSEvents, atomic-save aware) → debounced upload on save.
+- Upload path needs a new **"update object contents"** flow: delete the object's old chunk messages in the vault channel, post new chunks, update the catalog row (size/hash/modifiedAt) + metadata caption + publish snapshot. (Telegram documents are immutable — content changes always mean new chunk messages.)
+- "Create with system tools": trivially builds on the same loop (stage a blank file of a chosen type, open, upload on first save).
+
+**Honest gotchas to design around:**
+- **Quota per save:** every save re-uploads the whole file (1 GB ≈ 8 messages). Debounce saves; for large files consider an explicit "Save to Cloud" mode or a per-edit threshold.
+- Atomic saves (TextEdit/Pages replace the file): watch the directory + filename, not the inode.
+- Conflict: last-write-wins v1 (warn if the remote changed mid-edit).
+- Staging copy lifecycle: keep until editor closes or app quits; never let the evictable cache own it.

@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Security
+import CommonCrypto
 import os
 
 enum CryptoError: Error, Sendable {
@@ -85,6 +86,48 @@ enum CryptoEngine {
         return try AES.GCM.open(box, using: key)
     }
     
+    // MARK: - Password-derived vault key (v2)
+
+    /// Derives the vault master key from the user's PIN/password plus a per-vault
+    /// random salt (PBKDF2-SHA256, 600k iterations — OWASP's recommended cost for
+    /// password hashing). Derived identically on every device, so the same PIN
+    /// recovers the vault key anywhere; the salt is public (its job is uniqueness,
+    /// not secrecy) and rides inside the channel's key record.
+    static func passwordKey(from password: String, salt: Data) -> SymmetricKey {
+        let pw = Array(password.utf8)
+        let sl = [UInt8](salt)
+        var derived = [UInt8](repeating: 0, count: 32)
+        CCKeyDerivationPBKDF(
+            CCPBKDFAlgorithm(kCCPBKDF2),
+            pw, pw.count,
+            sl, sl.count,
+            CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+            600_000,
+            &derived, derived.count
+        )
+        return SymmetricKey(data: Data(derived))
+    }
+
+    // MARK: - PIN recovery key (v1, legacy)
+
+    /// Derives a deterministic key from the vault PIN (PBKDF2-SHA256) using the v1
+    /// fixed salt and iteration count. Kept EXACTLY as-is so legacy `xcloud:vaultkey:`
+    /// blobs posted by older builds can still be unwrapped during migration.
+    static func recoveryKey(from pin: String) -> SymmetricKey {
+        let password = Array(pin.utf8)
+        let salt = Array("xcloud-recovery-v1".utf8)
+        var derived = [UInt8](repeating: 0, count: 32)
+        CCKeyDerivationPBKDF(
+            CCPBKDFAlgorithm(kCCPBKDF2),
+            password, password.count,
+            salt, salt.count,
+            CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+            150_000,
+            &derived, derived.count
+        )
+        return SymmetricKey(data: Data(derived))
+    }
+
     // MARK: - Self test
     
     static func selfTest() async throws {

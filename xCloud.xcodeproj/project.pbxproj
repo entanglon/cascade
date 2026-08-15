@@ -35,6 +35,10 @@
 		F783B6A53024000000326355 /* LiquidMorphingFAB.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A63024000000326355 /* LiquidMorphingFAB.swift */; };
 		F783B7013025000000326355 /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B7023025000000326355 /* NotesView.swift */; };
 		F783B7033025000000326355 /* NoteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B7043025000000326355 /* NoteEditorSheet.swift */; };
+		F7A1B00100000000000000A1 /* BookReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00100000000000000B1 /* BookReaderView.swift */; };
+		F7A1B00200000000000000A1 /* PhotosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00200000000000000B1 /* PhotosGridView.swift */; };
+		F7A1B00300000000000000A1 /* VideosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00300000000000000B1 /* VideosGridView.swift */; };
+		F7A1B00400000000000000A1 /* MediaGridShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00400000000000000B1 /* MediaGridShared.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +73,10 @@
 		F783B6673023416F00326355 /* TelegramSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramSetupView.swift; sourceTree = "<group>"; };
 		F783B6693023476900326355 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		F783B671302364AF00326355 /* FileBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserView.swift; sourceTree = "<group>"; };
+		F7A1B00100000000000000B1 /* BookReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookReaderView.swift; sourceTree = "<group>"; };
+		F7A1B00200000000000000B1 /* PhotosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosGridView.swift; sourceTree = "<group>"; };
+		F7A1B00300000000000000B1 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
+		F7A1B00400000000000000B1 /* MediaGridShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGridShared.swift; sourceTree = "<group>"; };
 		F783B67730236D5C00326355 /* TerminationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationHandler.swift; sourceTree = "<group>"; };
 		F783B67E3023700000326355 /* VideoPlaybackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlaybackView.swift; sourceTree = "<group>"; };
 		F783B6863023800000326355 /* TransfersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransfersView.swift; sourceTree = "<group>"; };
@@ -219,6 +227,10 @@
 				F783B6A63024000000326355 /* LiquidMorphingFAB.swift */,
 				F783B7023025000000326355 /* NotesView.swift */,
 				F783B7043025000000326355 /* NoteEditorSheet.swift */,
+				F7A1B00100000000000000B1 /* BookReaderView.swift */,
+				F7A1B00200000000000000B1 /* PhotosGridView.swift */,
+				F7A1B00300000000000000B1 /* VideosGridView.swift */,
+				F7A1B00400000000000000B1 /* MediaGridShared.swift */,
 				F7C0FF00000000000000A010 /* MPVVideoView.swift */,
 			);
 			path = Features;
@@ -393,6 +405,10 @@
 				F783B6A53024000000326355 /* LiquidMorphingFAB.swift in Sources */,
 				F783B7013025000000326355 /* NotesView.swift in Sources */,
 				F783B7033025000000326355 /* NoteEditorSheet.swift in Sources */,
+				F7A1B00100000000000000A1 /* BookReaderView.swift in Sources */,
+				F7A1B00200000000000000A1 /* PhotosGridView.swift in Sources */,
+				F7A1B00300000000000000A1 /* VideosGridView.swift in Sources */,
+				F7A1B00400000000000000A1 /* MediaGridShared.swift in Sources */,
 				F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */,
 				F783B672302364AF00326355 /* FileBrowserView.swift in Sources */,
 				F783B6683023416F00326355 /* TelegramSetupView.swift in Sources */,
@@ -567,7 +583,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = A6388Z7T5U;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
@@ -583,6 +599,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "App/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -626,6 +643,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "App/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

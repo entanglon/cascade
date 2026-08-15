@@ -7,19 +7,24 @@ struct MiniPlayerView: View {
     @State private var thumbURL: URL? = nil
 
     var body: some View {
-        if let track = audioEngine.currentTrack {
-            VStack(spacing: 0) {
-                if audioEngine.isFullScreen {
-                    audioTheaterOverlay(track: track)
-                } else {
-                    miniBar(track: track)
-                }
+        Group {
+            // The mini player is the AUDIO player's compact form: it only exists
+            // for audio tracks (videos stop when the theater closes — no background
+            // playback), and only while the theater is closed (the full player
+            // replaces it there — never two players for the same track).
+            if let track = audioEngine.currentTrack,
+               !track.isVideo,
+               appState.theaterFile == nil {
+                miniBar(track: track)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: audioEngine.isFullScreen)
-            .task(id: track.id) {
-                thumbURL = await ThumbnailService.shared.thumbnailURL(for: track)
-            }
+        }
+        // Minimize (theater → mini) springs the bar in as the theater fades out.
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: appState.theaterFile?.id)
+        .animation(.spring(response: 0.45, dampingFraction: 0.8), value: audioEngine.currentTrack?.id)
+        .task(id: audioEngine.currentTrack?.id) {
+            guard let track = audioEngine.currentTrack, !track.isVideo else { return }
+            thumbURL = await ThumbnailService.shared.thumbnailURL(for: track)
         }
     }
 
@@ -146,167 +151,6 @@ struct MiniPlayerView: View {
         .padding(.vertical, 10)
         .glassEffect(.regular.interactive(), in: .capsule)
         .padding(.bottom, 20)
-    }
-
-    // MARK: - Full Screen Audio Theater
-
-    private func audioTheaterOverlay(track: ObjectRecord) -> some View {
-        ZStack {
-            // Full screen backdrop with rounded corners
-            Color.black.opacity(0.96)
-
-            VStack(spacing: 32) {
-                // Top Header
-                HStack {
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            audioEngine.isFullScreen = false
-                        }
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .frame(width: 36, height: 36)
-                            .glassEffect(.regular.interactive(), in: .circle)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Text("NOW PLAYING")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(XTheme.accent)
-
-                    Spacer()
-
-                    Button { audioEngine.stop() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .frame(width: 36, height: 36)
-                            .glassEffect(.regular.interactive(), in: .circle)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 32)
-                .padding(.top, 24)
-
-                Spacer()
-
-                // Large Album Art Badge with Equalizer Spectrum
-                ZStack {
-                    Circle()
-                        .fill(XTheme.brandGradient)
-                        .frame(width: 220, height: 220)
-                        .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
-
-                    if audioEngine.isPlaying {
-                        EqualizerWaveformView(barCount: 7)
-                            .frame(width: 100, height: 90)
-                    } else {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 80, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                }
-
-                // Track Title & Info
-                VStack(spacing: 6) {
-                    Text(track.name)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-
-                    Text(ByteCountFormatter.string(fromByteCount: track.size, countStyle: .file))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-                .padding(.horizontal, 40)
-
-                // Scrub Bar
-                VStack(spacing: 8) {
-                    Slider(
-                        value: Binding(
-                            get: { audioEngine.currentTime },
-                            set: { audioEngine.seek(to: $0) }
-                        ),
-                        in: 0...max(1, audioEngine.duration)
-                    )
-                    .tint(XTheme.accent)
-
-                    HStack {
-                        Text(timeString(audioEngine.currentTime))
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Spacer()
-                        Text(timeString(audioEngine.duration))
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
-                }
-                .frame(maxWidth: 480)
-                .padding(.horizontal, 40)
-
-                // Playback Controls
-                HStack(spacing: 36) {
-                    Button { audioEngine.skipPrevious() } label: {
-                        Image(systemName: "backward.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .frame(width: 50, height: 50)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button { audioEngine.togglePlayPause() } label: {
-                        ZStack {
-                            Circle().fill(XTheme.accent)
-                                .frame(width: 68, height: 68)
-                                .shadow(color: XTheme.accent.opacity(0.6), radius: 14, y: 6)
-                            Image(systemName: audioEngine.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 26, weight: .bold))
-                                .foregroundStyle(.white)
-                                .offset(x: audioEngine.isPlaying ? 0 : 2)
-                        }
-                        .frame(width: 68, height: 68)
-                        .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button { audioEngine.skipNext() } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .frame(width: 50, height: 50)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer()
-            }
-
-            KeyMonitorView {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    audioEngine.isFullScreen = false
-                }
-            }
-            .frame(width: 0, height: 0)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .onKeyPress(.space) {
-            audioEngine.togglePlayPause()
-            return .handled
-        }
-        .onKeyPress(.leftArrow) {
-            audioEngine.skipPrevious()
-            return .handled
-        }
-        .onKeyPress(.rightArrow) {
-            audioEngine.skipNext()
-            return .handled
-        }
     }
 
     private func timeString(_ seconds: Double) -> String {

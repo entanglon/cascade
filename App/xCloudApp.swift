@@ -7,7 +7,13 @@ struct xCloudApp: App {
     @State private var appState = AppState()
 
     var body: some Scene {
-        WindowGroup {
+        // Single-instance `Window` (not `WindowGroup`): when macOS delivers an
+        // `xcloud://` link while the app is running, a WindowGroup answers the
+        // open-URL event by opening a NEW scene window — so every link click
+        // spawned a second, third… window. A `Window` scene physically cannot
+        // duplicate; the OS reuses the one main window (which the AppDelegate
+        // also activates and brings to the front on URL delivery).
+        Window("xCloud", id: "main") {
             RootView()
                 .environment(appState)
                 .frame(minWidth: 1024, minHeight: 640)
@@ -31,6 +37,13 @@ struct xCloudApp: App {
                 .keyboardShortcut(",", modifiers: .command)
             }
 
+            CommandMenu("File") {
+                Button("Import Shared Link…") {
+                    appState.importShareLinkPrompt = true
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+            }
+
             CommandGroup(after: .pasteboard) {
                 Button("Select All") { appState.selectAll() }
                     .keyboardShortcut("a", modifiers: .command)
@@ -38,7 +51,20 @@ struct xCloudApp: App {
                     .keyboardShortcut("a", modifiers: [.command, .shift])
             }
 
+            // The pasteboard group holds Cut/Copy/Paste — replacing it wiped the Edit
+            // menu's ⌘X/⌘C/⌘V, so paste silently stopped working in every text field
+            // (API setup, login, search, notes). Restore them with the standard
+            // selectors: they validate against the first responder, so ⌘C/⌘V in the
+            // file browser still fall through to the browser's own key handlers when no
+            // text field is focused, and paste into any text field (including sheets)
+            // works again.
             CommandGroup(replacing: .pasteboard) {
+                Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
+                    .keyboardShortcut("x", modifiers: .command)
+                Button("Copy") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
+                    .keyboardShortcut("c", modifiers: .command)
+                Button("Paste") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
+                    .keyboardShortcut("v", modifiers: .command)
                 Button("Move to Trash") { appState.bulkTrash() }
                     .keyboardShortcut(.delete, modifiers: [])
                     .disabled(appState.selectedFiles.isEmpty)

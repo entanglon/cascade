@@ -94,11 +94,16 @@ struct SidebarRow: View {
                 guard !ids.isEmpty else { return }
                 Task { @MainActor in
                     for id in ids {
-                        guard let file = appState.files.first(where: { $0.id == id }) else { continue }
-                        if dest == .trash {
-                            appState.setTrashed(file, true)
-                        } else if dest == .favorites && !file.isFavorite {
-                            appState.toggleFavorite(file)
+                        if let file = appState.files.first(where: { $0.id == id }) {
+                            if dest == .trash {
+                                appState.setTrashed(file, true)
+                            } else if dest == .favorites && !file.isFavorite {
+                                appState.toggleFavorite(file)
+                            }
+                        } else if let note = appState.notes.first(where: { $0.id == id }) {
+                            if dest == .trash {
+                                appState.trashNote(note)
+                            }
                         }
                     }
                 }
@@ -113,7 +118,7 @@ struct SidebarRow: View {
     }
 
     private var categoryCount: Int {
-        let files = appState.files
+        let files = appState.files.filter { !$0.isArchived }
         switch item {
         case .allFiles:
             return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == nil }.count
@@ -131,18 +136,30 @@ struct SidebarRow: View {
                 return ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(ext)
             }.count
         case .video:
-            return files.filter { !$0.trashed && !$0.isFolder && $0.mime.hasPrefix("video/") }.count
+            return files.filter { !$0.trashed && !$0.isFolder && (
+                $0.mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp", "mpg", "mpeg"].contains(($0.name as NSString).pathExtension.lowercased())
+            ) }.count
         case .audio:
-            return files.filter { !$0.trashed && !$0.isFolder && $0.mime.hasPrefix("audio/") }.count
+            return files.filter { !$0.trashed && !$0.isFolder && (
+                $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
+            ) }.count
         case .documents:
             return files.filter { f in
                 guard !f.trashed && !f.isFolder else { return false }
                 return f.mime.contains("pdf") || f.mime.hasPrefix("text/") || f.mime.contains("msword") || f.mime.contains("officedocument")
             }.count
+        case .library:
+            return files.filter { !$0.trashed && $0.isBook }.count
+        case .notes:
+            return appState.notes.filter { !$0.trashed }.count
         case .transfers:
             return TransferCenter.shared.items.filter { $0.state == .active }.count
+        case .shared:
+            return appState.incomingShares.count
+        case .archive:
+            return appState.files.filter { $0.isArchived }.count
         case .trash:
-            return files.filter { $0.trashed }.count
+            return appState.files.filter { $0.trashed }.count
         }
     }
 }

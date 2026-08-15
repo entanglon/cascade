@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import AVKit
+import UniformTypeIdentifiers
 import WebKit
 
 struct TheaterView: View {
@@ -18,6 +18,10 @@ struct TheaterView: View {
     @State private var errorMessage: String?
     @State private var showControls = true
     @State private var controlsTimer: Timer?
+    // Video players use a two-step Escape ("press Esc again to exit"); this state
+    // drives both the warning pill in the player chrome and the second-ESC close.
+    @State private var showExitWarning = false
+    @State private var exitWarningTimer: Timer?
     @AppStorage("xc.canvasBackground") private var canvasBackground: CanvasBackground = .dark
     // Keep the same sort option AND direction as the file browser, so left/right
     // navigation follows the exact on-screen order of the files.
@@ -40,12 +44,12 @@ struct TheaterView: View {
 
     private var previewKind: PreviewKind {
         if file.isFolder { return .folder }
+        if file.isVideo { return .video }
+        if file.isPhoto { return .image }
+        if file.isAudio { return .audio }
         let ext = (file.name as NSString).pathExtension.lowercased()
-        if file.mime.hasPrefix("image/") { return .image }
-        if file.mime.hasPrefix("video/") { return .video }
-        if file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(ext) { return .audio }
         if file.mime.contains("pdf") || ext == "pdf" { return .pdf }
-        if file.mime.hasPrefix("text/") || ["txt", "md", "json", "log", "csv", "swift"].contains(ext) { return .text }
+        if file.mime.hasPrefix("text/") || ["txt", "md", "json", "log", "csv", "swift", "js", "ts", "py", "sh", "yml", "yaml", "xml", "html", "css"].contains(ext) { return .text }
         return .other
     }
 
@@ -76,24 +80,28 @@ struct TheaterView: View {
                 }
             }
 
-            // Floating top controls
+            // Floating top controls. Video AND audio players own all their chrome now
+            // (self-contained PlayerControlsView), so the old viewer top bar is
+            // suppressed for media to avoid two overlapping control sets.
             VStack {
-                if showControls {
+                if showControls, previewKind != .video, previewKind != .audio {
                     topControls
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 Spacer()
 
-                // Bottom info bar
-                if showControls, url != nil {
+                // Bottom info bar (hidden for media — the player controls own the
+                // bottom chrome there: seek bar, time labels, volume, tracks).
+                if showControls, url != nil, previewKind != .video, previewKind != .audio {
                     bottomInfoBar
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: showControls)
 
-            // Navigation arrows
-            if showControls, url != nil {
+            // Navigation arrows (media players use keyboard arrows; the chevrons
+            // are part of the old viewer chrome and would clash with the player).
+            if showControls, url != nil, previewKind != .video, previewKind != .audio {
                 navigationOverlay
             }
 
@@ -102,6 +110,8 @@ struct TheaterView: View {
                 onEscape: { handleEscapeKey() },
                 onLeftArrow: { navigateMedia(delta: -1) },
                 onRightArrow: { navigateMedia(delta: 1) },
+                onUpArrow: { navigateMediaVertical(delta: -1) },
+                onDownArrow: { navigateMediaVertical(delta: 1) },
                 onSpacebar: {
                     if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
                         // Space toggles the viewer (Quick Look style): close it.
@@ -147,7 +157,7 @@ struct TheaterView: View {
             }
             Divider()
             Button(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen") {
-                withAnimation { appState.isTheaterFullScreen.toggle() }
+                withAnimation { togglePlayerFullScreen() }
             }
             Button("Close Viewer") {
                 handleEscapeKey()
@@ -176,6 +186,14 @@ struct TheaterView: View {
             navigateMedia(delta: 1)
             return .handled
         }
+        .onKeyPress(.upArrow) {
+            navigateMediaVertical(delta: -1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            navigateMediaVertical(delta: 1)
+            return .handled
+        }
         .onKeyPress(.space) {
             if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
                 // Space toggles the viewer (Quick Look style): close it.
@@ -189,7 +207,45 @@ struct TheaterView: View {
         }
         .task(id: file.id) {
             isFocused = true
+            // Start media playback IMMEDIATELY, in parallel with loadFile — the
+            // layout load + mpv core init then overlap the theater fade-in instead
+            // of following it. This is what killed the "split second of lag / the
+            // player opens semi-transparent like the animation got stuck" pause:
+            // playback previously waited for loadFile's stream-URL await AND the
+            // view's own task, both sequential. The views' tasks guard
+            // (currentTrack?.id == file.id) makes them no-ops here.
+            if previewKind == .video || previewKind == .audio {
+                AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
+            }
             await loadFile()
+        }
+    }
+
+    /// Player-only full screen: presents the video in a separate borderless window
+    /// covering the screen (PlayerFullScreenWindow). The app window — sidebar,
+    /// browser, controls — stays untouched, and the mpv view is re-parented rather
+    /// than recreated, so playback continues across the transition. The full-screen
+    /// window hosts its own controls overlay (same chrome as the windowed player).
+    private func togglePlayerFullScreen() {
+        if PlayerFullScreenWindow.shared.isActive {
+            PlayerFullScreenWindow.shared.dismiss()
+            appState.isTheaterFullScreen = false
+        } else if let mpv = AudioPlayerEngine.shared.mpvController,
+                  let layer = mpv.playerView?.playerView {
+            PlayerFullScreenWindow.shared.present(
+                layer,
+                mpv: mpv,
+                title: file.name,
+                subtitle: sizeText,
+                onClose: {
+                    AudioPlayerEngine.shared.stop()
+                    appState.theaterFile = nil
+                },
+                onDismiss: {
+                    appState.isTheaterFullScreen = false
+                }
+            )
+            appState.isTheaterFullScreen = true
         }
     }
 
@@ -199,8 +255,11 @@ struct TheaterView: View {
         HStack(spacing: 12) {
             // Minimize button (Background play in Mini Player)
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    if (previewKind == .audio || previewKind == .video) && !AudioPlayerEngine.shared.isPlaying {
+                withAnimation(.easeInOut(duration: 0.20)) {
+                    if previewKind == .video {
+                        // Videos stop when the theater closes — no background handoff.
+                        AudioPlayerEngine.shared.stop()
+                    } else if previewKind == .audio, AudioPlayerEngine.shared.currentTrack == nil {
                         AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
                     }
                     appState.theaterFile = nil
@@ -216,10 +275,12 @@ struct TheaterView: View {
             .buttonStyle(.plain)
             .help("Minimize to Background")
 
-            // Full Screen toggle button
+            // Full Screen toggle button — player-only fullscreen (separate window),
+            // never a whole-app/native-window toggle. The mpv view is re-parented, so
+            // playback survives the transition.
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    appState.isTheaterFullScreen.toggle()
+                    togglePlayerFullScreen()
                 }
             } label: {
                 Image(systemName: appState.isTheaterFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -237,7 +298,9 @@ struct TheaterView: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                // Folders have no stored size — show the real recursive total so the
+                // header never displays a fake "Zero KB" under a folder name.
+                Text(sizeText)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.5))
             }
@@ -247,7 +310,7 @@ struct TheaterView: View {
 
             // Close button (Stops playback completely)
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.easeInOut(duration: 0.20)) {
                     if previewKind == .audio || previewKind == .video {
                         AudioPlayerEngine.shared.stop()
                     }
@@ -381,9 +444,34 @@ struct TheaterView: View {
             imageViewer
                 .onTapGesture { toggleControls() }
         case .video:
-            VideoPlaybackView(object: file, showControls: showControls)
+            VideoPlaybackView(
+                object: file,
+                showExitWarning: showExitWarning,
+                onMinimize: closePlayer,
+                onToggleFullScreen: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        togglePlayerFullScreen()
+                    }
+                },
+                onClose: closePlayer
+            )
         case .audio:
-            TheaterAudioPlayerView(file: file, mediaFiles: mediaFiles)
+            TheaterAudioPlayerView(
+                file: file,
+                mediaFiles: mediaFiles,
+                onMinimize: {
+                    // Minimize hands audio off to the mini player (headless
+                    // playback keeps going) — the mini player springs in as the
+                    // theater fades out.
+                    withAnimation(.easeInOut(duration: 0.20)) {
+                        if AudioPlayerEngine.shared.currentTrack == nil {
+                            AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
+                        }
+                        appState.theaterFile = nil
+                    }
+                },
+                onClose: closePlayer
+            )
         default:
             // Folders and unsupported types get a Finder-style details panel.
             detailsView
@@ -691,54 +779,77 @@ struct TheaterView: View {
     /// The files left/right arrow keys navigate through, in the EXACT same order
     /// they appear in the file browser (same filters, sort option, and direction),
     /// so navigating 1 → 2 → 3 … matches what the user sees on screen.
-    private var mediaFiles: [ObjectRecord] {
-        let base: [ObjectRecord] = {
-            let files = appState.files
-            switch appState.selectedDestination {
-            case .allFiles:
-                return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == appState.currentFolderID }
-            case .privateVault:
-                return files.filter { !$0.trashed && $0.isPrivate && $0.parentID == appState.currentFolderID }
-            case .recent:
-                return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
-            case .favorites:
-                return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
-            case .photos:
-                if let currentID = appState.currentFolderID {
-                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
-                } else {
-                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
-                        $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
-                    ) }
-                }
-            case .video:
-                if let currentID = appState.currentFolderID {
-                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
-                } else {
-                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && $0.mime.hasPrefix("video/") }
-                }
-            case .audio:
-                if let currentID = appState.currentFolderID {
-                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
-                } else {
-                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
-                        $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
-                    ) }
-                }
-            case .documents:
-                return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
-                    ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
-                     $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
-            case .transfers:
-                return []
-            case .trash:
-                return files.filter { $0.trashed }
+    private var mediaBase: [ObjectRecord] {
+        let files = appState.files
+        let base: [ObjectRecord]
+        switch appState.selectedDestination {
+        case .allFiles:
+            base = files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == appState.currentFolderID }
+        case .privateVault:
+            base = files.filter { !$0.trashed && $0.isPrivate && $0.parentID == appState.currentFolderID }
+        case .recent:
+            base = Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
+        case .favorites:
+            base = files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+        case .photos:
+            if let currentID = appState.currentFolderID {
+                base = files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+            } else {
+                // Matches the browser grid: albums first, then EVERY photo in the
+                // cloud (no parentID filter — photos living inside folders still
+                // appear on the Photos page and must stay navigable in the viewer).
+                let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/album-photo" }
+                let photoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
+                    $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
+                ) }
+                base = albums + photoFiles
             }
-        }()
+        case .video:
+            if let currentID = appState.currentFolderID {
+                base = files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+            } else {
+                // Playlists first, then every video in the cloud (extension fallback
+                // included, mirroring the browser grid).
+                let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-video" }
+                let videoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
+                    $0.mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp", "mpg", "mpeg"].contains(($0.name as NSString).pathExtension.lowercased())
+                ) }
+                base = playlists + videoFiles
+            }
+        case .audio:
+            if let currentID = appState.currentFolderID {
+                base = files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
+            } else {
+                // Playlists first, then every audio file in the cloud.
+                let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-audio" }
+                let audioFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
+                    $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
+                ) }
+                base = playlists + audioFiles
+            }
+        case .documents:
+            base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
+                ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
+                 $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
+        case .library:
+            base = files.filter { !$0.trashed && $0.isBook }
+        case .notes, .transfers, .shared:
+            base = []
+        case .archive:
+            base = files.filter { $0.isArchived }
+        case .trash:
+            base = files.filter { $0.trashed }
+        }
+        // Archived files are hidden everywhere except the Archive destination.
+        if appState.selectedDestination == .archive { return base }
+        return base.filter { !$0.isArchived }
+    }
 
+    /// Same filters, search, and sort as the browser's visible list — folders and
+    /// files are kept together here and split by `mediaFiles`/`navigableFiles`.
+    private var sortedMediaBase: [ObjectRecord] {
         let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = base.filter { !$0.isFolder }
-        let searched = query.isEmpty ? filtered : filtered.filter { $0.name.lowercased().contains(query) }
+        let searched = query.isEmpty ? mediaBase : mediaBase.filter { $0.name.lowercased().contains(query) }
 
         switch sortOptionRaw {
         case "dateCreated":
@@ -760,8 +871,21 @@ struct TheaterView: View {
         }
     }
 
+    /// Files only — drives audio playback queues and the filmstrip.
+    private var mediaFiles: [ObjectRecord] {
+        sortedMediaBase.filter { !$0.isFolder }
+    }
+
+    /// Navigable arrow-key order, matching the browser grid: the folder section
+    /// first (up to 4 columns), then the files. Includes folders so that a folder
+    /// preview can navigate on both axes — previously folders were stripped here,
+    /// so previewing a folder made every arrow key a no-op.
+    private var navigableFiles: [ObjectRecord] {
+        sortedMediaBase.filter(\.isFolder) + sortedMediaBase.filter { !$0.isFolder }
+    }
+
     private func canNavigate(_ delta: Int) -> Bool {
-        let files = mediaFiles
+        let files = navigableFiles
         guard let idx = files.firstIndex(where: { $0.id == file.id }) else { return false }
         let next = idx + delta
         return next >= 0 && next < files.count
@@ -798,7 +922,7 @@ struct TheaterView: View {
 
     private func navigateMedia(delta: Int) {
         refreshTimerIfVisible()
-        let files = mediaFiles
+        let files = navigableFiles
         guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
         let nextIndex = min(max(currentIndex + delta, 0), files.count - 1)
         guard nextIndex != currentIndex else { return }
@@ -806,6 +930,23 @@ struct TheaterView: View {
         appState.theaterFile = next
         // Keep the browser's selection in sync so closing the viewer (space) and
         // reopening it shows the image we were just looking at.
+        appState.selectedFiles = [next.id]
+    }
+
+    /// Up/down arrow navigation: moves to the file in the same grid column of the
+    /// row above/below, using the exact row/column math the browser's arrow keys
+    /// use (FileBrowserView.gridVerticalStep) over the same on-screen order. This
+    /// is what makes "column navigation" work while previewing, matching what the
+    /// grid shows under the viewer.
+    private func navigateMediaVertical(delta: Int) {
+        refreshTimerIfVisible()
+        let files = navigableFiles
+        guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
+        let cols = max(2, appState.gridColumnCount)
+        let nextIndex = FileBrowserView.gridVerticalStep(current: currentIndex, delta: delta, files: files, cols: cols)
+        guard nextIndex != currentIndex, files.indices.contains(nextIndex) else { return }
+        let next = files[nextIndex]
+        appState.theaterFile = next
         appState.selectedFiles = [next.id]
     }
     private var activeLocalURL: URL? {
@@ -879,18 +1020,54 @@ struct TheaterView: View {
         }
     }
 
+    /// Stops playback and closes the theater (the player chrome's minimize and
+    /// close buttons, windowed mode).
+    private func closePlayer() {
+        withAnimation(.easeInOut(duration: 0.20)) {
+            AudioPlayerEngine.shared.stop()
+            appState.theaterFile = nil
+        }
+    }
+
     private func handleEscapeKey() {
         controlsTimer?.invalidate()
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            if previewKind == .audio || previewKind == .video {
-                if AudioPlayerEngine.shared.isPlaying {
-                    // Seamlessly transition to MiniPlayer without interrupting playback
+        // While the full-screen player window is up it owns the Escape key (it has
+        // its own two-step handler); ignore it here so windowed ESC never closes
+        // the theater out from under the full-screen player.
+        if PlayerFullScreenWindow.shared.isActive { return }
+        withAnimation(.easeInOut(duration: 0.20)) {
+            if previewKind == .video {
+                // Two-step exit: first ESC shows "Press Esc again to exit", the
+                // second (within 2s) stops playback and closes the theater. Videos
+                // stop when the theater closes — no background handoff.
+                guard AudioPlayerEngine.shared.currentTrack != nil else {
                     appState.theaterFile = nil
-                } else {
-                    // Fully exit and stop playback when paused
+                    return
+                }
+                if showExitWarning {
+                    exitWarningTimer?.invalidate()
+                    exitWarningTimer = nil
+                    showExitWarning = false
                     AudioPlayerEngine.shared.stop()
                     appState.theaterFile = nil
+                } else {
+                    showExitWarning = true
+                    exitWarningTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+                        Task { @MainActor in
+                            withAnimation(.easeInOut(duration: 0.20)) {
+                                self.showExitWarning = false
+                            }
+                        }
+                    }
                 }
+                return
+            }
+            if previewKind == .audio {
+                if AudioPlayerEngine.shared.currentTrack == nil {
+                    // (Audio already plays headless and keeps going in the mini player.)
+                    AudioPlayerEngine.shared.stop()
+                }
+                appState.theaterFile = nil
             } else {
                 appState.theaterFile = nil
             }
@@ -918,13 +1095,16 @@ struct TheaterView: View {
             return
         }
 
-        // Uncached videos stream byte-by-byte from Telegram via mpv instead of
-        // downloading the whole file first. mpv demuxes any container (mkv, webm,
-        // avi, ...) from the local byte-range server; mpvStreamURL returns nil when
-        // the layout can't load, so those fall through to the full download below.
-        // VideoPlaybackView picks the item up via AudioPlayerEngine once `url` is set.
-        if previewKind == .video,
-           await VideoStreamingEngine.shared.mpvStreamURL(for: file) != nil {
+        // Uncached video AND audio stream byte-by-byte from Telegram via mpv instead
+        // of downloading the whole file first. mpv demuxes any container (mkv, webm,
+        // avi, ogg, flac, ...) from the local byte-range server — audio plays headless
+        // with no render surface. The stream URL is set OPTIMISTICALLY so the player
+        // view appears instantly: AudioPlayerEngine.play (kicked off in .task, in
+        // parallel) resolves the real URL — cached → local file, uncached → stream,
+        // unloadable layout → full download — while the player's spinner covers the
+        // wait. No layout await here, no separate download gate: play() owns the
+        // fallback (a second download path here would double-download).
+        if previewKind == .video || previewKind == .audio {
             url = URL(string: "xcloud-stream://object-\(file.id)")
             return
         }
@@ -945,134 +1125,292 @@ struct TheaterView: View {
     }
 }
 
-// MARK: - Theater Audio Player View
+// MARK: - Music Player View
 
+/// Apple Music / Spotify-style music player (research: 2026 music-player UI best
+/// practices — big artwork as the hero, always-visible chrome, glass controls,
+/// drag scrubber with monospaced times, ambient glow from the artwork). Playback
+/// starts immediately on open (theater `.task`, in parallel with loadFile) — the
+/// spinner overlay covers the mpv core init, and the album art loads in parallel
+/// too, so nothing gates the first sound. Minimize hands off to the mini player.
 struct TheaterAudioPlayerView: View {
     let file: ObjectRecord
     let mediaFiles: [ObjectRecord]
+    var onMinimize: () -> Void = {}
+    var onClose: () -> Void = {}
     @Bindable var audioEngine = AudioPlayerEngine.shared
-    @State private var thumbURL: URL? = nil
+    @State private var thumbURL: URL?
+    @State private var dragProgress: Double?
+
+    private var isCurrent: Bool { audioEngine.currentTrack?.id == file.id }
+    private var isPlaying: Bool { isCurrent && audioEngine.isPlaying }
+    private var indexText: String? {
+        let idx = mediaFiles.firstIndex(where: { $0.id == file.id })
+        return idx.map { "\($0 + 1) of \(mediaFiles.count)" }
+    }
 
     var body: some View {
-        VStack(spacing: 28) {
-            Spacer()
+        ZStack {
+            // Ambient glow that echoes the artwork (Spotify-style dynamic tint)
+            Circle()
+                .fill(XTheme.brandGradient)
+                .frame(width: 560, height: 560)
+                .blur(radius: 130)
+                .opacity(0.14)
+                .allowsHitTesting(false)
 
-            // Large Glowing Disc with Animated Equalizer Waveform
-            ZStack {
-                if let thumbURL, let nsImage = NSImage(contentsOf: thumbURL) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
-                        .frame(width: 200, height: 200)
-                        .clipShape(Circle())
-                        .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
-                } else {
-                    Circle()
-                        .fill(XTheme.brandGradient)
-                        .frame(width: 200, height: 200)
-                        .shadow(color: XTheme.accent.opacity(0.5), radius: 30, y: 10)
-
-                    EqualizerWaveformView(barCount: 7, isPlaying: audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id)
-                        .frame(width: 90, height: 80)
-                }
-            }
-
-            // Track Details
-            VStack(spacing: 6) {
-                Text(file.name)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-
-                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-            .padding(.horizontal, 32)
-
-            // Scrubber Bar
-            VStack(spacing: 8) {
-                Slider(
-                    value: Binding(
-                        get: { audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0 },
-                        set: { audioEngine.seek(to: $0) }
-                    ),
-                    in: 0...max(1, audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 1)
-                )
-                .tint(XTheme.accent)
-
+            VStack(spacing: 0) {
+                // Top bar
                 HStack {
-                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.currentTime : 0))
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                    Button(action: onMinimize) {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Minimize to Mini Player")
+
                     Spacer()
-                    Text(timeString(audioEngine.currentTrack?.id == file.id ? audioEngine.duration : 0))
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            }
-            .frame(maxWidth: 440)
-            .padding(.horizontal, 32)
 
-            // Playback Controls
-            HStack(spacing: 32) {
-                Button { audioEngine.skipPrevious() } label: {
-                    Image(systemName: "backward.fill")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 48, height: 48)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
+                    Text("NOW PLAYING")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(XTheme.accent)
 
-                Button {
-                    if audioEngine.currentTrack?.id == file.id {
-                        audioEngine.togglePlayPause()
+                    Spacer()
+
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close Player")
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 24)
+
+                Spacer()
+
+                // Hero artwork — thumbnail if available, else gradient + waveform
+                ZStack {
+                    if let thumbURL, let nsImage = NSImage(contentsOf: thumbURL) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFill()
                     } else {
-                        audioEngine.play(file: file, in: mediaFiles)
+                        Circle()
+                            .fill(XTheme.brandGradient)
+                        if isPlaying {
+                            EqualizerWaveformView(barCount: 7)
+                                .frame(width: 110, height: 96)
+                        } else {
+                            Image(systemName: "music.note")
+                                .font(.system(size: 72, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
                     }
-                } label: {
-                    ZStack {
-                        Circle().fill(XTheme.accent)
-                            .frame(width: 64, height: 64)
-                            .shadow(color: XTheme.accent.opacity(0.6), radius: 12, y: 5)
-                        Image(systemName: (audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id) ? "pause.fill" : "play.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.white)
-                            .offset(x: (audioEngine.isPlaying && audioEngine.currentTrack?.id == file.id) ? 0 : 2)
-                    }
-                    .frame(width: 64, height: 64)
-                    .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .frame(width: 240, height: 240)
+                .clipShape(Circle())
+                .shadow(color: XTheme.accent.opacity(isPlaying ? 0.55 : 0.35), radius: 34, y: 14)
+                .scaleEffect(isPlaying ? 1 : 0.97)
+                .animation(.easeInOut(duration: 0.5), value: isPlaying)
 
-                Button { audioEngine.skipNext() } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 48, height: 48)
+                // Track details
+                VStack(spacing: 6) {
+                    Text(file.name)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 8) {
+                        Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.5))
+                        if let indexText {
+                            Text("•")
+                                .foregroundStyle(.white.opacity(0.3))
+                            Text(indexText)
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 22)
+
+                // Custom drag scrubber (same design language as the video player)
+                scrubberRow
+                    .padding(.top, 26)
+
+                // Transport
+                HStack(spacing: 36) {
+                    Button { audioEngine.skipPrevious() } label: {
+                        Image(systemName: "backward.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .frame(width: 48, height: 48)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        if isCurrent {
+                            audioEngine.togglePlayPause()
+                        } else {
+                            audioEngine.play(file: file, in: mediaFiles)
+                        }
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(XTheme.accent)
+                                .frame(width: 68, height: 68)
+                                .shadow(color: XTheme.accent.opacity(0.6), radius: 14, y: 6)
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+                                .offset(x: isPlaying ? 0 : 2)
+                        }
+                        .frame(width: 68, height: 68)
                         .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
+                    }
+                    .buttonStyle(.plain)
 
-            Spacer()
+                    Button { audioEngine.skipNext() } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .frame(width: 48, height: 48)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 30)
+
+                // Volume pill — the app's volume IS the system output volume
+                // (SystemVolumeManager), so keyboard keys and this slider are
+                // the same control.
+                HStack(spacing: 10) {
+                    Image(systemName: SystemVolumeManager.shared.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.8))
+                    Slider(
+                        value: Binding(
+                            get: { SystemVolumeManager.shared.volume },
+                            set: { SystemVolumeManager.shared.volume = $0 }
+                        ),
+                        in: 0...1
+                    )
+                    .frame(width: 90)
+                    .tint(.white)
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .padding(.top, 24)
+
+                Spacer()
+            }
+        }
+        .overlay {
+            // Spinner while the mpv core initializes (or the URL resolves / a
+            // fallback download runs) — playback started from the theater task.
+            if isCurrent {
+                if audioEngine.isMPVPlayback, let mpv = audioEngine.mpvController {
+                    PlayerStatusOverlay(mpv: mpv, isAudio: true)
+                } else if !audioEngine.isPlaying && audioEngine.isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.large)
+                        .tint(.white)
+                }
+            }
         }
         .task(id: file.id) {
+            // Album art loads in parallel — it never gates playback start.
             thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)
-            if audioEngine.currentTrack?.id != file.id {
-                audioEngine.play(file: file, in: mediaFiles)
-            }
         }
+    }
+
+    // MARK: - Scrubber
+
+    private var scrubberRow: some View {
+        HStack(spacing: 20) {
+            Text(timeString(displayedTime))
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.8))
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.3))
+                        .frame(height: 5)
+
+                    Capsule()
+                        .fill(Color.white)
+                        .frame(width: geo.size.width * displayedProgress, height: 5)
+                        .shadow(color: .white.opacity(0.5), radius: 4)
+
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 18, height: 18)
+                        .offset(x: geo.size.width * displayedProgress - 9)
+                        .shadow(radius: 4)
+                }
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
+                            dragProgress = newProgress
+                            audioEngine.seek(to: newProgress * max(1, audioEngine.duration))
+                        }
+                        .onEnded { _ in
+                            dragProgress = nil
+                        }
+                )
+            }
+            .frame(height: 18)
+
+            Text("-\(timeString(max(0, audioEngine.duration - displayedTime)))")
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.8))
+        }
+        .padding(.horizontal, 60)
+        .frame(maxWidth: 720)
+    }
+
+    private var displayedProgress: Double {
+        guard audioEngine.duration > 0 else { return 0 }
+        if let dragProgress { return dragProgress }
+        return min(max(audioEngine.currentTime / audioEngine.duration, 0), 1)
+    }
+
+    private var displayedTime: Double {
+        if let dragProgress {
+            return dragProgress * audioEngine.duration
+        }
+        return audioEngine.currentTime
     }
 
     private func timeString(_ seconds: Double) -> String {
         guard !seconds.isNaN && !seconds.isInfinite && seconds >= 0 else { return "0:00" }
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        return String(format: "%d:%02d", mins, secs)
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        let s = Int(seconds) % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%02d:%02d", m, s)
+        }
     }
 }
 
@@ -1082,6 +1420,8 @@ struct KeyMonitorView: NSViewRepresentable {
     let onEscape: () -> Void
     var onLeftArrow: (() -> Void)? = nil
     var onRightArrow: (() -> Void)? = nil
+    var onUpArrow: (() -> Void)? = nil
+    var onDownArrow: (() -> Void)? = nil
     var onSpacebar: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> KeyView {
@@ -1089,6 +1429,8 @@ struct KeyMonitorView: NSViewRepresentable {
         v.onEscape = onEscape
         v.onLeftArrow = onLeftArrow
         v.onRightArrow = onRightArrow
+        v.onUpArrow = onUpArrow
+        v.onDownArrow = onDownArrow
         v.onSpacebar = onSpacebar
         return v
     }
@@ -1097,6 +1439,8 @@ struct KeyMonitorView: NSViewRepresentable {
         nsView.onEscape = onEscape
         nsView.onLeftArrow = onLeftArrow
         nsView.onRightArrow = onRightArrow
+        nsView.onUpArrow = onUpArrow
+        nsView.onDownArrow = onDownArrow
         nsView.onSpacebar = onSpacebar
     }
 
@@ -1104,6 +1448,8 @@ struct KeyMonitorView: NSViewRepresentable {
         var onEscape: (() -> Void)?
         var onLeftArrow: (() -> Void)?
         var onRightArrow: (() -> Void)?
+        var onUpArrow: (() -> Void)?
+        var onDownArrow: (() -> Void)?
         var onSpacebar: (() -> Void)?
         private var monitor: Any?
 
@@ -1123,6 +1469,12 @@ struct KeyMonitorView: NSViewRepresentable {
                         return nil
                     } else if event.keyCode == 124, let onRight = self.onRightArrow { // Right Arrow
                         DispatchQueue.main.async { onRight() }
+                        return nil
+                    } else if event.keyCode == 126, let onUp = self.onUpArrow { // Up Arrow
+                        DispatchQueue.main.async { onUp() }
+                        return nil
+                    } else if event.keyCode == 125, let onDown = self.onDownArrow { // Down Arrow
+                        DispatchQueue.main.async { onDown() }
                         return nil
                     } else if event.keyCode == 49, let onSpace = self.onSpacebar { // Spacebar
                         DispatchQueue.main.async { onSpace() }

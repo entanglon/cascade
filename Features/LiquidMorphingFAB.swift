@@ -141,8 +141,22 @@ struct LiquidMorphingFAB: View {
 
             // MARK: - BOTTOM: Standard (+) Add Button
             Menu {
+                Button {
+                    appState.createNewNoteDraft()
+                } label: {
+                    Label("New Note", systemImage: "square.and.pencil")
+                }
+                Divider()
                 Button { showImporter = true } label: {
                     Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
+                }
+                Divider()
+                // Paste a share link directly — no need to open it in a browser
+                // first (same action as File → Import Shared Link…).
+                Button {
+                    appState.importShareLinkPrompt = true
+                } label: {
+                    Label("Import Shared Link…", systemImage: "link.badge.plus")
                 }
                 Divider()
                 if appState.selectedDestination == .privateVault {

@@ -1,5 +1,17 @@
 import SwiftUI
 
+/// Reveals the object behind a completed transfer in the file browser: navigates to
+/// its enclosing folder, selects it, and flashes its border highlight. No-op while a
+/// transfer is still running (the file may not be fully available yet).
+@MainActor
+func revealTransferItem(_ item: TransferCenter.Item, in appState: AppState) {
+    guard item.state == .complete else { return }
+    Task {
+        guard let object = try? await DatabaseManager.shared.object(item.objectID) else { return }
+        appState.revealObject(object)
+    }
+}
+
 struct TransfersView: View {
     private var center: TransferCenter { TransferCenter.shared }
     @AppStorage("xc.viewMode") private var viewModeRaw = "grid"
@@ -20,15 +32,18 @@ struct TransfersView: View {
                                 Label("Clear Finished", systemImage: "xmark.circle")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(.white.opacity(0.85))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
+                                    // Same footprint as the top bar's grid/list toggle
+                                    // + sort buttons, so the row lines up beneath them.
+                                    .frame(width: XTheme.topBarControlsWidth, height: 34)
+                                    .contentShape(Capsule())
                                     .glassEffect(.regular.interactive(), in: .capsule)
                                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(.horizontal, 24)
                         .padding(.top, 16)
+                        .padding(.leading, 24)
+                        .padding(.trailing, 20)
                     }
 
                     if viewModeRaw == "list" {
@@ -41,20 +56,60 @@ struct TransfersView: View {
         }
     }
 
+    private var uploads: [TransferCenter.Item] {
+        center.items.filter { $0.direction == .upload }
+    }
+
+    private var downloads: [TransferCenter.Item] {
+        center.items.filter { $0.direction == .download }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.5))
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 4)
+    }
+
     private var gridView: some View {
         GeometryReader { geo in
             let cols = max(2, Int(geo.size.width / cardWidth))
             ScrollView {
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                    spacing: 12
-                ) {
-                    ForEach(center.items) { item in
-                        TransferGridCard(item: item)
+                VStack(alignment: .leading, spacing: 0) {
+                    if !uploads.isEmpty {
+                        sectionHeader("Uploads")
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
+                            spacing: 12
+                        ) {
+                            ForEach(uploads) { item in
+                                TransferGridCard(item: item)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
+                    }
+
+                    if !downloads.isEmpty {
+                        sectionHeader("Downloads")
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
+                            spacing: 12
+                        ) {
+                            ForEach(downloads) { item in
+                                TransferGridCard(item: item)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
+                .padding(.top, 8)
                 .padding(.bottom, 80)
             }
         }
@@ -62,13 +117,30 @@ struct TransfersView: View {
 
     private var listView: some View {
         ScrollView {
-            LazyVStack(spacing: 10) {
-                ForEach(center.items) { item in
-                    TransferRow(item: item)
+            VStack(alignment: .leading, spacing: 0) {
+                if !uploads.isEmpty {
+                    sectionHeader("Uploads")
+                    LazyVStack(spacing: 10) {
+                        ForEach(uploads) { item in
+                            TransferRow(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                }
+
+                if !downloads.isEmpty {
+                    sectionHeader("Downloads")
+                    LazyVStack(spacing: 10) {
+                        ForEach(downloads) { item in
+                            TransferRow(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
+            .padding(.top, 8)
             .padding(.bottom, 80)
         }
     }
@@ -101,6 +173,7 @@ struct TransfersView: View {
 
 struct TransferGridCard: View {
     let item: TransferCenter.Item
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         VStack(spacing: 12) {
@@ -141,6 +214,9 @@ struct TransferGridCard: View {
                 .progressViewStyle(.linear)
                 .tint(item.accentColor)
                 .animation(.easeInOut(duration: 0.25), value: item.progress)
+                // Display-only — let clicks pass through so the card's double-click
+                // reveal works anywhere on the card, not just on the text.
+                .allowsHitTesting(false)
         }
         .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
@@ -148,12 +224,18 @@ struct TransferGridCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
-        .contextMenu { TransferItemMenuContent(item: item) }
+        .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
+        // contentShape makes the whole card (including padding, spacers, and the
+        // icon) hit-testable for the double-click, matching the file cards.
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { revealTransferItem(item, in: appState) }
+        .help(item.state == .complete ? "Double-click to show in folder" : "")
     }
 }
 
 struct TransferRow: View {
     let item: TransferCenter.Item
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         HStack(spacing: 14) {
@@ -184,6 +266,9 @@ struct TransferRow: View {
                     .progressViewStyle(.linear)
                     .tint(item.accentColor)
                     .animation(.easeInOut(duration: 0.25), value: item.progress)
+                    // Display-only — let clicks pass through so the card's double-click
+                    // reveal works anywhere on the card, not just on the text.
+                    .allowsHitTesting(false)
 
                 HStack {
                     Text(item.statusText)
@@ -199,7 +284,12 @@ struct TransferRow: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
-        .contextMenu { TransferItemMenuContent(item: item) }
+        .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
+        // contentShape makes the whole card (including padding, spacers, and the
+        // icon) hit-testable for the double-click, matching the file cards.
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { revealTransferItem(item, in: appState) }
+        .help(item.state == .complete ? "Double-click to show in folder" : "")
     }
 }
 
@@ -233,6 +323,7 @@ extension TransferCenter.Item {
 
 struct TransferItemActions: View {
     let item: TransferCenter.Item
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         HStack(spacing: 8) {
@@ -240,7 +331,7 @@ struct TransferItemActions: View {
 
             // Menu button styled exactly like the file cards' ellipsis menu.
             Menu {
-                TransferItemMenuContent(item: item)
+                TransferItemMenuContent(item: item, appState: appState)
             } label: {
                 ZStack {
                     Circle()
@@ -329,7 +420,7 @@ struct TransferItemActions: View {
 // MARK: - Shared transfer menu (menu button + right-click)
 
 @ViewBuilder
-func TransferItemMenuContent(item: TransferCenter.Item) -> some View {
+func TransferItemMenuContent(item: TransferCenter.Item, appState: AppState) -> some View {
     switch item.state {
     case .active:
         if item.direction == .upload {
@@ -349,6 +440,11 @@ func TransferItemMenuContent(item: TransferCenter.Item) -> some View {
             } label: {
                 Label("Cancel", systemImage: "xmark")
             }
+            Button(role: .destructive) {
+                TransferCenter.shared.discard(item.id)
+            } label: {
+                Label("Cancel & Delete", systemImage: "trash.fill")
+            }
         }
     case .paused:
         Button {
@@ -367,14 +463,17 @@ func TransferItemMenuContent(item: TransferCenter.Item) -> some View {
         } label: {
             Label("Retry", systemImage: "arrow.clockwise")
         }
-        if item.direction == .upload {
-            Button(role: .destructive) {
-                TransferCenter.shared.discard(item.id)
-            } label: {
-                Label("Delete", systemImage: "trash.fill")
-            }
+        Button(role: .destructive) {
+            TransferCenter.shared.discard(item.id)
+        } label: {
+            Label("Delete", systemImage: "trash.fill")
         }
     case .complete:
+        Button {
+            revealTransferItem(item, in: appState)
+        } label: {
+            Label("Show in Folder", systemImage: "folder")
+        }
         Button {
             TransferCenter.shared.removeItems(forObjectID: item.objectID)
         } label: {

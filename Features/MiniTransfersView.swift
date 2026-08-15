@@ -66,7 +66,7 @@ struct MiniTransfersView: View {
                             }
                             .padding(10)
                             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10))
-                            .contextMenu { TransferItemMenuContent(item: item) }
+                            .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
                         }
                     }
                     .padding(.horizontal, 14)

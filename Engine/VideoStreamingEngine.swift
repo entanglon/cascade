@@ -1,18 +1,12 @@
 import Foundation
-import AVFoundation
 import UniformTypeIdentifiers
 import CryptoKit
 import os
 
-/// Byte-range video streaming from the Telegram-backed vault.
-///
-/// AVPlayer asks for byte ranges of the logical file; this engine maps each range to the
-/// 1 MB slices it covers, fetches exactly those slices from the chunk messages that hold
-/// them (TDLib `downloadFile` with offset/limit — its media-streaming range support),
-/// decrypts them for private vault files, and serves the plaintext range back to
-/// AVFoundation via `AVAssetResourceLoader`. No local HTTP server needed: the resource
-/// loader is the native macOS equivalent, and AVPlayer can seek freely because byte-range
-/// access is advertised.
+/// Byte-range streaming from the Telegram-backed vault — mpv only. There is NO
+/// AVFoundation anywhere in this app: mpv (libmpv + FFmpeg) demuxes every container
+/// from the local byte-range HTTP server (`VaultStreamServer`), which this engine
+/// feeds with decrypted plaintext slices.
 ///
 /// Layout model (why the arithmetic works):
 /// - A file is split into chunk documents whose sizes are multiples of the 1 MB slice
@@ -22,48 +16,28 @@ import os
 ///   `sealedSliceSize = sliceSize + 28` bytes (12 B nonce + 16 B tag) with a *per-chunk*
 ///   slice index starting at 0. GCM cannot be opened from mid-box, so a fetch always
 ///   starts at a slice boundary and pulls the FULL sealed slice, then we trim in memory.
-final class VideoStreamingEngine: NSObject, AVAssetResourceLoaderDelegate {
+final class VideoStreamingEngine {
     static let shared = VideoStreamingEngine()
 
     private static let logger = Logger(subsystem: "com.xcloud.app", category: "stream")
-
-    // The delegate queue must stay free so didCancel is deliverable while a range fetch
-    // runs; all TDLib/decrypt work happens in Tasks, never on this queue.
-    private let delegateQueue = DispatchQueue(label: "com.xcloud.streaming.delegate", qos: .userInitiated)
 
     private let stateLock = NSLock()
     private var layouts: [String: ObjectLayout] = [:]
     private var fileIDs: [String: [Int: Int]] = [:] // objectID -> [chunkIndex: TDLib file id]
     private var fetchers: [String: ObjectFetcher] = [:]
-    private var activeTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private let sliceCache = SliceCache()
+    // In-flight layout loads, so concurrent callers (theater's play() kickoff +
+    // the same file's stream-URL resolve) share ONE network fetch instead of
+    // each hitting Telegram per chunk.
+    private var loadingLayouts: [String: Task<ObjectLayout?, Error>] = [:]
 
     // MARK: - Public
-
-    /// Returns an AVPlayerItem that streams `object` byte-by-byte from Telegram, a local
-    /// item when the file is already cached, or nil when streaming isn't supported (the
-    /// caller falls back to a full download).
-    func playerItem(for object: ObjectRecord) async -> AVPlayerItem? {
-        if DownloadEngine.isCached(object) {
-            return AVPlayerItem(url: DownloadEngine.cacheURL(for: object))
-        }
-        // AVFoundation's resource loader can only reliably range-demux MP4-family
-        // containers; anything else must go through mpv (mpvStreamURL).
-        let ext = (object.name as NSString).pathExtension.lowercased()
-        guard ["mp4", "m4v", "mov"].contains(ext),
-              let layout = try? await loadLayout(objectID: object.id), layout.canStream,
-              let customURL = URL(string: "xcloud-stream://object-\(object.id)") else {
-            return nil
-        }
-        let asset = AVURLAsset(url: customURL)
-        asset.resourceLoader.setDelegate(self, queue: delegateQueue)
-        return AVPlayerItem(asset: asset)
-    }
 
     /// Returns a playable mpv stream URL for any container with a loadable layout
     /// (mpv/FFmpeg demuxes what AVFoundation can't — mkv, webm, avi, ...). The URL
     /// points at the local byte-range server, which serves decrypted plaintext.
-    /// Returns nil for cached files (play them directly) or unloadable layouts.
+    /// Returns nil for cached files (the caller plays the local file directly via
+    /// mpv) or unloadable layouts.
     func mpvStreamURL(for object: ObjectRecord) async -> URL? {
         if DownloadEngine.isCached(object) { return nil }
         guard let layout = try? await loadLayout(objectID: object.id), layout.fileSize > 0 else {
@@ -72,96 +46,7 @@ final class VideoStreamingEngine: NSObject, AVAssetResourceLoaderDelegate {
         return await VaultStreamServer.shared.streamURL(for: object.id)
     }
 
-    // MARK: - AVAssetResourceLoaderDelegate
-
-    func resourceLoader(
-        _ resourceLoader: AVAssetResourceLoader,
-        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
-    ) -> Bool {
-        guard let url = loadingRequest.request.url, url.scheme == "xcloud-stream" else {
-            return false
-        }
-        let objectID = url.absoluteString.replacingOccurrences(of: "xcloud-stream://object-", with: "")
-        let task = Task { await handle(loadingRequest, objectID: objectID) }
-        stateLock.lock()
-        activeTasks[ObjectIdentifier(loadingRequest)] = task
-        stateLock.unlock()
-        return true
-    }
-
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
-        stateLock.lock()
-        let task = activeTasks.removeValue(forKey: ObjectIdentifier(loadingRequest))
-        stateLock.unlock()
-        task?.cancel()
-    }
-
-    // MARK: - Request handling
-
-    private func handle(_ request: AVAssetResourceLoadingRequest, objectID: String) async {
-        defer {
-            stateLock.lock()
-            activeTasks[ObjectIdentifier(request)] = nil
-            stateLock.unlock()
-        }
-
-        guard let layout = try? await loadLayout(objectID: objectID), layout.canStream else {
-            request.finishLoading(with: DownloadError.fileNotFound)
-            return
-        }
-
-        if let info = request.contentInformationRequest {
-            info.isByteRangeAccessSupported = true
-            info.contentLength = layout.fileSize
-            info.contentType = layout.contentType
-        }
-
-        guard let dataRequest = request.dataRequest else {
-            request.finishLoading()
-            return
-        }
-
-        let start = dataRequest.requestedOffset
-        let requestedLength = Int64(dataRequest.requestedLength)
-        let length: Int64 = requestedLength <= 0
-            ? (layout.fileSize - start)
-            : requestedLength
-        guard start >= 0, length > 0, start < layout.fileSize else {
-            request.finishLoading()
-            return
-        }
-        let end = min(layout.fileSize, start + length)
-        guard end > start else {
-            request.finishLoading()
-            return
-        }
-
-        Self.logger.debug("Range request object=\(objectID, privacy: .public) offset=\(start, privacy: .public) length=\(length, privacy: .public)")
-
-        let fetcher = fetcher(for: objectID)
-        let firstSlice = Int(start / Int64(CryptoEngine.sliceSize))
-        let lastSlice = Int((end - 1) / Int64(CryptoEngine.sliceSize))
-
-        do {
-            for sliceIndex in firstSlice...lastSlice {
-                if request.isCancelled { return }
-                let plain = try await plaintextSlice(
-                    sliceIndex, objectID: objectID, layout: layout, fetcher: fetcher
-                )
-                if request.isCancelled { return }
-                let sliceStart = Int64(sliceIndex) * Int64(CryptoEngine.sliceSize)
-                let from = max(0, start - sliceStart)
-                let to = min(Int64(plain.count), end - sliceStart)
-                guard to > from else { continue }
-                dataRequest.respond(with: plain.subdata(in: Int(from)..<Int(to)))
-            }
-            if request.isCancelled { return }
-            request.finishLoading()
-        } catch {
-            if request.isCancelled { return }
-            request.finishLoading(with: error)
-        }
-    }
+    // MARK: - Slice serving
 
     private func plaintextSlice(
         _ fileSliceIndex: Int,
@@ -244,7 +129,7 @@ final class VideoStreamingEngine: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     /// One retry per slice: a corrupted/partial download or GCM tag failure is transient;
-    /// if it repeats, the error propagates to AVPlayer (clean failure, never a crash).
+    /// if it repeats, the error propagates to the stream (clean failure, never a crash).
     private func fetchWithRetry(
         _ fetcher: ObjectFetcher,
         fileID: Int,
@@ -269,19 +154,50 @@ final class VideoStreamingEngine: NSObject, AVAssetResourceLoaderDelegate {
             stateLock.unlock()
             return existing
         }
+        // Another caller is already fetching this layout — piggyback on it.
+        if let inFlight = loadingLayouts[objectID] {
+            stateLock.unlock()
+            return try await inFlight.value
+        }
+        let task = Task<ObjectLayout?, Error> { [weak self] in
+            guard let self else { return nil }
+            return try await self.loadLayoutUncached(objectID: objectID)
+        }
+        loadingLayouts[objectID] = task
         stateLock.unlock()
+
+        // Clear the in-flight entry on BOTH success and failure — a stale entry
+        // would make future calls await a task that already finished/errored.
+        do {
+            let layout = try await task.value
+            stateLock.lock()
+            loadingLayouts[objectID] = nil
+            stateLock.unlock()
+            return layout
+        } catch {
+            stateLock.lock()
+            loadingLayouts[objectID] = nil
+            stateLock.unlock()
+            throw error
+        }
+    }
+
+    private func loadLayoutUncached(objectID: String) async throws -> ObjectLayout? {
 
         guard let object = try? await DatabaseManager.shared.object(objectID), !object.isFolder else {
             return nil
         }
         // The layout is container-agnostic — it maps logical bytes to chunk slices.
-        // AVFoundation streaming additionally gates on mp4/m4v/mov in playerItem(for:);
         // mpv (via mpvStreamURL) can play any container from the same layout.
         let ext = (object.name as NSString).pathExtension.lowercased()
         let contentType: String
         switch ext {
         case "mp4", "m4v": contentType = UTType.mpeg4Movie.identifier
         case "mov": contentType = UTType.quickTimeMovie.identifier
+        case "mp3": contentType = UTType.mp3.identifier
+        case "m4a": contentType = UTType.mpeg4Audio.identifier
+        case "wav": contentType = UTType.wav.identifier
+        case "aac": contentType = UTType(filenameExtension: "aac")?.identifier ?? "public.aac-audio"
         default: contentType = "application/octet-stream"
         }
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }
@@ -293,15 +209,27 @@ final class VideoStreamingEngine: NSObject, AVAssetResourceLoaderDelegate {
         var offset: Int64 = 0
         for chunk in chunks {
             guard let messageID = chunk.messageID else { return nil }
-            chunkLayouts.append(ChunkLayout(messageID: messageID, plainSize: chunk.size))
+            // Use Telegram's ACTUAL document size, not the catalog's recorded size.
+            // A stale chunk-size record (chunk-plan change / interrupted upload) maps
+            // slices past the real bytes — the moov tail of an mp4 then comes back as
+            // garbage and mpv fails with "Invalid sample size" / moov atom not found.
+            // The object's recorded total usually still matches reality, so the layout
+            // must be rebuilt from the real sizes. Messages are cached by TDLib.
+            let actual = try? await TelegramClient.shared.fileSize(
+                forMessage: messageID, chatId: vault.channelID
+            )
+            let size = actual ?? chunk.size
+            chunkLayouts.append(ChunkLayout(messageID: messageID, plainSize: size))
             starts.append(offset)
-            offset += chunk.size
+            offset += size
         }
 
         // Invariant: no slice may straddle two chunks. Every non-final chunk must be an
         // exact multiple of the 1 MB slice size (ChunkPlanner guarantees this for new
         // uploads); plans that violate it fall back to full download.
-        let canStream = chunks.dropLast().allSatisfy { $0.size % Int64(CryptoEngine.sliceSize) == 0 }
+        let canStream = chunkLayouts.dropLast().allSatisfy {
+            $0.plainSize % Int64(CryptoEngine.sliceSize) == 0
+        }
 
         var objectKey: SymmetricKey? = nil
         if object.isPrivate {
@@ -313,7 +241,10 @@ final class VideoStreamingEngine: NSObject, AVAssetResourceLoaderDelegate {
         }
 
         let layout = ObjectLayout(
-            fileSize: object.size,
+            // The layout must span the ACTUAL chunk bytes (sum of real sizes) — the
+            // object's recorded size is usually the same, but a stale chunk record can
+            // make it diverge, and the layout must agree with what TDLib can serve.
+            fileSize: offset,
             channelID: vault.channelID,
             isPrivate: object.isPrivate,
             objectKey: objectKey,
@@ -423,8 +354,8 @@ actor ObjectFetcher {
 // MARK: - Slice-granularity LRU
 
 /// In-memory LRU of fully decrypted 1 MB slices, keyed by (object, file-wide slice index).
-/// Caching at slice granularity dedups the overlapping re-reads AVPlayer makes around the
-/// playhead and keeps eviction trivial (48 entries ≈ 48 MB).
+/// Caching at slice granularity dedups the overlapping re-reads mpv's demuxer makes
+/// around the playhead and keeps eviction trivial (48 entries ≈ 48 MB).
 final class SliceCache: @unchecked Sendable {
     struct Key: Hashable {
         let objectID: String

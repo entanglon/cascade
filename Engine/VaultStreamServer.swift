@@ -33,6 +33,17 @@ final class VaultStreamServer {
         return URL(string: "http://127.0.0.1:\(port)/stream/\(objectID)")
     }
 
+    /// Starts the listener without associating an object. Debug/testing hook
+    /// (`--stream-server` launch argument) so the pipeline can be exercised with
+    /// curl / the mpv harness without opening the UI.
+    func startServer() async {
+        await startIfNeeded()
+        lock.lock(); defer { lock.unlock() }
+        if isReady, port > 0 {
+            print("xCloud debug: stream server listening on 127.0.0.1:\(port)")
+        }
+    }
+
     // MARK: - Server lifecycle
 
     private func startIfNeeded() async {
@@ -97,20 +108,64 @@ final class VaultStreamServer {
 
     private func handleConnection(_ connection: NWConnection) {
         connection.start(queue: Self.queue)
+        receiveNextRequest(connection)
+    }
+
+    /// Loops: read one request, serve it, then read the next on the same connection
+    /// (HTTP keep-alive). mpv pools connections, so closing every connection after a
+    /// single response makes it churn through sockets and can surface as transient
+    /// stream errors mid-playback.
+    private func receiveNextRequest(_ connection: NWConnection, accumulated: Data = Data()) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, error in
-            guard let self, let data, error == nil else {
+            guard let self else {
                 connection.cancel()
                 return
             }
-            guard let request = String(data: data, encoding: .utf8) else {
-                self.sendError(status: 400, reason: "Bad Request", on: connection)
+            if error != nil {
+                connection.cancel()
                 return
             }
-            self.processRequest(request, on: connection)
+            guard let data, !data.isEmpty else {
+                // Peer closed between requests — nothing more to serve.
+                connection.cancel()
+                return
+            }
+            var buffer = accumulated
+            buffer.append(data)
+            // HTTP headers end at the first blank line. A request can arrive split
+            // across multiple TCP segments — mpv/FFmpeg commonly sends the Range header
+            // in a separate segment on seeks. Parsing a partial header block would drop
+            // the Range header and answer the seek with a 200 full-file response, which
+            // breaks mpv seeking ("Seek failed", "moov atom not found"). Keep reading
+            // until the header terminator (or a sanity cap) before parsing.
+            guard let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else {
+                if buffer.count > 65536 {
+                    self.sendError(status: 400, reason: "Bad Request", on: connection)
+                    connection.cancel()
+                    return
+                }
+                self.receiveNextRequest(connection, accumulated: buffer)
+                return
+            }
+            let requestData = buffer.subdata(in: 0..<headerEnd.lowerBound)
+            guard let request = String(data: requestData, encoding: .utf8) else {
+                self.sendError(status: 400, reason: "Bad Request", on: connection)
+                connection.cancel()
+                return
+            }
+            let keepAlive = !request.lowercased().contains("connection: close")
+            Task {
+                await self.processRequest(request, on: connection)
+                if keepAlive && connection.state == .ready {
+                    self.receiveNextRequest(connection)
+                } else {
+                    connection.cancel()
+                }
+            }
         }
     }
 
-    private func processRequest(_ request: String, on connection: NWConnection) {
+    private func processRequest(_ request: String, on connection: NWConnection) async {
         let lines = request.components(separatedBy: "\r\n")
         guard let requestLine = lines.first else {
             sendError(status: 400, reason: "Bad Request", on: connection)
@@ -146,9 +201,7 @@ final class VaultStreamServer {
             }
         }
 
-        Task {
-            await serve(objectID: objectID, method: method, range: range, on: connection)
-        }
+        await serve(objectID: objectID, method: method, range: range, on: connection)
     }
 
     private func serve(objectID: String, method: String, range: HTTPRange?, on connection: NWConnection) async {
@@ -202,15 +255,13 @@ final class VaultStreamServer {
         let reason = isRange ? "Partial Content" : "OK"
 
         guard method == "GET" else {
-            // HEAD: headers only, then close.
+            // HEAD: headers only; the connection stays open for the next request.
             await send(headData(status: status, reason: reason, headers: headers), on: connection)
-            connection.cancel()
             return
         }
 
         await send(headData(status: status, reason: reason, headers: headers), on: connection)
         guard connection.state == .ready else {
-            connection.cancel()
             return
         }
 
@@ -224,9 +275,9 @@ final class VaultStreamServer {
                 await send(slice, on: connection)
             }
         } catch {
-            // Client went away or a slice failed mid-stream — just close.
+            // Client went away or a slice failed mid-stream — the caller closes the
+            // connection; mpv retries with a fresh connection.
         }
-        connection.cancel()
     }
 
     // MARK: - Response helpers
@@ -277,7 +328,12 @@ private enum HTTPRange {
         let cleaned = value.trimmingCharacters(in: .whitespaces)
         guard cleaned.lowercased().hasPrefix("bytes=") else { return nil }
         let spec = cleaned.dropFirst("bytes=".count)
-        let parts = spec.split(separator: "-", maxSplits: 1).map(String.init)
+        // omittingEmptySubsequences must be FALSE: "bytes=N-" (open-ended, used by mpv
+        // when seeking to the moov/end of an mp4) must split into ["N", ""] — with the
+        // default it collapses to ["N"], the range fails to parse, and the server
+        // answers the seek with a 200 full-file response (mpv: "Seek failed",
+        // "moov atom not found"). Same for "bytes=-N" (suffix) which needs ["", "N"].
+        let parts = spec.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 2 else { return nil }
         if parts[0].isEmpty {
             guard let n = Int64(parts[1]), n >= 0 else { return nil }

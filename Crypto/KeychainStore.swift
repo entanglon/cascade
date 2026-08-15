@@ -8,7 +8,9 @@ struct TelegramCredentials: Sendable {
 }
 
 enum KeychainStore {
-    static let service = "com.xcloud.app"
+    // Keychain space is scoped to the bundle ID so the dev build (…xCloud.dev) and the
+    // released app (…xCloud) never share Telegram credentials or vault keys.
+    static let service = Bundle.main.bundleIdentifier ?? "com.nemesys.xcloud.xCloud"
 
     private static let masterKeyAccount = "master-key"
     private static let telegramAccount = "telegram-credentials"
@@ -65,6 +67,24 @@ enum KeychainStore {
 
     static func loadMasterKey() throws -> Data? {
         try load(account: masterKeyAccount)
+    }
+
+    // MARK: - Device identity
+
+    /// A stable per-device identifier used to label the device seal inside the v2
+    /// vault key record. Stored in the Keychain so it survives app-container wipes
+    /// (and stays stable for as long as the physical device does). Informational
+    /// only — the actual crypto is the master key, not this string.
+    private static let deviceIDAccount = "xc.device.id"
+
+    static func deviceID() -> String {
+        if let data = try? load(account: deviceIDAccount),
+           let id = String(data: data, encoding: .utf8), !id.isEmpty {
+            return id
+        }
+        let id = UUID().uuidString
+        try? save(data: Data(id.utf8), account: deviceIDAccount)
+        return id
     }
 
     // MARK: - Telegram credentials

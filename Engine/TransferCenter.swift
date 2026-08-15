@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 extension Notification.Name {
     /// Posted (on the main actor) whenever an upload finishes successfully, so the
@@ -14,7 +15,10 @@ final class TransferCenter {
     static let shared = TransferCenter()
 
     struct Item: Identifiable {
-        let id = UUID().uuidString
+        // `var` (not `let`) so the record-based initializer below can override it
+        // when restoring persisted history — a `let` with a default value can't be
+        // reassigned from an extension initializer.
+        var id = UUID().uuidString
         let direction: Direction
         let objectID: String
         let name: String
@@ -31,6 +35,47 @@ final class TransferCenter {
 
     private(set) var items: [Item] = []
     private var cancelHandlers: [String: () -> Void] = [:]
+
+    // MARK: - Persistence (transfer history)
+
+    /// Tests run against the app's real database file (see xCloudTests), so the
+    /// engine must not write history rows while XCTest is driving it — the tests use
+    /// fake object IDs and would pollute the user's actual transfer history.
+    private var persistenceEnabled: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+    }
+
+    private let logger = Logger(subsystem: "com.xcloud.app", category: "transfers")
+
+    /// Persists a finished (complete/failed) transfer so it survives app restarts.
+    /// One row per object: a new attempt supersedes the previous history row (and
+    /// any backfilled row for the same object). Failures are logged, never silent.
+    private func persist(_ item: Item) {
+        guard persistenceEnabled else { return }
+        Task {
+            do {
+                try await DatabaseManager.shared.upsertTransfer(item.record)
+            } catch {
+                logger.error("Failed to persist transfer history for \(item.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func unpersist(ids: [String]) {
+        guard persistenceEnabled, !ids.isEmpty else { return }
+        Task {
+            try? await DatabaseManager.shared.deleteTransfers(ids: ids)
+        }
+    }
+
+    /// Restores finished-transfer history from the catalog into the in-memory list,
+    /// newest first, so completed/failed cards survive app restarts. Active/paused
+    /// transfers are never persisted — they're tied to live tasks.
+    func restoreHistory() async {
+        guard persistenceEnabled else { return }
+        guard let records = try? await DatabaseManager.shared.loadTransfers() else { return }
+        items.append(contentsOf: records.map { Item(record: $0) })
+    }
 
     @discardableResult
     func begin(
@@ -50,6 +95,10 @@ final class TransferCenter {
                ($0.state == .paused || $0.state == .failed)
            }) {
             let id = items[existingIndex].id
+            if items[existingIndex].state == .failed {
+                // The new attempt supersedes the old failed-history row.
+                unpersist(ids: [id])
+            }
             items[existingIndex].state = state
             items[existingIndex].progress = initialProgress
             items[existingIndex].statusText = statusText
@@ -66,7 +115,14 @@ final class TransferCenter {
             totalWork: totalWork
         )
         items.insert(item, at: 0)
-        if items.count > 100 { items.removeLast() }
+        if items.count > 100 {
+            // Keep the in-memory list bounded; drop evicted history from the DB too
+            // so it doesn't resurrect on the next launch.
+            let evicted = items.removeLast()
+            if evicted.state == .complete || evicted.state == .failed {
+                unpersist(ids: [evicted.id])
+            }
+        }
         return item.id
     }
 
@@ -83,6 +139,7 @@ final class TransferCenter {
         } else {
             items[i].state = .failed
             items[i].statusText = "Cancelled"
+            persist(items[i])
         }
         if let handler = cancelHandlers.removeValue(forKey: id) {
             handler()
@@ -111,6 +168,7 @@ final class TransferCenter {
         items[i].progress = success ? 1 : items[i].progress
         items[i].statusText = success ? "Complete" : (error ?? "Failed")
         cancelHandlers.removeValue(forKey: id)
+        persist(items[i])
         if success, items[i].direction == .upload {
             NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
         }
@@ -134,13 +192,16 @@ final class TransferCenter {
                 if let i = items.firstIndex(where: { $0.id == id }) {
                     items[i].state = .failed
                     items[i].statusText = "Source no longer available — discard"
+                    persist(items[i])
                 }
                 return
             }
             guard let path = object.sourcePath,
                   FileManager.default.fileExists(atPath: path) else {
                 if let i = items.firstIndex(where: { $0.id == id }) {
+                    items[i].state = .failed
                     items[i].statusText = "Source file missing — discard or re-upload"
+                    persist(items[i])
                 }
                 return
             }
@@ -158,6 +219,7 @@ final class TransferCenter {
                 if let i = items.firstIndex(where: { $0.id == id }) {
                     items[i].state = .failed
                     items[i].statusText = "File no longer available"
+                    persist(items[i])
                 }
                 return
             }
@@ -171,6 +233,7 @@ final class TransferCenter {
     /// its chunk messages from Telegram and the local record.
     func discard(_ id: String) {
         guard let item = items.first(where: { $0.id == id }) else { return }
+        unpersist(ids: [item.id])
         items.removeAll { $0.id == id }
         // Stop the upload task first so it doesn't keep posting chunks after cleanup
         if let handler = cancelHandlers.removeValue(forKey: id) {
@@ -183,10 +246,52 @@ final class TransferCenter {
     }
 
     func removeItems(forObjectID objectID: String) {
+        let removed = items.filter { $0.objectID == objectID }
+        unpersist(ids: removed.map(\.id))
         items.removeAll { $0.objectID == objectID }
     }
 
     func clearFinished() {
+        let finished = items.filter { $0.state == .complete || $0.state == .failed }
+        unpersist(ids: finished.map(\.id))
         items.removeAll { $0.state == .complete || $0.state == .failed }
+    }
+}
+
+// MARK: - Transfer history persistence
+
+extension TransferCenter.Item {
+    /// Restores a finished-transfer history row into a card. Only terminal
+    /// states are ever persisted, so anything else maps defensively to `.complete`.
+    init(record: TransferRecord) {
+        self.init(
+            id: record.id,
+            direction: record.direction == "download" ? .download : .upload,
+            objectID: record.objectID,
+            name: record.name,
+            progress: record.progress,
+            statusText: record.statusText.isEmpty
+                ? (record.state == "failed" ? "Failed" : "Complete")
+                : record.statusText,
+            state: record.state == "failed" ? .failed : .complete,
+            totalWork: record.totalWork
+        )
+    }
+
+    /// The persisted form of this transfer. Only called for terminal states.
+    var record: TransferRecord {
+        TransferRecord(
+            id: id,
+            objectID: objectID,
+            name: name,
+            direction: direction == .download ? "download" : "upload",
+            state: state == .failed ? "failed" : "complete",
+            progress: progress,
+            statusText: statusText,
+            totalWork: totalWork,
+            errorMessage: (state == .failed && !statusText.isEmpty) ? statusText : nil,
+            startedAt: nil,
+            finishedAt: .now
+        )
     }
 }

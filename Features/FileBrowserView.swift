@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
+import os
 
 struct FileBrowserView: View {
     @Environment(AppState.self) private var appState
@@ -27,6 +28,15 @@ struct FileBrowserView: View {
     @State private var itemFrames: [String: CGRect] = [:]
     @State private var marqueeStart: CGPoint?
     @State private var marqueeCurrent: CGPoint?
+    @State private var selectedTrashNoteIDs: Set<String> = []
+    /// Set whenever keyboard navigation changes the selection; the grid/list
+    /// scroll to this item so arrow navigation never leaves it off-screen.
+    @State private var scrollTargetID: String?
+    /// Keyboard navigation state reported by the Photos/Videos media grids
+    /// (their visual order differs from folders-first and their columns are
+    /// adaptive, so they own the math).
+    @State private var mediaOrderedIDs: [String] = []
+    @State private var mediaColumnCount = 5
     @Namespace private var viewModeNamespace
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
     @AppStorage("xc.sortAscending") private var sortAscending = false
@@ -82,8 +92,10 @@ struct FileBrowserView: View {
                 if let currentID = appState.currentFolderID {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
                 } else {
+                    // The Photos page is a single place for EVERY photo in the cloud,
+                    // wherever it lives — folders don't appear here, only albums.
                     let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/album-photo" }
-                    let photoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
+                    let photoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                         $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
                     ) }
                     return albums + photoFiles
@@ -93,7 +105,9 @@ struct FileBrowserView: View {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
                 } else {
                     let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-video" }
-                    let videoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && $0.mime.hasPrefix("video/") }
+                    let videoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
+                        $0.mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp", "mpg", "mpeg"].contains(($0.name as NSString).pathExtension.lowercased())
+                    ) }
                     return playlists + videoFiles
                 }
             case .audio:
@@ -101,7 +115,7 @@ struct FileBrowserView: View {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
                 } else {
                     let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-audio" }
-                    let audioFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.parentID == nil && (
+                    let audioFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                         $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
                     ) }
                     return playlists + audioFiles
@@ -110,15 +124,25 @@ struct FileBrowserView: View {
                 return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
                     ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
                      $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
-            case .transfers:
+            case .library:
+                return files.filter { !$0.trashed && $0.isBook }
+            case .notes, .transfers:
                 return []
+            case .shared:
+                let sharedIDs = Set(appState.incomingShares.map(\.objectID))
+                return files.filter { sharedIDs.contains($0.id) && !$0.trashed }
+            case .archive:
+                return files.filter { $0.isArchived }
             case .trash:
                 return files.filter { $0.trashed }
             }
         }()
 
+        // Archived files are hidden everywhere except the Archive destination.
+        let baseUnarchived = appState.selectedDestination == .archive ? base : base.filter { !$0.isArchived }
+
         let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = query.isEmpty ? base : base.filter { $0.name.lowercased().contains(query) }
+        let filtered = query.isEmpty ? baseUnarchived : baseUnarchived.filter { $0.name.lowercased().contains(query) }
 
         switch sortOption {
         case .name:
@@ -149,31 +173,162 @@ struct FileBrowserView: View {
     }
 
     var body: some View {
+        // Alerts/sheets live on their own chain — the browser's main view is already
+        // at the type-checker's expression-size limit.
+        mainContent
+            .fileImporter(
+                isPresented: $showImporter,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                if case .success(let urls) = result {
+                    for url in urls {
+                        appState.startUpload(url: url)
+                    }
+                }
+            }
+            .alert("New Folder", isPresented: $showNewFolder) {
+                TextField("Folder name", text: $folderName)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    appState.createFolder(named: folderName)
+                    folderName = ""
+                }
+            } message: {
+                Text("Create a new folder in the current directory.")
+            }
+            .alert("New Private Folder", isPresented: $showNewPrivateFolder) {
+                TextField("Folder name", text: $folderName)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    appState.createPrivateFolder(named: folderName)
+                    folderName = ""
+                }
+            } message: {
+                Text("Files inside a private folder are encrypted on your Mac before upload. Telegram only sees noise.")
+            }
+            .alert(appState.selectedDestination == .photos ? "New Photo Album" : "New Playlist", isPresented: $showNewPlaylist) {
+                TextField(appState.selectedDestination == .photos ? "Album name" : "Playlist name", text: $playlistName)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    let kind = appState.selectedDestination == .video ? "video" : (appState.selectedDestination == .photos ? "photo" : "audio")
+                    appState.createPlaylist(named: playlistName, kind: kind)
+                    playlistName = ""
+                }
+            } message: {
+                Text("Create a new \(appState.selectedDestination == .photos ? "photo album" : (appState.selectedDestination == .video ? "video playlist" : "audio playlist")).")
+            }
+            .alert("Rename", isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            )) {
+                TextField("Name", text: $renameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    if let target = renameTarget {
+                        appState.rename(target, to: renameText)
+                    }
+                }
+            } message: {
+                Text("Enter a new name.")
+            }
+            .alert("Empty Trash?", isPresented: $showEmptyTrashAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Empty Trash", role: .destructive) {
+                    appState.emptyTrash()
+                }
+            } message: {
+                Text("Are you sure you want to permanently delete all items in the Trash? This action cannot be undone.")
+            }
+            .alert("xCloud", isPresented: Binding(
+                get: { appState.alertMessage != nil },
+                set: { if !$0 { appState.alertMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(appState.alertMessage ?? "")
+            }
+            .sheet(isPresented: Binding(
+                get: { appState.isSharingFile || appState.shareResultLink != nil },
+                set: {
+                    if !$0 {
+                        appState.shareResultLink = nil
+                        appState.isSharingFile = false
+                    }
+                }
+            )) {
+                // Creating a share can take a while for large files (chunk encrypt +
+                // upload to the brand-new channel) — show progress so the user knows
+                // the action is running, then swap to the link when it's ready.
+                if appState.isSharingFile {
+                    ShareProgressSheet()
+                } else if let link = appState.shareResultLink {
+                    ShareLinkSheet(link: link)
+                }
+            }
+    }
+
+    private var mainContent: some View {
         ZStack(alignment: .bottomTrailing) {
             AppBackground()
 
             VStack(spacing: 0) {
                 if appState.selectedDestination == .privateVault && !appState.isPrivateVaultUnlocked {
                     PrivateVaultLockView()
+                        .transition(.opacity)
                 } else {
                     topBar
 
-                    if appState.selectedDestination == .transfers {
+                    if appState.selectedDestination == .notes {
+                        NotesView()
+                            .transition(.opacity)
+                    } else if appState.selectedDestination == .transfers {
                         TransfersView()
-                    } else if visibleFiles.isEmpty && !appState.isUploading {
+                            .transition(.opacity)
+                    } else if visibleFiles.isEmpty && trashNotes.isEmpty && !appState.isUploading {
                         if appState.isInitialLoading {
                             loadingStateView
+                                .transition(.opacity)
                         } else {
                             emptyStateView
+                                .transition(.opacity)
                         }
                     } else {
-                        if viewModeRaw == "list" { listView } else { gridView }
+                        VStack(spacing: 16) {
+                            if !visibleFiles.isEmpty || !trashNotes.isEmpty {
+                                if viewModeRaw == "list" { listView } else { gridView }
+                            }
+                            // While an upload is in progress the folder may still be
+                            // empty. Keep the content area filled so the VStack can't
+                            // collapse to just the top bar — the outer ZStack aligns
+                            // .bottomTrailing, so a collapsed stack pins the bar to
+                            // the bottom of the window.
+                            Spacer(minLength: 0)
+                        }
+                        .transition(.opacity)
+                        // Recreate the content on folder/destination change so the
+                        // crossfade transition actually fires (same-structure swaps
+                        // don't animate without an identity change).
+                        .id("browser-\(appState.selectedDestination.rawValue)-\(appState.currentFolderID ?? "root")")
                     }
                 }
             }
             .contentShape(Rectangle())
+            .animation(.easeInOut(duration: 0.18), value: appState.currentFolderID)
+            .animation(.easeInOut(duration: 0.18), value: appState.selectedDestination)
+            .animation(.easeInOut(duration: 0.18), value: appState.isPrivateVaultUnlocked)
             .onTapGesture {
                 appState.clearSelection()
+            }
+            .contextMenu {
+                // Page menu on ANY empty area (not just cards): the whole content
+                // region right-clicks to the page actions, while card/row menus
+                // (deeper in the hierarchy) still win on individual items. Notes and
+                // Transfers have their own pages — no file-page menu there.
+                if appState.selectedDestination != .notes
+                    && appState.selectedDestination != .transfers {
+                    pageContextMenu
+                }
             }
 
             // Floating Mini Audio Player (Centered at Bottom)
@@ -187,7 +342,7 @@ struct FileBrowserView: View {
             }
 
             // Morphing Liquid Glass Cell-Division FAB (bottom right)
-            if appState.selectedDestination != .trash && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
+            if appState.selectedDestination != .trash && appState.selectedDestination != .archive && (appState.selectedDestination != .privateVault || appState.isPrivateVaultUnlocked) {
                 VStack {
                     Spacer()
                     HStack {
@@ -275,6 +430,11 @@ struct FileBrowserView: View {
                 gridFocused = true
             }
         }
+        .onChange(of: appState.readerFile?.id) { _, newID in
+            if newID == nil {
+                gridFocused = true
+            }
+        }
         .onKeyPress("o", phases: .down) { press in
             if press.modifiers.contains(.command), let f = appState.selectedFile {
                 open(f)
@@ -311,83 +471,112 @@ struct FileBrowserView: View {
             if let f = appState.selectedFile { open(f); return .handled }
             return .ignored
         }
+        .background {
+            // Reliable key handling regardless of SwiftUI focus (see FileBrowserKeyView).
+            // Covers arrow/column navigation, space/return, and the ⌘C/⌘V/⌘R/⌘O/⌘Z
+            // shortcuts that the Edit menu's key equivalents would otherwise swallow
+            // (NSText.paste no-ops when no text field is focused).
+            FileBrowserKeyMonitorView(
+                shouldDefer: {
+                    appState.theaterFile != nil
+                        || appState.readerFile != nil
+                        || appState.editingNote != nil
+                        || AudioPlayerEngine.shared.isFullScreen
+                        || appState.selectedDestination == .notes
+                        || appState.selectedDestination == .transfers
+                },
+                onDelete: {
+                    if appState.selectedDestination == .trash {
+                        showEmptyTrashAlert = true
+                        return true
+                    }
+                    guard !appState.selectedFiles.isEmpty else { return false }
+                    appState.bulkTrash()
+                    return true
+                },
+                onDeleteForever: {
+                    if appState.selectedDestination == .trash {
+                        showEmptyTrashAlert = true
+                        return true
+                    }
+                    guard !appState.selectedFiles.isEmpty else { return false }
+                    appState.bulkDeleteForever()
+                    return true
+                },
+                onEscape: {
+                    appState.clearSelection()
+                    return true
+                },
+                onArrow: { delta, isVertical in
+                    keyNav(delta, isVertical: isVertical)
+                    return true
+                },
+                onCmdUp: {
+                    appState.navigateBack()
+                    return true
+                },
+                onCmdDown: {
+                    if let f = appState.selectedFile {
+                        open(f)
+                    } else {
+                        keyNav(1, isVertical: true)
+                    }
+                    return true
+                },
+                onSpace: {
+                    guard let file = appState.selectedFile else { return false }
+                    quickLook(file)
+                    return true
+                },
+                onReturn: {
+                    guard let f = appState.selectedFile else { return false }
+                    open(f)
+                    return true
+                },
+                onCmdC: {
+                    guard !appState.selectedFiles.isEmpty else { return false }
+                    copySelectedFilesToClipboard()
+                    return true
+                },
+                onCmdV: {
+                    pasteFromClipboard()
+                    return true
+                },
+                onCmdR: {
+                    Task {
+                        await appState.loadFiles()
+                        appState.thumbnailVersion += 1
+                    }
+                    return true
+                },
+                onCmdO: {
+                    guard let f = appState.selectedFile else { return false }
+                    open(f)
+                    return true
+                },
+                onCmdZ: { isShift in
+                    if isShift {
+                        appState.redo()
+                    } else {
+                        appState.undo()
+                    }
+                    return true
+                }
+            )
+            .frame(width: 0, height: 0)
+        }
         .onDrop(of: [UTType.item], isTargeted: $dropTargeted) { providers in
             importDrops(providers)
         }
         .overlay {
             if dropTargeted { dropOverlay }
         }
-        .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: true
-        ) { result in
-            if case .success(let urls) = result {
-                for url in urls {
-                    appState.startUpload(url: url)
-                }
-            }
-        }
-        .alert("New Folder", isPresented: $showNewFolder) {
-            TextField("Folder name", text: $folderName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                appState.createFolder(named: folderName)
-                folderName = ""
-            }
-        } message: {
-            Text("Create a new folder in the current directory.")
-        }
-        .alert("New Private Folder", isPresented: $showNewPrivateFolder) {
-            TextField("Folder name", text: $folderName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                appState.createPrivateFolder(named: folderName)
-                folderName = ""
-            }
-        } message: {
-            Text("Files inside a private folder are encrypted on your Mac before upload. Telegram only sees noise.")
-        }
-        .alert(appState.selectedDestination == .photos ? "New Photo Album" : "New Playlist", isPresented: $showNewPlaylist) {
-            TextField(appState.selectedDestination == .photos ? "Album name" : "Playlist name", text: $playlistName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                let kind = appState.selectedDestination == .video ? "video" : (appState.selectedDestination == .photos ? "photo" : "audio")
-                appState.createPlaylist(named: playlistName, kind: kind)
-                playlistName = ""
-            }
-        } message: {
-            Text("Create a new \(appState.selectedDestination == .photos ? "photo album" : (appState.selectedDestination == .video ? "video playlist" : "audio playlist")).")
-        }
-        .alert("Rename", isPresented: Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        )) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) {}
-            Button("Rename") {
-                if let target = renameTarget {
-                    appState.rename(target, to: renameText)
-                }
-            }
-        } message: {
-            Text("Enter a new name.")
-        }
-        .alert("Empty Trash?", isPresented: $showEmptyTrashAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Empty Trash", role: .destructive) {
-                appState.emptyTrash()
-            }
-        } message: {
-            Text("Are you sure you want to permanently delete all items in the Trash? This action cannot be undone.")
-        }
-        .alert("xCloud", isPresented: Binding(
-            get: { appState.alertMessage != nil },
-            set: { if !$0 { appState.alertMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(appState.alertMessage ?? "")
+        .onReceive(NotificationCenter.default.publisher(for: .xcThumbnailReady)) { _ in
+            // A thumbnail/cover landed in the background (warm-up, thumbnail-only
+            // download, or a just-finished download) — re-key the standard grid's
+            // cells (including Library poster cards) so it picks it up live,
+            // instead of waiting for a manual ⌘R.
+            appState.thumbnailVersion += 1
         }
     }
 
@@ -398,7 +587,9 @@ struct FileBrowserView: View {
     /// the search bar can be perfectly centered on every page.
     @ViewBuilder
     private var pageContextMenu: some View {
-        Button("Upload Files…") { showImporter = true }
+        if canUploadOnThisPage {
+            Button("Upload Files…") { showImporter = true }
+        }
 
         if appState.selectedDestination == .trash {
             if !visibleFiles.isEmpty {
@@ -407,25 +598,7 @@ struct FileBrowserView: View {
                 }
             }
         } else {
-            Button("New Folder") {
-                folderName = ""
-                showNewFolder = true
-            }
-            Button("New Private Folder") {
-                folderName = ""
-                showNewPrivateFolder = true
-            }
-            if appState.selectedDestination == .photos {
-                Button("New Album") {
-                    playlistName = ""
-                    showNewPlaylist = true
-                }
-            } else if appState.selectedDestination == .video || appState.selectedDestination == .audio {
-                Button("New Playlist") {
-                    playlistName = ""
-                    showNewPlaylist = true
-                }
-            }
+            createMenuItems
         }
 
         if appState.selectedDestination == .privateVault && appState.isPrivateVaultUnlocked {
@@ -437,6 +610,33 @@ struct FileBrowserView: View {
 
         Divider()
         Menu("Sort By") { sortPickerContent }
+    }
+
+    private var canUploadOnThisPage: Bool {
+        appState.selectedDestination != .trash && appState.selectedDestination != .archive
+    }
+
+    @ViewBuilder
+    private var createMenuItems: some View {
+        Button("New Folder") {
+            folderName = ""
+            showNewFolder = true
+        }
+        Button("New Private Folder") {
+            folderName = ""
+            showNewPrivateFolder = true
+        }
+        if appState.selectedDestination == .photos {
+            Button("New Album") {
+                playlistName = ""
+                showNewPlaylist = true
+            }
+        } else if appState.selectedDestination == .video || appState.selectedDestination == .audio {
+            Button("New Playlist") {
+                playlistName = ""
+                showNewPlaylist = true
+            }
+        }
     }
 
     @ViewBuilder
@@ -743,8 +943,41 @@ struct FileBrowserView: View {
     }
 
     private var gridView: some View {
+        if appState.selectedDestination == .photos {
+            return AnyView(
+                PhotosGridView(
+                    files: visibleFiles,
+                    showsCollections: appState.currentFolderID == nil,
+                    onOpen: { open($0) },
+                    onSelect: { select($0) },
+                    menuProvider: { AnyView(menu(for: $0)) },
+                    onOrderedChange: { mediaOrderedIDs = $0 },
+                    onColumnCountChange: { mediaColumnCount = $0 },
+                    scrollTargetID: $scrollTargetID
+                )
+            )
+        }
+        if appState.selectedDestination == .video {
+            return AnyView(
+                VideosGridView(
+                    files: visibleFiles,
+                    showsCollections: appState.currentFolderID == nil,
+                    onOpen: { open($0) },
+                    onSelect: { select($0) },
+                    menuProvider: { AnyView(menu(for: $0)) },
+                    onOrderedChange: { mediaOrderedIDs = $0 },
+                    onColumnCountChange: { mediaColumnCount = $0 },
+                    scrollTargetID: $scrollTargetID
+                )
+            )
+        }
+        return AnyView(standardGridView)
+    }
+
+    private var standardGridView: some View {
         GeometryReader { geo in
             let cols = max(2, Int(geo.size.width / cardWidth))
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     // Folders Section
@@ -794,6 +1027,26 @@ struct FileBrowserView: View {
                             }
                         }
                     }
+
+                    // Notes Section — trashed notes under their own heading on the Trash page.
+                    if appState.selectedDestination == .trash && !trashNotes.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Notes")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(XTheme.textPrimary)
+
+                            LazyVGrid(
+                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
+                                spacing: 12
+                            ) {
+                                ForEach(trashNotes) { note in
+                                    NoteCardView(note: note, isSelected: selectedTrashNoteIDs.contains(note.id), showsActions: false)
+                                        .simultaneousGesture(TapGesture(count: 1).onEnded { selectTrashNote(note) })
+                                        .contextMenu { trashNoteMenu(note) }
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
@@ -807,9 +1060,26 @@ struct FileBrowserView: View {
                 }
                 .overlay(alignment: .topLeading) { marqueeOverlay }
             }
-            .contextMenu { pageContextMenu }
             .onChange(of: geo.size.width, initial: true) {
                 columnCount = max(2, Int(geo.size.width / cardWidth))
+                appState.gridColumnCount = columnCount
+            }
+            .onChange(of: scrollTargetID) { _, newID in
+                guard let newID else { return }
+                proxy.scrollTo(newID, anchor: nil)
+            }
+            .onAppear {
+                // Reveal-in-folder: the grid mounts fresh after the destination
+                // switch, so scroll to the revealed object once layout settles.
+                if let id = appState.revealObjectID {
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: nil) }
+                }
+            }
+            .onChange(of: appState.revealToken) { _, _ in
+                if let id = appState.revealObjectID {
+                    proxy.scrollTo(id, anchor: nil)
+                }
+            }
             }
         }
     }
@@ -817,6 +1087,7 @@ struct FileBrowserView: View {
     // MARK: - List
 
     private var listView: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if !currentFolders.isEmpty {
@@ -838,6 +1109,7 @@ struct FileBrowserView: View {
                     }
                 }
 
+                // Files Section
                 if !currentFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         if !currentFolders.isEmpty {
@@ -858,6 +1130,23 @@ struct FileBrowserView: View {
                         }
                     }
                 }
+
+                // Notes Section — trashed notes under their own heading on the Trash page.
+                if appState.selectedDestination == .trash && !trashNotes.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Notes")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(XTheme.textPrimary)
+
+                        LazyVStack(spacing: 4) {
+                            ForEach(trashNotes) { note in
+                                NoteListRow(note: note, isSelected: selectedTrashNoteIDs.contains(note.id), showsActions: false)
+                                    .simultaneousGesture(TapGesture(count: 1).onEnded { selectTrashNote(note) })
+                                    .contextMenu { trashNoteMenu(note) }
+                            }
+                        }
+                    }
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
@@ -871,12 +1160,20 @@ struct FileBrowserView: View {
             }
             .overlay(alignment: .topLeading) { marqueeOverlay }
         }
-        .contextMenu {
-            Button("New Folder") { showNewFolder = true }
-            Button("New Private Folder") { showNewPrivateFolder = true }
-            Button("Upload Files…") { showImporter = true }
-            Divider()
-            Menu("Sort By") { sortPickerContent }
+        .onChange(of: scrollTargetID) { _, newID in
+            guard let newID else { return }
+            proxy.scrollTo(newID, anchor: nil)
+        }
+        .onAppear {
+            if let id = appState.revealObjectID {
+                DispatchQueue.main.async { proxy.scrollTo(id, anchor: nil) }
+            }
+        }
+        .onChange(of: appState.revealToken) { _, _ in
+            if let id = appState.revealObjectID {
+                proxy.scrollTo(id, anchor: nil)
+            }
+        }
         }
     }
 
@@ -945,6 +1242,9 @@ struct FileBrowserView: View {
     private func open(_ file: ObjectRecord) {
         if file.isFolder {
             appState.openFolder(file)
+        } else if file.isBook {
+            // Books open in the dedicated reader (Library page or anywhere else).
+            appState.readerFile = file
         } else if appState.selectedDestination == .audio {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
@@ -952,11 +1252,14 @@ struct FileBrowserView: View {
         }
     }
 
-    /// Finder-style Quick Look: space previews the selected item. Folders and
-    /// unsupported files show a details panel; it never navigates into folders
-    /// (double-click / Enter still do that via `open`).
+    /// Finder-style Quick Look: space previews the selected item. Books open in
+    /// the dedicated reader; folders and unsupported files show a details panel;
+    /// it never navigates into folders (double-click / Enter still do that via
+    /// `open`).
     private func quickLook(_ file: ObjectRecord) {
-        if appState.selectedDestination == .audio, !file.isFolder {
+        if file.isBook {
+            appState.readerFile = file
+        } else if appState.selectedDestination == .audio, !file.isFolder {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
             appState.theaterFile = file
@@ -969,7 +1272,17 @@ struct FileBrowserView: View {
     }
 
     private var navigableFiles: [ObjectRecord] {
-        currentFolders + currentFiles
+        if mediaGridActive {
+            return mediaOrderedIDs.compactMap { id in appState.files.first(where: { $0.id == id }) }
+        }
+        return currentFolders + currentFiles
+    }
+
+    /// The Photos/Videos pages use their own boxy grids (adaptive columns,
+    /// albums-first ordering) — arrow navigation walks THEIR visual order.
+    private var mediaGridActive: Bool {
+        (appState.selectedDestination == .photos || appState.selectedDestination == .video)
+            && viewModeRaw == "grid"
     }
 
     private func keyNav(_ delta: Int, isVertical: Bool = false) {
@@ -977,6 +1290,8 @@ struct FileBrowserView: View {
         guard !files.isEmpty else { return }
         guard let current = files.firstIndex(where: { appState.selectedFiles.contains($0.id) }) else {
             appState.selectedFiles = [files[0].id]
+            scrollTargetID = files[0].id
+            Self.keyNavLogger.info("keyNav: no selection -> selected first of \(files.count) (folders=\(files.filter(\.isFolder).count))\(files[0].isFolder ? " [folder]" : "")")
             return
         }
 
@@ -987,7 +1302,14 @@ struct FileBrowserView: View {
             nextIndex = min(max(current + delta, 0), files.count - 1)
         }
         appState.selectedFiles = [files[nextIndex].id]
+        scrollTargetID = files[nextIndex].id
+        Self.keyNavLogger.info("keyNav: delta=\(delta) vertical=\(isVertical) total=\(files.count) folders=\(files.filter(\.isFolder).count) cols=\(columnCount) cur=\(current)(\(files[current].isFolder ? "folder" : "file")) -> next=\(nextIndex)(\(files[nextIndex].isFolder ? "folder" : "file"))\(files[nextIndex].isFolder ? " " + files[nextIndex].name : "")")
     }
+
+    private static let keyNavLogger = Logger(
+        subsystem: "com.xcloud.app",
+        category: "keynav"
+    )
 
     /// Row-aware up/down navigation for the two-section grid (folder row(s) with up to
     /// 4 columns, then a full-width files grid). Moves to the item in the same column of
@@ -995,7 +1317,7 @@ struct FileBrowserView: View {
     /// beneath it (or the folder below, when a second folder row exists), instead of
     /// jumping by a fixed column count that lands on the wrong row.
     private func gridVerticalNavigation(current: Int, delta: Int, files: [ObjectRecord]) -> Int {
-        FileBrowserView.gridVerticalStep(current: current, delta: delta, files: files, cols: columnCount)
+        FileBrowserView.gridVerticalStep(current: current, delta: delta, files: files, cols: mediaGridActive ? mediaColumnCount : columnCount)
     }
 
     /// Pure grid row/column math (static so it's unit-testable). `files` must be the
@@ -1321,29 +1643,115 @@ struct FileBrowserView: View {
     private var emptyIcon: String {
         switch appState.selectedDestination {
         case .trash: return "trash"
+        case .archive: return "archivebox"
+        case .library: return "books.vertical"
         case .favorites: return "star"
         case .photos: return "photo.fill"
         case .video: return "play.rectangle"
         case .audio: return "music.note"
         case .documents: return "doc.text"
+        case .shared: return "arrow.triangle.swap"
         default: return "cloud"
         }
     }
 
     private var emptyTitle: String {
         if appState.selectedDestination == .trash { return "Trash is Empty" }
+        if appState.selectedDestination == .archive { return "Archive is Empty" }
+        if appState.selectedDestination == .library { return "Library is Empty" }
+        if appState.selectedDestination == .shared { return "No Shared Files Yet" }
         if appState.currentFolderID != nil { return "Folder is Empty" }
         return "Nothing Here Yet"
     }
 
     private var emptySubtitle: String {
-        appState.selectedDestination == .allFiles
-        ? "Drop files here or tap + to get started"
-        : "Files matching this category will appear here."
+        if appState.selectedDestination == .library {
+            return "Upload EPUB, PDF or text books and they'll be collected here."
+        }
+        if appState.selectedDestination == .archive {
+            return "Files you archive are hidden from your other views and collected here."
+        }
+        if appState.selectedDestination == .shared {
+            return "Open a share link, or ask a friend to share a file with you."
+        }
+        if appState.selectedDestination == .allFiles {
+            return "Drop files here or tap + to get started"
+        }
+        return "Files matching this category will appear here."
+    }
+
+    // MARK: - Trashed Notes (rendered inline with trashed files)
+
+    private var trashNotes: [NoteRecord] {
+        appState.notes.filter { $0.trashed }
+    }
+
+    private func selectTrashNote(_ note: NoteRecord) {
+        selectedTrashNoteIDs = selectedTrashNoteIDs.contains(note.id) ? [] : [note.id]
+    }
+
+    private func restoreTrashNote(_ note: NoteRecord) {
+        var updated = note
+        updated.trashed = false
+        appState.updateNote(updated)
+        selectedTrashNoteIDs.remove(note.id)
+    }
+
+    @ViewBuilder
+    private func trashNoteMenu(_ note: NoteRecord) -> some View {
+        Button("Restore") {
+            restoreTrashNote(note)
+        }
+        Divider()
+        Button("Delete Forever", role: .destructive) {
+            appState.deleteNoteForever(note)
+        }
     }
 }
 
 // MARK: - Context Menu View Component
+
+/// Lists apps that can open a file and launches them externally — the same
+/// "Open With" behavior the viewer's Open Externally button uses, shared by the
+/// file-card context menu (VLC, IINA, QuickTime, etc.).
+enum ExternalOpen {
+    struct AppItem: Identifiable {
+        let name: String
+        let appURL: URL
+        var id: URL { appURL }
+    }
+
+    static func availableApps(for fileURL: URL, isMedia: Bool) -> [AppItem] {
+        let appURLs = NSWorkspace.shared.urlsForApplications(toOpen: fileURL)
+        let knownMediaPlayers: Set<String> = [
+            "vlc", "iina", "quicktime player", "elmedia player", "infuse", "mpv",
+            "mplayer", "kmplayer", "movist", "omniplayer", "soda player", "plex"
+        ]
+        let filtered = appURLs.filter { appURL in
+            let name = FileManager.default.displayName(atPath: appURL.path)
+                .replacingOccurrences(of: ".app", with: "").lowercased()
+            let bundleID = (Bundle(url: appURL)?.bundleIdentifier ?? "").lowercased()
+            if isMedia {
+                return knownMediaPlayers.contains(name)
+                    || name.contains("player") || name.contains("vlc") || name.contains("iina")
+                    || name.contains("quicktime")
+                    || bundleID.contains("vlc") || bundleID.contains("iina")
+                    || bundleID.contains("quicktime") || bundleID.contains("player")
+            } else {
+                let excluded: Set<String> = ["xcode", "textedit", "coteditor", "sublime text", "visual studio code", "vscode", "terminal"]
+                return !excluded.contains(name)
+            }
+        }
+        return filtered.map { appURL in
+            AppItem(
+                name: FileManager.default.displayName(atPath: appURL.path)
+                    .replacingOccurrences(of: ".app", with: ""),
+                appURL: appURL
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}
 
 struct FileItemContextMenu: View {
     @Environment(AppState.self) private var appState
@@ -1363,21 +1771,51 @@ struct FileItemContextMenu: View {
     }
 
     var body: some View {
+        if file.isBook {
+            Button {
+                appState.readerFile = file
+            } label: {
+                Label("Read", systemImage: "book")
+            }
+        }
         if !file.isFolder {
             Button {
                 appState.theaterFile = file
             } label: {
                 Label("Quick Look", systemImage: "eye")
             }
-            Button {
-                appState.openFile(file)
+            // Open externally: submenu listing every app that can open this file
+            // (VLC, IINA, QuickTime, …), plus Default App and Choose App — the same
+            // Open With behavior as the viewer.
+            Menu {
+                let targetURL = DownloadEngine.cacheURL(for: file)
+                let isMedia = file.mime.hasPrefix("video/") || file.mime.hasPrefix("audio/")
+                    || ["mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((file.name as NSString).pathExtension.lowercased())
+                let apps = ExternalOpen.availableApps(for: targetURL, isMedia: isMedia)
+                if !apps.isEmpty {
+                    Section("Open With") {
+                        ForEach(apps) { item in
+                            Button(item.name) { openExternally(appURL: item.appURL) }
+                        }
+                    }
+                    Divider()
+                }
+                Button("Default App") { openExternally(appURL: nil) }
+                Button("Choose App…") { chooseAppFor(targetURL) }
             } label: {
-                Label("Open", systemImage: "arrow.up.forward.app")
+                Label("Open externally", systemImage: "arrow.up.forward.app")
             }
             Button {
                 saveFileToMac(file)
             } label: {
                 Label("Download", systemImage: "arrow.down.circle")
+            }
+            if !file.trashed {
+                Button {
+                    appState.shareFile(file)
+                } label: {
+                    Label("Share via Link…", systemImage: "arrow.triangle.swap")
+                }
             }
             Divider()
         } else {
@@ -1445,6 +1883,38 @@ struct FileItemContextMenu: View {
             }
         }
         Divider()
+        // Library membership is opt-in for ambiguous formats (PDF/TXT/MD) so
+        // document-style files never sneak onto the bookshelf. EPUB/CBZ/CBR are
+        // always books and offer no toggle.
+        if file.isBookFile && !file.isHardBook {
+            if file.isInLibrary {
+                Button {
+                    for target in actionTargets { appState.setInLibrary(target, false) }
+                } label: {
+                    Label(actionTargets.count > 1 ? "Remove \(actionTargets.count) Items from Library" : "Remove from Library", systemImage: "bookmark.slash")
+                }
+            } else {
+                Button {
+                    for target in actionTargets { appState.setInLibrary(target, true) }
+                } label: {
+                    Label(actionTargets.count > 1 ? "Add \(actionTargets.count) Items to Library" : "Add to Library", systemImage: "bookmark")
+                }
+            }
+        }
+        Divider()
+        if file.isArchived {
+            Button {
+                for target in actionTargets { appState.setArchived(target, false) }
+            } label: {
+                Label(actionTargets.count > 1 ? "Unarchive \(actionTargets.count) Items" : "Unarchive", systemImage: "tray.and.arrow.up")
+            }
+        } else {
+            Button {
+                for target in actionTargets { appState.setArchived(target, true) }
+            } label: {
+                Label(actionTargets.count > 1 ? "Archive \(actionTargets.count) Items" : "Archive", systemImage: "archivebox")
+            }
+        }
         if file.trashed {
             Button {
                 for target in actionTargets { appState.setTrashed(target, false) }
@@ -1467,6 +1937,40 @@ struct FileItemContextMenu: View {
             } label: {
                 Label(actionTargets.count > 1 ? "Delete \(actionTargets.count) Items Permanently" : "Delete Permanently", systemImage: "trash.slash")
             }
+        }
+    }
+
+    /// Downloads the file if it isn't cached yet, then opens it — with the chosen
+    /// app if one was picked, otherwise with the system default.
+    private func openExternally(appURL: URL?) {
+        Task {
+            let url: URL
+            if DownloadEngine.isCached(file) {
+                url = DownloadEngine.cacheURL(for: file)
+            } else {
+                let downloaded = try? await DownloadEngine.download(object: file) { _, _ in }
+                guard let downloaded else { return }
+                url = downloaded
+            }
+            if let appURL {
+                try? await NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private func chooseAppFor(_ fileURL: URL) {
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Select Application to Open \(file.name)"
+        openPanel.directoryURL = URL(fileURLWithPath: "/Applications")
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = [.application]
+        openPanel.begin { response in
+            guard response == .OK, let appURL = openPanel.url else { return }
+            openExternally(appURL: appURL)
         }
     }
 
@@ -1575,6 +2079,10 @@ struct FileGridItem: View {
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var thumbURL: URL? = nil
+    @State private var coverURL: URL? = nil
+    @State private var revealPulse = 0.0
+    @State private var revealScale: CGFloat = 1.0
+    @State private var revealTaskActive = false
 
     private var itemCount: Int {
         appState.files.filter { $0.parentID == file.id && !$0.trashed }.count
@@ -1584,6 +2092,8 @@ struct FileGridItem: View {
         Group {
             if file.isFolder {
                 folderCard
+            } else if file.isBook && appState.selectedDestination == .library {
+                bookPosterCard
             } else {
                 fileCard
             }
@@ -1591,8 +2101,12 @@ struct FileGridItem: View {
         .contentShape(Rectangle())
         .scaleEffect(hovering ? 1.02 : 1.0)
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
-            thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)
+        .task(id: "\(file.id)-\(appState.thumbnailVersion)-\(appState.selectedDestination.rawValue)") {
+            if file.isBook && appState.selectedDestination == .library {
+                coverURL = await ThumbnailService.shared.bookCoverURL(for: file)
+            } else {
+                thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)
+            }
         }
         .onHover { hovering = $0 }
         .onDrop(of: [UTType.text], isTargeted: $dropTargeted) { providers in
@@ -1615,6 +2129,57 @@ struct FileGridItem: View {
                     }
                     .allowsHitTesting(false)
             }
+        }
+        .overlay {
+            // Reveal-in-folder flash: a Finder-style ring that fades in (scaling up
+            // from a slight inset), settles, then expands and fades out — twice — on
+            // the exact card the user just revealed from Transfers.
+            if file.id == appState.revealObjectID {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(XTheme.accent.opacity(0.10 * revealPulse))
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(XTheme.accent, lineWidth: 2.5)
+                        .shadow(color: XTheme.accent.opacity(0.8), radius: 7)
+                        .opacity(revealPulse)
+                }
+                .scaleEffect(revealScale)
+                .allowsHitTesting(false)
+            }
+        }
+        .onChange(of: appState.revealToken) { _, _ in
+            if file.id == appState.revealObjectID { startRevealFlash() }
+        }
+        .onAppear {
+            if file.id == appState.revealObjectID { startRevealFlash() }
+        }
+    }
+
+    /// Finder-style reveal flash: the card's accent ring fades in and grows to size,
+    /// then expands slightly while fading out — twice — and finally clears the reveal
+    /// target so a later reveal of the same file retriggers.
+    private func startRevealFlash() {
+        guard !revealTaskActive else { return }
+        revealTaskActive = true
+        Task { @MainActor in
+            revealPulse = 0
+            revealScale = 0.96
+            for _ in 0..<2 {
+                withAnimation(.easeOut(duration: 0.13)) {
+                    revealPulse = 1
+                    revealScale = 1.0
+                }
+                try? await Task.sleep(nanoseconds: 140_000_000)
+                withAnimation(.easeIn(duration: 0.18)) {
+                    revealPulse = 0
+                    revealScale = 1.03
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if appState.revealObjectID == file.id {
+                appState.revealObjectID = nil
+            }
+            revealTaskActive = false
         }
     }
 
@@ -1694,23 +2259,110 @@ struct FileGridItem: View {
         )
     }
 
-    private var fileCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack {
-                Color.white.opacity(0.03)
-
-                if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
+    /// Library poster card: just the book cover in a clean 2:3 portrait frame.
+    /// No name, no size — the cover art is the card (double-click / menu still
+    /// offer the full file actions; hover reveals the title).
+    private var bookPosterCard: some View {
+        // Apple Books-style shelf card: the cover art IS the card. Covers render
+        // a little smaller than the cell (breathing room + room for the shadow).
+        // Imperfect art (non-2:3, PDF first pages) is center-cropped to the
+        // poster shape — no letterboxing, no stretched thumbs.
+        GeometryReader { geo in
+            ZStack(alignment: .bottom) {
+                if let coverURL = coverURL, let ns = NSImage(contentsOf: coverURL) {
                     Image(nsImage: ns)
                         .resizable()
                         .interpolation(.high)
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
                 } else {
-                    Image(systemName: fileIcon)
-                        .font(.system(size: 36, weight: .light))
-                        .foregroundStyle(XTheme.textTertiary)
+                    VStack(spacing: 8) {
+                        Image(systemName: "book.closed.fill")
+                            .font(.system(size: 34, weight: .light))
+                            .foregroundStyle(XTheme.textTertiary)
+                        Text(file.name)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(XTheme.textTertiary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                    }
                 }
+
+                if hovering {
+                    Text(file.name)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity)
+                        .background(.black.opacity(0.45))
+                        .allowsHitTesting(false)
+                }
+            }
+            .clipped()
+        }
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .shadow(color: .black.opacity(hovering ? 0.5 : 0.35), radius: 5, y: 3)
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(XTheme.accent, lineWidth: 2.5)
+            }
+        }
+        // Breathing room goes OUTSIDE the clip: the rounded corners belong to the
+        // cover itself, not to a padded box around it.
+        .padding(.horizontal, 4)
+        .padding(.vertical, 7)
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.black.opacity(0.55))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .padding(6)
+        }
+    }
+
+    private var fileCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // GeometryReader pins the thumbnail to the exact card bounds. The old
+            // `.scaledToFill().frame(maxWidth: .infinity, maxHeight: .infinity)`
+            // pattern lets wide (18:9/ultrawide) video frames blow past the 115pt
+            // box and leak out of the card; explicit width/height + clip contains it.
+            GeometryReader { geo in
+                ZStack {
+                    Color.white.opacity(0.03)
+
+                    if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
+                        Image(nsImage: ns)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                    } else {
+                        Image(systemName: fileIcon)
+                            .font(.system(size: 36, weight: .light))
+                            .foregroundStyle(XTheme.textTertiary)
+                    }
+                }
+                .clipped()
             }
             .frame(height: 115)
             .clipped()
@@ -1817,6 +2469,9 @@ struct FileListRow: View {
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var thumbURL: URL? = nil
+    @State private var revealPulse = 0.0
+    @State private var revealScale: CGFloat = 1.0
+    @State private var revealTaskActive = false
 
     private var itemCount: Int {
         appState.files.filter { $0.parentID == file.id && !$0.trashed }.count
@@ -1883,6 +2538,29 @@ struct FileListRow: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(isSelected ? XTheme.accent.opacity(0.5) : .clear, lineWidth: 1)
         )
+        .overlay {
+            // Reveal-in-folder flash: a Finder-style ring that fades in (scaling up
+            // from a slight inset), settles, then expands and fades out — twice — on
+            // the exact row the user just revealed from Transfers.
+            if file.id == appState.revealObjectID {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(XTheme.accent.opacity(0.10 * revealPulse))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(XTheme.accent, lineWidth: 2.5)
+                        .shadow(color: XTheme.accent.opacity(0.8), radius: 7)
+                        .opacity(revealPulse)
+                }
+                .scaleEffect(revealScale)
+                .allowsHitTesting(false)
+            }
+        }
+        .onChange(of: appState.revealToken) { _, _ in
+            if file.id == appState.revealObjectID { startRevealFlash() }
+        }
+        .onAppear {
+            if file.id == appState.revealObjectID { startRevealFlash() }
+        }
         .overlay(alignment: .trailing) {
             if file.isPrivate {
                 Image(systemName: "number")
@@ -1930,6 +2608,34 @@ struct FileListRow: View {
                     }
                     .allowsHitTesting(false)
             }
+        }
+    }
+
+    /// Finder-style reveal flash: the row's accent ring fades in and grows to size,
+    /// then expands slightly while fading out — twice — and finally clears the reveal
+    /// target so a later reveal of the same file retriggers.
+    private func startRevealFlash() {
+        guard !revealTaskActive else { return }
+        revealTaskActive = true
+        Task { @MainActor in
+            revealPulse = 0
+            revealScale = 0.96
+            for _ in 0..<2 {
+                withAnimation(.easeOut(duration: 0.13)) {
+                    revealPulse = 1
+                    revealScale = 1.0
+                }
+                try? await Task.sleep(nanoseconds: 140_000_000)
+                withAnimation(.easeIn(duration: 0.18)) {
+                    revealPulse = 0
+                    revealScale = 1.03
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if appState.revealObjectID == file.id {
+                appState.revealObjectID = nil
+            }
+            revealTaskActive = false
         }
     }
 
@@ -1996,7 +2702,7 @@ struct PrivateVaultLockView: View {
     @State private var revealTimer: Task<Void, Never>? = nil
     @FocusState private var focused: Bool
 
-    enum Phase { case enter, create, confirm }
+    enum Phase { case enter, create, confirm, recover }
 
     var body: some View {
         ZStack {
@@ -2004,12 +2710,13 @@ struct PrivateVaultLockView: View {
             VStack(spacing: 24) {
                 ZStack {
                     Circle().fill(XTheme.accent.opacity(0.15)).frame(width: 72, height: 72)
-                    Image(systemName: "number")
+                    Image(systemName: phase == .recover ? "key.fill" : "number")
                         .font(.system(size: 30)).foregroundStyle(XTheme.accent)
                 }
                 VStack(spacing: 6) {
                     Text(title).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(.white)
                     Text(subtitle).font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
+                        .multilineTextAlignment(.center)
                 }
                 
                 HStack(spacing: 14) {
@@ -2080,7 +2787,7 @@ struct PrivateVaultLockView: View {
         }
         .onAppear {
             focused = true
-            phase = KeychainStore.loadVaultPINHash() == nil ? .create : .enter
+            Task { await chooseInitialPhase() }
         }
         .task(id: appState.selectedDestination) {
             try? await Task.sleep(for: .milliseconds(50))
@@ -2089,18 +2796,34 @@ struct PrivateVaultLockView: View {
         .onTapGesture { focused = true }
     }
 
+    private func chooseInitialPhase() async {
+        if KeychainStore.loadVaultPINHash() != nil {
+            phase = .enter
+        } else if await VaultManager.hasRecoveryBlob() {
+            // A recovery blob exists in the channel (vault key sealed with the PIN):
+            // this device must use the PIN set on another device to unlock private
+            // files — the cross-device recovery path.
+            phase = .recover
+        } else {
+            phase = .create
+        }
+        focused = true
+    }
+
     private var title: String {
         switch phase {
         case .enter: "Private Vault Locked"
         case .create: "Create a PIN"
         case .confirm: "Confirm PIN"
+        case .recover: "Recover Private Vault"
         }
     }
     private var subtitle: String {
         switch phase {
         case .enter: "Enter your 4-digit PIN to unlock encrypted files."
-        case .create: "Choose a 4-digit PIN for your Private Vault."
+        case .create: "Choose a 4-digit PIN for your Private Vault. It also becomes the recovery key for your other devices."
         case .confirm: "Enter the same PIN again."
+        case .recover: "Enter the vault PIN you set on your other device to unlock your encrypted files here."
         }
     }
 
@@ -2108,22 +2831,356 @@ struct PrivateVaultLockView: View {
         switch phase {
         case .enter:
             if KeychainStore.verifyVaultPIN(pin) {
+                // Backfill: make sure the PIN-protected recovery blob exists in the
+                // channel so other devices can recover private files too.
+                Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
                 appState.isPrivateVaultUnlocked = true
             } else {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { shake = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    shake = false; buffer = ""; revealedIndex = nil
-                }
+                failEntry()
             }
         case .create:
             firstEntry = pin; buffer = ""; revealedIndex = nil; phase = .confirm
         case .confirm:
             if pin == firstEntry {
                 KeychainStore.saveVaultPIN(pin)
+                // Post the recovery blob so private files survive a device change.
+                Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
                 appState.isPrivateVaultUnlocked = true
             } else {
                 buffer = ""; revealedIndex = nil; phase = .create   // mismatch -> start over
             }
+        case .recover:
+            Task {
+                if await VaultManager.attemptRecovery(pin: pin) {
+                    KeychainStore.saveVaultPIN(pin)
+                    appState.isPrivateVaultUnlocked = true
+                } else {
+                    failEntry()
+                }
+            }
         }
+    }
+
+    private func failEntry() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { shake = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            shake = false; buffer = ""; revealedIndex = nil
+        }
+    }
+}
+
+// MARK: - Reliable Key Handling Monitor
+//
+// SwiftUI's `.onKeyPress` + FocusState is unreliable on macOS: when the TheaterView
+// overlay closes, focus is often left dangling, so arrows/space/⌘V silently stop
+// working even though `gridFocused = true` was requested. The established app
+// pattern (NotesView, TheaterView) is a local NSEvent monitor that works regardless
+// of SwiftUI focus — this is the file browser's copy. It also reclaims ⌘C/⌘V/⌘Z
+// from the Edit menu, whose NSText.* actions no-op whenever no text field is focused.
+//
+// Every callback returns Bool: `true` = handled (the key event is consumed),
+// `false` = the event keeps flowing (e.g. no selection, so space/return should
+// still activate a focused control, or ⌘C should reach a text field).
+
+private struct FileBrowserKeyMonitorView: NSViewRepresentable {
+    var shouldDefer: () -> Bool
+    var onDelete: () -> Bool
+    var onDeleteForever: () -> Bool
+    var onEscape: () -> Bool
+    var onArrow: (Int, Bool) -> Bool
+    var onCmdUp: () -> Bool
+    var onCmdDown: () -> Bool
+    var onSpace: () -> Bool
+    var onReturn: () -> Bool
+    var onCmdC: () -> Bool
+    var onCmdV: () -> Bool
+    var onCmdR: () -> Bool
+    var onCmdO: () -> Bool
+    var onCmdZ: (Bool) -> Bool
+
+    func makeNSView(context: Context) -> FileBrowserKeyView {
+        let view = FileBrowserKeyView()
+        apply(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: FileBrowserKeyView, context: Context) {
+        apply(nsView)
+    }
+
+    private func apply(_ view: FileBrowserKeyView) {
+        view.shouldDefer = shouldDefer
+        view.onDelete = onDelete
+        view.onDeleteForever = onDeleteForever
+        view.onEscape = onEscape
+        view.onArrow = onArrow
+        view.onCmdUp = onCmdUp
+        view.onCmdDown = onCmdDown
+        view.onSpace = onSpace
+        view.onReturn = onReturn
+        view.onCmdC = onCmdC
+        view.onCmdV = onCmdV
+        view.onCmdR = onCmdR
+        view.onCmdO = onCmdO
+        view.onCmdZ = onCmdZ
+    }
+}
+
+final class FileBrowserKeyView: NSView {
+    var shouldDefer: (() -> Bool)?
+    var onDelete: (() -> Bool)?
+    var onDeleteForever: (() -> Bool)?
+    var onEscape: (() -> Bool)?
+    var onArrow: ((Int, Bool) -> Bool)?
+    var onCmdUp: (() -> Bool)?
+    var onCmdDown: (() -> Bool)?
+    var onSpace: (() -> Bool)?
+    var onReturn: (() -> Bool)?
+    var onCmdC: (() -> Bool)?
+    var onCmdV: (() -> Bool)?
+    var onCmdR: (() -> Bool)?
+    var onCmdO: (() -> Bool)?
+    var onCmdZ: ((Bool) -> Bool)?
+    private var monitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && monitor == nil {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.window != nil else { return event }
+                // Only intercept keys destined for our own window — defer to open
+                // menus, sheets (settings, note editor, importers), and other windows.
+                guard event.window === self.window else { return event }
+                // Never steal keys while the user is typing in a text field/view
+                // (search bar, PIN entry, …) — those go to the field and the Edit menu.
+                if let responder = self.window?.firstResponder,
+                   responder is NSTextView || responder is NSTextField {
+                    return event
+                }
+                if self.shouldDefer?() == true { return event }
+
+                let flags = event.modifierFlags
+                let isCmd = flags.contains(.command)
+                let isOption = flags.contains(.option)
+                let isShift = flags.contains(.shift)
+                let chars = event.charactersIgnoringModifiers?.lowercased()
+
+                switch event.keyCode {
+                case 51: // delete / backspace
+                    if isCmd && isOption {
+                        if self.onDeleteForever?() == true { return nil }
+                    } else if self.onDelete?() == true {
+                        return nil
+                    }
+                    return event
+                case 53: // escape
+                    if self.onEscape?() == true { return nil }
+                    return event
+                case 123: // left arrow
+                    if self.onArrow?(-1, false) == true { return nil }
+                    return event
+                case 124: // right arrow
+                    if self.onArrow?(1, false) == true { return nil }
+                    return event
+                case 125: // down arrow
+                    if isCmd {
+                        if self.onCmdDown?() == true { return nil }
+                    } else if self.onArrow?(1, true) == true {
+                        return nil
+                    }
+                    return event
+                case 126: // up arrow
+                    if isCmd {
+                        if self.onCmdUp?() == true { return nil }
+                    } else if self.onArrow?(-1, true) == true {
+                        return nil
+                    }
+                    return event
+                case 49: // space
+                    if self.onSpace?() == true { return nil }
+                    return event
+                case 36: // return
+                    if self.onReturn?() == true { return nil }
+                    return event
+                default:
+                    if isCmd {
+                        switch chars {
+                        case "c":
+                            if self.onCmdC?() == true { return nil }
+                        case "v":
+                            if self.onCmdV?() == true { return nil }
+                        case "r":
+                            if self.onCmdR?() == true { return nil }
+                        case "o":
+                            if self.onCmdO?() == true { return nil }
+                        case "z":
+                            if self.onCmdZ?(isShift) == true { return nil }
+                        default:
+                            break
+                        }
+                        return event
+                    }
+                    return event
+                }
+            }
+        } else if window == nil && monitor != nil {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+    }
+
+    func teardown() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+    }
+}
+
+// MARK: - Share Link Sheet
+
+/// Shown after the sender creates a share: presents the xCloud share link so it can
+/// be copied and sent to another xCloud user. The link IS the credential — it carries
+/// the (base64) share key that unwraps the file's object key, so only someone holding
+/// the link can import the file. The share channel lives 7 days, then the cleanup
+/// loop deletes it (revoking the link).
+struct ShareLinkSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let link: String
+    @State private var copied = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "arrow.triangle.swap")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(XTheme.accent)
+                .padding(.top, 6)
+
+            Text("Share Link Ready")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("Anyone with this link can import the file into their own cloud.\nThe link is encrypted so it carries no visible invite or key material.")
+                .font(.system(size: 12))
+                .foregroundStyle(XTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+
+            HStack(spacing: 8) {
+                Text(link)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+
+                Button {
+                    copy()
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(copied ? .green : .white.opacity(0.8))
+                        .frame(width: 34, height: 34)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                }
+                .buttonStyle(.plain)
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+
+            Text("This link expires in 7 days — after the share channel is deleted, the file can no longer be imported.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(XTheme.textTertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+
+            HStack(spacing: 10) {
+                // The plain button style hit-tests ONLY the label's frame, so the
+                // pill (padding + background) must live INSIDE the label — padding
+                // on the button itself expands the visual but not the clickable
+                // area, which is why clicking the pill's edges did nothing before.
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .foregroundStyle(.white.opacity(0.75))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    copy()
+                } label: {
+                    Label(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(XTheme.accent)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 4)
+        }
+        .padding(30)
+        .frame(width: 460)
+        .background(Color(red: 0.055, green: 0.07, blue: 0.11))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .preferredColorScheme(.dark)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+        copied = true
+    }
+}
+
+/// Shown while a share is being created (channel setup + encrypted chunk upload),
+/// so the Share action gives immediate feedback instead of appearing to hang.
+struct ShareProgressSheet: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.regular)
+                .tint(XTheme.accent)
+
+            Text("Creating Share Link…")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("Uploading encrypted chunks to the share channel.\nThis can take a moment for larger files.")
+                .font(.system(size: 12))
+                .foregroundStyle(XTheme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(30)
+        .frame(width: 400)
+        .background(Color(red: 0.055, green: 0.07, blue: 0.11))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .preferredColorScheme(.dark)
     }
 }

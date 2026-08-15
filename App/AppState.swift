@@ -3,7 +3,7 @@ import Observation
 import AppKit
 
 enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
-    case allFiles, privateVault, recent, favorites, photos, video, audio, documents, transfers, trash
+    case allFiles, privateVault, notes, recent, favorites, photos, video, audio, documents, library, transfers, shared, archive, trash
 
     var id: String { rawValue }
 
@@ -11,13 +11,17 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .allFiles: return "All Files"
         case .privateVault: return "Private Vault"
+        case .notes: return "Notes"
         case .recent: return "Recent"
         case .favorites: return "Favorites"
         case .photos: return "Photos"
         case .video: return "Video"
         case .audio: return "Audio"
         case .documents: return "Documents"
+        case .library: return "Library"
         case .transfers: return "Transfers"
+        case .shared: return "Shared"
+        case .archive: return "Archive"
         case .trash: return "Trash"
         }
     }
@@ -26,13 +30,17 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .allFiles: return "square.grid.2x2"
         case .privateVault: return "number"
+        case .notes: return "note.text"
         case .recent: return "clock"
         case .favorites: return "star"
         case .photos: return "photo.fill"
         case .video: return "play.rectangle"
         case .audio: return "music.note"
         case .documents: return "doc.text"
+        case .library: return "books.vertical"
         case .transfers: return "arrow.up.arrow.down"
+        case .shared: return "arrow.triangle.swap"
+        case .archive: return "archivebox"
         case .trash: return "trash"
         }
     }
@@ -43,8 +51,23 @@ final class AppState {
     var selectedDestination: SidebarDestination = .allFiles
     var searchText = ""
     var selectedFiles: Set<String> = []
+    var notes: [NoteRecord] = []
+    var editingNote: NoteRecord? = nil
     var isPrivateVaultUnlocked = false
     var thumbnailVersion = 0
+    /// The file grid's live column count, kept in sync by FileBrowserView so the
+    /// TheaterView preview can navigate up/down through the same rows/columns the
+    /// user sees in the browser (instead of being limited to left/right).
+    var gridColumnCount = 4
+
+    /// Files shared WITH me — incoming share records, each keyed to the vault
+    /// object its import created. Loaded at launch; shown under "Shared".
+    var incomingShares: [ShareRecord] = []
+    /// Share link waiting to be shown (drives the "Share Link Ready" sheet).
+    var shareResultLink: String? = nil
+    var isSharingFile = false
+    /// True when the "Import Shared Link…" dialog should appear (File menu).
+    var importShareLinkPrompt = false
 
     // Computed property to keep the Inspector working (only shows if exactly 1 is selected)
     var selectedFile: ObjectRecord? {
@@ -59,6 +82,21 @@ final class AppState {
     var isCryptoReady = false
     var databaseError: String?
 
+    /// Guards the post-auth reconciliation (channel scan, profile, transfers) so it
+    /// runs exactly once per session — whether it fires from `bootstrap` at launch or
+    /// from the login gate when the user signs in mid-session. Reset on logout so a
+    /// re-login re-runs it.
+    private var hasCompletedPostAuthSetup = false
+
+    /// Debounced catalog-snapshot uploader (the "database imaging" feature). After
+    /// any catalog mutation `loadFiles()` calls `scheduleSnapshotIfChanged()`, which
+    /// cancels any pending upload and re-arms a 4s timer — so a burst of changes
+    /// publishes ONE fresh snapshot, and the channel always carries the latest full
+    /// catalog for instant restore on another device.
+    private var snapshotTask: Task<Void, Never>?
+    /// Signature of the last catalog state we uploaded a snapshot for.
+    private var lastSnapshotSignature = ""
+
     /// True from app launch until the initial catalog load + Telegram reconciliation
     /// finishes. The file browser shows a loading state instead of the misleading
     /// "Nothing Here Yet" empty state while this is set.
@@ -68,6 +106,23 @@ final class AppState {
     var showLogin = false
     var showOnboarding = !UserDefaults.standard.bool(forKey: "xc.hasOnboarded")
     var showSettings = false
+
+    /// When the catalog was last successfully published to the channel snapshot.
+    /// Persisted so Settings can show it across launches.
+    var lastSyncDate: Date? = {
+        let v = UserDefaults.standard.double(forKey: "xc.lastSyncDate")
+        return v > 0 ? Date(timeIntervalSince1970: v) : nil
+    }() {
+        didSet {
+            if let lastSyncDate {
+                UserDefaults.standard.set(lastSyncDate.timeIntervalSince1970, forKey: "xc.lastSyncDate")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "xc.lastSyncDate")
+            }
+        }
+    }
+    /// True while the Settings "Sync Now" action is running.
+    var isSyncing = false
 
     var uploadStatus: String? = nil
     var uploadProgress: Double = 0
@@ -79,7 +134,15 @@ final class AppState {
     var downloadProgress: Double = 0
     var alertMessage: String? = nil
     var theaterFile: ObjectRecord? = nil
+    /// Book currently open in the reader (epub / pdf / text / comic).
+    var readerFile: ObjectRecord? = nil
     var isTheaterFullScreen: Bool = false
+    /// Object whose card should flash its border after a "reveal in folder"
+    /// (double-click on a completed transfer card). Cleared automatically once the
+    /// flash finishes.
+    var revealObjectID: String? = nil
+    /// Bumped on every reveal so the flash retriggers even for the same object.
+    var revealToken = 0
     var identity: TelegramClient.AccountIdentity? = nil
     var profilePhotoData: Data? = nil
 
@@ -121,6 +184,62 @@ final class AppState {
         } catch {
             print("Failed to load files: \(error)")
         }
+        await scheduleSnapshotIfChanged()
+    }
+
+    /// Publishes a fresh catalog snapshot to the channel when the catalog changed
+    /// since the last publish. Debounced so a burst of mutations produces one upload.
+    @MainActor
+    private func scheduleSnapshotIfChanged() async {
+        guard TelegramClient.shared.isAuthorized else { return }
+        let signature = await currentCatalogSignature()
+        guard signature != lastSnapshotSignature else { return }
+        lastSnapshotSignature = signature
+        snapshotTask?.cancel()
+        snapshotTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            if let syncedAt = await CatalogSnapshot.upload() {
+                self?.lastSyncDate = syncedAt
+                // The upload merges the channel's snapshot into the local catalog —
+                // reload so records published by other devices show up immediately.
+                await self?.loadFiles()
+            }
+        }
+    }
+
+    /// Stable fingerprint of the current catalog (object identity + state + parent +
+    /// modifiedAt, plus the chunk count) used to decide whether a publish is needed.
+    @MainActor
+    private func currentCatalogSignature() async -> String {
+        let chunkCount = (try? await DatabaseManager.shared.allChunks())?.count ?? 0
+        return files.map { "\($0.id):\($0.modifiedAt.timeIntervalSince1970):\($0.state):\($0.trashed):\($0.isArchived):\($0.parentID ?? "")" }
+            .joined(separator: "|") + "|chunks:\(chunkCount)"
+    }
+
+    /// Uploads a fresh catalog snapshot immediately, bypassing the debounce. Used by
+    /// the Settings "Sync Now" button and at the end of every post-auth setup, so the
+    /// channel is guaranteed to carry a snapshot even if it was ever missing.
+    @MainActor
+    func forcePublishSnapshot() async {
+        guard TelegramClient.shared.isAuthorized else { return }
+        // Collapse guard: never overwrite the channel's snapshot if the local
+        // catalog is empty — an empty publish is exactly how the 2026-08-15
+        // collapse propagated.
+        let fileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
+            .filter { !$0.isFolder }.count
+        if fileCount == 0 {
+            print("xCloud: refusing to force-publish empty snapshot (collapse guard)")
+            return
+        }
+        snapshotTask?.cancel()
+        if let syncedAt = await CatalogSnapshot.upload() {
+            lastSyncDate = syncedAt
+            lastSnapshotSignature = await currentCatalogSignature()
+            // The upload merges the channel's snapshot into the local catalog —
+            // reload so records published by other devices show up immediately.
+            await self.loadFiles()
+        }
     }
 
     /// True when the app is running as a unit-test host. In that case TDLib must not
@@ -141,6 +260,11 @@ final class AppState {
             isDatabaseReady = true
             await self.loadFiles()
 
+            // Restore finished-transfer history (completed/failed cards) so the
+            // Transfers page keeps its cards across app restarts.
+            await TransferCenter.shared.restoreHistory()
+            await self.loadShares()
+
             try await ChunkEngine.selfTest()
             isEngineReady = true
 
@@ -148,6 +272,18 @@ final class AppState {
             isCryptoReady = true
 
             guard !isRunningUnderXCTest else { return }
+
+            // Keep the local cache within budget even when the user only streams:
+            // evict oldest files at launch and on a 30-minute timer when the hard
+            // cap is hit or free disk space drops below the floor. Downloads also
+            // trigger this in DownloadEngine.
+            DownloadEngine.enforceCacheBudget()
+            Task.detached(priority: .utility) {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 30 * 60 * 1_000_000_000)
+                    DownloadEngine.enforceCacheBudget()
+                }
+            }
 
             if let creds = try KeychainStore.loadTelegramCredentials() {
                 await startTelegram(apiID: creds.apiID, apiHash: creds.apiHash)
@@ -158,19 +294,423 @@ final class AppState {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
             if TelegramClient.shared.isAuthorized {
-                let changed = await VaultRepair.run()
-                if changed { await self.loadFiles() }
-                identity = try? await TelegramClient.shared.fetchIdentity()
-                if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
-                    profilePhotoData = photo
+                await completePostAuthSetup()
+
+                // Hidden debug hook: `--cache-video <objectID>` downloads the object
+                // to the cache dir and quits — used to pull a real vault file for
+                // offline debugging (e.g. reproducing mpv render crashes).
+                if let idx = CommandLine.arguments.firstIndex(of: "--cache-video"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let objectID = CommandLine.arguments[idx + 1]
+                    if let obj = try? await DatabaseManager.shared.object(objectID) {
+                        print("xCloud debug: caching video \(objectID)")
+                        _ = try? await DownloadEngine.download(object: obj) { _, _ in }
+                        print("xCloud debug: cached \(obj.name) -> \(DownloadEngine.cacheURL(for: obj).path(percentEncoded: false))")
+                    }
+                    NSApp.terminate(nil)
                 }
-                await cleanupExpiredTransfers()
-                await restoreTransferCards()
-                await resumeInterruptedUploads()
-                startTransferCleanupLoop()
+
+                // Hidden debug hook: `--regenerate-thumbnails` re-extracts a
+                // representative mpv frame for every cached video, replacing old
+                // black QuickLook first-frame thumbs (the `<id>.png` + `<id>-up.jpg`
+                // pair), then quits. Used after the thumbnail capturer changed.
+                if CommandLine.arguments.contains("--regenerate-thumbnails") {
+                    let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
+                    var done = 0
+                    var failed = 0
+                    for obj in objects where obj.mime.hasPrefix("video/") && !obj.isFolder {
+                        let url = DownloadEngine.cacheURL(for: obj)
+                        guard DownloadEngine.isCached(obj),
+                              FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { continue }
+                        if await UploadEngine.generateVideoThumbnails(for: url, objectID: obj.id) != nil {
+                            done += 1
+                            print("xCloud debug: regenerated thumbnail for \(obj.name)")
+                        } else {
+                            failed += 1
+                            print("xCloud debug: thumbnail FAILED for \(obj.name)")
+                        }
+                    }
+                    print("xCloud debug: regenerated \(done) video thumbnails (\(failed) failed)")
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--capture-test <path>` runs ONE representative-
+                // frame extraction on a file and writes the result to /tmp/thumb-test.png
+                // (plus diagnostics to the unified log), then quits — fast iteration
+                // for the FFmpeg frame extractor.
+                if let idx = CommandLine.arguments.firstIndex(of: "--capture-test"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let url = URL(fileURLWithPath: CommandLine.arguments[idx + 1])
+                    let img = await VideoFrameExtractor.representativeFrame(from: url)
+                    if let img, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                       let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: "/tmp/thumb-test.png"))
+                        print("xCloud debug: capture-test OK \(Int(img.size.width))x\(Int(img.size.height)) -> /tmp/thumb-test.png")
+                    } else {
+                        print("xCloud debug: capture-test FAILED")
+                    }
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--video-thumb <objectID>` generates a video
+                // thumbnail through the REAL thumbnail-service path — cached files
+                // extract locally, never-downloaded files extract via the loopback
+                // stream URL (byte-range requests, no whole-file download) — writes
+                // the result to a FILE (stdout is block-buffered when launched by an
+                // agent, so prints can vanish on terminate) and quits. Verifies the
+                // uncached-video thumbnail fix (e.g. House of the Dragon) headlessly.
+                if let idx = CommandLine.arguments.firstIndex(of: "--video-thumb"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let id = CommandLine.arguments[idx + 1]
+                    let resultPath = "/tmp/xcloud-vidthumb-result.txt"
+                    let out = { (text: String) in try? text.write(toFile: resultPath, atomically: true, encoding: .utf8) }
+                    if let obj = try? await DatabaseManager.shared.object(id) {
+                        let url = await ThumbnailService.shared.thumbnailURL(for: obj)
+                        out("video-thumb \(obj.name) -> \(String(describing: url?.path(percentEncoded: false)))")
+                    } else {
+                        out("video-thumb object not found \(id)")
+                    }
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--recover-upload <cacheDir>` re-uploads every
+                // READY file object whose bytes exist in <cacheDir> back to the vault
+                // channel (2026-08-15 recovery: a repair regression deleted the chunk
+                // documents from Telegram; the local cache still holds the plaintext).
+                // Reuses each object's ID/name/parent/chunk-size via resumeObject, so
+                // folder memberships survive. Chunk rows are cleared first so nothing
+                // is skipped. Progress + result go to /tmp/xcloud-recover-progress.txt.
+                // Resumable: run repeatedly until all files report uploaded.
+                if let idx = CommandLine.arguments.firstIndex(of: "--recover-upload"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let cacheDir = URL(fileURLWithPath: CommandLine.arguments[idx + 1], isDirectory: true)
+                    let resultPath = "/tmp/xcloud-recover-progress.txt"
+                    let log = { (text: String) in
+                        if var cur = try? String(contentsOfFile: resultPath, encoding: .utf8) {
+                            cur += text + "\n"
+                            try? cur.write(toFile: resultPath, atomically: true, encoding: .utf8)
+                        } else {
+                            try? text.write(toFile: resultPath, atomically: true, encoding: .utf8)
+                        }
+                        print("xCloud recover: \(text)")
+                    }
+                    log("=== recovery run \(Date()) ===")
+                    let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
+                    let files = objects.filter { !$0.isFolder && !$0.trashed }
+                    log("\(files.count) file objects in catalog")
+                    let fm = FileManager.default
+                    let cacheEntries = (try? fm.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil)) ?? []
+                    for obj in files {
+                        // Locate the cached bytes: <cacheDir>/<objectID>.<ext>
+                        let cached = cacheEntries.first {
+                            $0.deletingPathExtension().lastPathComponent == obj.id &&
+                            fm.fileExists(atPath: $0.path(percentEncoded: false))
+                        }
+                        guard let cached else {
+                            log("MISSING-CACHE \(obj.id) \(obj.name) — bytes not on disk, cannot recover")
+                            continue
+                        }
+                        if obj.state == "ready" {
+                            // Clear stale chunk rows (they reference deleted Telegram
+                            // messages) so the upload re-chunks from scratch.
+                            try? await DatabaseManager.shared.deleteChunks(forObjectID: obj.id)
+                        }
+                        do {
+                            try await UploadEngine.upload(fileURL: cached, progress: { _, _ in }, resumeObject: obj)
+                            log("UPLOADED \(obj.id) \(obj.name)")
+                        } catch {
+                            log("FAILED \(obj.id) \(obj.name): \(error.localizedDescription)")
+                        }
+                    }
+                    log("=== recovery run done ===")
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--stream-server` starts the local byte-range
+                // server at launch (it's normally lazy, started on first playback)
+                // and keeps the app running, so the streaming pipeline can be tested
+                // with curl / the mpv harness without touching the UI.
+                if CommandLine.arguments.contains("--stream-server") {
+                    await VaultStreamServer.shared.startServer()
+                }
+
+                // Hidden debug hook: `--chunk-info <objectID>` prints each chunk's
+                // DB-recorded size vs Telegram's actual document size, then quits.
+                if let idx = CommandLine.arguments.firstIndex(of: "--chunk-info"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    await TelegramClient.shared.debugChunkInfo(objectID: CommandLine.arguments[idx + 1])
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--dump-channel` writes the full channel message
+                // list (id, kind, caption, file name) to /tmp/xcloud-channel.txt, so
+                // the real channel state can be compared against the local catalog.
+                if CommandLine.arguments.contains("--dump-channel") {
+                    await VaultRepair.dumpChannelToFile()
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--dump-chat <chatID>` writes any chat's message
+                // list (id, kind, caption) to /tmp/xcloud-chat-<id>.txt, then quits —
+                // used to inspect share channels directly.
+                if let idx = CommandLine.arguments.firstIndex(of: "--dump-chat"),
+                   CommandLine.arguments.indices.contains(idx + 1),
+                   let chatID = Int64(CommandLine.arguments[idx + 1]) {
+                    try? await TelegramClient.shared.debugDumpChat(chatId: chatID)
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--import-share <link>` runs the full recipient
+                // import path (join, read, forward, catalog) against a share link,
+                // then quits — lets the flow be tested without URL routing. Writes
+                // the result to a file (stdout is lost on _exit).
+                if let idx = CommandLine.arguments.firstIndex(of: "--import-share"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let result: String
+                    do {
+                        try await ShareEngine.importLink(CommandLine.arguments[idx + 1])
+                        result = "SUCCESS"
+                    } catch {
+                        result = "FAILED: \(error.localizedDescription)"
+                    }
+                    try? result.write(toFile: "/tmp/xcloud-import-result.txt", atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--revoke-shares` deletes every outgoing share
+                // channel (revoking their links) so stale test channels can be
+                // cleaned up, writes the count to /tmp/xcloud-revoke.txt, then quits.
+                if CommandLine.arguments.contains("--revoke-shares") {
+                    let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
+                    var revoked = 0
+                    for share in shares where share.state == "active" {
+                        try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+                        var updated = share
+                        updated.state = "revoked"
+                        try? await DatabaseManager.shared.saveShare(updated)
+                        revoked += 1
+                    }
+                    try? "revoked \(revoked) share(s) (of \(shares.count) total)".write(
+                        toFile: "/tmp/xcloud-revoke.txt", atomically: true, encoding: .utf8
+                    )
+                    NSApp.terminate(nil)
+                }
             }
         } catch {
             databaseError = error.localizedDescription
+        }
+    }
+
+    /// Everything that must happen once Telegram authorization completes: adopt/create
+    /// the vault channel, scan it to rebuild the file catalog (this is what restores
+    /// files on a new device), load the profile, and restore transfer state. Runs from
+    /// `bootstrap` at launch and from the login gate the moment the user signs in.
+    @MainActor
+    func completePostAuthSetup() async {
+        guard !hasCompletedPostAuthSetup else { return }
+        hasCompletedPostAuthSetup = true
+        isInitialLoading = true
+        defer { isInitialLoading = false }
+
+        // Ensure the vault record exists BEFORE the scan so we have a channel to
+        // read. On a fresh container this adopts the account's existing vault channel
+        // instead of creating an empty new one.
+        if let vault = try? await VaultManager.ensureVault() {
+            print("xCloud post-auth: vault ready (channel \(vault.channelID))")
+            // Keep the channel tidy: snapshots older than the newest are stale now
+            // that upload() replaces the previous snapshot automatically — this
+            // cleans up any accumulation from before that behavior existed.
+            await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
+            // iCloud-style instant restore: if this device has no catalog yet, fetch
+            // the newest `xcloud:dbsnapshot:v1:` document and rebuild the DB from it
+            // in one shot — no slow per-message scan. Falls back to the full scan.
+            let restored = await CatalogSnapshot.restore()
+            if restored {
+                print("xCloud post-auth: catalog restored from snapshot")
+                await self.loadFiles()
+                await self.loadNotes()
+            } else {
+                let changed = await VaultRepair.run()
+                print("xCloud post-auth: repair scan changed=\(changed), files=\((try? await DatabaseManager.shared.allObjects())?.count ?? -1)")
+                if changed {
+                    await self.loadFiles()
+                    // Publish a corrected checkpoint so a stale snapshot document on
+                    // the channel can't resurrect objects that were purged because
+                    // their Telegram messages no longer exist. SAFETY (2026-08-15
+                    // incident): never publish a catalog that has no real files — a
+                    // collapsed/folders-only state must never overwrite the channel's
+                    // good checkpoint (that is exactly how the collapse propagated).
+                    let fileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
+                        .filter { !$0.isFolder && !$0.trashed }.count
+                    if fileCount > 0, let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal() {
+                        self.lastSyncDate = syncedAt
+                        self.lastSnapshotSignature = await self.currentCatalogSignature()
+                    } else if fileCount == 0 {
+                        print("xCloud post-auth: catalog has zero files — refusing to publish checkpoint (collapse guard)")
+                    }
+                }
+                await self.loadNotes()
+            }
+        } else {
+            print("xCloud post-auth: vault ensure FAILED")
+            await self.loadNotes()
+        }
+
+        // Heal the catalog if earlier snapshot merges duplicated chunk records
+        // (each chunk index must reference exactly ONE Telegram message — duplicates
+        // made downloads assemble files twice the real size). Publish a corrected
+        // checkpoint when anything was removed so the channel's state can't
+        // resurrect the duplicates on the next reconcile.
+        let removedDuplicates = (try? await DatabaseManager.shared.dedupeChunkRecords()) ?? 0
+        if removedDuplicates > 0 {
+            print("xCloud post-auth: removed \(removedDuplicates) duplicate chunk record(s)")
+            let dedupeFileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
+                .filter { !$0.isFolder }.count
+            if dedupeFileCount > 0, let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal() {
+                self.lastSyncDate = syncedAt
+                self.lastSnapshotSignature = await self.currentCatalogSignature()
+            } else if dedupeFileCount == 0 {
+                print("xCloud post-auth: catalog empty after dedupe — refusing checkpoint (collapse guard)")
+            }
+            await self.loadFiles()
+        }
+
+        identity = try? await TelegramClient.shared.fetchIdentity()
+        print("xCloud post-auth: identity=\(identity?.firstName ?? "nil")")
+        if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
+            profilePhotoData = photo
+        }
+        await cleanupExpiredTransfers()
+        await restoreTransferCards()
+        await loadShares()
+        await resumeInterruptedUploads()
+        // Share links delivered while the app was still starting (before the
+        // scene / Telegram were ready) are drained now that everything is up.
+        drainPendingShareLinks()
+        startTransferCleanupLoop()
+        await self.loadFiles()
+
+        // Background thumbnail warm-up: guarantee every media file in the cloud
+        // gets a preview — including uploads that predate Telegram thumbnail
+        // attachment. Quiet thumbnail-only downloads run one at a time, videos
+        // last, so the grid placeholders fill in progressively.
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await ThumbnailService.shared.warmUpMissingThumbnails()
+        }
+        // Media pipeline warm-up: bind the loopback stream server (lazily started
+        // on first playback otherwise) and initialize one throwaway mpv core, so
+        // the FIRST play after a restart never pays the cold-start cost — dylib
+        // load, FFmpeg codec registration, core init, NWListener bind. This is
+        // exactly the "first file lags, every later file is instant" symptom.
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            // App volume = system volume: start observing the output device so
+            // keyboard keys / Control Center changes reach the player sliders.
+            await MainActor.run { SystemVolumeManager.shared.start() }
+            await VaultStreamServer.shared.startServer()
+            await MPVController.warmUp()
+        }
+        // Always publish a snapshot after login — even if the channel's snapshot was
+        // ever missing or deleted, every launch recreates it from the local catalog
+        // (the auto-database-repair guarantee).
+        await forcePublishSnapshot()
+    }
+
+    @MainActor
+    func loadNotes() async {
+        do {
+            notes = try await DatabaseManager.shared.allNotes()
+        } catch {
+            print("Failed to load notes: \(error)")
+        }
+    }
+
+    @MainActor
+    func createNewNoteDraft() {
+        Task {
+            guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+            let note = NoteRecord(
+                id: UUID().uuidString,
+                vaultID: vault.id,
+                title: "",
+                content: "",
+                colorHex: "amber",
+                isPinned: false,
+                trashed: false,
+                tags: "",
+                createdAt: .now,
+                modifiedAt: .now
+            )
+            // The editor sheet is hosted by NotesView, so hop to the Notes page
+            // first and give it a moment to mount before presenting the sheet.
+            selectedDestination = .notes
+            selectedFiles.removeAll()
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            editingNote = note
+        }
+    }
+
+    @MainActor
+    func createNote(title: String, content: String, colorHex: String = "amber", isPinned: Bool = false, tags: String = "") {
+        Task {
+            guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+            let note = NoteRecord(
+                id: UUID().uuidString,
+                vaultID: vault.id,
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                content: content,
+                colorHex: colorHex,
+                isPinned: isPinned,
+                trashed: false,
+                tags: tags,
+                createdAt: .now,
+                modifiedAt: .now
+            )
+            try? await DatabaseManager.shared.save(note)
+            await loadNotes()
+        }
+    }
+
+    @MainActor
+    func updateNote(_ note: NoteRecord) {
+        Task {
+            var updated = note
+            updated.modifiedAt = .now
+            try? await DatabaseManager.shared.save(updated)
+            await loadNotes()
+        }
+    }
+
+    @MainActor
+    func togglePinNote(_ note: NoteRecord) {
+        Task {
+            var updated = note
+            updated.isPinned.toggle()
+            updated.modifiedAt = .now
+            try? await DatabaseManager.shared.save(updated)
+            await loadNotes()
+        }
+    }
+
+    @MainActor
+    func trashNote(_ note: NoteRecord) {
+        Task {
+            var updated = note
+            updated.trashed = true
+            updated.modifiedAt = .now
+            try? await DatabaseManager.shared.save(updated)
+            await loadNotes()
+        }
+    }
+
+    @MainActor
+    func deleteNoteForever(_ note: NoteRecord) {
+        Task {
+            try? await DatabaseManager.shared.delete(note)
+            await loadNotes()
         }
     }
 
@@ -204,6 +744,9 @@ final class AppState {
         profilePhotoData = nil
         selectedFiles.removeAll()
         theaterFile = nil
+        hasCompletedPostAuthSetup = false
+        files = []
+        notes = []
         await self.loadFiles()
     }
 
@@ -288,6 +831,49 @@ final class AppState {
             }
             isUploading = false
         }
+    }
+
+    /// Settings → "Sync Now": the one-shot repair + publish action. If the local
+    /// catalog is empty it first tries the instant snapshot restore; otherwise (or
+    /// when no snapshot exists) it falls back to rebuilding from the per-message
+    /// channel scan — the auto-database-repair path. Either way it then force-
+    /// publishes a fresh snapshot, so the channel always carries the current catalog.
+    /// Shows the outcome in an alert so a failed sync is visible, not silent.
+    @MainActor
+    func syncNow() async {
+        guard TelegramClient.shared.isAuthorized else {
+            alertMessage = "Not logged in — connect your Telegram account first."
+            return
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        guard let vault = try? await VaultManager.ensureVault() else {
+            alertMessage = "No vault available to sync."
+            return
+        }
+
+        let before = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
+        // Only an empty local catalog is eligible for instant snapshot restore — a
+        // populated device keeps its own data and reconciles via the channel scan.
+        let restored: Bool
+        if before == 0 {
+            restored = await CatalogSnapshot.restore()
+        } else {
+            restored = false
+        }
+        if restored {
+            await self.loadFiles()
+            alertMessage = "Sync complete — catalog restored instantly from the cloud snapshot."
+        } else {
+            let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+            let v1Captions = messages.filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix("xcloud:v1:") }.count
+            let changed = await VaultRepair.run()
+            let after = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
+            await self.loadFiles()
+            print("xCloud sync: messages=\(messages.count) v1Captions=\(v1Captions) before=\(before) after=\(after) changed=\(changed)")
+            alertMessage = "Sync complete — \(messages.count) messages in the channel (\(v1Captions) with file metadata), \(before) → \(after) files restored."
+        }
+        await forcePublishSnapshot()
     }
 
     // MARK: - Resumable transfers
@@ -401,6 +987,108 @@ final class AppState {
         selectedFiles.removeAll()
     }
 
+    /// Finder-style "reveal in folder": jumps to the object's enclosing folder
+    /// (switching to a destination where it's visible), selects it, and asks the
+    /// browser to flash its border highlight. Used by the transfer cards' reveal.
+    @MainActor
+    func revealObject(_ object: ObjectRecord) {
+        selectDestination(object.isPrivate ? .privateVault : .allFiles)
+        currentFolderID = object.parentID
+        searchText = ""
+        selectedFiles = [object.id]
+        revealObjectID = object.id
+        revealToken &+= 1
+    }
+
+    // MARK: - Cloud sharing
+
+    /// Loads incoming share records (files other xCloud users shared with me).
+    @MainActor
+    func loadShares() async {
+        incomingShares = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
+    }
+
+    /// Sender side: creates the share channel, posts the encrypted chunks, and
+    /// presents the share link. The link carries the share key — it IS the
+    /// credential, so only someone holding the link can import the file.
+    @MainActor
+    func shareFile(_ object: ObjectRecord) {
+        guard !isSharingFile else { return }
+        isSharingFile = true
+        Task {
+            defer { isSharingFile = false }
+            do {
+                shareResultLink = try await ShareEngine.share(object: object)
+            } catch {
+                // describe() pulls the real reason out of TDLibKit errors instead of
+                // the useless "TDLibKit.Error error 1" localizedDescription.
+                alertMessage = ShareEngine.describe(error)
+            }
+        }
+    }
+
+    /// Recipient side: opens a share link — joins the share channel, forwards the
+    /// chunks into this user's own vault, catalogs the file, and leaves. When the
+    /// sharer opens their own link, the original file is revealed instead (no
+    /// duplicate import — Drive/iCloud behavior).
+    @MainActor
+    func importShareLink(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Task {
+            do {
+                switch try await ShareEngine.importLink(trimmed) {
+                case .imported:
+                    alertMessage = "Shared file imported — find it under Shared."
+                    await self.loadFiles()
+                    await self.loadShares()
+                case .selfOpen(let objectID):
+                    // Quiet, Drive-style behavior: reveal + select the original.
+                    // No modal alert — the reveal highlight IS the feedback.
+                    // A trashed original is revealed inside the Trash itself.
+                    await self.loadFiles()
+                    if let object = self.files.first(where: { $0.id == objectID }) {
+                        if object.trashed {
+                            selectDestination(.trash)
+                            currentFolderID = nil
+                            searchText = ""
+                            selectedFiles = [object.id]
+                            revealObjectID = object.id
+                            revealToken &+= 1
+                        } else {
+                            revealObject(object)
+                        }
+                    }
+                }
+            } catch {
+                alertMessage = ShareEngine.describe(error)
+            }
+        }
+    }
+
+    /// Entry point for `xcloud://share…` links opened by the OS (onOpenURL).
+    @MainActor
+    func handleIncomingURL(_ url: URL) {
+        guard url.scheme == "xcloud" else { return }
+        importShareLink(url.absoluteString)
+    }
+
+    /// Processes share links queued by the AppDelegate. Each link is handled
+    /// exactly once: warm delivery drains immediately (the app is post-auth), and
+    /// cold-launch delivery is deferred until `completePostAuthSetup` finishes
+    /// (otherwise the import would race Telegram authorization and fail with
+    /// "Sign in to Telegram").
+    @MainActor
+    func drainPendingShareLinks() {
+        guard hasCompletedPostAuthSetup else { return }
+        let urls = TerminationHandler.pendingOpenURLs
+        guard !urls.isEmpty else { return }
+        TerminationHandler.pendingOpenURLs = []
+        for url in urls {
+            handleIncomingURL(url)
+        }
+    }
+
     @MainActor
     func navigateBack() {
         if let currentFolderID {
@@ -505,31 +1193,41 @@ final class AppState {
 
     func visibleFilesInCurrentContext() -> [ObjectRecord] {
         let files = self.files.filter { $0.state == "ready" }
+        let base: [ObjectRecord]
         switch selectedDestination {
         case .allFiles:
-            return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentFolderID }
+            base = files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentFolderID }
         case .privateVault:
-            return files.filter { !$0.trashed && $0.isPrivate && $0.parentID == currentFolderID }
+            base = files.filter { !$0.trashed && $0.isPrivate && $0.parentID == currentFolderID }
         case .trash:
-            return files.filter { $0.trashed }
+            base = files.filter { $0.trashed }
+        case .archive:
+            base = files.filter { $0.isArchived }
         case .favorites:
-            return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+            base = files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
         case .photos:
-            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
-                ($0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())) }
+            base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.isPhoto }
         case .recent:
-            return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
+            base = Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
         case .video:
-            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("video/") }
+            base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.isVideo }
         case .audio:
-            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.mime.hasPrefix("audio/") }
+            base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.isAudio }
         case .documents:
-            return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
+            base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate &&
                 ($0.mime.contains("pdf") || $0.mime.hasPrefix("text/") ||
                  $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
-        case .transfers:
-            return []
+        case .library:
+            base = files.filter { !$0.trashed && $0.isBook }
+        case .notes, .transfers:
+            base = []
+        case .shared:
+            let sharedIDs = Set(incomingShares.map(\.objectID))
+            base = files.filter { sharedIDs.contains($0.id) && !$0.trashed }
         }
+        // Archived files are hidden everywhere except the Archive destination.
+        if selectedDestination == .archive { return base }
+        return base.filter { !$0.isArchived }
     }
 
     // MARK: - Folder operations
@@ -608,10 +1306,24 @@ final class AppState {
     func addToPlaylist(_ file: ObjectRecord, playlistID: String) {
         Task {
             let oldParent = file.parentID
-            var updated = file
-            updated.parentID = playlistID
-            try? await DatabaseManager.shared.save(updated)
-            syncObjectMetadataToTelegram(updated)
+            // Must go through updateObject: a plain save() writes the record with
+            // its OLD modifiedAt, the snapshot merge sees a tie with the channel's
+            // copy, keeps the remote parentID and the move silently reverts ~4s
+            // later (the "photo moves back" bug).
+            try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = playlistID }
+            if let updated = try? await DatabaseManager.shared.object(file.id) {
+                syncObjectMetadataToTelegram(updated)
+                // Auto cover: the first photo added to an album without a cover
+                // becomes its cover, matching the drag-drop path.
+                if updated.isPhoto,
+                   let album = self.files.first(where: { $0.id == playlistID }),
+                   album.isFolder, album.mime == "xcloud/album-photo", album.coverObjectID == nil {
+                    try? await DatabaseManager.shared.updateObject(album.id) { $0.coverObjectID = updated.id }
+                    if let albumUpdated = try? await DatabaseManager.shared.object(album.id) {
+                        syncObjectMetadataToTelegram(albumUpdated)
+                    }
+                }
+            }
             await self.loadFiles()
             registerUndo("Add to Playlist") {
                 try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = oldParent }
@@ -721,6 +1433,46 @@ final class AppState {
         }
     }
 
+    /// Moves several objects into a folder/album at once. When the target is an
+    /// album with no cover yet, the first moved photo becomes its cover.
+    @MainActor
+    func moveObjects(ids: [String], to folderID: String?) {
+        let target = folderID.flatMap { id in files.first(where: { $0.id == id }) }
+        for id in ids {
+            moveObject(id: id, to: folderID)
+        }
+        guard let album = target, album.isFolder, album.coverObjectID == nil else { return }
+        Task {
+            if let first = ids.first {
+                try? await DatabaseManager.shared.updateObject(album.id) { $0.coverObjectID = first }
+                if let updated = try? await DatabaseManager.shared.object(album.id) {
+                    syncObjectMetadataToTelegram(updated)
+                }
+                await self.loadFiles()
+            }
+        }
+    }
+
+    /// Sets (or clears) the cover of an album/playlist folder.
+    @MainActor
+    func setAlbumCover(_ album: ObjectRecord, photoID: String?) {
+        let oldCover = album.coverObjectID
+        Task {
+            try? await DatabaseManager.shared.updateObject(album.id) { $0.coverObjectID = photoID }
+            if let updated = try? await DatabaseManager.shared.object(album.id) {
+                syncObjectMetadataToTelegram(updated)
+            }
+            await self.loadFiles()
+            registerUndo(photoID == nil ? "Remove Album Cover" : "Set Album Cover") {
+                try? await DatabaseManager.shared.updateObject(album.id) { $0.coverObjectID = oldCover }
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.updateObject(album.id) { $0.coverObjectID = photoID }
+                await self.loadFiles()
+            }
+        }
+    }
+
     private func unencryptFileInTelegram(id: String) async {
         guard let file = files.first(where: { $0.id == id }) else { return }
         if file.isFolder {
@@ -792,6 +1544,15 @@ final class AppState {
                 total += Int64(size)
             }
         }
+        // Upload/download staging files count too — they are real disk usage (and
+        // historically a large source of "hidden" space: leftover .bin files).
+        if let tmpDir = try? UploadEngine.tempDirectory(),
+           let urls = try? fm.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: [.fileSizeKey]) {
+            for url in urls {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                total += Int64(size)
+            }
+        }
         return total
     }
 
@@ -804,6 +1565,20 @@ final class AppState {
             }
             if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
                 try? FileManager.default.removeItem(at: thumbDir)
+            }
+            // Clear STALE upload/download staging files only — a fresh .bin belongs
+            // to an in-flight transfer and must not be yanked away.
+            if let tmpDir = try? UploadEngine.tempDirectory() {
+                let cutoff = Date().addingTimeInterval(-3600)
+                let stale = (try? FileManager.default.contentsOfDirectory(
+                    at: tmpDir, includingPropertiesForKeys: [.contentModificationDateKey]
+                )) ?? []
+                for url in stale {
+                    if let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                       date < cutoff {
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                }
             }
             thumbnailVersion += 1
             // Force thumbnails to regenerate on next load
@@ -898,6 +1673,8 @@ final class AppState {
                 "isFolder": object.isFolder,
                 "trashed": object.trashed,
                 "isFavorite": object.isFavorite,
+                "isArchived": object.isArchived,
+                "coverObjectID": object.coverObjectID ?? "",
                 "totalChunks": max(1, chunks.count),
                 "wrappedKey": object.wrappedKey?.base64EncodedString() ?? ""
             ]
@@ -985,6 +1762,60 @@ final class AppState {
     }
 
     @MainActor
+    func setArchived(_ file: ObjectRecord, _ archived: Bool) {
+        Task {
+            let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+            var ids = [file.id]
+            var stack = [file.id]
+            while let id = stack.popLast() {
+                for child in all where child.parentID == id {
+                    ids.append(child.id)
+                    stack.append(child.id)
+                }
+            }
+            for id in ids {
+                try? await DatabaseManager.shared.updateObject(id) { $0.isArchived = archived }
+                if let updated = try? await DatabaseManager.shared.object(id) {
+                    syncObjectMetadataToTelegram(updated)
+                }
+            }
+            selectedFiles.subtract(ids)
+            if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
+            await self.loadFiles()
+            registerUndo(archived ? "Archive \(ids.count) Item\(ids.count == 1 ? "" : "s")" : "Unarchive") {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.isArchived = !archived }
+                }
+                await self.loadFiles()
+            } redo: {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.isArchived = archived }
+                }
+                await self.loadFiles()
+            }
+        }
+    }
+
+    @MainActor
+    func setInLibrary(_ file: ObjectRecord, _ inLibrary: Bool) {
+        Task {
+            try? await DatabaseManager.shared.updateObject(file.id) { $0.isInLibrary = inLibrary }
+            if let updated = try? await DatabaseManager.shared.object(file.id) {
+                syncObjectMetadataToTelegram(updated)
+            }
+            selectedFiles.subtract([file.id])
+            await self.loadFiles()
+            registerUndo(inLibrary ? "Add to Library" : "Remove from Library") {
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.isInLibrary = !inLibrary }
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.isInLibrary = inLibrary }
+                await self.loadFiles()
+            }
+        }
+    }
+
+    @MainActor
     func rename(_ file: ObjectRecord, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1008,10 +1839,16 @@ final class AppState {
     @MainActor
     func emptyTrash() {
         let trashed = files.filter { $0.trashed }
+        let trashedNotes = notes.filter { $0.trashed }
         Task {
             for file in trashed {
                 deleteForever(file)
             }
+            // Notes are stored locally, so emptying trash also purges trashed notes.
+            for note in trashedNotes {
+                try? await DatabaseManager.shared.delete(note)
+            }
+            await loadNotes()
             await VaultRepair.purgeOrphanedMessages()
         }
     }
@@ -1028,6 +1865,12 @@ final class AppState {
                     stack.append(child.id)
                 }
             }
+
+            // Share links die with the file: revoke every outgoing share of these
+            // objects — delete the share channel (the link's payload) and mark the
+            // record revoked so the expiry cleanup doesn't double-handle. The link
+            // stops working the moment the file is gone.
+            await revokeShares(for: ids)
 
             if let vault = try? await DatabaseManager.shared.firstVault() {
                 for id in ids {
@@ -1047,21 +1890,63 @@ final class AppState {
                 if let url = UploadEngine.thumbnailURL(for: id) {
                     try? FileManager.default.removeItem(at: url)
                 }
+                await FaceEngine.shared.deleteFaces(for: id)
             }
 
             selectedFiles.subtract(ids)
             if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
             await self.loadFiles()
             await VaultRepair.purgeOrphanedMessages()
+            // Publish the post-deletion catalog as a fresh checkpoint (no reconcile,
+            // which would merge the deleted records back in from the channel's older
+            // checkpoint). Without this, the next refresh's upload() reconciles the
+            // channel state — which still lists the deleted object — and the file
+            // silently resurrects. Uses force: true because the user intentionally
+            // deleted these files — even if the catalog is now empty, that's correct.
+            let remainingFiles = ((try? await DatabaseManager.shared.allObjects()) ?? [])
+                .filter { !$0.isFolder }.count
+            print("xCloud deleteForever: publishing checkpoint with \(remainingFiles) remaining file(s)")
+            if let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal(force: true) {
+                self.lastSyncDate = syncedAt
+                self.lastSnapshotSignature = await self.currentCatalogSignature()
+            }
+        }
+    }
+
+    /// Deletes the share channel of every active outgoing share of the given
+    /// objects and marks the records revoked — the links stop working immediately
+    /// (the channel no longer exists, so importing fails cleanly instead of
+    /// silently restoring a deleted file).
+    @MainActor
+    private func revokeShares(for ids: [String]) async {
+        let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
+        for share in shares where share.state == "active" && ids.contains(share.objectID) {
+            try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+            var updated = share
+            updated.state = "revoked"
+            try? await DatabaseManager.shared.saveShare(updated)
         }
     }
 
     @MainActor
-    func resetVault() async {
+    func resetVault(confirmed: Bool = false) async {
+        guard confirmed else {
+            print("xCloud: resetVault called without confirmation — refusing")
+            return
+        }
         isResetting = true
         defer { isResetting = false }
 
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+
+        // A reset kills every share link too: the objects they point at are gone.
+        let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
+        for share in shares where share.state == "active" {
+            try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+            var updated = share
+            updated.state = "revoked"
+            try? await DatabaseManager.shared.saveShare(updated)
+        }
 
         let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: vault.channelID)
         for i in stride(from: 0, to: ids.count, by: 100) {
