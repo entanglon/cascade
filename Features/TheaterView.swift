@@ -833,7 +833,7 @@ struct TheaterView: View {
                  $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
         case .library:
             base = files.filter { !$0.trashed && $0.isBook }
-        case .notes, .transfers, .shared:
+        case .transfers, .shared:
             base = []
         case .archive:
             base = files.filter { $0.isArchived }

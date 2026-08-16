@@ -3,7 +3,7 @@ import Observation
 import AppKit
 
 enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
-    case allFiles, privateVault, notes, recent, favorites, photos, video, audio, documents, library, transfers, shared, archive, trash
+    case allFiles, privateVault, recent, favorites, photos, video, audio, documents, library, transfers, shared, archive, trash
 
     var id: String { rawValue }
 
@@ -11,7 +11,6 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .allFiles: return "All Files"
         case .privateVault: return "Private Vault"
-        case .notes: return "Notes"
         case .recent: return "Recent"
         case .favorites: return "Favorites"
         case .photos: return "Photos"
@@ -30,7 +29,6 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .allFiles: return "square.grid.2x2"
         case .privateVault: return "number"
-        case .notes: return "note.text"
         case .recent: return "clock"
         case .favorites: return "star"
         case .photos: return "photo.fill"
@@ -51,8 +49,6 @@ final class AppState {
     var selectedDestination: SidebarDestination = .allFiles
     var searchText = ""
     var selectedFiles: Set<String> = []
-    var notes: [NoteRecord] = []
-    var editingNote: NoteRecord? = nil
     var isPrivateVaultUnlocked = false
     var thumbnailVersion = 0
     /// The file grid's live column count, kept in sync by FileBrowserView so the
@@ -546,7 +542,6 @@ final class AppState {
             if restored {
                 print("xCloud post-auth: catalog restored from snapshot")
                 await self.loadFiles()
-                await self.loadNotes()
             } else {
                 let changed = await VaultRepair.run()
                 print("xCloud post-auth: repair scan changed=\(changed), files=\((try? await DatabaseManager.shared.allObjects())?.count ?? -1)")
@@ -567,11 +562,9 @@ final class AppState {
                         print("xCloud post-auth: catalog has zero files — refusing to publish checkpoint (collapse guard)")
                     }
                 }
-                await self.loadNotes()
             }
         } else {
             print("xCloud post-auth: vault ensure FAILED")
-            await self.loadNotes()
         }
 
         // Heal the catalog if earlier snapshot merges duplicated chunk records
@@ -638,101 +631,6 @@ final class AppState {
     }
 
     @MainActor
-    func loadNotes() async {
-        do {
-            notes = try await DatabaseManager.shared.allNotes()
-        } catch {
-            print("Failed to load notes: \(error)")
-        }
-    }
-
-    @MainActor
-    func createNewNoteDraft() {
-        Task {
-            guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
-            let note = NoteRecord(
-                id: UUID().uuidString,
-                vaultID: vault.id,
-                title: "",
-                content: "",
-                colorHex: "amber",
-                isPinned: false,
-                trashed: false,
-                tags: "",
-                createdAt: .now,
-                modifiedAt: .now
-            )
-            // The editor sheet is hosted by NotesView, so hop to the Notes page
-            // first and give it a moment to mount before presenting the sheet.
-            selectedDestination = .notes
-            selectedFiles.removeAll()
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            editingNote = note
-        }
-    }
-
-    @MainActor
-    func createNote(title: String, content: String, colorHex: String = "amber", isPinned: Bool = false, tags: String = "") {
-        Task {
-            guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
-            let note = NoteRecord(
-                id: UUID().uuidString,
-                vaultID: vault.id,
-                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                content: content,
-                colorHex: colorHex,
-                isPinned: isPinned,
-                trashed: false,
-                tags: tags,
-                createdAt: .now,
-                modifiedAt: .now
-            )
-            try? await DatabaseManager.shared.save(note)
-            await loadNotes()
-        }
-    }
-
-    @MainActor
-    func updateNote(_ note: NoteRecord) {
-        Task {
-            var updated = note
-            updated.modifiedAt = .now
-            try? await DatabaseManager.shared.save(updated)
-            await loadNotes()
-        }
-    }
-
-    @MainActor
-    func togglePinNote(_ note: NoteRecord) {
-        Task {
-            var updated = note
-            updated.isPinned.toggle()
-            updated.modifiedAt = .now
-            try? await DatabaseManager.shared.save(updated)
-            await loadNotes()
-        }
-    }
-
-    @MainActor
-    func trashNote(_ note: NoteRecord) {
-        Task {
-            var updated = note
-            updated.trashed = true
-            updated.modifiedAt = .now
-            try? await DatabaseManager.shared.save(updated)
-            await loadNotes()
-        }
-    }
-
-    @MainActor
-    func deleteNoteForever(_ note: NoteRecord) {
-        Task {
-            try? await DatabaseManager.shared.delete(note)
-            await loadNotes()
-        }
-    }
-
-    @MainActor
     func resumeInterruptedUploads() async {
         let stuck = files.filter { $0.state == "uploading" }
         guard !stuck.isEmpty else { return }
@@ -764,7 +662,6 @@ final class AppState {
         theaterFile = nil
         hasCompletedPostAuthSetup = false
         files = []
-        notes = []
         await self.loadFiles()
     }
 
@@ -1237,7 +1134,7 @@ final class AppState {
                  $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
         case .library:
             base = files.filter { !$0.trashed && $0.isBook }
-        case .notes, .transfers:
+        case .transfers:
             base = []
         case .shared:
             let sharedIDs = Set(incomingShares.map(\.objectID))
@@ -1860,16 +1757,10 @@ final class AppState {
     @MainActor
     func emptyTrash() {
         let trashed = files.filter { $0.trashed }
-        let trashedNotes = notes.filter { $0.trashed }
         Task {
             for file in trashed {
                 deleteForever(file)
             }
-            // Notes are stored locally, so emptying trash also purges trashed notes.
-            for note in trashedNotes {
-                try? await DatabaseManager.shared.delete(note)
-            }
-            await loadNotes()
             await VaultRepair.purgeOrphanedMessages()
         }
     }

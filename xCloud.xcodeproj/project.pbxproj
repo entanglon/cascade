@@ -33,8 +33,6 @@
 		F783B6A13024000000326355 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A23024000000326355 /* MiniPlayerView.swift */; };
 		F783B6A33024000000326355 /* MiniTransfersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A43024000000326355 /* MiniTransfersView.swift */; };
 		F783B6A53024000000326355 /* LiquidMorphingFAB.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6A63024000000326355 /* LiquidMorphingFAB.swift */; };
-		F783B7013025000000326355 /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B7023025000000326355 /* NotesView.swift */; };
-		F783B7033025000000326355 /* NoteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B7043025000000326355 /* NoteEditorSheet.swift */; };
 		F7A1B00100000000000000A1 /* BookReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00100000000000000B1 /* BookReaderView.swift */; };
 		F7A1B00200000000000000A1 /* PhotosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00200000000000000B1 /* PhotosGridView.swift */; };
 		F7A1B00300000000000000A1 /* VideosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00300000000000000B1 /* VideosGridView.swift */; };
@@ -88,8 +86,6 @@
 		F783B6A23024000000326355 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
 		F783B6A43024000000326355 /* MiniTransfersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniTransfersView.swift; sourceTree = "<group>"; };
 		F783B6A63024000000326355 /* LiquidMorphingFAB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidMorphingFAB.swift; sourceTree = "<group>"; };
-		F783B7023025000000326355 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
-		F783B7043025000000326355 /* NoteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteEditorSheet.swift; sourceTree = "<group>"; };
 		F7C0FF00000000000000A010 /* MPVVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVVideoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -225,8 +221,6 @@
 				F783B6A23024000000326355 /* MiniPlayerView.swift */,
 				F783B6A43024000000326355 /* MiniTransfersView.swift */,
 				F783B6A63024000000326355 /* LiquidMorphingFAB.swift */,
-				F783B7023025000000326355 /* NotesView.swift */,
-				F783B7043025000000326355 /* NoteEditorSheet.swift */,
 				F7A1B00100000000000000B1 /* BookReaderView.swift */,
 				F7A1B00200000000000000B1 /* PhotosGridView.swift */,
 				F7A1B00300000000000000B1 /* VideosGridView.swift */,
@@ -403,8 +397,6 @@
 				F783B6A13024000000326355 /* MiniPlayerView.swift in Sources */,
 				F783B6A33024000000326355 /* MiniTransfersView.swift in Sources */,
 				F783B6A53024000000326355 /* LiquidMorphingFAB.swift in Sources */,
-				F783B7013025000000326355 /* NotesView.swift in Sources */,
-				F783B7033025000000326355 /* NoteEditorSheet.swift in Sources */,
 				F7A1B00100000000000000A1 /* BookReaderView.swift in Sources */,
 				F7A1B00200000000000000A1 /* PhotosGridView.swift in Sources */,
 				F7A1B00300000000000000A1 /* VideosGridView.swift in Sources */,

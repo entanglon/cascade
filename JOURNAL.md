@@ -354,3 +354,28 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
 - Rename per user request: channel is now **"xCloud Backup"**; `findBackupChannel`
   adopts a legacy "xCloud Restore" channel if present and renames it via
   `setChatTitle`.
+
+## 2026-08-16 — Notes feature removed
+
+- User decision: notes were never used; they are the one feature that is local-only
+  (never synced to the vault channel, no catalog/snapshot/backup involvement), so
+  they didn't fit xCloud's cloud model. Remove entirely; no notes exist to preserve.
+- Deleted `Features/NotesView.swift` + `Features/NoteEditorSheet.swift` (also
+  stripped from project.pbxproj — they were still explicitly referenced there,
+  unlike the auto-synced root group).
+- `AppState`: `.notes` destination removed (sidebar entry auto-disappears via
+  `allCases`), `notes`/`editingNote` state, `loadNotes`/`createNewNoteDraft`/
+  `createNote`/`updateNote`/`togglePinNote`/`trashNote`/`deleteNoteForever`,
+  `emptyTrash`'s trashed-notes purge, `notes = []` in reset.
+- `Models`: `NoteRecord` removed. `DatabaseManager`: note CRUD methods removed,
+  `deleteVaultAndData` note cleanup dropped, **v21-drop-notes** migration drops the
+  table (v7/v8 migrations stay — GRDB only runs unapplied ones).
+- UI: trashed-notes sections on the Trash page, `trashNoteMenu`/helpers, "New Note"
+  in the FAB, key-monitor defers and page-context-menu exceptions referencing
+  notes. Unit test `noteRecordPersistenceAndPinToggle` removed.
+- Gotcha: worktree had silently diverged — the freebuff branch's HEAD predates
+  main commits that touched `Engine/TransferCenter.swift` and
+  `Features/BookReaderView.swift`; the test host compile caught the mismatch
+  (`TransferCenter.batchProgress` missing). Rule reinforced: sync the FULL tree
+  (diff -rq), not just files touched this session.
+- Build green (main + worktree), full test suite green.

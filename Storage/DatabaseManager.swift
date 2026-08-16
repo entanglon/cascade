@@ -321,6 +321,13 @@ actor DatabaseManager {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+
+        // Notes feature removed (2026-08-16) — local-only, never synced to the
+        // vault; drop the orphaned table. The v7/v8 migrations above stay as-is
+        // because GRDB only applies migrations that haven't run yet.
+        migrator.registerMigration("v21-drop-notes") { db in
+            try db.drop(table: "notes")
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
@@ -356,14 +363,6 @@ actor DatabaseManager {
 
     func save(_ transfer: TransferRecord) throws {
         try write { db in try transfer.save(db) }
-    }
-
-    func save(_ note: NoteRecord) throws {
-        try write { db in try note.save(db) }
-    }
-
-    func delete(_ note: NoteRecord) throws {
-        try write { db in _ = try NoteRecord.deleteOne(db, id: note.id) }
     }
 
     /// Finished-transfer history, newest first. Bounded to the most recent
@@ -419,20 +418,6 @@ actor DatabaseManager {
                     .fetchAll(db)
             }
             return try ShareRecord.order(Column("createdAt").desc).fetchAll(db)
-        }
-    }
-
-    func allNotes() throws -> [NoteRecord] {
-        try read { db in
-            try NoteRecord
-                .order(Column("isPinned").desc, Column("modifiedAt").desc)
-                .fetchAll(db)
-        }
-    }
-
-    func note(id: String) throws -> NoteRecord? {
-        try read { db in
-            try NoteRecord.filter(Column("id") == id).fetchOne(db)
         }
     }
 
@@ -734,8 +719,8 @@ actor DatabaseManager {
         try read { db in try VaultRecord.fetchOne(db) }
     }
 
-    /// Removes a vault and everything referencing it (objects, chunks, transfers,
-    /// notes) plus its account row. Used to purge test/dummy vaults so they can't
+    /// Removes a vault and everything referencing it (objects, chunks, transfers)
+    /// plus its account row. Used to purge test/dummy vaults so they can't
     /// block discovery of the real vault channel.
     func deleteVaultAndData(id: String) throws {
         try write { db in
@@ -745,7 +730,6 @@ actor DatabaseManager {
                 _ = try ChunkRecord.filter(Column("objectID") == oid).deleteAll(db)
             }
             _ = try ObjectRecord.filter(Column("vaultID") == id).deleteAll(db)
-            _ = try NoteRecord.filter(Column("vaultID") == id).deleteAll(db)
             guard let vault = try VaultRecord.fetchOne(db, id: id) else { return }
             // Delete the vault BEFORE its account row — the vault holds a foreign key
             // to the account, so deleting the account first violates the constraint.

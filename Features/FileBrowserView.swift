@@ -28,7 +28,6 @@ struct FileBrowserView: View {
     @State private var itemFrames: [String: CGRect] = [:]
     @State private var marqueeStart: CGPoint?
     @State private var marqueeCurrent: CGPoint?
-    @State private var selectedTrashNoteIDs: Set<String> = []
     /// Set whenever keyboard navigation changes the selection; the grid/list
     /// scroll to this item so arrow navigation never leaves it off-screen.
     @State private var scrollTargetID: String?
@@ -127,7 +126,7 @@ struct FileBrowserView: View {
                      $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
             case .library:
                 return files.filter { !$0.trashed && $0.isBook }
-            case .notes, .transfers:
+            case .transfers:
                 return []
             case .shared:
                 let sharedIDs = Set(appState.incomingShares.map(\.objectID))
@@ -280,13 +279,10 @@ struct FileBrowserView: View {
                 } else {
                     topBar
 
-                    if appState.selectedDestination == .notes {
-                        NotesView()
-                            .transition(.opacity)
-                    } else if appState.selectedDestination == .transfers {
+                    if appState.selectedDestination == .transfers {
                         TransfersView()
                             .transition(.opacity)
-                    } else if visibleFiles.isEmpty && trashNotes.isEmpty && !appState.isUploading {
+                    } else if visibleFiles.isEmpty && !appState.isUploading {
                         if appState.isInitialLoading {
                             loadingStateView
                                 .transition(.opacity)
@@ -296,7 +292,7 @@ struct FileBrowserView: View {
                         }
                     } else {
                         VStack(spacing: 16) {
-                            if !visibleFiles.isEmpty || !trashNotes.isEmpty {
+                            if !visibleFiles.isEmpty {
                                 if viewModeRaw == "list" { listView } else { gridView }
                             }
                             // While an upload is in progress the folder may still be
@@ -324,10 +320,9 @@ struct FileBrowserView: View {
             .contextMenu {
                 // Page menu on ANY empty area (not just cards): the whole content
                 // region right-clicks to the page actions, while card/row menus
-                // (deeper in the hierarchy) still win on individual items. Notes and
-                // Transfers have their own pages — no file-page menu there.
-                if appState.selectedDestination != .notes
-                    && appState.selectedDestination != .transfers {
+                // (deeper in the hierarchy) still win on individual items.
+                // Transfers has its own page — no file-page menu there.
+                if appState.selectedDestination != .transfers {
                     pageContextMenu
                 }
             }
@@ -481,9 +476,7 @@ struct FileBrowserView: View {
                 shouldDefer: {
                     appState.theaterFile != nil
                         || appState.readerFile != nil
-                        || appState.editingNote != nil
                         || AudioPlayerEngine.shared.isFullScreen
-                        || appState.selectedDestination == .notes
                         || appState.selectedDestination == .transfers
                 },
                 onDelete: {
@@ -1028,26 +1021,6 @@ struct FileBrowserView: View {
                             }
                         }
                     }
-
-                    // Notes Section — trashed notes under their own heading on the Trash page.
-                    if appState.selectedDestination == .trash && !trashNotes.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Notes")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(XTheme.textPrimary)
-
-                            LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                                spacing: 12
-                            ) {
-                                ForEach(trashNotes) { note in
-                                    NoteCardView(note: note, isSelected: selectedTrashNoteIDs.contains(note.id), showsActions: false)
-                                        .simultaneousGesture(TapGesture(count: 1).onEnded { selectTrashNote(note) })
-                                        .contextMenu { trashNoteMenu(note) }
-                                }
-                            }
-                        }
-                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
@@ -1127,23 +1100,6 @@ struct FileBrowserView: View {
                                     .contextMenu { menu(for: file) }
                                     .onDrag { dragProvider(for: file) }
                                     .reportGridFrame(id: file.id)
-                            }
-                        }
-                    }
-                }
-
-                // Notes Section — trashed notes under their own heading on the Trash page.
-                if appState.selectedDestination == .trash && !trashNotes.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Notes")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(XTheme.textPrimary)
-
-                        LazyVStack(spacing: 4) {
-                            ForEach(trashNotes) { note in
-                                NoteListRow(note: note, isSelected: selectedTrashNoteIDs.contains(note.id), showsActions: false)
-                                    .simultaneousGesture(TapGesture(count: 1).onEnded { selectTrashNote(note) })
-                                    .contextMenu { trashNoteMenu(note) }
                             }
                         }
                     }
@@ -1681,34 +1637,7 @@ struct FileBrowserView: View {
         return "Files matching this category will appear here."
     }
 
-    // MARK: - Trashed Notes (rendered inline with trashed files)
-
-    private var trashNotes: [NoteRecord] {
-        appState.notes.filter { $0.trashed }
     }
-
-    private func selectTrashNote(_ note: NoteRecord) {
-        selectedTrashNoteIDs = selectedTrashNoteIDs.contains(note.id) ? [] : [note.id]
-    }
-
-    private func restoreTrashNote(_ note: NoteRecord) {
-        var updated = note
-        updated.trashed = false
-        appState.updateNote(updated)
-        selectedTrashNoteIDs.remove(note.id)
-    }
-
-    @ViewBuilder
-    private func trashNoteMenu(_ note: NoteRecord) -> some View {
-        Button("Restore") {
-            restoreTrashNote(note)
-        }
-        Divider()
-        Button("Delete Forever", role: .destructive) {
-            appState.deleteNoteForever(note)
-        }
-    }
-}
 
 // MARK: - Context Menu View Component
 
@@ -2916,7 +2845,7 @@ struct PrivateVaultLockView: View {
 // SwiftUI's `.onKeyPress` + FocusState is unreliable on macOS: when the TheaterView
 // overlay closes, focus is often left dangling, so arrows/space/⌘V silently stop
 // working even though `gridFocused = true` was requested. The established app
-// pattern (NotesView, TheaterView) is a local NSEvent monitor that works regardless
+// pattern (TheaterView) is a local NSEvent monitor that works regardless
 // of SwiftUI focus — this is the file browser's copy. It also reclaims ⌘C/⌘V/⌘Z
 // from the Edit menu, whose NSText.* actions no-op whenever no text field is focused.
 //

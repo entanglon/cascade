@@ -1120,3 +1120,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
   during playback. If a task "needs" AVFoundation (frame extraction, metadata,
   duration), the answer is a Telegram thumbnail, an mpv property, or dropping the
   feature — not the framework.
+49. **Notes feature removed (2026-08-16)**
+    - User decision: unused, local-only (never synced to the vault/catalog/backup).
+      Deleted `Features/NotesView.swift` + `Features/NoteEditorSheet.swift`
+      (removed from project.pbxproj too — they predate the synchronized root group),
+      `.notes` destination + sidebar entry, all AppState note functions, `NoteRecord`
+      + note DB methods, trashed-notes UI on the Trash page, FAB "New Note" entry,
+      notes unit test. **v21-drop-notes** migration drops the table (v7/v8
+      migrations left as-is — GRDB runs only unapplied migrations).
+    - Gotcha: the freebuff worktree branch's HEAD predates main commits touching
+      `Engine/TransferCenter.swift` and `Features/BookReaderView.swift`, so the
+      worktree silently held old versions of files never synced — the test-host
+      compile caught it (`TransferCenter.batchProgress` missing). Rule: sync the
+      FULL tree (`diff -rq`), not just files touched in the session.
+    - Build green (main + worktree), full test suite green.

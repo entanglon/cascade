@@ -53,7 +53,7 @@ struct xCloudApp: App {
 
             // The pasteboard group holds Cut/Copy/Paste — replacing it wiped the Edit
             // menu's ⌘X/⌘C/⌘V, so paste silently stopped working in every text field
-            // (API setup, login, search, notes). Restore them with the standard
+            // (API setup, login, search). Restore them with the standard
             // selectors: they validate against the first responder, so ⌘C/⌘V in the
             // file browser still fall through to the browser's own key handlers when no
             // text field is focused, and paste into any text field (including sheets)

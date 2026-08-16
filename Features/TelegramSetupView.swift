@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Full-screen login gate. RootView shows this whenever Telegram authorization is
-/// missing, so the cloud (file browser, notes, transfers — everything) is unreachable
+/// missing, so the cloud (file browser, transfers — everything) is unreachable
 /// until the user is logged in. All content lives inside a single glass card: brand text,
 /// then either the API-credentials step (first run) or the phone/code/password login
 /// steps. Auto-dismisses when `TelegramClient.shared.isAuthorized` flips true.

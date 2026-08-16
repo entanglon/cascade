@@ -100,10 +100,6 @@ struct SidebarRow: View {
                             } else if dest == .favorites && !file.isFavorite {
                                 appState.toggleFavorite(file)
                             }
-                        } else if let note = appState.notes.first(where: { $0.id == id }) {
-                            if dest == .trash {
-                                appState.trashNote(note)
-                            }
                         }
                     }
                 }
@@ -150,8 +146,6 @@ struct SidebarRow: View {
             }.count
         case .library:
             return files.filter { !$0.trashed && $0.isBook }.count
-        case .notes:
-            return appState.notes.filter { !$0.trashed }.count
         case .transfers:
             return TransferCenter.shared.items.filter { $0.state == .active }.count
         case .shared:

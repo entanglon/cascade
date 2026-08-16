@@ -307,63 +307,6 @@ struct xCloudTests {
         #expect(r.chunk == 2 && r.local == 35)
     }
 
-    @Test func noteRecordPersistenceAndPinToggle() async throws {
-        let account = AccountRecord(
-            id: "acc-test-note",
-            telegramUserID: 999999,
-            displayName: "Test User",
-            state: "ready",
-            createdAt: Date()
-        )
-        let vault = VaultRecord(
-            id: "vault-test-note",
-            accountID: account.id,
-            channelID: 999999,
-            name: "Test Vault",
-            wrappedKey: Data(),
-            createdAt: Date()
-        )
-        try await DatabaseManager.shared.save(account)
-        try await DatabaseManager.shared.save(vault)
-
-        let note = NoteRecord(
-            id: "note-test-1",
-            vaultID: vault.id,
-            title: "Meeting Notes",
-            content: "Remember to check https://xcloud.app",
-            colorHex: "amber",
-            isPinned: false,
-            tags: "work, links",
-            createdAt: Date(),
-            modifiedAt: Date()
-        )
-
-        try await DatabaseManager.shared.save(note)
-
-        let fetched = try await DatabaseManager.shared.note(id: "note-test-1")
-        #expect(fetched != nil)
-        #expect(fetched?.title == "Meeting Notes")
-        #expect(fetched?.colorHex == "amber")
-        #expect(fetched?.isPinned == false)
-
-        var pinned = note
-        pinned.isPinned = true
-        try await DatabaseManager.shared.save(pinned)
-
-        let updated = try await DatabaseManager.shared.note(id: "note-test-1")
-        #expect(updated?.isPinned == true)
-
-        try await DatabaseManager.shared.delete(note)
-        let deleted = try await DatabaseManager.shared.note(id: "note-test-1")
-        #expect(deleted == nil)
-
-        // The test host runs against the app's REAL database file, so it must remove
-        // the dummy account/vault too — leaving a fake "Test Vault" (channelID 999999)
-        // behind poisons firstVault() and blocks discovery of the user's real vault
-        // channel on the next app launch.
-        try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
-    }
-
     @Test func pinRecoveryKeyRoundTripsVaultKey() throws {
         // The cross-device recovery path: the vault key sealed with the PIN-derived
         // key must unwrap back to the identical key, and a wrong PIN must fail.

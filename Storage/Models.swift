@@ -237,29 +237,6 @@ extension ChunkRecord {
     static let databaseTableName = "chunks"
 }
 
-// MARK: - Notes
-
-struct NoteRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable, Equatable, Hashable {
-    var id: String
-    var vaultID: String
-    var title: String
-    var content: String
-    var colorHex: String
-    var isPinned: Bool = false
-    var trashed: Bool = false
-    var tags: String = ""
-    var createdAt: Date
-    var modifiedAt: Date
-    var telegramMessageID: Int64? = nil
-    /// Rich-text body (RTF) — bold, italic, lists, checklists, etc. `content`
-    /// stays as the cleaned plain text for search and card previews.
-    var contentRTF: Data? = nil
-}
-
-extension NoteRecord {
-    static let databaseTableName = "notes"
-}
-
 // MARK: - Transfers
 
 /// Persisted history of finished transfers (complete/failed), restored into
