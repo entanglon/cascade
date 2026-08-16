@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-16 — thumbnail pipeline, audio-message support, vault archiving (see end).
+> 2026-08-16 — backup mirror channel (see end).
 
 ---
 
@@ -289,3 +289,42 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
   the vault save — but `ensureVault` returns EARLY for an existing vault, so the
   archive never ran for the user's real vault. Moved to `completePostAuthSetup`
   (runs every launch).
+
+## 2026-08-16 — Backup mirror channel ("xCloud Restore")
+
+### The idea (user): disaster-recovery mirror channel
+- Research first: the "1,000 forwards/day" Telegram limit floating around is a MYTH —
+  tginfo.me (authoritative limits reference) lists NO daily forward or upload quotas.
+  Real limits are rate-based: ~1 msg/sec sustained per chat (flood control, already
+  handled via `withFloodWait`), 2 GB/4 GB per file (irrelevant to 128 MiB chunks),
+  captions 1,024/4,096 chars, non-Premium upload speed throttling after an
+  undocumented monthly data threshold, 500/1,000 channel+group memberships. Full
+  notes in ROADMAP.md. Conclusion: the backup concept was never cap-blocked, and no
+  in-app "daily limit" warnings are warranted (user decision).
+- User decisions: **one** mirror channel, no trash/retention channel (Trash is
+  already the backup; permanent delete = gone from both mirrors), skip in-app
+  warnings for now.
+
+### Implementation (DB v20)
+- `vaults.backupChannelID` + `backup_msgs` queue table (messageID PK, objectID,
+  backupMessageID, status, attempts, createdAt).
+- `Engine/BackupSync.swift` (new): `enqueue` (INSERT OR IGNORE + kick drainer),
+  `editAndMirror` (caption edits synced to the backup copy via the mapping; edits
+  before a forward are picked up automatically since the forward copies the current
+  caption), `deleteFromVaultAndBackup` (both channels + mapping rows), `wipeBackupChannel`
+  (vault reset), and the `BackupDrainer` actor — serial, flood-wait-aware, coalescing.
+- `VaultManager.ensureBackupChannel()`: adopt-or-create "xCloud Restore", archive +
+  mute (same as the vault); called from `completePostAuthSetup` every launch (the
+  ensureVault early-return lesson from the archive task applied again).
+- `TelegramClient.findVaultChannel` generalized to `findChannel(title:)` +
+  `isChannelNamed(id:title:)`; `findBackupChannel()` added.
+- Mirror hooks at every vault-channel message: UploadEngine chunk sends, CatalogSnapshot
+  checkpoint/delta publishes (+ prune mirrors old-checkpoint deletes), VaultManager
+  vault-key record post, AppState folder-metadata sends, unencrypt-file sends.
+- Delete-forever now removes messages from BOTH channels; same for orphan purge,
+  partial-upload cleanup, stale key records, and vault reset (full wipe).
+
+### Verification status
+- Build green (main + worktree), full test suite green, app relaunched. Pending
+  user confirmation: "xCloud Restore" channel appears archived/muted, uploads are
+  mirrored, permanent deletes vanish from both channels.

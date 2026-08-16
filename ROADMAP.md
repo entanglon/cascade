@@ -216,3 +216,38 @@ Open a cloud file in the default macOS app, edit, and save back to the vault (Dr
 - Atomic saves (TextEdit/Pages replace the file): watch the directory + filename, not the inode.
 - Conflict: last-write-wins v1 (warn if the remote changed mid-edit).
 - Staging copy lifecycle: keep until editor closes or app quits; never let the evictable cache own it.
+
+### Backup / restore channel — PLANNED for implementation (design decided 2026-08-16)
+
+A second private Telegram channel ("xCloud Restore", archived + muted) receiving a
+**forward** (`forwardMessages`, `sendCopy: false` = zero-cost reference, bytes and
+`xcloud:v1:` captions preserved → encryption intact) of every message the app posts
+to the vault channel (chunk messages, object metadata captions, vault key blob,
+checkpoint/delta catalog messages). If the main vault channel is deleted or the app
+malfunctions and wipes it, the backup channel still holds everything.
+
+**Decided scope (user decisions 2026-08-16):**
+- **No trash/retention channel and no tombstones** — Trash is already the backup;
+  deleting from Trash = permanent. Delete-forever removes the object's messages from
+  the BACKUP channel too (via a main→backup message-ID mapping recorded at forward
+  time), so nothing lingers after permanent deletion.
+- Mirroring is a background queue (`backup_msgs` table) drained by a forwarder actor
+  at ~1 msg/sec — flood control is the only constraint (no daily caps exist; the
+  "1,000 forwards/day" figure is a myth — see limits research below).
+- Whole-channel "restore from backup" (rebuild catalog + chunk records from the
+  backup channel) is a later phase; the mirror must simply be complete and current.
+
+**Real Telegram limits that DO matter to xCloud (tginfo.me, 2026-08-16):**
+- File size: 2 GB free / 4 GB Premium per file — irrelevant to 128 MiB chunks.
+- Captions: 1,024 chars free / 4,096 Premium — xCloud captions must stay under 1,024.
+- Send rate: ~1 msg/sec per chat (flood control; TDLib `withFloodWait` already handled).
+- Non-Premium upload speed throttle: server-side, after an undocumented monthly data
+  threshold (FLOOD_PREMIUM_WAIT / -429) — throttles speed, not volume.
+- Channel/supergroup membership: 500 free / 1,000 Premium — share links mint temp
+  channels; watch if shares accumulate (they self-delete on expiry).
+- Channel/group creation: 50/day — bounds mass share-link creation.
+- Downloads: ~5 parallel small (<20 MB) / ~2 parallel big — honor in DownloadEngine.
+- File name: 60 chars (trimmed). No daily upload/forward quotas exist, so no
+  in-app "daily limit" warnings are warranted (user decision 2026-08-16).
+
+

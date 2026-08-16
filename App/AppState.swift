@@ -528,6 +528,13 @@ final class AppState {
             // is never accidentally opened — runs at every session start, since
             // ensureVault returns early for an existing vault.
             await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
+            // Disaster-recovery mirror: every vault-channel message is forwarded
+            // into the "xCloud Restore" backup channel (created on first run).
+            if let backupID = await VaultManager.ensureBackupChannel() {
+                print("xCloud post-auth: backup channel ready (channel \(backupID))")
+                // Drain any forwards queued while the app was closed.
+                Task { await BackupDrainer.shared.drain() }
+            }
             // Keep the channel tidy: snapshots older than the newest are stale now
             // that upload() replaces the previous snapshot automatically — this
             // cleans up any accumulation from before that behavior existed.
@@ -1528,8 +1535,10 @@ final class AppState {
             caption: captionString,
             onProgress: nil
         ) {
-            // Delete old encrypted Telegram message
-            _ = try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: [oldMsgID])
+            // Mirror the new public copy; the old encrypted copy dies in both
+            // channels.
+            BackupSync.enqueue(messageID: messageId, objectID: file.id)
+            await BackupSync.deleteFromVaultAndBackup(messageIDs: [oldMsgID])
 
             // Update chunk record with new unencrypted message ID
             try? await DatabaseManager.shared.updateChunk(oldChunk.id) { $0.messageID = messageId }
@@ -1695,9 +1704,10 @@ final class AppState {
 
             if object.isFolder {
                 if let folderChunk = chunks.first, let msgID = folderChunk.messageID {
-                    try? await TelegramClient.shared.editMessageCaption(chatId: vault.channelID, messageId: msgID, caption: captionString)
+                    await BackupSync.editAndMirror(chatId: vault.channelID, messageId: msgID, caption: captionString)
                 } else {
                     if let msgID = try? await TelegramClient.shared.sendMetadataMessage(chatId: vault.channelID, text: captionString) {
+                        BackupSync.enqueue(messageID: msgID, objectID: object.id)
                         let record = ChunkRecord(
                             id: UUID().uuidString,
                             objectID: object.id,
@@ -1717,7 +1727,7 @@ final class AppState {
             } else {
                 for chunk in chunks {
                     if let msgID = chunk.messageID {
-                        try? await TelegramClient.shared.editMessageCaption(chatId: vault.channelID, messageId: msgID, caption: captionString)
+                        await BackupSync.editAndMirror(chatId: vault.channelID, messageId: msgID, caption: captionString)
                     }
                 }
             }
@@ -1884,16 +1894,14 @@ final class AppState {
             await revokeShares(for: ids)
 
             if let vault = try? await DatabaseManager.shared.firstVault() {
+                var allMsgIDs: [Int64] = []
                 for id in ids {
                     let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
-                    let msgIDs = chunks.compactMap(\.messageID)
-                    for i in stride(from: 0, to: msgIDs.count, by: 100) {
-                        let batch = Array(msgIDs[i..<min(i + 100, msgIDs.count)])
-                        try? await TelegramClient.shared.deleteMessages(
-                            chatId: vault.channelID, messageIds: batch
-                        )
-                    }
+                    allMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))
                 }
+                // Deletes from the vault channel AND the backup channel's forwarded
+                // copies — permanent deletion means gone from both mirrors.
+                await BackupSync.deleteFromVaultAndBackup(messageIDs: allMsgIDs)
             }
 
             for id in ids {
@@ -1960,12 +1968,9 @@ final class AppState {
         }
 
         let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: vault.channelID)
-        for i in stride(from: 0, to: ids.count, by: 100) {
-            let batch = Array(ids[i..<min(i + 100, ids.count)])
-            try? await TelegramClient.shared.deleteMessages(
-                chatId: vault.channelID, messageIds: batch
-            )
-        }
+        await BackupSync.deleteFromVaultAndBackup(messageIDs: ids)
+        // The backup mirror is wiped entirely too — a reset means a clean slate.
+        await BackupSync.wipeBackupChannel()
 
         try? await DatabaseManager.shared.clearObjects()
 

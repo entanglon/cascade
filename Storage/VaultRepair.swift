@@ -408,10 +408,9 @@ enum VaultRepair {
         guard !orphanedIDs.isEmpty else { return 0 }
 
         logger.info("Purging \(orphanedIDs.count) provably-orphaned chunk message(s) from Telegram channel...")
-        for i in stride(from: 0, to: orphanedIDs.count, by: 100) {
-            let batch = Array(orphanedIDs[i..<min(i + 100, orphanedIDs.count)])
-            try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: batch)
-        }
+        // Orphaned chunks (and any already-forwarded backup copies) are deleted
+        // from both channels so the backup mirror stays a true mirror.
+        await BackupSync.deleteFromVaultAndBackup(messageIDs: orphanedIDs)
         return orphanedIDs.count
     }
 }

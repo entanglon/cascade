@@ -107,7 +107,8 @@ enum CatalogSnapshot {
                 let newID = try await publishDocument(
                     chatId: vault.channelID,
                     payload: checkpointPayload,
-                    caption: captionPrefix
+                    caption: captionPrefix,
+                    backupObjectID: BackupSync.checkpointObjectID
                 )
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: checkpointDateKey(vault.channelID))
                 print("xCloud checkpoint uploaded: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
@@ -115,7 +116,12 @@ enum CatalogSnapshot {
                 await pruneOldSnapshots(chatId: vault.channelID, keepingNewerThan: newID)
             } else {
                 let deltaPayload = Payload(version: 1, objects: changes.objects, chunks: changes.chunks)
-                _ = try await publishDocument(chatId: vault.channelID, payload: deltaPayload, caption: deltaCaptionPrefix)
+                _ = try await publishDocument(
+                    chatId: vault.channelID,
+                    payload: deltaPayload,
+                    caption: deltaCaptionPrefix,
+                    backupObjectID: BackupSync.deltaObjectID
+                )
                 print("xCloud delta uploaded: \(changes.objects.count) objects, \(changes.chunks.count) chunks")
             }
             return Foundation.Date()
@@ -329,19 +335,23 @@ enum CatalogSnapshot {
         }
     }
 
-    private static func publishDocument(chatId: Int64, payload: Payload, caption: String) async throws -> Int64 {
+    private static func publishDocument(chatId: Int64, payload: Payload, caption: String, backupObjectID: String) async throws -> Int64 {
         let data = try JSONEncoder().encode(payload)
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("snapshot-\(UUID().uuidString).json")
         try data.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
-        return try await TelegramClient.shared.sendFile(
+        let messageID = try await TelegramClient.shared.sendFile(
             chatId: chatId,
             path: tempURL.path(percentEncoded: false),
             kind: .document,
             caption: caption,
             onProgress: nil
         )
+        // Catalog snapshots/deltas are mirrored into the backup channel too — a
+        // device with a lost local DB must be able to rebuild the catalog from it.
+        BackupSync.enqueue(messageID: messageID, objectID: backupObjectID)
+        return messageID
     }
 
     /// Publishes the current local catalog as a fresh checkpoint WITHOUT reconciling
@@ -375,7 +385,8 @@ enum CatalogSnapshot {
             let newID = try await publishDocument(
                 chatId: vault.channelID,
                 payload: payload,
-                caption: captionPrefix
+                caption: captionPrefix,
+                backupObjectID: BackupSync.checkpointObjectID
             )
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: checkpointDateKey(vault.channelID))
             print("xCloud checkpoint published from local catalog: \(local.objects.count) objects, \(local.chunks.count) chunks")
@@ -412,7 +423,10 @@ enum CatalogSnapshot {
         }
         guard !toDelete.isEmpty else { return }
         do {
-            try await TelegramClient.shared.deleteMessages(chatId: chatId, messageIds: toDelete)
+            // Old checkpoints are pruned from the main channel; their forwarded
+            // backup copies go too (the newest checkpoint's copy is forwarded last,
+            // leaving it as the single checkpoint in the backup channel).
+            await BackupSync.deleteFromVaultAndBackup(messageIDs: toDelete)
             print("xCloud snapshot pruned \(toDelete.count) old checkpoint message(s)")
         } catch {
             print("xCloud snapshot prune failed: \(error.localizedDescription)")

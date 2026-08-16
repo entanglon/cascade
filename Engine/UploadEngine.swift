@@ -329,6 +329,9 @@ enum UploadEngine {
                             report("Uploading chunks…", min(progressState.overall, 0.99))
                         }
                     )
+                    // Every chunk is mirrored into the backup channel (cheap
+                    // reference forward — no re-upload of the bytes).
+                    BackupSync.enqueue(messageID: messageId, objectID: objectID)
 
                     let chunk = ChunkRecord(
                         id: UUID().uuidString,
@@ -549,13 +552,12 @@ enum UploadEngine {
     static func cleanupPartialUpload(objectID: String) async {
         let chunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
         let msgIDs = chunks.compactMap { $0.messageID }
-        if !msgIDs.isEmpty, let vault = try? await DatabaseManager.shared.firstVault() {
-            for i in stride(from: 0, to: msgIDs.count, by: 100) {
-                let batch = Array(msgIDs[i..<min(i + 100, msgIDs.count)])
-                try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: batch)
-            }
+        if !msgIDs.isEmpty {
+            // Partial chunks may already be mirrored; their backup copies go too.
+            await BackupSync.deleteFromVaultAndBackup(messageIDs: msgIDs)
         }
         try? await DatabaseManager.shared.deleteObjectWithChunks(id: objectID)
+        try? await DatabaseManager.shared.deleteBackupRows(objectID: objectID)
         if let thumb = thumbnailURL(for: objectID) {
             try? FileManager.default.removeItem(at: thumb)
         }

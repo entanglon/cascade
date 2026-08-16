@@ -137,7 +137,7 @@ enum VaultManager {
 
             let postedID: Int64?
             if let msgID = vault.recoveryMessageID {
-                try? await TelegramClient.shared.editMessageCaption(
+                await BackupSync.editAndMirror(
                     chatId: vault.channelID, messageId: msgID, caption: caption
                 )
                 postedID = msgID
@@ -145,6 +145,7 @@ enum VaultManager {
                 chatId: vault.channelID, text: caption
             ) {
                 postedID = msgID
+                BackupSync.enqueue(messageID: msgID, objectID: BackupSync.keyRecordObjectID)
             } else {
                 postedID = nil
             }
@@ -256,8 +257,34 @@ enum VaultManager {
             return msg.id < anchor
         }.map(\.id)
         guard !stale.isEmpty else { return }
-        try? await TelegramClient.shared.deleteMessages(chatId: chatId, messageIds: stale)
+        // Stale key records (older devices' blobs) are gone from the main channel;
+        // their forwarded backup copies go too.
+        await BackupSync.deleteFromVaultAndBackup(messageIDs: stale)
         logger.info("Removed \(stale.count) stale vault key record(s)")
+    }
+
+    /// Returns the "xCloud Restore" backup channel, adopting an existing one or
+    /// creating it fresh, archived + muted like the vault itself. Every message the
+    /// app posts to the vault channel is mirrored into it (Engine/BackupSync.swift).
+    static func ensureBackupChannel() async -> Int64? {
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }
+        if let existing = vault.backupChannelID, existing > 0 {
+            return existing
+        }
+        let backupID: Int64
+        if let found = await TelegramClient.shared.findBackupChannel() {
+            backupID = found
+        } else if let created = try? await TelegramClient.shared.createVaultChannel(title: "xCloud Restore") {
+            backupID = created
+        } else {
+            return nil
+        }
+        await TelegramClient.shared.archiveVaultChannel(chatId: backupID)
+        var updated = vault
+        updated.backupChannelID = backupID
+        try? await DatabaseManager.shared.save(updated)
+        logger.info("Backup channel ready (channel \(backupID))")
+        return backupID
     }
 
     private static func generateSalt() -> Data {

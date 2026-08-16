@@ -950,8 +950,46 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       save, but `ensureVault` returns EARLY for an existing vault → never ran.
       Moved to `completePostAuthSetup` (runs every launch).
 
+
+47. **Backup mirror channel — "xCloud Restore" (2026-08-16)**
+    (`Engine/BackupSync.swift` NEW, `Storage/DatabaseManager.swift` v20,
+    `Storage/Models.swift`, `Storage/VaultManager.swift`, `Storage/CatalogSnapshot.swift`,
+    `Storage/VaultRepair.swift`, `Telegram/TelegramClient.swift`,
+    `Engine/UploadEngine.swift`, `App/AppState.swift`)
+    - Every message the app posts to the vault channel (chunk messages, checkpoint/
+      delta catalog messages, vault-key record, folder metadata, unencrypt copies)
+      is **forwarded** (`forwardMessages`, `sendCopy: false` — zero-cost reference,
+      captions + encryption preserved) into a second private channel "xCloud
+      Restore", archived + muted like the vault. If the main vault channel is
+      deleted or the app malfunctions and wipes it, the backup channel still holds
+      the complete storage + catalog (whole-channel restore is a later phase).
+    - Queue: `backup_msgs` table (main messageID → backupMessageID mapping, status,
+      attempts) drained by a serial `BackupDrainer` actor at ~1 msg/sec with
+      flood-wait handling; concurrent drains coalesce.
+    - Edits are mirrored: `BackupSync.editAndMirror` updates the backup copy's
+      caption via the mapping (edits that land before the forward are picked up
+      automatically by the forward). Used by `syncObjectMetadataToTelegram` and the
+      vault-key record post.
+    - **Permanent deletion = gone from BOTH channels** (user decision — Trash is
+      already the backup; no retention/tombstones): `deleteForever`,
+      `purgeOrphanedMessages`, `cleanupPartialUpload`, `deleteStaleKeyRecords`, and
+      snapshot pruning all route through `BackupSync.deleteFromVaultAndBackup`;
+      vault reset wipes the backup channel entirely.
+    - Telegram limits research (2026-08-16): NO daily forward/upload quotas exist
+      (the "1,000/day" figure is a myth — tginfo.me). Real limits: ~1 msg/sec per
+      chat flood control, 2 GB/4 GB per file, 1,024-char captions (free),
+      non-Premium upload speed throttle (undocumented monthly threshold), 500/1,000
+      channel+group memberships, 50 channel creations/day. Details in ROADMAP.md.
+    - Gotcha: `??` with `try? await` on the RHS failed to compile
+      ("async call in a function that does not support concurrency" — apparently an
+      interplay with the default MainActor isolation flags); restructured to an
+      explicit if/else. Committed 2026-08-16 as part of the mirror-channel commit.
+      Pending user verification: mirror works, permanent deletes vanish from both
+      channels.
+
 ---
 ## 5. Pending / next steps
+
 
 - **DONE 2026-08-15 (user verified):** Library poster cards — covers, corner menu
   button (placement + style), progress bars (books opened after this change only);

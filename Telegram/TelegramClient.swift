@@ -750,42 +750,55 @@ final class TelegramClient {
     /// Searches the local chat list first, then the server, then pages the main chat
     /// list as a fallback. Returns nil when the account has no vault channel yet.
     func findVaultChannel() async -> Int64? {
+        await findChannel(title: "xCloud Vault")
+    }
+
+    /// Same discovery as `findVaultChannel` but for the "xCloud Restore" backup
+    /// channel (Engine/BackupSync.swift mirrors every vault message into it).
+    func findBackupChannel() async -> Int64? {
+        await findChannel(title: "xCloud Restore")
+    }
+
+    /// Generic channel-by-title discovery: local search first, then server search,
+    /// then a page of the main chat list. Retries a few times right after login
+    /// because TDLib may not have synced the chat list yet.
+    func findChannel(title: String) async -> Int64? {
         guard let client else { return nil }
 
         // Right after login TDLib may not have synced the chat list yet, so retry a
         // few times with a short pause before giving up and creating a new channel.
         for attempt in 1...3 {
-            if let found = await findVaultChannelOnce() {
+            if let found = await findChannelOnce(title: title) {
                 return found
             }
             if attempt < 3 {
-                logger.info("Vault channel not found (attempt \(attempt)/3), retrying…")
+                logger.info("Channel '\(title)' not found (attempt \(attempt)/3), retrying…")
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
-        logger.info("No existing vault channel found for this account")
+        logger.info("No existing channel '\(title)' found for this account")
         return nil
     }
 
-    private func findVaultChannelOnce() async -> Int64? {
+    private func findChannelOnce(title: String) async -> Int64? {
         guard let client else { return nil }
 
         let candidates = [
             try? await client.searchChats(
                 limit: 10,
-                query: "xCloud Vault",
+                query: title,
                 typeFilter: .searchChatTypeFilterChannel
             ),
             try? await client.searchChatsOnServer(
                 limit: 10,
-                query: "xCloud Vault",
+                query: title,
                 typeFilter: .searchChatTypeFilterChannel
             ),
         ]
 
         for chats in candidates.compactMap({ $0 }) {
             for id in chats.chatIds {
-                if await isVaultChannel(id: id) { return id }
+                if await isChannelNamed(id: id, title: title) { return id }
             }
         }
 
@@ -793,7 +806,7 @@ final class TelegramClient {
         // search missed it — page the beginning of the main chat list.
         if let chats = try? await client.getChats(chatList: nil, limit: 200) {
             for id in chats.chatIds {
-                if await isVaultChannel(id: id) { return id }
+                if await isChannelNamed(id: id, title: title) { return id }
             }
         }
 
@@ -821,9 +834,9 @@ final class TelegramClient {
         return latest
     }
 
-    private func isVaultChannel(id: Int64) async -> Bool {
+    private func isChannelNamed(id: Int64, title: String) async -> Bool {
         guard let client, let chat = try? await client.getChat(chatId: id) else { return false }
-        guard chat.title == "xCloud Vault" else { return false }
+        guard chat.title == title else { return false }
         if case .chatTypeSupergroup(let sg) = chat.type, sg.isChannel {
             return true
         }

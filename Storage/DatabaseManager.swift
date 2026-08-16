@@ -306,6 +306,21 @@ actor DatabaseManager {
                 t.add(column: "coverObjectID", .text)
             }
         }
+        // Backup mirror channel: every vault-channel message is forwarded into a
+        // second private channel ("xCloud Restore") for disaster recovery.
+        migrator.registerMigration("v20-backup-channel") { db in
+            try db.alter(table: "vaults") { t in
+                t.add(column: "backupChannelID", .integer)
+            }
+            try db.create(table: "backup_msgs") { t in
+                t.column("messageID", .integer).primaryKey()
+                t.column("objectID", .text).notNull()
+                t.column("backupMessageID", .integer)
+                t.column("status", .text).notNull()
+                t.column("attempts", .integer).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
@@ -555,6 +570,89 @@ actor DatabaseManager {
                 .filter(Column("objectID") == objectID)
                 .order(Column("index"))
                 .fetchAll(db)
+        }
+    }
+
+    // MARK: - Backup mirror queue (backup_msgs)
+
+    /// Records that a vault-channel message needs mirroring into the backup
+    /// channel. Idempotent — a message is never queued twice.
+    func enqueueBackup(messageID: Int64, objectID: String) throws {
+        try write { db in
+            guard try BackupMsgRecord.fetchOne(db, key: messageID) == nil else { return }
+            try BackupMsgRecord(
+                messageID: messageID,
+                objectID: objectID,
+                backupMessageID: nil,
+                status: "pending",
+                attempts: 0,
+                createdAt: .now
+            ).insert(db)
+        }
+    }
+
+    /// Oldest un-forwarded message in the mirror queue (ascending message id).
+    func nextPendingBackup() throws -> BackupMsgRecord? {
+        try read { db in
+            try BackupMsgRecord
+                .filter(Column("status") == "pending")
+                .order(Column("messageID"))
+                .fetchOne(db)
+        }
+    }
+
+    func markBackupForwarded(messageID: Int64, backupMessageID: Int64) throws {
+        try write { db in
+            try db.execute(
+                sql: "UPDATE backup_msgs SET backupMessageID = ?, status = 'done' WHERE messageID = ?",
+                arguments: [backupMessageID, messageID]
+            )
+        }
+    }
+
+    func bumpBackupAttempts(messageID: Int64) throws {
+        try write { db in
+            try db.execute(
+                sql: "UPDATE backup_msgs SET attempts = attempts + 1 WHERE messageID = ?",
+                arguments: [messageID]
+            )
+        }
+    }
+
+    func backupRow(messageID: Int64) throws -> BackupMsgRecord? {
+        try read { db in try BackupMsgRecord.fetchOne(db, key: messageID) }
+    }
+
+    /// Forwarded backup copies (non-nil backupMessageID) for the given
+    /// vault-channel message ids.
+    func backupTargets(for messageIDs: [Int64]) throws -> [BackupMsgRecord] {
+        guard !messageIDs.isEmpty else { return [] }
+        return try read { db in
+            try BackupMsgRecord
+                .filter(keys: messageIDs)
+                .filter(Column("backupMessageID") != nil)
+                .fetchAll(db)
+        }
+    }
+
+    func deleteBackupRows(messageIDs: [Int64]) throws {
+        guard !messageIDs.isEmpty else { return }
+        try write { db in
+            _ = try BackupMsgRecord.deleteAll(db, keys: messageIDs)
+        }
+    }
+
+    func deleteBackupRows(objectID: String) throws {
+        try write { db in
+            _ = try BackupMsgRecord
+                .filter(Column("objectID") == objectID)
+                .deleteAll(db)
+        }
+    }
+
+    func deleteAllBackupRows() throws {
+        try write { db in
+            _ = try BackupMsgRecord.deleteAll(db)
         }
     }
 
