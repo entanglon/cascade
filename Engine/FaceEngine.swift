@@ -234,7 +234,7 @@ actor FaceEngine {
             appropriateFor: nil,
             create: true
         )
-        let dir = support.appendingPathComponent("xCloud/faces", isDirectory: true)
+        let dir = support.appendingPathComponent("\(AppPaths.dataFolder)/faces", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

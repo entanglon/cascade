@@ -926,7 +926,7 @@ actor DatabaseManager {
             appropriateFor: nil,
             create: true
         )
-        let folder = support.appendingPathComponent("xCloud", isDirectory: true)
+        let folder = support.appendingPathComponent(AppPaths.dataFolder, isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent("xcloud.sqlite")
     }

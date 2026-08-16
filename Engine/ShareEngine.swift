@@ -298,6 +298,12 @@ enum ShareEngine {
             .filter { $0.objectID == objectID && $0.state == "active" && $0.expiry > Foundation.Date() }
             .sorted { $0.expiry > $1.expiry }
         for share in candidates {
+            // Legacy v1 shares (pre-forward-based, disposable channel) are never
+            // reused: their link points at an old upload copy, and re-forwarding
+            // the file into the reusable channel requires the v2 message IDs.
+            // Re-sharing such a file mints a fresh v2 share; the legacy record
+            // stays valid for recipients until expiry and is cleaned up then.
+            guard !share.messageIDs.isEmpty else { continue }
             // The record can outlive its channel (deleted manually in Telegram, or
             // a crash between deleteMessages and marking revoked) — never hand out
             // a link whose channel is gone. getChat is served from TDLib's cache, so

@@ -1,12 +1,12 @@
-# xCloud — Distribution Notes (v1.0)
+# xCloud — Distribution Notes (v1.1)
 
 ## What's ready
 
-- **`xCloud-1.0.0.dmg`** — the installer, built from the Release configuration, signed
+- **`xCloud-1.1.0.dmg`** — the installer, built from the Release configuration, signed
   (hardened runtime; **not sandboxed** — a deliberate choice, see below), with a custom
   background, volume icon, icon layout, and an `Applications` shortcut. Drag the app to
   Applications.
-- Rebuild it anytime: `bash scripts/make_dmg.sh 1.0.0`
+- Rebuild it anytime: `bash scripts/make_dmg.sh 1.1.0`
   (requires a Release build: `xcodebuild -project xCloud.xcodeproj -scheme xCloud -configuration Release -derivedDataPath build build`)
 
 ## Release vs. dev separation (by design)
@@ -15,23 +15,31 @@ The released app must never share state with the testing build, so they're fully
 
 | | Dev build (Xcode) | Released app (DMG) |
 |---|---|---|
-| Bundle ID | `com.nemesys.xcloud.xCloud.dev` | `com.nemesys.xcloud.xCloud` |
-| Sandbox | Sandboxed (container) | **Not sandboxed** — plain paths |
-| Data | `~/Library/Containers/…xCloud.dev/…` | `~/Library/Application Support/xCloud/` |
-| Keychain | `com.nemesys.xcloud.xCloud.dev` | `com.nemesys.xcloud.xCloud` |
+| Bundle ID | `com.nemesys.xcloud.xCloud` | `com.nemesys.xcloud.xCloud.prod` |
+| Sandbox | Unsandboxed (plain paths) | **Not sandboxed** — plain paths |
+| Data | `~/Library/Application Support/xCloud/` | `~/Library/Application Support/xCloud-Prod/` |
+| Keychain | `com.nemesys.xcloud.xCloud` | `com.nemesys.xcloud.xCloud.prod` |
 
 - The Keychain service is derived from the bundle ID, so the two builds can never see each
   other's Telegram session, vault PIN, or master key. Logging into your personal account in
   the released app has zero effect on the dev app (and vice versa).
+- Data folders are scoped per build via `App/AppPaths.swift` (`"xCloud"` vs
+  `"xCloud-Prod"`): separate database, TDLib state, downloads, and URL handoff files.
 - Both can be installed and run side by side.
 - The released app is **unsandboxed on purpose**: it's a full-fledged desktop app (your call),
   which also means it is **not Mac App Store eligible** — App Store requires sandboxing.
-  Direct distribution (DMG) is the right path for this app anyway. The dev build stays
-  sandboxed so the App-Store-shaped code path keeps getting exercised.
-- Consequence of the split: the next time you build/run from Xcode, the dev app looks
-  "fresh" (new container + keychain space) — re-enter your test account credentials once.
-  Old dev data and old keychain items (`com.xcloud.app` service) remain on disk, orphaned;
-  delete them when you no longer need them.
+  Direct distribution (DMG) is the right path for this app anyway.
+- Consequence of the split: the production app starts "fresh" (new folders + keychain
+  space) — enter the test account credentials once on first launch. Old dev data and old
+  keychain items remain on disk; delete them when you no longer need them.
+
+## Opening share links
+
+Both builds claim the `xcloud://` scheme; the browser opens whichever app registered it
+**last**. The deterministic way to import a link into the production app is the
+**File → Import Shared Link… (⌘⇧I)** command. If you want the browser click to open the
+production app, launch it once after installing (which registers it) and avoid launching
+the dev app until the test is done.
 
 ## Honest status: this build runs on your Mac — not (yet) on strangers' Macs
 

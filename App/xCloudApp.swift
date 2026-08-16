@@ -19,6 +19,9 @@ struct xCloudApp: App {
                 .frame(minWidth: 1024, minHeight: 640)
                 .preferredColorScheme(.dark)
                 .task { await appState.bootstrap() }
+                .onReceive(NotificationCenter.default.publisher(for: TerminationHandler.recreateMainWindow)) { _ in
+                    openWindow(id: "main")
+                }
         }
         .defaultSize(width: 1280, height: 780)
         .commands {
@@ -87,6 +90,9 @@ struct xCloudApp: App {
             AboutView()
                 .environment(appState)
                 .preferredColorScheme(.dark)
+                .onReceive(NotificationCenter.default.publisher(for: TerminationHandler.recreateMainWindow)) { _ in
+                    openWindow(id: "main")
+                }
         }
         .windowResizability(.contentSize)
     }

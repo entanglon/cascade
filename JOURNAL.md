@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-16 — forward-based shares (see end).
+> 2026-08-16 — share verified live, window fix, production isolation v1.1.0 (see end).
 
 ---
 
@@ -436,3 +436,90 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
   real bug, sender emits `key=` for them; (2) the codec test's raw prefix assertion
   depended on nondeterministic dict key order → encode now sorts keys.
 - Build green (main + worktree), full test suite green (51 unit tests).
+
+## 2026-08-16 — Share mechanism verified live; window-disappearing fixed; production build isolated (v1.1.0)
+
+### Live verification of forward-based shares (first real end-to-end)
+- First production-run share worked: reusable **"xCloud Shares"** channel created
+  (archived + muted), vault chunks **forwarded server-side** into it
+  (`messages.forwardMessages`), v2 link minted and stored (`shares.linkBlob`), all
+  from the previously-restored catalog. Chunks in the reusable channel are the
+  sender's vault ciphertext with unified captions — the recipient's import path
+  (read by ID → parse captions → re-forward into own vault → catalog) matches by
+  `m` (message IDs) only.
+- **Stale-record hijack** (found live): re-sharing gave the old pre-rewrite v1
+  link — `reusableShareLink` matched a legacy share record (state active, channel
+  still in TDLib cache) and returned its v1 link verbatim, so the forward path
+  never ran. Fixed: skip `messageIDs`-empty records when reusing; re-sharing
+  mints a fresh v2 share; legacy records stay importable until expiry. Test
+  `shareReusesLiveLinkInsteadOfMintingNewOne` extended (v2 records carry
+  `messageIDs`, step 4 asserts legacy never reused).
+- **Empty-catalog incident**: share attempt failed with `sourceUnavailable` — the
+  local DB had 0 objects/0 chunks because the previous session's
+  `CatalogSnapshot.restore()` never completed its write. Relaunching the app under
+  a pty (`script -q /tmp/xcloud-app.log <binary>`, line-buffered stdout) made the
+  prints visible: restore succeeded ("19 objects, 22 chunks"); every chunk has a
+  message ID; no re-upload needed — the files had been in the channel all along.
+- **Stale-binary incident**: an earlier "nothing happened" trace turned out to be
+  the pre-rewrite binary still running (PID from 14:44, `xcloud:share:v1:`
+  captions in its log) — relaunch on the fresh build fixed it.
+- Deferred (user: "wait for the testing"): real two-account E2E, and the
+  protectContent **second hop** (recipient re-forwarding protected copies).
+
+### Flag-only private vault — user decision (NOT yet implemented)
+- Private = `isPrivate` DB flag + PIN-gated section + `.bin` chunks; **no per-file
+  encryption**. Move in/out = instant flag flip (no re-upload; the current
+  `unencryptFileInTelegram` decrypt + re-upload path goes away). Shares of private
+  files disabled ("move it out of Private to share"). Share links lose the key
+  layer (`w`/shareKey); import never unwraps. Accepted tradeoff: encrypted chunks
+  were the only thing protecting private chunks from a Telegram-session/account
+  compromise; `.bin` naming is not protection. Old encrypted chunks become junk
+  (throwaway test data). Not started — user wants the share mechanism proven first.
+
+### Window-disappearing on link open — fixed
+- Symptom: opening the shared link in the browser while the app runs made the main
+  window vanish (process stayed alive). Reproduced state: app had **zero windows**
+  (System Events), only a Dock thumbnail + menu-bar-sized windows in
+  `CGWindowListCopyWindowInfo`.
+- **Stale URL-handler registration**: `lsregister` showed the `xcloud://` claim on
+  a DELETED build path (`DerivedData/xCloud/Build/Products/Debug/xCloud.app`, same
+  bundle id as the running dev app) plus long-gone DMG-check copies — the exact
+  "two instances fight over the window" trap the single-instance guard warns
+  about. Cleaned: unregistered/removed stale paths; re-registered the current
+  build with `lsregister -f`. Verified by `open xcloud://share#…` → the running
+  app receives the URL, reveals the file (self-open), window stays.
+- **Hardening** (`App/TerminationHandler.swift`, `App/xCloudApp.swift`):
+  - URL delivery now explicitly `deminiaturize`s a minimized main window before
+    ordering it front;
+  - zero-window recovery: posts `recreateMainWindow` (observed by the main and
+    About scenes → `openWindow(id: "main")`) AND simulates the Dock-icon reopen
+    (`applicationShouldHandleReopen`) twice, since SwiftUI `Window` scenes restore
+    natively on reopen — all idempotent (`openWindow` on an existing `Window`
+    scene is a no-op);
+  - diagnostic prints on the whole URL path (`xCloud URL: …`) — the previous
+    silence made the disappearing window impossible to debug.
+- The self-open reveal (file card flash) is confirmed working with both link
+  forms: plain `xcloud://share?v=2…` and obfuscated `xcloud://share#<blob>`.
+
+### Production build isolation (v1.1.0 DMG)
+- **Problem**: Debug and Release shared bundle id `com.nemesys.xcloud.xCloud` and
+  hardcoded `xCloud` data folders — the released app would share the dev app's
+  Telegram session, keychain, database and TDLib state (and the single-instance
+  guard would treat them as the same app). User requirement: the production
+  version must not conflict with testing data.
+- **Release config**: bundle id → `com.nemesys.xcloud.xCloud.prod`,
+  `MARKETING_VERSION` → 1.1. Debug keeps `com.nemesys.xcloud.xCloud`. The keychain
+  service derives from the bundle id (`Crypto/KeychainStore.swift`), so the
+  production build has its own Telegram session/PIN/master key automatically.
+- **`App/AppPaths.swift`** (new): `dataFolder` = `"xCloud"` (dev) vs
+  `"xCloud-Prod"` (prod, bundle id ends in `.prod`). All hardcoded data paths now
+  scoped through it: database, TDLib dirs + file cache, downloads cache, upload
+  tmp/thumbs, face vectors, and the URL handoff file. Handoff notification name
+  now derives from the bundle id so dev and prod never hand links to each other.
+- Built `xCloud-1.1.0.dmg` (`scripts/make_dmg.sh 1.1.0`): Release, hardened
+  runtime, unsandboxed (same as 1.0.0), verified `com.nemesys.xcloud.xCloud.prod`,
+  `hdiutil verify` OK. Dev and prod can be installed and run side by side; the
+  share link in the browser opens whichever build registered `xcloud://` last
+  (documented in DISTRIBUTION.md; "Import Shared Link…" ⌘⇧I is the deterministic
+  path inside the production app).
+- Full test suite green (52 tests) in the worktree; main + worktree byte-identical.

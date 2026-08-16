@@ -1330,13 +1330,16 @@ struct xCloudTests {
         // Re-sharing a file that already has an active, unexpired outgoing share
         // returns that SAME link (same id/channel/key/expiry) instead of minting a
         // new one — no second channel, no re-upload. Expired or revoked shares are
-        // never reused. Clean up after itself (the test host shares the real DB).
+        // never reused, and legacy v1 records (no forwarded message IDs) always
+        // mint a fresh v2 share instead of reusing the old link. Clean up after
+        // itself (the test host shares the real DB).
         let now = Date()
         let live = ShareRecord(
             id: "share-test-live", objectID: "obj-share-reuse",
             channelID: -100123, inviteLink: "https://t.me/+abc", shareKey: "bGl2ZQ==",
             expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
-            fileName: "reuse-test.png", createdAt: now
+            fileName: "reuse-test.png", createdAt: now,
+            messageIDs: "101,102"
         )
         let expired = ShareRecord(
             id: "share-test-expired", objectID: "obj-share-reuse",
@@ -1347,13 +1350,14 @@ struct xCloudTests {
         try await DatabaseManager.shared.saveShare(live)
         try await DatabaseManager.shared.saveShare(expired)
 
-        // 1) Legacy record (pre-v15, no stored blob) reconstructs the same link.
+        // 1) Pre-blob record (no stored linkBlob) reconstructs the same link.
         let link = try await ShareEngine.reusableShareLink(for: "obj-share-reuse")
         #expect(link != nil, "a live outgoing share is reusable")
         if let link, let parsed = ShareEngine.ShareLink.parse(link) {
             #expect(parsed.id == live.id)
             #expect(parsed.channelID == live.channelID)
             #expect(parsed.shareKey == live.shareKey)
+            #expect(parsed.messageIDs == [101, 102])
             // The URL codec stores expiry as whole seconds, so compare at that
             // precision (the record keeps sub-second components).
             #expect(Int(parsed.expiry.timeIntervalSince1970) == Int(live.expiry.timeIntervalSince1970))
@@ -1380,8 +1384,22 @@ struct xCloudTests {
         let afterRevoke = try await ShareEngine.reusableShareLink(for: "obj-share-reuse")
         #expect(afterRevoke == nil, "revoked or expired shares are never reused")
 
-        try await DatabaseManager.shared.deleteShare(id: expired.id)
+        // 4) A legacy v1 record (no message IDs, even live and unexpired) is never
+        // reused — the old link points at the old upload copy, not forwarded
+        // chunks, so re-sharing must mint a fresh v2 share instead.
         try await DatabaseManager.shared.deleteShare(id: revoked.id)
+        let legacy = ShareRecord(
+            id: "share-test-legacy", objectID: "obj-share-reuse",
+            channelID: -100125, inviteLink: "https://t.me/+ghi", shareKey: "bGVn",
+            expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
+            fileName: "reuse-test.png", createdAt: now
+        )
+        try await DatabaseManager.shared.saveShare(legacy)
+        let afterLegacy = try await ShareEngine.reusableShareLink(for: "obj-share-reuse")
+        #expect(afterLegacy == nil, "legacy v1 records are never reused")
+
+        try await DatabaseManager.shared.deleteShare(id: expired.id)
+        try await DatabaseManager.shared.deleteShare(id: legacy.id)
     }
 
     @Test func faceEngineCosineAndVectorRoundTrip() {

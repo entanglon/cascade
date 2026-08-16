@@ -1368,7 +1368,7 @@ final class TelegramClient {
             appropriateFor: nil,
             create: true
         )
-        let folder = support.appendingPathComponent("xCloud/tdlib", isDirectory: true)
+        let folder = support.appendingPathComponent("\(AppPaths.dataFolder)/tdlib", isDirectory: true)
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.path(percentEncoded: false)
     }
@@ -1381,7 +1381,7 @@ final class TelegramClient {
             appropriateFor: nil,
             create: true
         )
-        let folder = cache.appendingPathComponent("xCloud/tdlib-files", isDirectory: true)
+        let folder = cache.appendingPathComponent("\(AppPaths.dataFolder)/tdlib-files", isDirectory: true)
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.path(percentEncoded: false)
     }

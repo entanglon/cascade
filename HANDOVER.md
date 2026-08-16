@@ -91,7 +91,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ---
 
-## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–46 committed 2026-08-16)
+## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–48 committed 2026-08-16; items 49–51 committed 2026-08-16)
 
 1. **HDR/EDR color pipeline fix** (`Features/MPVVideoView.swift`)
    - Root cause of "washed-out but brighter" video vs YouTube: the layer opted into
@@ -154,31 +154,43 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
    grid/list + sort controls (`XTheme.topBarControlsWidth`).
 
 9. **Share links** (`Engine/ShareEngine.swift`, `App/AppState.swift`, migration v14–v15,
-   v22-forward-shares) — cloud-to-cloud sharing is **forward-based** (v2): the sender
-   forwards the file's vault chunk messages into ONE reusable "xCloud Shares" channel
-   (server-side copy, no re-upload, no size cap; channel archived+muted, tracked in
-   `share_state`); the link is an obfuscated `xcloud://share#...` blob carrying
-   channel + invite + key + expiry (default 7 days) + the forwarded message IDs (`m`)
-   and, for private files, the object key re-wrapped under a fresh share key (`w`).
-   Re-sharing the same file reuses the live link (byte-identical stored `linkBlob`;
-   channel liveness verified via `getChat` before reuse; dead channels marked
-   revoked). Links die with the file (`deleteForever` revokes shares + deletes the
-   share-channel copies). Expired/revoked v2 shares delete their messages
-   individually; the channel is retired once empty. Self-open (sharer opens own link)
-   reveals the original Drive-style (v2 matched by messageIDs, v1 by channelID);
-   recipient import (`importForwarded`) re-forwards the chunks into the vault and
-   re-wraps the object key under their own master key. Legacy v1 disposable-channel
-   links still import (`importLegacy`); legacy share captions (`xcloud:share:v1:`,
-   `ChunkMeta`, no id) parse only via `ShareEngine.parseChunkMeta`. Import errors are
-   wrapped with real messages (no more bare `TDLibKit.Error error 1`).
+    v22-forward-shares) — cloud-to-cloud sharing is **forward-based** (v2): the sender
+    forwards the file's vault chunk messages into ONE reusable "xCloud Shares" channel
+    (server-side copy, no re-upload, no size cap; channel archived+muted, tracked in
+    `share_state`); the link is an obfuscated `xcloud://share#...` blob carrying
+    channel + invite + key + expiry (default 7 days) + the forwarded message IDs (`m`)
+    and, for private files, the object key re-wrapped under a fresh share key (`w`).
+    Re-sharing the same file reuses the live link (byte-identical stored `linkBlob`;
+    channel liveness verified via `getChat` before reuse; dead channels marked
+    revoked; **legacy v1 records with empty `messageIDs` are never reused** — they'd
+    hand out the pre-rewrite link instead of minting a v2 share; they stay
+    importable until expiry). Links die with the file (`deleteForever` revokes shares
+    + deletes the share-channel copies). Expired/revoked v2 shares delete their
+    messages individually; the channel is retired once empty. Self-open (sharer opens
+    own link) reveals the original Drive-style (v2 matched by messageIDs, v1 by
+    channelID); recipient import (`importForwarded`) re-forwards the chunks into the
+    vault and re-wraps the object key under their own master key. Legacy v1
+    disposable-channel links still import (`importLegacy`); legacy share captions
+    (`xcloud:share:v1:`, `ChunkMeta`, no id) parse only via
+    `ShareEngine.parseChunkMeta`. Import errors are wrapped with real messages (no
+    more bare `TDLibKit.Error error 1`). **Verified live (2026-08-16)**: first v2
+    share created the reusable channel + forwarded chunks; the `xcloud://` self-open
+    reveal works with both the plain and obfuscated link forms.
 
 10. **Window / URL-open fixes** (`App/xCloudApp.swift`, `App/TerminationHandler.swift`,
     `Features/RootView.swift`) — main scene is a single-instance `Window` (not
     `WindowGroup`), so link opens can never spawn duplicate windows; AppDelegate
     intercepts URL delivery (activate + bring main window front); single-instance
-    guard hands off links via a file + notification when a second copy launches;
-    `.moveToActiveSpace` is permanent + off-screen rescue (centers on active screen);
-    closing the window quits the app.
+    guard hands off links via a file + notification when a second copy launches
+    (handoff file + notification name are bundle-id-scoped, so dev and prod builds
+    never hand links to each other); `.moveToActiveSpace` is permanent + off-screen
+    rescue (centers on active screen); closing the window quits the app. Hardened
+    2026-08-16: URL delivery `deminiaturize`s a minimized main window; zero-window
+    recovery posts `recreateMainWindow` (main + About scenes observe → `openWindow`)
+    plus a simulated Dock-icon reopen, so a torn-down scene is recreated; diagnostic
+    prints (`xCloud URL: …`) on the whole delivery path. Stale `lsregister`
+    registrations (deleted build paths claiming `xcloud://`) caused window-vanishing
+    incidents — clean them when moving/renaming build folders.
 
 11. **Storage indicator bar** (`Features/SettingsView.swift`) — Settings → Vault
     Usage now has an Apple-style stacked bar + legend (Images/Videos/Audio/
@@ -1013,11 +1025,94 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Verification: relaunch drained the 2 queued test rows → forwarded to the new
       channel (backup messages 1048577/1048585), status `done`. Build + tests green.
       Still pending user re-verification of a live upload + permanent delete.
+49. **Forward-based shares — verified live + two live bugs fixed (2026-08-16)**
+    (`Engine/ShareEngine.swift`, `xCloudTests/xCloudTests.swift`)
+    - **First real v2 share worked end-to-end**: reusable "xCloud Shares" channel
+      created (archived + muted), vault chunks forwarded server-side
+      (`messages.forwardMessages`, sender's ciphertext + unified captions intact),
+      v2 link minted and stored (`shares.linkBlob`), `key=` empty for the non-private
+      PNG as designed.
+    - **Stale-record hijack** (found live): re-sharing returned the pre-rewrite v1
+      link — `reusableShareLink` matched a legacy share record (state active,
+      channel still cached by TDLib) and returned its v1 link verbatim, so the
+      forward path never ran. Fixed: `messageIDs`-empty records are skipped when
+      reusing; re-sharing mints a fresh v2 share; legacy records remain importable
+      until expiry. `shareReusesLiveLinkInsteadOfMintingNewOne` extended (v2
+      records carry `messageIDs`, new step asserts legacy never reused).
+    - **Empty-catalog incident**: `sourceUnavailable` on share attempt because the
+      local DB had 0 objects/0 chunks — the previous session's
+      `CatalogSnapshot.restore()` never completed its write. Relaunch under a pty
+      (`script -q /tmp/xcloud-app.log <binary>` — stdout prints are block-buffered
+      when redirected to a plain file, invisible; the pty makes them line-buffered)
+      → restore succeeded: "19 objects, 22 chunks", all chunk message IDs present.
+      No re-upload was needed — the files were in the channel all along.
+    - **Stale-binary incident**: an earlier "nothing happened" trace was the
+      pre-rewrite binary still running (started 14:44; its log showed
+      `xcloud:share:v1:` captions + share-tmp uploads). Always relaunch on a fresh
+      build before judging behavior.
+    - Deferred: real two-account E2E (user: "wait for the testing") + the
+      protectContent **second hop** (recipient re-forwarding protected copies).
+50. **Window-disappearing on link open — fixed + hardened (2026-08-16)**
+    (`App/TerminationHandler.swift`, `App/xCloudApp.swift`)
+    - Symptom: opening the shared link in the browser while the app ran made the
+      main window vanish (process alive, zero windows per System Events, only a
+      Dock thumbnail + menu-bar-sized windows in CGWindowList).
+    - **Stale URL-handler registration**: `lsregister` showed the `xcloud://` claim
+      on a DELETED build path (`DerivedData/xCloud/Build/Products/Debug/xCloud.app`,
+      same bundle id as the running dev app) plus long-gone DMG-check copies — the
+      "two instances fight over the window" trap. Cleaned: stale paths unregistered,
+      current build re-registered (`lsregister -f`). Verified via
+      `open xcloud://share#…` → running app receives the URL, self-opens (reveals +
+      flashes the file), window stays.
+    - **Hardening**: URL delivery now `deminiaturize`s a minimized main window
+      before ordering it front; zero-window recovery posts `recreateMainWindow`
+      (observed by main + About scenes → `openWindow(id: "main")`) AND simulates
+      the Dock-icon reopen twice (`applicationShouldHandleReopen` — SwiftUI `Window`
+      scenes restore natively on reopen; `openWindow` on an existing `Window` scene
+      is a no-op, so all paths are idempotent). Diagnostic prints on the whole URL
+      path (`xCloud URL: …`) — previously the failure was silent.
+51. **Production build isolation — v1.1.0 DMG (2026-08-16)**
+    (`xCloud.xcodeproj`, `App/AppPaths.swift` NEW, `Storage/DatabaseManager.swift`,
+    `Telegram/TelegramClient.swift`, `Engine/{Upload,Download,Face}Engine.swift`,
+    `App/TerminationHandler.swift`, `Crypto/KeychainStore.swift`)
+    - **Problem**: Debug and Release shared bundle id `com.nemesys.xcloud.xCloud`
+      and hardcoded `xCloud` data folders — the released app would share the dev
+      app's keychain session, database and TDLib state (and the single-instance
+      guard would treat them as one app). User requirement: production must not
+      conflict with testing data.
+    - **Release config**: bundle id → `com.nemesys.xcloud.xCloud.prod`,
+      `MARKETING_VERSION` → 1.1. Debug keeps `com.nemesys.xcloud.xCloud`.
+      Keychain service derives from the bundle id, so the prod build gets its own
+      Telegram session / vault PIN / master key automatically.
+    - **`AppPaths.dataFolder`**: `"xCloud"` (dev) vs `"xCloud-Prod"` (prod, bundle
+      id ends `.prod`). All hardcoded data paths now scoped through it: database,
+      TDLib dirs + file cache, downloads cache, upload tmp/thumbs, face vectors,
+      and the URL handoff file. Handoff notification name derives from the bundle
+      id so dev and prod never hand links to each other.
+    - Built `xCloud-1.1.0.dmg` (`scripts/make_dmg.sh 1.1.0`): Release, hardened
+      runtime, unsandboxed (same as 1.0.0), `hdiutil verify` OK. Dev and prod run
+      side by side; the browser opens whichever build registered `xcloud://` last —
+      "Import Shared Link…" (⌘⇧I) inside the prod app is the deterministic path
+      (see DISTRIBUTION.md).
+    - Full test suite green (52 tests, worktree); main + worktree byte-identical.
 
 ---
 ## 5. Pending / next steps
 
-
+- **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.0.dmg`
+  (production build, isolated data), log in with a SECOND account, and import the
+  shared link (browser → prod app, or "Import Shared Link…" ⌘⇧I which is
+  deterministic). Then verify: file appears in the recipient's vault with correct
+  size; sender's self-open reveal still works; the two accounts' data never mixes.
+  Also verify the protectContent **second hop**: the recipient re-forwarding
+  protected chunks out of the share channel.
+- **Flag-only private vault (user-approved design, NOT built):** drop per-file
+  encryption; private = `isPrivate` DB flag + PIN-gated section + `.bin` chunks;
+  move in/out = instant flag flip (removes the decrypt + re-upload
+  `unencryptFileInTelegram` path); Share disabled on private items ("move it out of
+  Private to share"); share links lose the key layer (`w`/shareKey); import never
+  unwraps. Old encrypted chunks in the channel become junk (throwaway test data).
+  Don't start until the share mechanism is proven.
 - **DONE 2026-08-15 (user verified):** Library poster cards — covers, corner menu
   button (placement + style), progress bars (books opened after this change only);
   photos upload progress (no more backward stutter); photos arrow-key navigation

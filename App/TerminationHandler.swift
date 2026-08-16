@@ -12,9 +12,18 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
     /// before any observer was attached).
     static let didOpenURL = Notification.Name("xCloudDidOpenURL")
 
+    /// Posted when a URL arrived but the main window could not be found (the
+    /// SwiftUI scene was torn down — e.g. the window was closed while another
+    /// window existed, or the scene failed to restore). `xCloudApp` observes
+    /// this and calls `openWindow(id: "main")` to recreate the scene.
+    static let recreateMainWindow = Notification.Name("xCloudRecreateMainWindow")
+
     /// Distributed notification used by a duplicate instance to tell the running
-    /// one that share links are waiting in the handoff file.
-    private static let handoffNotificationName = Notification.Name("com.nemesys.xcloud.xCloud.handoffURLs")
+    /// one that share links are waiting in the handoff file. Scoped to the bundle
+    /// id so the dev and production builds never hand links to each other.
+    private static var handoffNotificationName: Notification.Name {
+        Notification.Name((Bundle.main.bundleIdentifier ?? "com.nemesys.xcloud.xCloud") + ".handoffURLs")
+    }
     private static let handoffFileName = "handoff-urls.json"
 
     // MARK: - Single-instance guard
@@ -39,7 +48,7 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
             appropriateFor: nil,
             create: true
         ) else { return nil }
-        let dir = support.appendingPathComponent("xCloud", isDirectory: true)
+        let dir = support.appendingPathComponent(AppPaths.dataFolder, isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent(handoffFileName)
     }
@@ -102,9 +111,11 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        print("xCloud URL: received \(urls.count) url(s): \(urls.map { $0.absoluteString.prefix(80) })")
         // Duplicate instance? Hand the links to the running one and quit this
         // copy instead of fighting over the window.
         if let other = Self.otherRunningInstance() {
+            print("xCloud URL: duplicate instance \(other.processIdentifier) — handing off")
             Self.handOff(urls: urls, to: other)
             return
         }
@@ -125,15 +136,38 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
         //    intentionally NOT removed afterwards — removing it right away races
         //    the window server's space move and can leave the window stranded
         //    off-screen (verified live).
+        //  - A minimized window is still "visible == false" to SwiftUI, so the
+        //    makeKeyAndOrderFront below restores it (verified live); if the window
+        //    list is empty the scene was torn down and only the Dock icon remains.
         DispatchQueue.main.async {
+            print("xCloud URL: windows before activate: \(NSApp.windows.map { "\(String(describing: $0.title)) visible=\($0.isVisible) mini=\($0.isMiniaturized)" })")
             NSApp.activate(ignoringOtherApps: true)
             let window = NSApp.mainWindow
                 ?? NSApp.windows.first(where: { $0.canBecomeKey && $0.isVisible && !$0.isSheet })
                 ?? NSApp.windows.first(where: { $0.canBecomeKey && !$0.isSheet })
+            print("xCloud URL: chosen window: \(String(describing: window?.title)) isMiniaturized=\(window?.isMiniaturized ?? false)")
             if let window {
+                if window.isMiniaturized { window.deminiaturize(nil) }
                 window.collectionBehavior.insert(.moveToActiveSpace)
                 TerminationHandler.rescueWindowOnScreen(window)
                 window.makeKeyAndOrderFront(nil)
+            } else {
+                // No window at all: the SwiftUI scene was torn down (known
+                // `Window`-scene quirk when the window is lost while another
+                // window exists, or after a scene-restore hiccup). Two recovery
+                // paths, both idempotent:
+                //  - ask the SwiftUI app to recreate the scene via openWindow
+                //    (any live scene observes this — main or About);
+                //  - simulate the Dock-icon reopen, which SwiftUI Window scenes
+                //    answer natively by restoring the scene window.
+                print("xCloud URL: no window found — asking scene to recreate")
+                NotificationCenter.default.post(name: Self.recreateMainWindow, object: nil)
+                for delay in [0.4, 1.2] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        NSApp.activate(ignoringOtherApps: true)
+                        _ = self.applicationShouldHandleReopen(application, hasVisibleWindows: false)
+                    }
+                }
             }
         }
     }

@@ -45,7 +45,7 @@ enum UploadEngine {
             appropriateFor: nil,
             create: true
         )
-        let dir = support.appendingPathComponent("xCloud/tmp", isDirectory: true)
+        let dir = support.appendingPathComponent("\(AppPaths.dataFolder)/tmp", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -58,7 +58,7 @@ enum UploadEngine {
             appropriateFor: nil,
             create: true
         )
-        let dir = support.appendingPathComponent("xCloud/thumbs", isDirectory: true)
+        let dir = support.appendingPathComponent("\(AppPaths.dataFolder)/thumbs", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

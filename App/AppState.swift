@@ -954,10 +954,12 @@ final class AppState {
             do {
                 switch try await ShareEngine.importLink(trimmed) {
                 case .imported:
+                    print("xCloud URL: imported via link")
                     alertMessage = "Shared file imported — find it under Shared."
                     await self.loadFiles()
                     await self.loadShares()
                 case .selfOpen(let objectID):
+                    print("xCloud URL: self-open, revealing object \(objectID)")
                     // Quiet, Drive-style behavior: reveal + select the original.
                     // No modal alert — the reveal highlight IS the feedback.
                     // A trashed original is revealed inside the Trash itself.
@@ -976,6 +978,7 @@ final class AppState {
                     }
                 }
             } catch {
+                print("xCloud URL: import failed: \(error)")
                 alertMessage = ShareEngine.describe(error)
             }
         }
@@ -984,6 +987,7 @@ final class AppState {
     /// Entry point for `xcloud://share…` links opened by the OS (onOpenURL).
     @MainActor
     func handleIncomingURL(_ url: URL) {
+        print("xCloud URL: AppState.handleIncomingURL \(url.absoluteString.prefix(80))")
         guard url.scheme == "xcloud" else { return }
         importShareLink(url.absoluteString)
     }
