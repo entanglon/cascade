@@ -83,6 +83,13 @@ final class AppState {
     var isDatabaseReady = false
     var isEngineReady = false
     var isCryptoReady = false
+
+    /// True when Telegram API credentials are stored (the API setup step has been
+    /// completed at least once). Lets RootView show the login gate on a fresh
+    /// install even before TDLib has reported an authorization state — without
+    /// stored credentials TDLib can never start, so the neutral splash would
+    /// otherwise trap a first-time user on a loading screen forever.
+    var hasTelegramCredentials = false
     var databaseError: String?
 
     /// Guards the post-auth reconciliation (channel scan, profile, transfers) so it
@@ -289,6 +296,7 @@ final class AppState {
             }
 
             if let creds = try KeychainStore.loadTelegramCredentials() {
+                hasTelegramCredentials = true
                 await startTelegram(apiID: creds.apiID, apiHash: creds.apiHash)
             }
 
@@ -671,6 +679,7 @@ final class AppState {
         do {
             try await TelegramClient.shared.start()
             try? KeychainStore.saveTelegramCredentials(apiID: apiID, apiHash: apiHash)
+            hasTelegramCredentials = true
         } catch {
             databaseError = "Telegram init failed: \(error.localizedDescription)"
         }

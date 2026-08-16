@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-16 — share verified live, window fix, production isolation v1.1.0 (see end).
+> 2026-08-16 — fresh-install login deadlock fixed, v1.1.1 DMG (see end).
 
 ---
 
@@ -523,3 +523,34 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
   (documented in DISTRIBUTION.md; "Import Shared Link…" ⌘⇧I is the deterministic
   path inside the production app).
 - Full test suite green (52 tests) in the worktree; main + worktree byte-identical.
+
+---
+
+## 2026-08-16 (second session) — Fresh-install deadlock fixed (v1.1.1)
+
+- **Bug (user-reported)**: installed the v1.1.0 DMG, clicked "Connect Telegram"
+  (the onboarding button) — the app showed the xCloud loading screen forever and
+  never reached the API-credentials form.
+- **Root cause**: fresh install → no stored API credentials → nothing ever starts
+  TDLib (bootstrap and the login gate only start it when credentials exist) →
+  `isAuthResolved` stays false forever → `RootView` renders the neutral
+  `AuthSplashView` permanently. The onboarding "Connect Telegram" button only
+  closes the sheet; the login gate it assumes it hands off to never appears,
+  because the gate itself is gated behind `isAuthResolved`. The dev build never
+  hit this because its keychain already had stored credentials — the fresh-install
+  path had never been exercised. Disk evidence: prod keychain had `master-key` but
+  no `telegram-credentials`; no `xCloud-Prod/tdlib` folder ever appeared.
+- **Fix**: `AppState.hasTelegramCredentials` (set at bootstrap and after a
+  successful credentials save) + `RootView` shows the login gate when
+  `isAuthResolved || !hasTelegramCredentials` — no credentials → the API form
+  appears immediately; credentials present → neutral splash until TDLib reports a
+  state (unchanged, no login-gate flash on launch).
+- **Verified live**: launched the rebuilt Release app against the untouched prod
+  keychain/data; Accessibility tree shows the login gate ("Connect Telegram" /
+  "Enter the API credentials from my.telegram.org" / API ID field) instead of the
+  eternal splash. (Note: the TDLib `td_receive` thread that shows in the process
+  log is spawned by `TDLibClientManager.init` — a red herring, it runs whenever
+  `TelegramClient.shared` is touched, not just in `start()`.)
+- **v1.1.1**: `MARKETING_VERSION` → 1.1.1, rebuilt Release, `xCloud-1.1.1.dmg`
+  created + `hdiutil verify` OK. User reinstalls, enters API credentials, and the
+  phone/code/password flow proceeds as in the dev build.

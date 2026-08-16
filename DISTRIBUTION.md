@@ -1,12 +1,16 @@
-# xCloud — Distribution Notes (v1.1)
+# xCloud — Distribution Notes (v1.1.1)
 
 ## What's ready
 
-- **`xCloud-1.1.0.dmg`** — the installer, built from the Release configuration, signed
+- **`xCloud-1.1.1.dmg`** — the installer, built from the Release configuration, signed
   (hardened runtime; **not sandboxed** — a deliberate choice, see below), with a custom
   background, volume icon, icon layout, and an `Applications` shortcut. Drag the app to
   Applications.
-- Rebuild it anytime: `bash scripts/make_dmg.sh 1.1.0`
+  v1.1.1 fixes the fresh-install deadlock: the API-credentials login form now appears
+  immediately when no credentials are stored (previously the app sat on a loading
+  splash forever). Logging in after install: first run → optional onboarding → "Connect
+  Telegram" API form → phone/code/password → your cloud.
+- Rebuild it anytime: `bash scripts/make_dmg.sh 1.1.1`
   (requires a Release build: `xcodebuild -project xCloud.xcodeproj -scheme xCloud -configuration Release -derivedDataPath build build`)
 
 ## Release vs. dev separation (by design)
@@ -68,7 +72,7 @@ Signing & Capabilities (or `CODE_SIGN_IDENTITY="Developer ID Application"` on th
 command), and run:
 
 ```bash
-bash scripts/notarize.sh xCloud-1.0.0.dmg
+bash scripts/notarize.sh xCloud-1.1.1.dmg
 ```
 
 `notarize.sh` submits to Apple, waits for approval, staples the ticket to the DMG, and validates.

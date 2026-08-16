@@ -59,7 +59,11 @@ struct RootView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 10)
                 }
-            } else if TelegramClient.shared.isAuthResolved {
+            } else if TelegramClient.shared.isAuthResolved || !appState.hasTelegramCredentials {
+                // Gate shows either once TDLib has reported an authorization state,
+                // or immediately when no API credentials are stored yet: without
+                // them TDLib can never start, so waiting for a state that will
+                // never arrive would strand a first-time user on the splash.
                 LoginGateView()
                     .transition(.opacity)
                     .zIndex(30)

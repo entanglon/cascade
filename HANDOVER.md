@@ -91,7 +91,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ---
 
-## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–48 committed 2026-08-16; items 49–51 committed 2026-08-16)
+## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–48 committed 2026-08-16; items 49–52 committed 2026-08-16)
 
 1. **HDR/EDR color pipeline fix** (`Features/MPVVideoView.swift`)
    - Root cause of "washed-out but brighter" video vs YouTube: the layer opted into
@@ -1095,17 +1095,43 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       "Import Shared Link…" (⌘⇧I) inside the prod app is the deterministic path
       (see DISTRIBUTION.md).
     - Full test suite green (52 tests, worktree); main + worktree byte-identical.
+52. **Fresh-install login deadlock — fixed (v1.1.1, 2026-08-16)**
+    (`App/AppState.swift`, `Features/RootView.swift`)
+    - Symptom (user): installed the v1.1.0 DMG, clicked "Connect Telegram" (the
+      onboarding button) → eternal "xCloud loading screen", never reached the API
+      credentials form.
+    - Root cause: with no stored API credentials nothing ever starts TDLib
+      (bootstrap + login-gate `.task` both require stored creds) → `isAuthResolved`
+      stays false forever → `RootView` renders `AuthSplashView` permanently; the
+      login gate itself is gated behind `isAuthResolved`, so the API form the
+      onboarding button assumed it would hand off to never appears. Dev build never
+      hit it (keychain had stored creds); the fresh-install path was untested.
+      Evidence: prod keychain had `master-key` but no `telegram-credentials`; no
+      `xCloud-Prod/tdlib` ever appeared. (TDLib's `td_receive` thread in the
+      process log is a red herring — `TDLibClientManager.init` starts it the moment
+      `TelegramClient.shared` is touched.)
+    - Fix: `AppState.hasTelegramCredentials` (set at bootstrap + after a successful
+      creds save); `RootView` shows the gate when `isAuthResolved ||
+      !hasTelegramCredentials` — no creds → API form immediately; creds present →
+      neutral splash until TDLib reports a state (no login-gate flash on launch).
+    - Verified live: rebuilt Release app against the untouched prod keychain/data
+      → Accessibility tree shows the gate ("Connect Telegram" / "Enter the API
+      credentials from my.telegram.org" / API ID field), not the splash.
+    - `MARKETING_VERSION` → 1.1.1; `xCloud-1.1.1.dmg` built + verified. User flow
+      now: install → (onboarding once) → API credentials → phone/code/password →
+      cloud. The pending two-account share E2E resumes from here.
 
 ---
 ## 5. Pending / next steps
 
-- **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.0.dmg`
-  (production build, isolated data), log in with a SECOND account, and import the
-  shared link (browser → prod app, or "Import Shared Link…" ⌘⇧I which is
-  deterministic). Then verify: file appears in the recipient's vault with correct
-  size; sender's self-open reveal still works; the two accounts' data never mixes.
-  Also verify the protectContent **second hop**: the recipient re-forwarding
-  protected chunks out of the share channel.
+- **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
+  (production build, isolated data; fresh-install gate fix confirmed live — the
+  API credentials form appears immediately, no splash deadlock), log in with a
+  SECOND account, and import the shared link (browser → prod app, or "Import
+  Shared Link…" ⌘⇧I which is deterministic). Then verify: file appears in the
+  recipient's vault with correct size; sender's self-open reveal still works; the
+  two accounts' data never mixes. Also verify the protectContent **second hop**:
+  the recipient re-forwarding protected chunks out of the share channel.
 - **Flag-only private vault (user-approved design, NOT built):** drop per-file
   encryption; private = `isPrivate` DB flag + PIN-gated section + `.bin` chunks;
   move in/out = instant flag flip (removes the decrypt + re-upload
