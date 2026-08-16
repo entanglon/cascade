@@ -328,6 +328,25 @@ actor DatabaseManager {
         migrator.registerMigration("v21-drop-notes") { db in
             try db.drop(table: "notes")
         }
+
+        // Forward-based shares (2026-08-16): shares no longer re-upload a fresh
+        // encrypted copy into a per-share disposable channel. Vault chunk messages
+        // are FORWARDED (zero re-upload) into ONE reusable share channel, and the
+        // link carries the forwarded message IDs; cleanup deletes just that file's
+        // messages instead of the whole channel. New columns hold the forwarded
+        // message-ID list and the share-wrapped object key (private files only).
+        // share_state tracks the single reusable channel.
+        migrator.registerMigration("v22-forward-shares") { db in
+            try db.alter(table: "shares") { t in
+                t.add(column: "messageIDs", .text).defaults(to: "")
+                t.add(column: "wrappedKeyB64", .text).defaults(to: "")
+            }
+            try db.create(table: "share_state") { t in
+                t.column("id", .integer).primaryKey()
+                t.column("channelID", .integer).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
@@ -418,6 +437,30 @@ actor DatabaseManager {
                     .fetchAll(db)
             }
             return try ShareRecord.order(Column("createdAt").desc).fetchAll(db)
+        }
+    }
+
+    // MARK: - Reusable share channel (v22)
+
+    /// The single reusable outgoing-share channel (one row, id = 1), or nil.
+    func shareChannelID() throws -> Int64? {
+        try read { db in
+            try Row.fetchOne(db, sql: "SELECT channelID FROM share_state WHERE id = 1")?["channelID"]
+        }
+    }
+
+    /// Records the reusable share channel, or clears it (nil deletes the row).
+    func setShareChannelID(_ channelID: Int64?) throws {
+        try write { db in
+            if let channelID {
+                try db.execute(
+                    sql: "INSERT INTO share_state (id, channelID, createdAt) VALUES (1, ?, ?) "
+                       + "ON CONFLICT(id) DO UPDATE SET channelID = excluded.channelID",
+                    arguments: [channelID, Date()]
+                )
+            } else {
+                try db.execute(sql: "DELETE FROM share_state WHERE id = 1")
+            }
         }
     }
 

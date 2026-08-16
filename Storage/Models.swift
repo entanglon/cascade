@@ -269,7 +269,7 @@ extension TransferRecord {
 struct ShareRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
     var id: String
     var objectID: String          // sender: source file; recipient: new vault object
-    var channelID: Int64          // the temporary share channel
+    var channelID: Int64          // the share channel (reusable since v22)
     var inviteLink: String        // Telegram invite link (join credential)
     var shareKey: String          // base64 share key — the link secret
     var expiry: Date
@@ -283,6 +283,14 @@ struct ShareRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, S
     /// the same underlying share). Nil for records created before v15 — those
     /// reconstruct the link from their fields instead.
     var linkBlob: String? = nil
+    /// v22+: comma-separated message IDs of the file's chunks FORWARDED into the
+    /// share channel (zero re-upload). Empty for legacy shares, which instead own
+    /// a whole disposable channel deleted at expiry.
+    var messageIDs: String = ""
+    /// v22+: the object key wrapped under the share key (base64) — only for
+    /// private files; the forwarded chunks stay encrypted under the vault object
+    /// key, so the link must carry it. Empty for non-private files.
+    var wrappedKeyB64: String = ""
 }
 
 extension ShareRecord {

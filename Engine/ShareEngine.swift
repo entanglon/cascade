@@ -2,25 +2,29 @@ import Foundation
 import CryptoKit
 import TDLibKit
 import os
-import UniformTypeIdentifiers
 
 /// Cloud-to-cloud sharing between two xCloud users.
 ///
-/// Sender: a fresh random key encrypts the file, the encrypted chunks are posted
-/// into a brand-new PRIVATE channel (joinable only via its one-use invite link),
-/// and a share link carries the secret needed to unwrap the key. The channel stays
-/// alive until `expiry`, then the cleanup loop deletes it — so the link is valid
-/// for exactly as long as we want, and the sender can be offline the whole time.
+/// Sender: the file's vault chunk messages are FORWARDED (reference copies —
+/// zero re-upload, any size) into ONE reusable share channel, joinable via a
+/// per-share expiring invite link. Non-private files carry no key at all; private
+/// files stay encrypted under the vault object key, which the link carries
+/// re-wrapped under a fresh share key. The link is valid until `expiry`, then the
+/// cleanup loop deletes JUST that file's messages — the channel persists for the
+/// next share.
 ///
-/// Recipient: opening the link joins the channel, reads the chunk metadata,
-/// forwards each message into their OWN vault channel (Telegram copies the
-/// document server-side — no re-upload), re-wraps the key under their vault
-/// master key, catalogs the file, and leaves the channel.
+/// Recipient: opening the link joins the channel, reads the exact forwarded
+/// messages the link names, forwards each into their OWN vault channel (Telegram
+/// copies the document server-side — no re-upload), re-wraps the key under their
+/// vault master key, catalogs the file, and leaves.
+///
+/// Legacy shares (created before v22) used per-share disposable channels with
+/// re-encrypted copies and `xcloud:share:v1:` captions — still imported, forever.
 enum ShareEngine {
+    /// Legacy share-channel caption prefix (pre-v22 disposable channels).
     static let captionPrefix = "xcloud:share:v1:"
     static let defaultLifetime: TimeInterval = 7 * 24 * 3600
-    /// Expired outgoing channels are deleted by the cleanup loop.
-    static let maxChannelTitleLength = 120
+    static let reusableChannelTitle = "xCloud Shares"
 
     private static let logger = Logger(
         subsystem: "com.xcloud.app",
@@ -29,10 +33,15 @@ enum ShareEngine {
 
     // MARK: - Link codec
 
-    /// `xcloud://share?v=1&id=…&ch=…&inv=…&key=…&name=…&exp=…`
+    /// `xcloud://share?v=2&id=…&ch=…&inv=…&key=…&name=…&exp=…&m=…&w=…`
     /// The `key` (the share secret) is what authorizes the file — the link IS the
     /// credential, so a one-time invite (memberLimit 1) keeps the channel closed
     /// to everyone except whoever holds the link.
+    ///
+    /// v2 (forward-based, reusable channel): `m` = comma-joined forwarded message
+    /// IDs of the file's chunks in the share channel; `w` = the object key wrapped
+    /// under the share key, base64 — EMPTY for non-private files. v1 (legacy
+    /// disposable channels) has neither and is parsed for backward compatibility.
     struct ShareLink: Equatable, Sendable {
         var id: String
         var channelID: Int64
@@ -40,13 +49,17 @@ enum ShareEngine {
         var shareKey: String      // base64
         var fileName: String
         var expiry: Foundation.Date
+        var messageIDs: [Int64] = []       // v2
+        var wrappedKeyB64: String = ""     // v2, private files only
+
+        var isForwardBased: Bool { !messageIDs.isEmpty }
 
         var urlString: String {
             var comps = URLComponents()
             comps.scheme = "xcloud"
             comps.host = "share"
-            comps.queryItems = [
-                URLQueryItem(name: "v", value: "1"),
+            var items = [
+                URLQueryItem(name: "v", value: isForwardBased ? "2" : "1"),
                 URLQueryItem(name: "id", value: id),
                 URLQueryItem(name: "ch", value: String(channelID)),
                 URLQueryItem(name: "inv", value: inviteLink),
@@ -54,6 +67,11 @@ enum ShareEngine {
                 URLQueryItem(name: "name", value: fileName),
                 URLQueryItem(name: "exp", value: String(Int(expiry.timeIntervalSince1970)))
             ]
+            if isForwardBased {
+                items.append(URLQueryItem(name: "m", value: messageIDs.map(String.init).joined(separator: ",")))
+                items.append(URLQueryItem(name: "w", value: wrappedKeyB64))
+            }
+            comps.queryItems = items
             return comps.url?.absoluteString ?? ""
         }
 
@@ -74,20 +92,38 @@ enum ShareEngine {
             guard let id = q["id"],
                   let chStr = q["ch"], let channelID = Int64(chStr),
                   let invite = q["inv"], !invite.isEmpty,
-                  let key = q["key"], !key.isEmpty,
                   let expStr = q["exp"], let exp = Int64(expStr) else { return nil }
+            let version = q["v"] ?? "1"
+            let key = q["key"] ?? ""
+            var messageIDs: [Int64] = []
+            var wrappedKeyB64 = ""
+            if version == "2" {
+                // Forward-based links: the message IDs name the chunks; the key is
+                // only present for private files (wrappedKeyB64 non-empty).
+                messageIDs = (q["m"] ?? "").split(separator: ",").compactMap { Int64($0) }
+                guard !messageIDs.isEmpty else { return nil }
+                wrappedKeyB64 = q["w"] ?? ""
+                if !wrappedKeyB64.isEmpty {
+                    guard !key.isEmpty else { return nil }
+                }
+            } else {
+                // Legacy disposable-channel links always carry the share secret.
+                guard !key.isEmpty else { return nil }
+            }
             return ShareLink(
                 id: id,
                 channelID: channelID,
                 inviteLink: invite,
                 shareKey: key,
                 fileName: q["name"] ?? "Shared file",
-                expiry: Foundation.Date(timeIntervalSince1970: TimeInterval(exp))
+                expiry: Foundation.Date(timeIntervalSince1970: TimeInterval(exp)),
+                messageIDs: messageIDs,
+                wrappedKeyB64: wrappedKeyB64
             )
         }
     }
 
-    // MARK: - Manifest (per-chunk caption)
+    // MARK: - Legacy manifest (pre-v22 per-chunk caption, disposable channels)
 
     struct ChunkMeta: Codable, Sendable {
         var index: Int
@@ -116,8 +152,9 @@ enum ShareEngine {
 
     // MARK: - Sender
 
-    /// Creates the share channel, uploads the encrypted chunks, and returns the
-    /// share link. The link (and therefore the file) lives until `expiry`.
+    /// Creates the share (forwarding the vault chunks into the reusable share
+    /// channel) and returns the share link. The link (and therefore the file)
+    /// lives until `expiry`.
     @discardableResult
     static func share(
         object: ObjectRecord,
@@ -129,47 +166,36 @@ enum ShareEngine {
         guard !object.isFolder else { throw ShareError.notShareable }
 
         // Drive-style reuse: a file that already has a LIVE share (active, not yet
-        // expired) reuses that link instead of creating a fresh channel and
-        // re-uploading the chunks. Sharing the same file twice gives you the same
-        // link — no second channel, no double quota spend.
+        // expired) reuses that link instead of forwarding the chunks again.
+        // Sharing the same file twice gives you the same link — no second channel,
+        // no double quota spend.
         if let existing = try await reusableShareLink(for: object.id) {
             logger.info("Share: reusing existing link for \(object.name)")
             return existing
         }
 
+        let vault: VaultRecord
         do {
-            // The share channel is independent of the vault, but make sure the vault
-            // exists so a broken storage layer surfaces here, not mid-share.
-            _ = try await VaultManager.ensureVault()
+            vault = try await VaultManager.ensureVault()
         } catch {
             throw ShareError.importFailed(describe(error))
         }
 
-        // Source of the plaintext: the original local file, else the decrypted cache copy.
-        let sourceURL: URL
-        if let path = object.sourcePath, FileManager.default.fileExists(atPath: path) {
-            sourceURL = URL(fileURLWithPath: path)
-        } else if DownloadEngine.isCached(object) {
-            sourceURL = DownloadEngine.cacheURL(for: object)
-        } else {
+        // The source of a forward-based share is the VAULT COPY, not a local file:
+        // every chunk must have an uploaded message to forward. (Old records with
+        // missing message IDs predate the messageID threshold fix.)
+        let chunks = ((try? await DatabaseManager.shared.chunks(for: object.id)) ?? [])
+            .sorted { $0.index < $1.index }
+        guard !chunks.isEmpty, chunks.allSatisfy({ ($0.messageID ?? 0) > 0 }) else {
             throw ShareError.sourceUnavailable
         }
 
-        let attrs = try FileManager.default.attributesOfItem(atPath: sourceURL.path(percentEncoded: false))
-        guard let sizeNum = attrs[.size] as? NSNumber else { throw ShareError.sourceUnavailable }
-        let fileSize = sizeNum.int64Value
-        let mime = object.mime
-        let plan = ChunkPlanner.plan(fileSize: fileSize, mime: mime)
-        guard !plan.items.isEmpty else { throw ShareError.notShareable }
-        let rootHash = try FileHasher.sha256(of: sourceURL)
-
-        // Channel + one-use invite link.
-        let title = "xCloud \u{00B7} \(object.name)"
+        // Reusable share channel: created once, archived like the vault, reused by
+        // every share. Per-share expiring invite link keeps the one-use semantics.
         let channelID: Int64
         do {
-            channelID = try await TelegramClient.shared.createShareChannel(title: String(title.prefix(maxChannelTitleLength)))
+            channelID = try await reusableShareChannel()
         } catch {
-            // Surface the real TDLib reason ("error 1" says nothing).
             throw ShareError.createFailed(describe(error))
         }
         let inviteLink: String
@@ -179,92 +205,70 @@ enum ShareEngine {
                 expiresIn: lifetime
             )
         } catch {
-            // Channel was created but the invite failed — don't leave an orphan behind.
-            try? await TelegramClient.shared.deleteChat(chatId: channelID)
+            // Channel was created but the invite failed — nothing was forwarded yet.
+            try? await retireShareChannelIfEmpty()
             throw ShareError.createFailed(describe(error))
         }
 
-        // Fresh random keys: the object key encrypts the file; the share key wraps
-        // the object key and rides inside the link.
-        let shareKey = SymmetricKey(size: .bits256)
-        let objectKey = SymmetricKey(size: .bits256)
-        let wrappedObjectKey = try CryptoEngine.wrap(objectKey, with: shareKey)
-        let shareKeyB64 = shareKey.withUnsafeBytes { Data($0) }.base64EncodedString()
-        let wrappedB64 = wrappedObjectKey.base64EncodedString()
-
-        // Encrypt each chunk into a temp file and post it to the channel.
-        let shareID = UUID().uuidString
-        let tmpDir = try tempDirectory()
-        var messageIDs: [(index: Int, messageId: Int64)] = []
-        let tmpPaths: [URL] = plan.items.map { _ in tmpDir.appendingPathComponent(UUID().uuidString) }
-
+        // Forward each chunk message into the share channel — a reference copy,
+        // Telegram copies the document server-side: no re-upload, no size limit.
+        var messageIDs: [Int64] = []
         do {
-            for (i, item) in plan.items.enumerated() {
-                let tmpURL = tmpPaths[i]
-                let plain = try readFileSlice(sourceURL, offset: item.offset, count: Int(item.size))
-                let plainHash = FileHasher.sha256(of: plain)
-                var encrypted = Data()
-                encrypted.reserveCapacity(plain.count + 64)
-                var offset = 0
-                var sliceIndex = 0
-                while offset < plain.count {
-                    let end = min(offset + CryptoEngine.sliceSize, plain.count)
-                    let sealed = try CryptoEngine.encryptSlice(plain.subdata(in: offset..<end), objectKey: objectKey, index: sliceIndex)
-                    encrypted.append(sealed)
-                    offset = end
-                    sliceIndex += 1
-                }
-                try encrypted.write(to: tmpURL)
-
-                let meta = ChunkMeta(
-                    index: item.index,
-                    totalChunks: plan.items.count,
-                    name: object.name,
-                    size: fileSize,
-                    mime: mime,
-                    wrappedKey: wrappedB64,
-                    rootHash: rootHash,
-                    chunkSize: plan.chunkSize,
-                    plainHash: plainHash
-                )
-                // No content protection on the chunk posts: the recipient must be
-                // able to forward them into their own vault. (The recipient's copy
-                // gets protectContent: true via forwardMessage.)
-                let messageId = try await TelegramClient.shared.sendFile(
+            for chunk in chunks {
+                guard let messageID = chunk.messageID else { continue }
+                let mid = try await TelegramClient.shared.forwardMessage(
                     chatId: channelID,
-                    path: tmpURL.path(percentEncoded: false),
-                    kind: .document,
-                    caption: caption(for: meta),
-                    protectContent: false,
-                    onProgress: nil
+                    fromChatId: vault.channelID,
+                    messageId: messageID
                 )
-                messageIDs.append((item.index, messageId))
-                logger.info("Share \\(shareID): chunk \\(item.index)/\\(plan.items.count) posted")
+                messageIDs.append(mid)
             }
+            guard messageIDs.count == chunks.count else { throw ShareError.uploadFailed("Partial forward") }
         } catch {
-            // Clean up the channel so a failed share leaves no orphan behind.
-            try? await TelegramClient.shared.deleteChat(chatId: channelID)
+            // Roll back the forwarded copies so the reusable channel stays clean.
+            if !messageIDs.isEmpty {
+                try? await TelegramClient.shared.deleteMessages(chatId: channelID, messageIds: messageIDs)
+            }
             throw ShareError.uploadFailed(describe(error))
         }
-        defer {
-            for url in tmpPaths { try? FileManager.default.removeItem(at: url) }
+
+        // Keys: only private files carry a key at all. The forwarded chunks are the
+        // vault's ciphertext (encrypted under the object key), so the link must
+        // carry that object key re-wrapped under a fresh share key. Non-private
+        // files: no key anywhere in the link.
+        var shareKeyB64 = ""
+        var wrappedB64 = ""
+        if object.isPrivate, let wk = object.wrappedKey, !wk.isEmpty {
+            do {
+                let master = try CryptoEngine.masterKey()
+                let objectKey = try CryptoEngine.unwrap(wk, with: master)
+                let shareKey = SymmetricKey(size: .bits256)
+                let wrapped = try CryptoEngine.wrap(objectKey, with: shareKey)
+                wrappedB64 = wrapped.base64EncodedString()
+                shareKeyB64 = shareKey.withUnsafeBytes { Data($0) }.base64EncodedString()
+            } catch {
+                try? await TelegramClient.shared.deleteMessages(chatId: channelID, messageIds: messageIDs)
+                throw ShareError.uploadFailed("Key re-wrap failed: \(describe(error))")
+            }
         }
 
         let expiry = Foundation.Date().addingTimeInterval(lifetime)
         let plainLink = ShareLink(
-            id: shareID,
+            id: UUID().uuidString,
             channelID: channelID,
             inviteLink: inviteLink,
             shareKey: shareKeyB64,
             fileName: object.name,
-            expiry: expiry
+            expiry: expiry,
+            messageIDs: messageIDs,
+            wrappedKeyB64: wrappedB64
         ).urlString
         // Hand out the obfuscated form: the link travels as an opaque blob with no
         // visible t.me invite, channel id, or key material. The exact string is
         // stored so reusing this share later returns the IDENTICAL link.
         let finalLink = (try? obfuscate(plainLink)) ?? plainLink
         var record = ShareRecord(
-            id: shareID,
+            id: UUID().uuidString,
             objectID: object.id,
             channelID: channelID,
             inviteLink: inviteLink,
@@ -276,15 +280,18 @@ enum ShareEngine {
             createdAt: .now
         )
         record.linkBlob = finalLink
+        record.messageIDs = messageIDs.map(String.init).joined(separator: ",")
+        record.wrappedKeyB64 = wrappedB64
         try await DatabaseManager.shared.saveShare(record)
+        logger.info("Share: \(object.name) forwarded (\(messageIDs.count) chunks) into channel \(channelID)")
         return finalLink
     }
 
-    /// The share link of this file's most recent LIVE outgoing share (state
-    /// `active`, not yet expired, channel still alive), or nil if the file has no
-    /// reusable link. Re-sharing a file that already has one returns the SAME
-    /// link — identical string when the record stored it, same channel/key/expiry
-    /// either way — so no second copy is uploaded.
+    /// The link of this file's most recent LIVE outgoing share (state `active`,
+    /// not yet expired, channel still alive), or nil. Re-sharing a file that
+    /// already has one returns the SAME link — identical string when the record
+    /// stored it, same channel/key/expiry either way — so no second forward is
+    /// made.
     static func reusableShareLink(for objectID: String) async throws -> String? {
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         let candidates = shares
@@ -292,8 +299,8 @@ enum ShareEngine {
             .sorted { $0.expiry > $1.expiry }
         for share in candidates {
             // The record can outlive its channel (deleted manually in Telegram, or
-            // a crash between deleteChat and marking revoked) — never hand out a
-            // link whose channel is gone. getChat is served from TDLib's cache, so
+            // a crash between deleteMessages and marking revoked) — never hand out
+            // a link whose channel is gone. getChat is served from TDLib's cache, so
             // this is cheap; skipped when Telegram isn't ready (e.g. unit tests).
             if TelegramClient.shared.isAuthorized,
                !(await TelegramClient.shared.chatExists(chatId: share.channelID)) {
@@ -314,11 +321,39 @@ enum ShareEngine {
                 inviteLink: share.inviteLink,
                 shareKey: share.shareKey,
                 fileName: share.fileName,
-                expiry: share.expiry
+                expiry: share.expiry,
+                messageIDs: share.messageIDs.split(separator: ",").compactMap { Int64($0) },
+                wrappedKeyB64: share.wrappedKeyB64
             ).urlString
             return (try? obfuscate(plain)) ?? plain
         }
         return nil
+    }
+
+    /// The one reusable outgoing-share channel: returns the recorded one if it
+    /// still exists, otherwise creates it (archived + muted, like the vault) and
+    /// records it. A channel — not a group — so invites work like the legacy
+    /// disposable channels.
+    static func reusableShareChannel() async throws -> Int64 {
+        if let existing = try? await DatabaseManager.shared.shareChannelID(),
+           await TelegramClient.shared.chatExists(chatId: existing) {
+            return existing
+        }
+        let channelID = try await TelegramClient.shared.createShareChannel(title: reusableChannelTitle)
+        await TelegramClient.shared.archiveVaultChannel(chatId: channelID)
+        try? await DatabaseManager.shared.setShareChannelID(channelID)
+        return channelID
+    }
+
+    /// Deletes the reusable share channel when it exists and no active outgoing
+    /// share uses it anymore (frees the chat list; a future share recreates it).
+    static func retireShareChannelIfEmpty() async {
+        guard let channelID = try? await DatabaseManager.shared.shareChannelID() else { return }
+        let active = (try? await DatabaseManager.shared.shares(role: "outgoing"))?
+            .filter { $0.state == "active" } ?? []
+        guard active.isEmpty else { return }
+        try? await TelegramClient.shared.deleteChat(chatId: channelID)
+        try? await DatabaseManager.shared.setShareChannelID(nil)
     }
 
     // MARK: - Recipient
@@ -348,12 +383,15 @@ enum ShareEngine {
         // The sharer opening their own link: the file is already in this vault —
         // reveal the original instead of duplicating it. (If the original was
         // deleted since sharing, fall through to a normal import — the channel
-        // copy is still valid until expiry.)
+        // copy is still valid until expiry.) With the reusable channel, every
+        // outgoing share lives in the SAME channel, so match by forwarded message
+        // IDs for v2 links; legacy links (own disposable channel) match by id.
         let outgoing = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
-        if let own = outgoing.first(where: { $0.channelID == link.channelID }) {
-            if let object = try? await DatabaseManager.shared.object(own.objectID) {
-                return .selfOpen(objectID: object.id)
-            }
+        let own: ShareRecord? = link.isForwardBased
+            ? outgoing.first { $0.messageIDs == link.messageIDs.map(String.init).joined(separator: ",") }
+            : outgoing.first { $0.channelID == link.channelID }
+        if let own, let object = try? await DatabaseManager.shared.object(own.objectID) {
+            return .selfOpen(objectID: object.id)
         }
 
         let vault: VaultRecord
@@ -378,6 +416,133 @@ enum ShareEngine {
         }
         defer { Task { try? await TelegramClient.shared.leaveChat(chatId: channelID) } }
 
+        if link.isForwardBased {
+            return try await importForwarded(link: link, channelID: channelID, vault: vault)
+        }
+        return try await importLegacy(link: link, channelID: channelID, vault: vault)
+    }
+
+    /// v2 import: the link names the file's forwarded messages (the reusable
+    /// channel holds many files at once, so only those are touched). Captions are
+    /// the vault's own unified/legacy chunk captions — parsed with the shared
+    /// codec. Private files decrypt with the object key from the link; non-private
+    /// files have no key at all.
+    private static func importForwarded(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
+        do {
+            let messages = try await TelegramClient.shared.messagesByIds(chatId: channelID, messageIds: link.messageIDs)
+            guard messages.count == link.messageIDs.count else { throw ShareError.invalidPayload }
+            var metas: [ChunkCaption.Meta] = []
+            for (_, caption) in messages {
+                guard let caption, let meta = ChunkCaption.parse(caption) else { throw ShareError.invalidPayload }
+                metas.append(meta)
+            }
+            guard let first = metas.first else { throw ShareError.invalidPayload }
+
+            // Key: private files carry the object key wrapped under the link's
+            // share key. The forwarded chunks are the SENDER's vault ciphertext —
+            // the caption's own wrappedKey is locked under the sender's master key
+            // and is never usable here; the link is the only key source.
+            var objectKey: SymmetricKey? = nil
+            if !link.wrappedKeyB64.isEmpty {
+                let shareKey = SymmetricKey(data: Data(base64Encoded: link.shareKey) ?? Data())
+                objectKey = try CryptoEngine.unwrap(
+                    Data(base64Encoded: link.wrappedKeyB64) ?? Data(),
+                    with: shareKey
+                )
+            }
+            let masterKey = try CryptoEngine.masterKey()
+
+            // Forward every chunk message into our vault channel (server-side copy).
+            let objectID = UUID().uuidString
+            let chunkSize = first.effectiveChunkSize
+            var chunkRecords: [ChunkRecord] = []
+            for (message, meta) in zip(messages, metas) {
+                let newMessageId = try await TelegramClient.shared.forwardMessage(
+                    chatId: vault.channelID,
+                    fromChatId: channelID,
+                    messageId: message.messageId
+                )
+                // Legacy captions predate chunkSize; derive per-chunk sizes from
+                // the effective chunk size, capped by the file remainder.
+                let offset = Int64(meta.index) * chunkSize
+                let size = max(0, min(chunkSize, first.size - offset))
+                chunkRecords.append(ChunkRecord(
+                    id: UUID().uuidString,
+                    objectID: objectID,
+                    index: meta.index,
+                    size: size,
+                    plainHash: meta.plainHash,
+                    cipherHash: nil,
+                    state: "uploaded",
+                    messageID: newMessageId,
+                    fileUniqueID: nil,
+                    channelID: vault.channelID,
+                    createdAt: .now
+                ))
+            }
+            guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
+
+            let wrappedForVault: Data?
+            if let objectKey {
+                wrappedForVault = try CryptoEngine.wrap(objectKey, with: masterKey)
+            } else {
+                wrappedForVault = nil
+            }
+
+            let object = ObjectRecord(
+                id: objectID,
+                vaultID: vault.id,
+                name: first.name,
+                size: first.size,
+                mime: first.mime,
+                state: "ready",
+                rootHash: first.rootHash,
+                wrappedKey: wrappedForVault,
+                createdAt: .now,
+                modifiedAt: .now,
+                isFavorite: false,
+                trashed: false,
+                parentID: nil,
+                isFolder: false,
+                isPrivate: objectKey != nil,
+                sourcePath: nil,
+                chunkSize: first.chunkSize
+            )
+            try await DatabaseManager.shared.save(object)
+            for chunk in chunkRecords {
+                try await DatabaseManager.shared.save(chunk)
+            }
+
+            let record = ShareRecord(
+                id: link.id,
+                objectID: objectID,
+                channelID: channelID,
+                inviteLink: link.inviteLink,
+                shareKey: link.shareKey,
+                expiry: link.expiry,
+                role: "incoming",
+                state: "imported",
+                fileName: first.name,
+                createdAt: .now,
+                messageIDs: link.messageIDs.map(String.init).joined(separator: ","),
+                wrappedKeyB64: link.wrappedKeyB64
+            )
+            try await DatabaseManager.shared.saveShare(record)
+
+            logger.info("Share \(link.id): imported \(first.name) (\(chunkRecords.count) chunks)")
+            NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
+            return .imported
+        } catch let error as ShareError {
+            throw error
+        } catch {
+            throw ShareError.importFailed(describe(error))
+        }
+    }
+
+    /// v1 (legacy) import: the share channel is a per-share disposable channel
+    /// whose messages carry `xcloud:share:v1:` captions with a per-chunk manifest.
+    /// Kept forever — old links and channels must keep working.
+    private static func importLegacy(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
         do {
             let messages = try await TelegramClient.shared.shareChannelMessages(chatId: channelID, prefix: captionPrefix)
             let metas = messages.compactMap { ShareEngine.parseChunkMeta($0.caption) }
@@ -437,7 +602,7 @@ enum ShareEngine {
                 trashed: false,
                 parentID: nil,
                 isFolder: false,
-                isPrivate: true,       // always re-keyed under our vault key
+                isPrivate: true,       // legacy shares were always re-keyed under our vault key
                 sourcePath: nil,
                 chunkSize: first.chunkSize
             )
@@ -460,7 +625,7 @@ enum ShareEngine {
             )
             try await DatabaseManager.shared.saveShare(record)
 
-            logger.info("Share \\(link.id): imported \\(first.name) (\\(chunkRecords.count) chunks)")
+            logger.info("Share \(link.id): imported \(first.name) (\(chunkRecords.count) chunks)")
             NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
             return .imported
         } catch let error as ShareError {
@@ -472,22 +637,34 @@ enum ShareEngine {
 
     // MARK: - Expiry cleanup (sender side)
 
-    /// Deletes outgoing share channels whose expiry has passed. Runs alongside the
-    /// transfer cleanup loop; idempotent.
+    /// Revokes outgoing shares whose expiry has passed: legacy shares delete their
+    /// whole disposable channel; v2 shares delete JUST their own forwarded
+    /// messages from the reusable channel. Runs alongside the transfer cleanup
+    /// loop; idempotent.
     static func cleanupExpiredShares() async {
         guard TelegramClient.shared.isAuthorized else { return }
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         for share in shares where share.state == "active" && share.expiry < Foundation.Date() {
             do {
-                try await TelegramClient.shared.deleteChat(chatId: share.channelID)
+                if share.messageIDs.isEmpty {
+                    try await TelegramClient.shared.deleteChat(chatId: share.channelID)
+                    logger.info("Share \(share.id): disposable channel deleted at expiry")
+                } else {
+                    let ids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
+                    if !ids.isEmpty {
+                        try await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: ids)
+                    }
+                    logger.info("Share \(share.id): \(ids.count) message(s) deleted from reusable channel at expiry")
+                }
                 var updated = share
                 updated.state = "revoked"
                 try await DatabaseManager.shared.saveShare(updated)
-                logger.info("Share \\(share.id): channel deleted at expiry")
             } catch {
-                logger.error("Share \\(share.id): expiry cleanup failed: \\(error.localizedDescription, privacy: .public)")
+                logger.error("Share \(share.id): expiry cleanup failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+        // The reusable channel is retired when the last active outgoing share is gone.
+        await retireShareChannelIfEmpty()
     }
 
     // MARK: - Link obfuscation
@@ -549,12 +726,12 @@ enum ShareEngine {
             switch self {
             case .notAuthorized: return "Sign in to Telegram to share files."
             case .notShareable: return "Only files can be shared."
-            case .sourceUnavailable: return "The original file is no longer available on this Mac."
+            case .sourceUnavailable: return "This file has no uploaded chunks in the vault to forward."
             case .invalidLink: return "That doesn't look like a valid xCloud share link."
             case .expired: return "This share link has expired."
             case .invalidPayload: return "The share channel doesn't contain a valid xCloud file."
             case .createFailed(let message): return "Couldn't create the share channel. \(message)"
-            case .uploadFailed(let message): return "Uploading the shared file failed. \(message)"
+            case .uploadFailed(let message): return "Forwarding the shared file failed. \(message)"
             case .joinFailed(let message): return "Couldn't join the share channel. \(message)"
             case .importFailed(let message): return "Importing the shared file failed. \(message)"
             }
@@ -568,27 +745,5 @@ enum ShareEngine {
             return td.message
         }
         return error.localizedDescription
-    }
-
-    static func tempDirectory() throws -> URL {
-        let fm = FileManager.default
-        let support = try fm.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let dir = support.appendingPathComponent("xCloud/share-tmp", isDirectory: true)
-        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    private static func readFileSlice(_ url: URL, offset: Int64, count: Int) throws -> Data {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: UInt64(offset))
-        let data = handle.readData(ofLength: count)
-        guard data.count == count else { throw ShareError.sourceUnavailable }
-        return data
     }
 }

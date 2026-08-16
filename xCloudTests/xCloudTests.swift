@@ -1198,6 +1198,113 @@ struct xCloudTests {
         #expect(parsed?.plainHash == "cafebabe")
     }
 
+    @Test func unifiedCaptionCodecParsesAllFormats() {
+        // Unified chunk caption (what new uploads and shares write).
+        let meta = ChunkCaption.Meta(
+            kind: ChunkCaption.kindChunk,
+            id: "26326FD2-AAF4-4D49-8F2E-286872D02E8E",
+            name: "Rings - Dolby Atmos - 16-9.mkv",
+            size: 507_814_337,
+            mime: "video/x-matroska",
+            parentID: "069584F2-331B-46B8-8BE9-54FAA65EB52E",
+            isPrivate: false,
+            index: 0,
+            totalChunks: 4,
+            wrappedKey: "",
+            chunkSize: 134_217_728,
+            plainHash: "cafebabe",
+            rootHash: "deadbeef"
+        )
+        let caption = ChunkCaption.encode(meta, kind: ChunkCaption.kindChunk)
+        // Encode emits JSON with sorted keys, so the exact key order after the
+        // prefix is not part of the contract — only the unified prefix + object.
+        #expect(caption?.hasPrefix(ChunkCaption.unifiedPrefix + "{") == true)
+        let parsed = ChunkCaption.parse(caption ?? "")
+        #expect(parsed == meta, "unified caption must round-trip")
+
+        // Legacy vault caption (pre-unified uploads — the user's real one).
+        let legacyVault = "xcloud:v1:{\"isPrivate\":false,\"isFolder\":false,\"totalChunks\":4,\"wrappedKey\":\"\",\"mime\":\"video/x-matroska\",\"size\":507814337,\"name\":\"Rings - Dolby Atmos - 16-9.mkv\",\"trashed\":false,\"isFavorite\":false,\"index\":0,\"parentID\":\"069584F2-331B-46B8-8BE9-54FAA65EB52E\",\"id\":\"26326FD2-AAF4-4D49-8F2E-286872D02E8E\"}"
+        let legacyParsed = ChunkCaption.parse(legacyVault)
+        #expect(legacyParsed != nil, "legacy vault captions must stay readable")
+        #expect(legacyParsed?.id == "26326FD2-AAF4-4D49-8F2E-286872D02E8E")
+        #expect(legacyParsed?.name == "Rings - Dolby Atmos - 16-9.mkv")
+        #expect(legacyParsed?.size == 507_814_337)
+        #expect(legacyParsed?.index == 0)
+        #expect(legacyParsed?.totalChunks == 4)
+        #expect(legacyParsed?.wrappedKey == "")
+        #expect(legacyParsed?.chunkSize == nil, "legacy captions carry no chunk size")
+        #expect(legacyParsed?.effectiveChunkSize == ChunkPlanner.streamingChunkSize,
+                "media files assume the streaming chunk size when the caption lacks one")
+
+        // Legacy share caption (pre-v22 disposable channels) — different keys, no id.
+        let legacyShare = ShareEngine.caption(for: ShareEngine.ChunkMeta(
+            index: 1, totalChunks: 2, name: "f.zip", size: 1000, mime: "application/zip",
+            wrappedKey: "wk", rootHash: "rh", chunkSize: 500, plainHash: "ph"
+        ))
+        #expect(ChunkCaption.parse(legacyShare) == nil, "legacy share captions have no object id — parsed by ShareEngine only")
+        #expect(ShareEngine.parseChunkMeta(legacyShare) != nil)
+
+        // Chunk classification for the orphan purge.
+        #expect(ChunkCaption.isChunkCaption(caption ?? ""))
+        #expect(ChunkCaption.isChunkCaption(legacyVault))
+        #expect(ChunkCaption.isChunkCaption(legacyShare))
+        let objectMeta = ChunkCaption.encode(ChunkCaption.Meta(
+            kind: ChunkCaption.kindObject,
+            id: "folder-1", name: "Folder", size: 0, mime: "text/plain",
+            isFolder: true, index: 0, totalChunks: 1, wrappedKey: ""
+        ), kind: ChunkCaption.kindObject)
+        #expect(ChunkCaption.isChunkCaption(objectMeta ?? "") == false,
+                "kind \"object\" metadata is never a chunk")
+    }
+
+    @Test func forwardShareLinkRoundTripsMessageIDsAndKey() {
+        let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
+        let link = ShareEngine.ShareLink(
+            id: "fwd-1",
+            channelID: -100987654321,
+            inviteLink: "https://t.me/+XyZ987654321",
+            shareKey: Data(repeating: 3, count: 32).base64EncodedString(),
+            fileName: "movie.mkv",
+            expiry: expiry,
+            messageIDs: [1048601, 1048602, 1048603, 1048604],
+            wrappedKeyB64: "wrapped-object-key"
+        )
+        let parsed = ShareEngine.ShareLink.parse(link.urlString)
+        #expect(parsed != nil, "v2 link must parse back")
+        #expect(parsed?.isForwardBased == true)
+        #expect(parsed?.messageIDs == [1048601, 1048602, 1048603, 1048604])
+        #expect(parsed?.wrappedKeyB64 == "wrapped-object-key")
+        #expect(parsed?.channelID == link.channelID)
+        #expect(parsed?.fileName == link.fileName)
+
+        // Non-private files carry no wrapped key; messageIDs alone distinguish v2.
+        let plain = ShareEngine.ShareLink(
+            id: "fwd-2",
+            channelID: -100987654321,
+            inviteLink: "https://t.me/+XyZ987654321",
+            shareKey: "",
+            fileName: "notes.txt",
+            expiry: expiry,
+            messageIDs: [1048610]
+        )
+        let parsedPlain = ShareEngine.ShareLink.parse(plain.urlString)
+        #expect(parsedPlain?.messageIDs == [1048610])
+        #expect(parsedPlain?.wrappedKeyB64 == "")
+
+        // Legacy v1 links parse as non-forward-based.
+        let legacy = ShareEngine.ShareLink(
+            id: "old-1",
+            channelID: -100123456789,
+            inviteLink: "https://t.me/+AbCdEf123456",
+            shareKey: "sk",
+            fileName: "photo.jpg",
+            expiry: expiry
+        )
+        let parsedLegacy = ShareEngine.ShareLink.parse(legacy.urlString)
+        #expect(parsedLegacy?.isForwardBased == false)
+        #expect(parsedLegacy?.messageIDs.isEmpty == true)
+    }
+
     @Test func shareKeyWrapUnwrapRoundTrips() throws {
         // The share flow wraps the object key with a fresh share key (which rides
         // inside the link); the recipient unwraps it, then re-wraps it under their

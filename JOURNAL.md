@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-16 — backup mirror channel (see end).
+> 2026-08-16 — forward-based shares (see end).
 
 ---
 
@@ -379,3 +379,60 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
   (`TransferCenter.batchProgress` missing). Rule reinforced: sync the FULL tree
   (diff -rq), not just files touched this session.
 - Build green (main + worktree), full test suite green.
+
+## 2026-08-16 — Forward-based shares, unified caption codec
+
+- **User decision (zero-upload shares)**: the old share flow re-uploaded files into
+  a disposable channel. User asked why the vault copy couldn't just be forwarded —
+  the blocker was caption incompatibility (recipient only read `xcloud:share:v1:`,
+  and captions can't be rewritten on a reference forward), `protectContent`, and
+  key wrapping. User empirically proved forwarding vault messages to a second
+  account works (`protectContent` doesn't block it; `.bin` files only fail to play
+  because they're raw splits/ciphertext). Chose: **forward-based shares** with one
+  **reusable share channel**, **no encryption for shares** (link is the only
+  credential; vault file access + leaked link = vault file decryptable — accepted).
+- **New `Engine/ChunkCaption.swift`**: unified caption codec, ONE prefix (`xcloud:`)
+  + self-describing JSON `kind` (`"chunk"` / `"object"`). Fields: id, name, size,
+  mime, parentID, isPrivate, isFolder, trashed, isFavorite, index, totalChunks,
+  wrappedKey, chunkSize, plainHash, rootHash, v. `encode` emits **sorted keys**
+  (deterministic across processes — the prefix assertion in tests otherwise flaked
+  on Swift's per-process dictionary hash seed). Legacy prefixes `xcloud:v1:` and
+  `xcloud:share:v1:` are **read forever** (sent captions can't be rewritten);
+  writers use unified only. `Meta.effectiveChunkSize` derives the assumed chunk
+  size for legacy captions via `ChunkPlanner.chunkSize(for:profile:.automatic,mime:)`.
+  `isChunkCaption` drives VaultRepair's orphan purge (legacy = always chunk; unified
+  must say `"chunk"`; `"object"` never is).
+- **Uploads** (`Engine/UploadEngine.swift`): vault chunk captions now carry
+  `chunkSize` + `plainHash` + `rootHash` in unified format.
+- **AppState**: `syncObjectMetadataToTelegram` rewrites per-chunk unified captions
+  (preserving index/plainHash/chunkSize — the old dict rewrite would have stripped
+  them and broken forward-shares of renamed files); `unencryptFileInTelegram`,
+  `revokeShares` and `resetVault` handle v22 shares; sync stats count via
+  `ChunkCaption.isChunkCaption`.
+- **DB v22-forward-shares** (`Storage/DatabaseManager.swift`): `shares.messageIDs`
+  + `shares.wrappedKeyB64` columns, new `share_state` table (id=1 row tracks the
+  reusable channel ID), accessors `shareChannelID()`/`setShareChannelID(_:)`.
+- **ShareEngine rewrite**: v2 link `xcloud://share?v=2&id=…&ch=…&inv=…&key=…&name=…&exp=…&m=<msgIDs>&w=<wrapped>` —
+  `m` = comma-joined forwarded message IDs, `w` = object key wrapped under a fresh
+  share key (EMPTY for non-private files — parse guard only demands a key when `w`
+  is non-empty, or for v1). Sender forwards each vault chunk into the reusable
+  "xCloud Shares" channel (server-side copy, no size cap), rolls back forwarded
+  copies on failure, records the share. **Key wrinkle**: forwarded chunks stay the
+  sender's vault ciphertext; the caption's `wrappedKey` is locked under the
+  sender's master key, so the LINK is the only key source on import.
+  `importForwarded` reads messages by ID, re-derives chunk sizes (legacy captions
+  lack them), re-forwards into the recipient's vault, re-wraps the object key under
+  the recipient's master key. `importLegacy` kept for v1 links. Expiry cleanup now
+  deletes **per-file messages** from the reusable channel and retires the channel
+  only when it holds nothing else; legacy shares keep whole-channel deletion.
+  Self-open matching: v2 by messageIDs equality, v1 by channelID. Re-share of a
+  live share returns the identical obfuscated link.
+- **Reusable channel**: created lazily (channel, not group — same "group"
+  classification trap as the vault), archived + muted; per-share **one-use expiring
+  invite**; retired when no active outgoing shares remain.
+- **Tests**: `unifiedCaptionCodecParsesAllFormats`, `forwardShareLinkRoundTripsMessageIDsAndKey`
+  (v2 + plain v2 + v1 legacy). Two suite-visible bugs fixed while turning them
+  green: (1) `ShareLink.parse` rejected empty-key v2 links (non-private files) —
+  real bug, sender emits `key=` for them; (2) the codec test's raw prefix assertion
+  depended on nondeterministic dict key order → encode now sorts keys.
+- Build green (main + worktree), full test suite green (51 unit tests).

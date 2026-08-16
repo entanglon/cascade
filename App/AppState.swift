@@ -781,7 +781,7 @@ final class AppState {
             alertMessage = "Sync complete — catalog restored instantly from the cloud snapshot."
         } else {
             let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
-            let v1Captions = messages.filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix("xcloud:v1:") }.count
+            let v1Captions = messages.filter { ChunkCaption.isChunkCaption(VaultRepair.caption(of: $0) ?? "") }.count
             let changed = await VaultRepair.run()
             let after = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
             await self.loadFiles()
@@ -1407,23 +1407,24 @@ final class AppState {
         guard let oldChunk = chunks.first, let oldMsgID = oldChunk.messageID else { return }
 
         // Send unencrypted file to Telegram channel
-        let meta: [String: Any] = [
-            "id": file.id,
-            "name": file.name,
-            "size": file.size,
-            "mime": file.mime,
-            "parentID": file.parentID ?? "",
-            "isPrivate": false,
-            "index": 0,
-            "totalChunks": 1,
-            "wrappedKey": ""
-        ]
-
-        var captionString: String? = nil
-        if let jsonData = try? JSONSerialization.data(withJSONObject: meta),
-           let jsonStr = String(data: jsonData, encoding: .utf8) {
-            captionString = "xcloud:v1:" + jsonStr
-        }
+        let captionString = ChunkCaption.encode(ChunkCaption.Meta(
+            kind: ChunkCaption.kindChunk,
+            id: file.id,
+            name: file.name,
+            size: file.size,
+            mime: file.mime,
+            parentID: file.parentID,
+            isPrivate: false,
+            isFolder: false,
+            trashed: false,
+            isFavorite: false,
+            index: 0,
+            totalChunks: 1,
+            wrappedKey: "",
+            chunkSize: file.chunkSize,
+            plainHash: nil,
+            rootHash: file.rootHash
+        ), kind: ChunkCaption.kindChunk) ?? ""
 
         if let messageId = try? await TelegramClient.shared.sendFile(
             chatId: vault.channelID,
@@ -1580,26 +1581,48 @@ final class AppState {
             guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
             let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
 
-            let meta: [String: Any] = [
-                "id": object.id,
-                "name": object.name,
-                "size": object.size,
-                "mime": object.mime,
-                "parentID": object.parentID ?? "",
-                "isPrivate": object.isPrivate,
-                "isFolder": object.isFolder,
-                "trashed": object.trashed,
-                "isFavorite": object.isFavorite,
-                "isArchived": object.isArchived,
-                "coverObjectID": object.coverObjectID ?? "",
-                "totalChunks": max(1, chunks.count),
-                "wrappedKey": object.wrappedKey?.base64EncodedString() ?? ""
-            ]
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: meta),
-                  let jsonStr = String(data: jsonData, encoding: .utf8) else { return }
-            let captionString = "xcloud:v1:" + jsonStr
+            // Unified caption codec: file chunks stay kind "chunk" WITH their
+            // per-chunk fields (index, plainHash, chunkSize) so the caption is
+            // complete even after renames/favorites/trash — metadata edits rewrite
+            // the caption, and a forward-based share of this file later must still
+            // be parseable. Folders carry kind "object" metadata instead.
+            func fileCaption(index: Int, plainHash: String?) -> String {
+                ChunkCaption.encode(ChunkCaption.Meta(
+                    kind: ChunkCaption.kindChunk,
+                    id: object.id,
+                    name: object.name,
+                    size: object.size,
+                    mime: object.mime,
+                    parentID: object.parentID,
+                    isPrivate: object.isPrivate,
+                    isFolder: object.isFolder,
+                    trashed: object.trashed,
+                    isFavorite: object.isFavorite,
+                    index: index,
+                    totalChunks: max(1, chunks.count),
+                    wrappedKey: object.wrappedKey?.base64EncodedString() ?? "",
+                    chunkSize: object.chunkSize,
+                    plainHash: plainHash,
+                    rootHash: object.rootHash
+                ), kind: ChunkCaption.kindChunk) ?? ""
+            }
 
             if object.isFolder {
+                let captionString = ChunkCaption.encode(ChunkCaption.Meta(
+                    kind: ChunkCaption.kindObject,
+                    id: object.id,
+                    name: object.name,
+                    size: object.size,
+                    mime: object.mime,
+                    parentID: object.parentID,
+                    isPrivate: object.isPrivate,
+                    isFolder: true,
+                    trashed: object.trashed,
+                    isFavorite: object.isFavorite,
+                    index: 0,
+                    totalChunks: 1,
+                    wrappedKey: ""
+                ), kind: ChunkCaption.kindObject) ?? ""
                 if let folderChunk = chunks.first, let msgID = folderChunk.messageID {
                     await BackupSync.editAndMirror(chatId: vault.channelID, messageId: msgID, caption: captionString)
                 } else {
@@ -1624,7 +1647,7 @@ final class AppState {
             } else {
                 for chunk in chunks {
                     if let msgID = chunk.messageID {
-                        await BackupSync.editAndMirror(chatId: vault.channelID, messageId: msgID, caption: captionString)
+                        await BackupSync.editAndMirror(chatId: vault.channelID, messageId: msgID, caption: fileCaption(index: chunk.index, plainHash: chunk.plainHash))
                     }
                 }
             }
@@ -1831,11 +1854,23 @@ final class AppState {
     private func revokeShares(for ids: [String]) async {
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         for share in shares where share.state == "active" && ids.contains(share.objectID) {
-            try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+            if share.messageIDs.isEmpty {
+                // Legacy: the share owns a whole disposable channel.
+                try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+            } else {
+                // v22: delete just this file's forwarded messages from the
+                // reusable channel; the channel lives on for other shares.
+                let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
+                if !mids.isEmpty {
+                    try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
+                }
+            }
             var updated = share
             updated.state = "revoked"
             try? await DatabaseManager.shared.saveShare(updated)
         }
+        // No active outgoing shares left — retire the reusable channel too.
+        await ShareEngine.retireShareChannelIfEmpty()
     }
 
     @MainActor
@@ -1852,10 +1887,22 @@ final class AppState {
         // A reset kills every share link too: the objects they point at are gone.
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         for share in shares where share.state == "active" {
-            try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+            if share.messageIDs.isEmpty {
+                try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
+            } else {
+                let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
+                if !mids.isEmpty {
+                    try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
+                }
+            }
             var updated = share
             updated.state = "revoked"
             try? await DatabaseManager.shared.saveShare(updated)
+        }
+        // The reusable share channel dies with the reset.
+        if let shareChannel = try? await DatabaseManager.shared.shareChannelID() {
+            try? await TelegramClient.shared.deleteChat(chatId: shareChannel)
+            try? await DatabaseManager.shared.setShareChannelID(nil)
         }
 
         let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: vault.channelID)

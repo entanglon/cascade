@@ -69,80 +69,79 @@ enum VaultRepair {
                     continue
                 }
 
-                // A. Reconstruct from JSON metadata caption (xcloud:v1:...)
-                if let caption = captionText, caption.hasPrefix("xcloud:v1:") {
-                    let jsonString = String(caption.dropFirst(10))
-                    if let data = jsonString.data(using: .utf8),
-                       let meta = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                       let objectID = meta["id"] as? String,
-                       let name = meta["name"] as? String,
-                       let size = meta["size"] as? Int64 ?? (meta["size"] as? Int).map(Int64.init),
-                       let mime = meta["mime"] as? String,
-                       let index = meta["index"] as? Int {
+                // A. Reconstruct from a chunk/object metadata caption (unified
+                // xcloud:{...} or legacy xcloud:v1:...). Uses the unified codec so
+                // every xCloud caption variant parses through one path.
+                if let caption = captionText, let meta = ChunkCaption.parse(caption) {
+                    let objectID = meta.id
+                    let name = meta.name
+                    let size = meta.size
+                    let mime = meta.mime
+                    let index = meta.index
 
-                        let parentID = meta["parentID"] as? String
-                        let isPrivate = meta["isPrivate"] as? Bool ?? false
-                        let trashed = meta["trashed"] as? Bool ?? false
-                        let isFavorite = meta["isFavorite"] as? Bool ?? false
-                        let isFolder = meta["isFolder"] as? Bool ?? false
-                        let totalChunks = meta["totalChunks"] as? Int ?? 1
-                        let wrappedKeyStr = meta["wrappedKey"] as? String ?? ""
-                        // Empty base64 string (public/unencrypted files carry "") must
-                        // become nil, NOT empty Data — DownloadEngine guards unwrap on
-                        // nil but an empty non-nil Data makes AES.GCM throw a CryptoKit
-                        // error when it tries to open the zero-length sealed box.
-                        let wrappedKey: Data? = {
-                            guard !wrappedKeyStr.isEmpty else { return nil }
-                            return Data(base64Encoded: wrappedKeyStr)
-                        }()
-                        let cleanParentID = (parentID == nil || parentID?.isEmpty == true) ? nil : parentID
+                    let parentID = meta.parentID
+                    let isPrivate = meta.isPrivate
+                    let trashed = meta.trashed
+                    let isFavorite = meta.isFavorite
+                    let isFolder = meta.isFolder
+                    let totalChunks = meta.totalChunks
+                    let wrappedKeyStr = meta.wrappedKey
+                    // Empty base64 string (public/unencrypted files carry "") must
+                    // become nil, NOT empty Data — DownloadEngine guards unwrap on
+                    // nil but an empty non-nil Data makes AES.GCM throw a CryptoKit
+                    // error when it tries to open the zero-length sealed box.
+                    let wrappedKey: Data? = {
+                        guard !wrappedKeyStr.isEmpty else { return nil }
+                        return Data(base64Encoded: wrappedKeyStr)
+                    }()
+                    let cleanParentID = (parentID == nil || parentID?.isEmpty == true) ? nil : parentID
 
-                        // Restore or Update Object in SQLite
-                        if let existing = objectDict[objectID] {
-                            if existing.trashed != trashed || existing.name != name || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {
-                                var updated = existing
-                                updated.name = name
-                                updated.parentID = cleanParentID
-                                updated.trashed = trashed
-                                updated.isFavorite = isFavorite
-                                do {
-                                    try await DatabaseManager.shared.save(updated)
-                                } catch {
-                                    logger.error("VaultRepair: failed to save updated object \(objectID): \(error.localizedDescription)")
-                                }
-                                changed = true
-                            }
-                        } else {
-                            let newObj = ObjectRecord(
-                                id: objectID,
-                                vaultID: vault.id,
-                                name: name,
-                                size: size,
-                                mime: mime,
-                                state: "ready",
-                                rootHash: nil,
-                                wrappedKey: wrappedKey,
-                                createdAt: .now,
-                                modifiedAt: .now,
-                                isFavorite: isFavorite,
-                                trashed: trashed,
-                                parentID: cleanParentID,
-                                isFolder: isFolder,
-                                isPrivate: isPrivate,
-                                sourcePath: nil
-                            )
+                    // Restore or Update Object in SQLite
+                    if let existing = objectDict[objectID] {
+                        if existing.trashed != trashed || existing.name != name || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {
+                            var updated = existing
+                            updated.name = name
+                            updated.parentID = cleanParentID
+                            updated.trashed = trashed
+                            updated.isFavorite = isFavorite
                             do {
-                                try await DatabaseManager.shared.save(newObj)
+                                try await DatabaseManager.shared.save(updated)
                             } catch {
-                                logger.error("VaultRepair: failed to save reconstructed object \(objectID): \(error.localizedDescription)")
+                                logger.error("VaultRepair: failed to save updated object \(objectID): \(error.localizedDescription)")
                             }
                             changed = true
                         }
+                    } else {
+                        let newObj = ObjectRecord(
+                            id: objectID,
+                            vaultID: vault.id,
+                            name: name,
+                            size: size,
+                            mime: mime,
+                            state: "ready",
+                            rootHash: nil,
+                            wrappedKey: wrappedKey,
+                            createdAt: .now,
+                            modifiedAt: .now,
+                            isFavorite: isFavorite,
+                            trashed: trashed,
+                            parentID: cleanParentID,
+                            isFolder: isFolder,
+                            isPrivate: isPrivate,
+                            sourcePath: nil
+                        )
+                        do {
+                            try await DatabaseManager.shared.save(newObj)
+                        } catch {
+                            logger.error("VaultRepair: failed to save reconstructed object \(objectID): \(error.localizedDescription)")
+                        }
+                        changed = true
+                    }
 
-                        // Folders never have chunk records — their metadata message is
-                        // the whole file. Fabricating a chunk row here pollutes the
-                        // catalog and poisons the orphan purge's reference checks.
-                        if !isFolder {
+                    // Folders never have chunk records — their metadata message is
+                    // the whole file. Fabricating a chunk row here pollutes the
+                    // catalog and poisons the orphan purge's reference checks.
+                    if !isFolder {
                         // Restore Chunk if missing or update messageID
                         let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
                         if let target = existingChunks.first(where: { $0.index == index }) {
@@ -184,9 +183,8 @@ enum VaultRepair {
                                 changed = true
                             }
                         }
-                        }
-                        continue
                     }
+                    continue
                 }
 
                 // B. Fallback: Match filename pattern "OBJECT_ID-INDEX.bin"
@@ -376,24 +374,22 @@ enum VaultRepair {
             let isChunk: Bool
             switch msg.content {
             case .messageDocument(let doc):
-                isChunk = text.hasPrefix("xcloud:v1:") || doc.document.fileName.hasSuffix(".bin")
+                isChunk = ChunkCaption.isChunkCaption(text) || doc.document.fileName.hasSuffix(".bin")
             case .messageAudio:
-                isChunk = text.hasPrefix("xcloud:v1:")
+                isChunk = ChunkCaption.isChunkCaption(text)
             default:
                 isChunk = false
             }
             guard isChunk else { return false }
 
-            // Resolve which object this chunk belongs to (caption JSON, or the
-            // OBJECT_ID-INDEX.bin filename for old-format chunks). If that object
-            // still exists in the catalog, its messages are NEVER purged — a wrong
-            // message ID is repaired by the scan, never fixed by deletion.
+            // Resolve which object this chunk belongs to (unified/legacy caption
+            // JSON, or the OBJECT_ID-INDEX.bin filename for old-format chunks).
+            // If that object still exists in the catalog, its messages are NEVER
+            // purged — a wrong message ID is repaired by the scan, never fixed by
+            // deletion.
             var chunkObjectID: String? = nil
-            if text.hasPrefix("xcloud:v1:") {
-                if let data = String(text.dropFirst(10)).data(using: .utf8),
-                   let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    chunkObjectID = meta["id"] as? String
-                }
+            if let meta = ChunkCaption.parse(text) {
+                chunkObjectID = meta.id
             } else if case .messageDocument(let doc) = msg.content {
                 let name = (doc.document.fileName as NSString).deletingPathExtension
                 let parts = name.split(separator: "-")

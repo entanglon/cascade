@@ -24,7 +24,8 @@ Telegram account into a private, encrypted cloud drive:
 - Local SQLite catalog (`Storage/DatabaseManager.swift`) + snapshot sync between devices.
 - Note editor, audio mini-player, fullscreen player, private vault (PIN), trash,
   folders/albums/playlists, Vision-based subject-aware thumbnails, archive
-  (Gmail-style hide-from-view), cloud-to-cloud share links (temp Telegram channels),
+  (Gmail-style hide-from-view), cloud-to-cloud share links (forward-based, reusable
+  share channel),
   cross-device catalog snapshot sync, transfer history, Google-Photos-style Photos +
   Videos pages with on-device People recognition, album covers, and an automatic
   self-healing thumbnail pipeline (incl. videos).
@@ -152,17 +153,24 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
    paused/resumable); the Clear Finished button is sized to line up under the
    grid/list + sort controls (`XTheme.topBarControlsWidth`).
 
-9. **Share links** (`Engine/ShareEngine.swift`, `App/AppState.swift`, migration v14–v15)
-   — cloud-to-cloud sharing: each share creates a private Telegram channel with the
-   encrypted chunks; the link is an obfuscated `xcloud://share#...` blob carrying
-   channel + invite + key + expiry (default 7 days). Re-sharing the same file
-   reuses the live link (byte-identical stored `linkBlob`; channel liveness verified
-   via `getChat` before reuse; dead channels marked revoked). Links die with the
-   file (`deleteForever` revokes shares + deletes channels). Self-open (sharer opens
-   own link) reveals the original Drive-style; recipient import forwards chunks into
-   the vault (fixed a caption-matching bug — pairing is now positional, and share
-   chunks post without `protectContent`). Import errors are wrapped with real
-   messages (no more bare `TDLibKit.Error error 1`).
+9. **Share links** (`Engine/ShareEngine.swift`, `App/AppState.swift`, migration v14–v15,
+   v22-forward-shares) — cloud-to-cloud sharing is **forward-based** (v2): the sender
+   forwards the file's vault chunk messages into ONE reusable "xCloud Shares" channel
+   (server-side copy, no re-upload, no size cap; channel archived+muted, tracked in
+   `share_state`); the link is an obfuscated `xcloud://share#...` blob carrying
+   channel + invite + key + expiry (default 7 days) + the forwarded message IDs (`m`)
+   and, for private files, the object key re-wrapped under a fresh share key (`w`).
+   Re-sharing the same file reuses the live link (byte-identical stored `linkBlob`;
+   channel liveness verified via `getChat` before reuse; dead channels marked
+   revoked). Links die with the file (`deleteForever` revokes shares + deletes the
+   share-channel copies). Expired/revoked v2 shares delete their messages
+   individually; the channel is retired once empty. Self-open (sharer opens own link)
+   reveals the original Drive-style (v2 matched by messageIDs, v1 by channelID);
+   recipient import (`importForwarded`) re-forwards the chunks into the vault and
+   re-wraps the object key under their own master key. Legacy v1 disposable-channel
+   links still import (`importLegacy`); legacy share captions (`xcloud:share:v1:`,
+   `ChunkMeta`, no id) parse only via `ShareEngine.parseChunkMeta`. Import errors are
+   wrapped with real messages (no more bare `TDLibKit.Error error 1`).
 
 10. **Window / URL-open fixes** (`App/xCloudApp.swift`, `App/TerminationHandler.swift`,
     `Features/RootView.swift`) — main scene is a single-instance `Window` (not
@@ -1134,3 +1142,32 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       compile caught it (`TransferCenter.batchProgress` missing). Rule: sync the
       FULL tree (`diff -rq`), not just files touched in the session.
     - Build green (main + worktree), full test suite green.
+50. **Forward-based shares + unified caption codec (2026-08-16)**
+    - **Unified caption format** (`Engine/ChunkCaption.swift`): ALL xCloud payload
+      captions are now `xcloud:{"kind":"chunk"|"object","v":1,...}` (id, name, size,
+      mime, parentID, isPrivate, isFolder, trashed, isFavorite, index, totalChunks,
+      wrappedKey, chunkSize, plainHash, rootHash). `encode` emits SORTED keys
+      (deterministic across processes). Legacy `xcloud:v1:` / `xcloud:share:v1:`
+      captions are still parsed forever; writers are unified only. Legacy share
+      captions (`ChunkMeta`, no id) parse via `ShareEngine.parseChunkMeta` only.
+    - **v2 share link**: `xcloud://share?v=2&…&m=<comma msgIDs>&w=<wrapped>`;
+      `m` names the file's forwarded messages in the REUSABLE "xCloud Shares"
+      channel; `w` is the object key re-wrapped under a fresh share key, EMPTY for
+      non-private files. `ShareLink.parse` accepts an empty `key` for v2 (only
+      demands it when `w` is non-empty, or for v1). Transported obfuscated as
+      `xcloud://share#<blob>`; re-sharing a live share returns the IDENTICAL link.
+    - **Shares are forward-based**: sender forwards each vault chunk message into
+      the share channel (server-side copy, no re-upload, no size cap). The chunks
+      stay the SENDER's vault ciphertext — the caption `wrappedKey` is useless on
+      import, the link is the only key source. Imported files are re-encrypted
+      under the recipient's master key.
+    - **Reusable channel lifecycle**: created lazily, archived+muted like the
+      vault, tracked in `share_state` (id=1); per-share one-use expiring invite;
+      revoked/expired shares delete their messages individually;
+      `retireShareChannelIfEmpty` deletes the channel when no active outgoing
+      shares remain. Legacy shares keep whole-channel deletion.
+    - **Orphan purge** (VaultRepair) classifies chunks via `ChunkCaption.isChunkCaption`:
+      legacy captions always count; unified `"object"` never does.
+    - **Security tradeoff (user-approved)**: non-private shares carry no key; a
+      leaked link + vault access decrypts the vault file (the old per-share
+      re-encrypt design was dropped for zero-upload).

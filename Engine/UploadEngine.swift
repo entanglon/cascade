@@ -295,24 +295,25 @@ enum UploadEngine {
                     }
 
                     var captionString: String? = nil
-                    let meta: [String: Any] = [
-                        "id": objectID,
-                        "name": displayName,
-                        "size": fileSize,
-                        "mime": mime,
-                        "parentID": parentID ?? "",
-                        "isPrivate": isParentPrivate,
-                        "isFolder": false,
-                        "trashed": false,
-                        "isFavorite": false,
-                        "index": item.index,
-                        "totalChunks": plan.items.count,
-                        "wrappedKey": wrappedKey?.base64EncodedString() ?? ""
-                    ]
-                    if let jsonData = try? JSONSerialization.data(withJSONObject: meta),
-                       let jsonStr = String(data: jsonData, encoding: .utf8) {
-                        captionString = "xcloud:v1:" + jsonStr
-                    }
+                    let meta = ChunkCaption.Meta(
+                        kind: ChunkCaption.kindChunk,
+                        id: objectID,
+                        name: displayName,
+                        size: fileSize,
+                        mime: mime,
+                        parentID: parentID,
+                        isPrivate: isParentPrivate,
+                        isFolder: false,
+                        trashed: false,
+                        isFavorite: false,
+                        index: item.index,
+                        totalChunks: plan.items.count,
+                        wrappedKey: wrappedKey?.base64EncodedString() ?? "",
+                        chunkSize: plan.chunkSize,
+                        plainHash: plainHash,
+                        rootHash: rootHash
+                    )
+                    captionString = ChunkCaption.encode(meta, kind: ChunkCaption.kindChunk)
 
                     progressState.setFraction(item.index, 0)
                     // Parallel sends finish in arbitrary order, so the in-flight label

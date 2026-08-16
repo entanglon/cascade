@@ -119,6 +119,7 @@ so they open instantly with no network.
 ### 12. Share links via a small bot
 A Telegram bot that hands out expiring download links for individual files. Turns a private
 vault into a sharing tool; strong "why this is different" story.
+*Superseded by the Vault bot plan (2026-08-16) — see the bot section at the bottom.*
 
 ### 13. S3-Compatible Local Gateway
 Run a lightweight embedded S3 server (`http://127.0.0.1:9000`) so tools like rclone, Cyberduck,
@@ -243,11 +244,61 @@ malfunctions and wipes it, the backup channel still holds everything.
 - Send rate: ~1 msg/sec per chat (flood control; TDLib `withFloodWait` already handled).
 - Non-Premium upload speed throttle: server-side, after an undocumented monthly data
   threshold (FLOOD_PREMIUM_WAIT / -429) — throttles speed, not volume.
-- Channel/supergroup membership: 500 free / 1,000 Premium — share links mint temp
-  channels; watch if shares accumulate (they self-delete on expiry).
+- Channel/supergroup membership: 500 free / 1,000 Premium — v2 shares reuse ONE
+  channel with per-share expiring invites (superseded the "temp channel per share"
+  model 2026-08-16 — see forward-based shares); watch the reusable channel if many
+  shares accumulate (per-file deletion on expiry/revoke).
 - Channel/group creation: 50/day — bounds mass share-link creation.
 - Downloads: ~5 parallel small (<20 MB) / ~2 parallel big — honor in DownloadEngine.
 - File name: 60 chars (trimmed). No daily upload/forward quotas exist, so no
   in-app "daily limit" warnings are warranted (user decision 2026-08-16).
+
+---
+
+## Vault bot — PLANNED (design discussion 2026-08-16)
+
+A Telegram bot added to the vault channel as admin. Two horizons decided:
+
+**Near-term — individual self-hosted bot (ships separately for users who can run it):**
+The desktop app adds the bot to the user's vault channel automatically during
+onboarding (`addChatMember` with admin rights — the user never configures anything).
+The bot runs 24/7 on the user's own server as a TDLib bot session
+(`checkAuthenticationBotToken` — same stack, no new infra). Capabilities:
+
+- **Forward-to-upload** — forward any file to the bot from any device → bot
+  reference-forwards it into the vault channel (zero re-upload, any size up to
+  Telegram's 2 GB/4 GB cap; the 50 MB Bot API upload limit never applies to
+  reference forwards or user-side uploads), posts the catalog delta, mirrors to
+  the backup channel. Works with the desktop app closed.
+- **Always-on backup drainer** — the `backup_msgs` mirror queue keeps draining
+  while the app is offline.
+- **Disaster recovery** — as backup-channel admin, re-forward everything into a
+  fresh vault channel if the vault is lost.
+- **Integrity checks** — vault↔backup message-count cross-check, catalog↔chunk
+  verification, stale snapshot pruning, checkpoint republishing.
+- **Commands** — `/list`, `/search`, `/stats`, `/status`; quick downloads by
+  `file_id` (server-side reference, no size cap).
+- **Notifications** — DMs on drain failures, uploads, tamper detection.
+
+**Future — shared multi-tenant bot + Telegram Mini App (product vision):**
+One hosted bot (bot operator reads all vault channels — a deliberate trust
+statement) + a Mini App giving a full web client inside Telegram (browse/search/
+download/request-upload on any device). Constraints researched 2026-08-16:
+- Bot API has **no history access** — catalog restore, integrity, file listings
+  need TDLib, not a worker. A Cloudflare Worker can only be a *reaction layer*
+  (handle forwards, post deltas); the *brain layer* must be a TDLib daemon.
+- Bot API downloads cap at **20 MB** (2 GB with a self-hosted Local Bot API Server) —
+  serving 128 MiB chunks needs TDLib or the local server.
+- **~30 msg/sec global cap per bot token** — scaling = more bots, sharded by user.
+
+**Share serving via bot — nuance (corrects the "bot just forwards" assumption):**
+Shares do NOT forward from the vault — `ShareEngine.share()` re-encrypts a fresh
+copy (new object key wrapped by the share key) into a disposable channel so the
+vault channel is never touched and the link dies with the channel. A bot cannot
+re-encrypt without the vault master key, and re-encryption means real bandwidth
+through the bot (the ONE operation that isn't reference-only). Options: (a) the
+self-hosted bot holds the master key and serves full share creation server-side,
+or (b) share creation stays app-side and the bot only handles expiry cleanup/
+revocation — (b) is the safe default for now.
 
 

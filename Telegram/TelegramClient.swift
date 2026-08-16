@@ -1235,6 +1235,20 @@ final class TelegramClient {
         return result.sorted { $0.messageId < $1.messageId }
     }
 
+    /// Reads specific messages of a chat by ID, preserving the given order, with
+    /// their captions. Used by forward-based share imports — the link carries the
+    /// exact forwarded message IDs, and the reusable share channel can hold many
+    /// files at once, so the recipient targets only its own messages.
+    func messagesByIds(chatId: Int64, messageIds: [Int64]) async throws -> [(messageId: Int64, caption: String?)] {
+        guard let client else { throw TelegramError.notInitialized }
+        var result: [(messageId: Int64, caption: String?)] = []
+        for id in messageIds {
+            let message = try await client.getMessage(chatId: chatId, messageId: id)
+            result.append((message.id, messageCaption(message)))
+        }
+        return result
+    }
+
     /// Extracts the caption text of a message (document caption, not just text-only).
     private func messageCaption(_ message: Message) -> String? {
         switch message.content {
