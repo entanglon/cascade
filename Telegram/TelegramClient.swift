@@ -389,6 +389,8 @@ final class TelegramClient {
             return vid.video.thumbnail?.file.id
         case .messageDocument(let doc):
             return doc.document.thumbnail?.file.id
+        case .messageAudio(let au):
+            return au.audio.albumCoverThumbnail?.file.id
         default:
             return nil
         }
@@ -411,6 +413,8 @@ final class TelegramClient {
             if let mini = vid.video.minithumbnail { return mini.data }
         case .messageDocument(let doc):
             if let mini = doc.document.minithumbnail { return mini.data }
+        case .messageAudio(let au):
+            if let mini = au.audio.albumCoverMinithumbnail { return mini.data }
         default:
             break
         }
@@ -464,6 +468,11 @@ final class TelegramClient {
             return vid.video.video
         case .messagePhoto(let ph):
             return ph.photo.sizes.max(by: { $0.width < $1.width })?.photo
+        case .messageAudio(let au):
+            // TDLib auto-converts .mp3 documents into audio messages unless
+            // content-type detection is disabled (see InputDocument), so the
+            // streaming engine must know audio messages too.
+            return au.audio.audio
         default:
             return nil
         }
@@ -697,6 +706,44 @@ final class TelegramClient {
         return chat.id
     }
 
+    /// Hides the vault channel from the Telegram chat list (archived) so users never
+    /// stumble into it and mess with the storage messages. Archiving alone isn't
+    /// enough — TDLib automatically moves an UNMUTED archived chat back to the main
+    /// list when a new message arrives (which happens constantly), so the channel is
+    /// also muted forever. Best-effort: failures are logged, never fatal.
+    func archiveVaultChannel(chatId: Int64) async {
+        guard let client else { return }
+        do {
+            try await client.addChatToList(chatId: chatId, chatList: .chatListArchive)
+            let muted = ChatNotificationSettings(
+                disableMentionNotifications: true,
+                disablePinnedMessageNotifications: true,
+                // Mute for >366 days = muted forever (TDLib clamps it).
+                muteFor: 367 * 24 * 60 * 60,
+                muteStories: true,
+                showPreview: false,
+                showStoryPoster: false,
+                soundId: 0,
+                storySoundId: 0,
+                useDefaultDisableMentionNotifications: false,
+                useDefaultDisablePinnedMessageNotifications: false,
+                useDefaultMuteFor: false,
+                useDefaultMuteStories: false,
+                useDefaultShowPreview: false,
+                useDefaultShowStoryPoster: false,
+                useDefaultSound: false,
+                useDefaultStorySound: false
+            )
+            try await client.setChatNotificationSettings(
+                chatId: chatId,
+                notificationSettings: muted
+            )
+            logger.info("Vault channel \(chatId) archived and muted")
+        } catch {
+            logger.info("Vault channel archive failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Looks for an existing "xCloud Vault" channel owned by this account so that
     /// logging in on a new device adopts the real vault instead of silently creating a
     /// brand-new empty channel (which is why files "disappear" after a fresh install).
@@ -909,7 +956,11 @@ final class TelegramClient {
             ))
         case .document:
             let inputDocument = InputDocument(
-                disableContentTypeDetection: false,
+                // TDLib's default content-type detection converts e.g. .mp3 chunk
+                // documents into audio messages (and images into photos), which the
+                // app's streaming/thumbnail code doesn't expect — always send as a
+                // plain document so every chunk behaves identically.
+                disableContentTypeDetection: true,
                 document: .inputFileId(InputFileId(id: fileId)),
                 thumbnail: inputThumbnail
             )
@@ -1174,6 +1225,8 @@ final class TelegramClient {
             return photo.caption.text
         case .messageVideo(let video):
             return video.caption.text
+        case .messageAudio(let audio):
+            return audio.caption.text
         default:
             return nil
         }
@@ -1208,6 +1261,9 @@ final class TelegramClient {
                 case .messageVideo(let video):
                     kind = "video"
                     caption = video.caption.text
+                case .messageAudio(let audio):
+                    kind = "audio"
+                    caption = audio.caption.text
                 case .messageText(let text):
                     kind = "text"
                     caption = text.text.text

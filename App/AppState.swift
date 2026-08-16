@@ -329,7 +329,7 @@ final class AppState {
                         let url = DownloadEngine.cacheURL(for: obj)
                         guard DownloadEngine.isCached(obj),
                               FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { continue }
-                        if await UploadEngine.generateVideoThumbnails(for: url, objectID: obj.id) != nil {
+                        if await UploadEngine.generateThumbnails(for: url, objectID: obj.id, isVideo: true) != nil {
                             done += 1
                             print("xCloud debug: regenerated thumbnail for \(obj.name)")
                         } else {
@@ -524,6 +524,10 @@ final class AppState {
         // instead of creating an empty new one.
         if let vault = try? await VaultManager.ensureVault() {
             print("xCloud post-auth: vault ready (channel \(vault.channelID))")
+            // Keep the channel out of the Telegram chat list (archive + mute) so it
+            // is never accidentally opened — runs at every session start, since
+            // ensureVault returns early for an existing vault.
+            await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
             // Keep the channel tidy: snapshots older than the newest are stale now
             // that upload() replaces the previous snapshot automatically — this
             // cleans up any accumulation from before that behavior existed.

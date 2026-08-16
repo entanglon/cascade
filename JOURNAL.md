@@ -1,8 +1,8 @@
 # xCloud — Development Journal
 
-> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
+>> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-15 — photos page fixes (see end).
+> 2026-08-16 — thumbnail pipeline, audio-message support, vault archiving (see end).
 
 ---
 
@@ -237,3 +237,55 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
 - This is why Apple Photos / Google Drive never hit it: the viewer consumes
   the grid's own layout. Lesson: the preview must never rebuild navigation
   order from a different source than the visible grid.
+## 2026-08-16 — Thumbnail pipeline hardened, audio-message support, vault channel archiving
+
+### App freeze after "local cache purge" — main-thread FFmpeg network poll
+- Sample (`/tmp/xcloud-sample.txt`) showed the extractor task body executing ON THE
+  MAIN THREAD despite `Task.detached`: this Swift runtime runs the nonisolated
+  `@isolated(any)` closure inline via `completeTaskWithClosure` on the creating
+  thread, so `avformat_open_input` → `ff_network_wait_fd_timeout` → `poll` (no
+  timeout) jammed the UI forever after a purge re-keyed the grid and uncached
+  videos took the stream-URL branch (loopback server not answering yet).
+- Fix (`Engine/VideoFrameExtractor.swift`): `rw_timeout` + `timeout` AVOptions
+  (15 s, via `OpaquePointer` AVDictionary) on remote opens; extraction now hops to
+  `DispatchQueue("com.xcloud.thumbnail-extract", .utility)` through
+  `withCheckedContinuation` + `withTaskCancellationHandler`; a
+  `DispatchSemaphore(value: 2)` caps concurrent extractions.
+
+### Upload-time thumbnails — verified end-to-end + JPEG compliance
+- The app already attached an upload-time thumbnail (`InputThumbnail`) to every
+  chunk message; this session verified the whole chain with real uploads of every
+  type (images/audio/video/epub) + a cache-clear recovery test: 15/15 files
+  regenerated or re-fetched (`-tg.jpg`) from the channel.
+- Polished the encoder: `ThumbnailCrop.jpegData(from:quality:)` (CGImageDestination,
+  q0.85, progressive via `kCGImagePropertyJFIFIsProgressive`, color-share
+  optimized). `UploadEngine` consolidated four generation paths into
+  `generateThumbnails(for:objectID:isVideo:)` (one subjectSquare at 640 → 2x PNG +
+  aspectFit 320 → `-up.jpg`). FaceEngine thumbnails switched to the same encoder.
+  All `-up.jpg` outputs verified: 320×320, progressive, <200 KB (TDLib
+  `inputThumbnail` limits: JPEG, ≤320 px, <200 KB).
+
+### The mp3 mystery: TDLib auto-converts .mp3 documents into audio messages
+- A test mp3 neither streamed nor fetched a thumbnail; wav/ogg were fine. Root
+  cause: `InputDocument.disableContentTypeDetection` was **false**, so TDLib
+  converted the `.mp3` chunk into `messageAudio` — and the app's
+  `primaryFile`/`thumbnailFileId`/`thumbnailData` switches only knew
+  document/video/photo, so both streaming (`getFileId` threw) and thumbnail fetch
+  returned nothing.
+- Fix: `disableContentTypeDetection: true` (future uploads always stay documents,
+  keeping real filenames), **plus** full `messageAudio` support in
+  `primaryFile` (`audio.audio`), thumbnail fetch (`albumCoverThumbnail`/
+  `albumCoverMinithumbnail`), caption extraction, the repair/rescan diagnostics,
+  channel dump, orphan purge, and `blobCaption` — the already-uploaded mp3 streams
+  and fetches a thumbnail without re-uploading.
+
+### Vault channel auto-archive + mute
+- The channel now keeps itself out of the Telegram chat list: at every post-auth
+  setup the app calls `addChatToList(chatListArchive)` + mutes it
+  (`setChatNotificationSettings(muteFor: 367 days)` — TDLib clamps >366 d to
+  forever). The mute is essential: TDLib auto-moves UNMUTED archived chats back to
+  the main list when a new message arrives, which would happen on every upload.
+- Lesson learned: the first attempt placed the call inside `ensureVault()` after
+  the vault save — but `ensureVault` returns EARLY for an existing vault, so the
+  archive never ran for the user's real vault. Moved to `completePostAuthSetup`
+  (runs every launch).

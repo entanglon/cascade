@@ -262,9 +262,7 @@ actor FaceEngine {
         ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: target, height: target))
         guard let out = ctx.makeImage() else { return }
         let img = NSImage(cgImage: out, size: NSSize(width: target, height: target))
-        guard let tiff = img.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]),
+        guard let jpg = ThumbnailCrop.jpegData(from: img, quality: 0.85),
               let dir = try? Self.facesDirectory() else { return }
         try? jpg.write(to: dir.appendingPathComponent("\(objectID)-\(faceID).jpg"))
     }

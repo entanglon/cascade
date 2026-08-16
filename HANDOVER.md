@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-15. Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-16. Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -90,7 +90,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ---
 
-## 4. Work completed in this conversation (all uncommitted)
+## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–46 committed 2026-08-16)
 
 1. **HDR/EDR color pipeline fix** (`Features/MPVVideoView.swift`)
    - Root cause of "washed-out but brighter" video vs YouTube: the layer opted into
@@ -891,8 +891,66 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       grid's own layout. Rule going forward: the preview must never rebuild
       navigation order from a different source than the visible grid.
 
----
 
+43. **App freeze after "local cache purge" — FIXED (2026-08-16)**
+    (`Engine/VideoFrameExtractor.swift`)
+    - Sample proved the extraction task body ran on the MAIN THREAD despite
+      `Task.detached` (this Swift runtime executes the nonisolated `@isolated(any)`
+      closure inline on the creating thread), inside `avformat_open_input` →
+      `ff_network_wait_fd_timeout` → `poll` with no timeout. Purge → grid re-key →
+      uncached videos take the stream-URL branch → main thread jammed forever.
+    - Fix: `rw_timeout` + `timeout` (15 s) AVOptions on remote opens; extraction
+      hops to a dedicated `.utility` `DispatchQueue` via `withCheckedContinuation`
+      + `withTaskCancellationHandler`; `DispatchSemaphore(value: 2)` caps concurrency.
+
+44. **Upload-time thumbnail pipeline — verified end-to-end + JPEG compliance**
+    (2026-08-16) (`Engine/ThumbnailService.swift`, `Engine/UploadEngine.swift`,
+    `Engine/FaceEngine.swift`, `App/AppState.swift`)
+    - Verified with a full real-world pass: 15 uploads across every type + a
+      cache-clear recovery test. 15/15 files recovered (local regen from cache or
+      `-tg.jpg` re-fetch from the channel). All attached JPEGs comply with TDLib
+      `inputThumbnail` limits (JPEG, ≤320 px, <200 KB) — verified programmatically:
+      320×320, progressive, 6.9–73 KB.
+    - `ThumbnailCrop.jpegData(from:quality:)`: CGImageDestination, q0.85,
+      progressive (`kCGImagePropertyJFIFIsProgressive`), color-share optimized.
+    - `UploadEngine` consolidated `generateThumbnail`/`generateUploadThumbnail`/
+      `generateVideoThumbnails`/`subjectThumbnail` into
+      `generateThumbnails(for:objectID:isVideo:)` (640 subjectSquare → 2x PNG +
+      aspectFit 320 → `-up.jpg`). FaceEngine thumbnails use the same encoder.
+      No `NSBitmapImageRep` JPEG sites remain.
+    - IMPORTANT (discovery): photos upload as **documents**, so Telegram never
+      auto-generates sizes for them — the attached thumbnail is a photo's ONLY
+      stored preview. Keep attaching for photos.
+
+45. **TDLib audio-message support — mp3 streaming + thumbnail fixed (2026-08-16)**
+    (`Telegram/TelegramClient.swift`, `Storage/VaultRepair.swift`,
+    `Storage/VaultManager.swift`)
+    - A test mp3 neither streamed nor fetched a thumbnail (wav/ogg fine). Root
+      cause: `InputDocument.disableContentTypeDetection` was **false**, so TDLib
+      converted the `.mp3` chunk into `messageAudio`; the app's `primaryFile` /
+      `thumbnailFileId` / `thumbnailData` switches only handled
+      document/video/photo → `getFileId` threw (no streaming) and thumbnail fetch
+      returned nothing.
+    - Fix A: `disableContentTypeDetection: true` — future uploads always stay
+      documents (real filenames kept).
+    - Fix B: full `messageAudio` handling added — `primaryFile` (`audio.audio`),
+      thumbnail fetch (`albumCoverThumbnail` / `albumCoverMinithumbnail`),
+      `messageCaption`, repair/rescan diagnostics, channel dump, orphan purge,
+      `blobCaption`. Already-uploaded audio chunks now stream + fetch without
+      re-uploading.
+
+46. **Vault channel auto-archive + mute (2026-08-16)**
+    (`Telegram/TelegramClient.swift`, `App/AppState.swift`)
+    - `archiveVaultChannel(chatId:)` runs at every post-auth setup:
+      `addChatToList(.chatListArchive)` + mute via
+      `setChatNotificationSettings(muteFor: 367 days)` (TDLib clamps >366 d to
+      forever). The mute is REQUIRED: TDLib auto-moves unmuted archived chats back
+      to the main list when a new message arrives (would happen on every upload).
+    - Gotcha: the first attempt called this inside `ensureVault()` after the vault
+      save, but `ensureVault` returns EARLY for an existing vault → never ran.
+      Moved to `completePostAuthSetup` (runs every launch).
+
+---
 ## 5. Pending / next steps
 
 - **DONE 2026-08-15 (user verified):** Library poster cards — covers, corner menu

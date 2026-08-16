@@ -69,6 +69,9 @@ enum VaultManager {
             createdAt: .now
         )
         try await DatabaseManager.shared.save(vault)
+        // Keep the channel out of the Telegram chat list: archive + mute it so
+        // nobody (the user included) opens it and messes up the storage messages.
+        Task { await TelegramClient.shared.archiveVaultChannel(chatId: chatID) }
         // Same-device fresh container: if the channel's v2 key record carries a seal
         // made with THIS device's Keychain master key, adopt the real vault key
         // silently — private files work again without re-entering the PIN.
@@ -267,6 +270,7 @@ enum VaultManager {
         switch message.content {
         case .messageText(let mt): return mt.text.text
         case .messageDocument(let doc): return doc.caption.text
+        case .messageAudio(let au): return au.caption.text
         default: return nil
         }
     }

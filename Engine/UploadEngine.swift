@@ -215,17 +215,15 @@ enum UploadEngine {
         // Immediate local thumbnail (only for non-private files), plus a small JPEG that
         // gets attached to every chunk message so Telegram permanently stores a preview
         // that survives local cache clears (blob videos get no auto-generated thumbnail).
+        // Single pass: one subject-aware crop at 2x produces both the grid PNG and the
+        // Telegram-attached JPEG. Photos included — they upload as documents, so the
+        // attached thumbnail is their only stored preview (Telegram auto-generates
+        // sizes only for real photo messages, which the vault never uses).
         var uploadThumbnailPath: String? = nil
         if !isParentPrivate {
             let ext = fileURL.pathExtension.lowercased()
             let isVideo = mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp", "mpg", "mpeg", "ts", "flv", "wmv", "vob"].contains(ext)
-            if isVideo {
-                // One capture, both outputs (grid .png + Telegram -up.jpg).
-                uploadThumbnailPath = await generateVideoThumbnails(for: fileURL, objectID: objectID)
-            } else {
-                await generateThumbnail(for: fileURL, objectID: objectID)
-                uploadThumbnailPath = await generateUploadThumbnail(for: fileURL, objectID: objectID)?.path(percentEncoded: false)
-            }
+            uploadThumbnailPath = await generateThumbnails(for: fileURL, objectID: objectID, isVideo: isVideo)
             if ["epub", "pdf", "txt", "md", "markdown", "cbz", "cbr"].contains(ext) {
                 await generateBookCover(for: fileURL, objectID: objectID)
             }
@@ -463,94 +461,65 @@ enum UploadEngine {
 
     /// Best-available subject-aware square thumbnail for any file type: images are
     /// cropped from the FULL-resolution source so Vision can reliably find faces;
-    /// videos use a representative frame captured by our own mpv renderer (never
-    /// QuickLook's black first frame); everything else (audio/docs) uses QuickLook's
-    /// artwork thumbnail as the source, then the same face/saliency-aware square
-    /// crop (ThumbnailCrop).
-    static func subjectThumbnail(for url: URL, target: CGFloat, scale: CGFloat = 1, isVideo: Bool = false) async -> NSImage? {
+    /// videos use a representative frame captured by our own FFmpeg frame extractor
+    /// (never QuickLook's black first frame); everything else (audio/docs) uses
+    /// QuickLook's artwork thumbnail as the source, then the same face/saliency-aware
+    /// square crop (ThumbnailCrop).
+    private static func subjectThumbnail(for url: URL, isVideo: Bool) async -> NSImage? {
         let ext = url.pathExtension.lowercased()
         let imageExts = ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp"]
         if imageExts.contains(ext), let loaded = NSImage(contentsOf: url) {
-            return ThumbnailCrop.subjectSquare(loaded, target: target * scale)
+            return loaded
         }
 
-        // Videos: extract a representative frame with our own mpv renderer instead
+        // Videos: extract a representative frame with the FFmpeg extractor instead
         // of QuickLook, which always picks the FIRST frame — typically a black
         // title card (the black thumbnails users saw). QuickLook stays as the
-        // fallback for files mpv can't capture (audio-only, undecodable).
+        // fallback for files mpv can't decode (audio-only, undecodable).
         if isVideo,
            let frame = await VideoFrameExtractor.representativeFrame(from: url) {
-            return ThumbnailCrop.subjectSquare(frame, target: target * scale)
+            return frame
         }
 
+        // Artwork request at 2x so the pair's PNG preview isn't upscaled from a
+        // 1x thumbnail.
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
-            size: CGSize(width: target, height: target),
-            scale: scale,
+            size: CGSize(width: 640, height: 640),
+            scale: 1,
             representationTypes: .thumbnail
         )
         guard let thumb = try? await QLThumbnailGenerator.shared
             .generateBestRepresentation(for: request) else { return nil }
-        let ns = NSImage(cgImage: thumb.cgImage, size: NSSize(width: thumb.cgImage.width, height: thumb.cgImage.height))
-        return ThumbnailCrop.subjectSquare(ns, target: target * scale)
+        return NSImage(cgImage: thumb.cgImage, size: NSSize(width: thumb.cgImage.width, height: thumb.cgImage.height))
     }
 
-    /// Generates a small (≤320px) JPEG thumbnail from the source file and stores it at
-    /// `<id>-up.jpg` in the thumbnails directory. This exact file is attached to every
-    /// chunk message on upload, so Telegram permanently stores a thumbnail with the
-    /// message — after a local cache clear wipes our thumbnails, the app re-fetches it
-    /// from Telegram instead of losing the preview forever (blob-stored videos never
-    /// get an auto-generated Telegram thumbnail, so we must supply our own).
-    /// Single-capture video thumbnail pair: captures ONE representative frame
-    /// with the FFmpeg frame extractor and writes both the grid preview
-    /// (`<id>.png`, 2x) and the Telegram-attached JPEG (`<id>-up.jpg`, 1x).
-    /// Returns the path of the upload JPEG (used as the document thumbnail on
-    /// every chunk message). Fast path: a full capture costs a fraction of a
-    /// second, so the pair is generated with a single pass.
-    static func generateVideoThumbnails(for url: URL, objectID: String) async -> String? {
-        guard let frame = await VideoFrameExtractor.representativeFrame(from: url),
+    /// One source image, one subject-aware crop, two outputs: the 2x grid preview
+    /// (`<id>.png`) and the Telegram-attached JPEG (`<id>-up.jpg`, ≤320px so it
+    /// meets TDLib's inputThumbnail limit, progressive + gamma-optimized).
+    /// Returns the upload JPEG path, used as the document thumbnail on every
+    /// chunk message — Telegram permanently stores it, so after a local cache
+    /// clear the app re-fetches it instead of losing the preview forever.
+    static func generateThumbnails(for url: URL, objectID: String, isVideo: Bool = false) async -> String? {
+        guard let source = await subjectThumbnail(for: url, isVideo: isVideo),
               let dir = try? thumbnailsDirectory() else { return nil }
         var uploadPath: String? = nil
-        if let square = ThumbnailCrop.subjectSquare(frame, target: 320),
-           let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-           let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
-            let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
-            try? jpg.write(to: dest)
-            uploadPath = FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) ? dest.path(percentEncoded: false) : nil
-        }
-        if let square = ThumbnailCrop.subjectSquare(frame, target: 320 * 2),
-           let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-           let png = rep.representation(using: .png, properties: [:]) {
-            try? png.write(to: dir.appendingPathComponent("\(objectID).png"))
+        // Single Vision pass at 2x; the JPEG is a cheap downscale of the same crop.
+        if let square = ThumbnailCrop.subjectSquare(source, target: 640) {
+            if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: dir.appendingPathComponent("\(objectID).png"))
+            }
+            if let jpgSquare = ThumbnailCrop.aspectFit(square, maxDimension: 320),
+               let jpg = ThumbnailCrop.jpegData(from: jpgSquare, quality: 0.85) {
+                let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
+                try? jpg.write(to: dest)
+                if FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) {
+                    uploadPath = dest.path(percentEncoded: false)
+                }
+            }
         }
         return uploadPath
-    }
-
-    static func generateUploadThumbnail(for url: URL, objectID: String, isVideo: Bool = false) async -> URL? {
-        guard let image = await subjectThumbnail(for: url, target: 320, scale: 1, isVideo: isVideo),
-              let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let jpg = rep.representation(
-                  using: .jpeg,
-                  properties: [.compressionFactor: 0.8]
-              ),
-              let dir = try? thumbnailsDirectory() else { return nil }
-
-        let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
-        try? jpg.write(to: dest)
-        return FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) ? dest : nil
-    }
-
-    static func generateThumbnail(for url: URL, objectID: String, isVideo: Bool = false) async {
-        guard let square = await subjectThumbnail(for: url, target: 320, scale: 2, isVideo: isVideo),
-              let tiff = square.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(
-                  using: NSBitmapImageRep.FileType.png,
-                  properties: [:]
-              ),
-              let dir = try? thumbnailsDirectory() else { return }
-        try? png.write(to: dir.appendingPathComponent("\(objectID).png"))
     }
 
     /// Book covers are portrait: QuickLook gives us the cover page/artwork, then
@@ -568,12 +537,7 @@ enum UploadEngine {
             .generateBestRepresentation(for: request) else { return }
         let ns = NSImage(cgImage: rep.cgImage, size: NSSize(width: rep.cgImage.width, height: rep.cgImage.height))
         guard let fitted = ThumbnailCrop.coverPortrait(ns, maxDimension: 540),
-              let tiff = fitted.tiffRepresentation,
-              let imgRep = NSBitmapImageRep(data: tiff),
-              let jpg = imgRep.representation(
-                  using: .jpeg,
-                  properties: [.compressionFactor: 0.82]
-              ),
+              let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85),
               let dir = try? thumbnailsDirectory() else { return }
         let dest = dir.appendingPathComponent("\(objectID)-cover.jpg")
         try? jpg.write(to: dest)

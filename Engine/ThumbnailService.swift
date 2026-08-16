@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Vision
 import OSLog
+import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let xcThumbnailReady = Notification.Name("xc.thumbnailReady")
@@ -111,6 +112,31 @@ enum ThumbnailCrop {
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: outW, height: outH))
         guard let outCG = ctx.makeImage() else { return nil }
         return NSImage(cgImage: outCG, size: NSSize(width: outW, height: outH))
+    }
+
+    /// JPEG-encodes an image with ImageIO: gamma-aware color optimization (kills
+    /// banding in dark gradients), optional progressive scan, and a quality in
+    /// 0...1. Better quality-per-byte than NSBitmapImageRep's JPEG encoder, which
+    /// applies neither. This is the single encoder for every JPEG the app writes
+    /// (grid previews, Telegram-attached upload thumbnails, book covers).
+    static func jpegData(from image: NSImage, quality: Double, progressive: Bool = true) -> Data? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cg = rep.cgImage else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(
+            data, UTType.jpeg.identifier as CFString, 1, nil
+        ) else { return nil }
+        var props: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: quality,
+            kCGImageDestinationOptimizeColorForSharing: true,
+        ]
+        if progressive {
+            props[kCGImagePropertyJFIFDictionary] = [kCGImagePropertyJFIFIsProgressive: true]
+        }
+        CGImageDestinationAddImage(dest, cg, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
     }
 
     /// Book-cover crop: center-crops to a 2:3 portrait frame when the artwork
@@ -395,13 +421,13 @@ actor ThumbnailService {
               let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
-        if let tiff = frame.tiffRepresentation,
-           let rep = NSBitmapImageRep(data: tiff) {
-            if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+        if let square = ThumbnailCrop.subjectSquare(frame, target: 320) {
+            if let jpg = ThumbnailCrop.jpegData(from: square, quality: 0.85) {
                 try? jpg.write(to: destJPG)
                 cache[object.id] = destJPG
             }
-            if let png = rep.representation(using: .png, properties: [:]) {
+            if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: destPNG)
             }
         }
@@ -418,13 +444,13 @@ actor ThumbnailService {
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
 
         if let image = NSImage(contentsOf: fileURL) {
-            if let resized = ThumbnailCrop.subjectSquare(image, target: 320),
-               let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
-                if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+            if let resized = ThumbnailCrop.subjectSquare(image, target: 320) {
+                if let jpg = ThumbnailCrop.jpegData(from: resized, quality: 0.85) {
                     try? jpg.write(to: destJPG)
                     cache[object.id] = destJPG
                 }
-                if let png = rep.representation(using: .png, properties: [:]) {
+                if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                   let png = rep.representation(using: .png, properties: [:]) {
                     try? png.write(to: destPNG)
                 }
             }

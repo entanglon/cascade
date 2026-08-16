@@ -28,6 +28,7 @@ enum VaultRepair {
             case .messageDocument(let doc): fileName = doc.document.fileName; contentKind = "doc"
             case .messageVideo(let vid): fileName = vid.video.fileName ?? ""; contentKind = "video"
             case .messagePhoto(let ph): contentKind = "photo"
+            case .messageAudio: contentKind = "audio"
             default: break
             }
             logger.info("xCloud diag: id=\(message.id, privacy: .public) kind=\(contentKind, privacy: .public) cap=\(prefix, privacy: .public) file=\(fileName, privacy: .public)")
@@ -48,6 +49,9 @@ enum VaultRepair {
                     fileName = doc.document.fileName
                     fileSize = Int64(doc.document.document.size)
                     captionText = doc.caption.text
+                case .messageAudio(let au):
+                    fileSize = Int64(au.audio.audio.size)
+                    captionText = au.caption.text
                 case .messageVideo(let vid):
                     fileSize = Int64(vid.video.video.size)
                     captionText = vid.caption.text
@@ -274,6 +278,7 @@ enum VaultRepair {
             case .messageDocument(let d): fileName = d.document.fileName; kind = "doc"
             case .messageVideo(let v): fileName = v.video.fileName ?? ""; kind = "video"
             case .messagePhoto(let p): kind = "photo"
+            case .messageAudio: kind = "audio"
             default: break
             }
             out += "id=\(m.id) kind=\(kind) cap=\(String(text.prefix(70))) file=\(fileName)\n"
@@ -290,6 +295,7 @@ enum VaultRepair {
         case .messageDocument(let doc): return doc.caption.text
         case .messageVideo(let vid): return vid.caption.text
         case .messagePhoto(let ph): return ph.caption.text
+        case .messageAudio(let au): return au.caption.text
         default: return nil
         }
     }
@@ -362,10 +368,21 @@ enum VaultRepair {
             if text.hasPrefix("xcloud:vaultkey:") || text.hasPrefix("xcloud:dbdelta:") || text.hasPrefix("xcloud:dbsnapshot:") {
                 return false
             }
-            // Only CHUNK DOCUMENTS are ever candidates. Text messages (folder
-            // metadata, welcome messages, anything caption-less) are never purged.
-            guard case .messageDocument(let doc) = msg.content else { return false }
-            guard text.hasPrefix("xcloud:v1:") || doc.document.fileName.hasSuffix(".bin") else { return false }
+            // Only CHUNK messages are ever candidates — documents (new format,
+            // caption JSON; old format, OBJECT_ID-INDEX.bin name) and audio
+            // messages (TDLib auto-converts .mp3 documents into audio). Text
+            // messages (folder metadata, welcome messages, anything caption-less)
+            // are never purged.
+            let isChunk: Bool
+            switch msg.content {
+            case .messageDocument(let doc):
+                isChunk = text.hasPrefix("xcloud:v1:") || doc.document.fileName.hasSuffix(".bin")
+            case .messageAudio:
+                isChunk = text.hasPrefix("xcloud:v1:")
+            default:
+                isChunk = false
+            }
+            guard isChunk else { return false }
 
             // Resolve which object this chunk belongs to (caption JSON, or the
             // OBJECT_ID-INDEX.bin filename for old-format chunks). If that object
@@ -377,7 +394,7 @@ enum VaultRepair {
                    let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     chunkObjectID = meta["id"] as? String
                 }
-            } else {
+            } else if case .messageDocument(let doc) = msg.content {
                 let name = (doc.document.fileName as NSString).deletingPathExtension
                 let parts = name.split(separator: "-")
                 if parts.count >= 2 {

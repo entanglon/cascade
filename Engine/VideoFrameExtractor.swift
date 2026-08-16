@@ -34,15 +34,41 @@ enum VideoFrameExtractor {
     /// Output width cap for the final thumbnail source (aspect preserved).
     private static let maxOutputWidth = 1280
 
+    /// Network I/O bound: avformat has no timeout by default, so an open on the
+    /// loopback stream server that never answers blocks forever. rw_timeout also
+    /// bounds every later read (headers, slices, seeks) — extraction fails
+    /// cleanly and the caller falls back to Telegram's attached thumbnail.
+    private static let networkTimeoutMicros = "15000000"
+
+    /// Extraction must never touch the main thread: FFmpeg's open/read blocks
+    /// (poll) with no deadline, and a frozen main thread freezes the app. A plain
+    /// `Task.detached` body has empirically run on the creating thread in this
+    /// runtime (completeTaskWithClosure on com.apple.main-thread), so hop to a
+    /// dedicated queue explicitly. The semaphore caps concurrent extractions so
+    /// a grid re-key (e.g. after a cache purge) can't start an unbounded FFmpeg
+    /// stampede.
+    private static let extractionQueue = DispatchQueue(label: "com.xcloud.thumbnail-extract", qos: .utility)
+    private static let extractionSlots = DispatchSemaphore(value: 2)
+
     // MARK: - Public API
 
     /// Returns a representative frame from `url`, or nil if the file has no
     /// decodable video track (callers fall back to QuickLook in that case).
-    /// Runs off the main thread — pure C work, no UI involvement.
+    /// Never runs on the main thread and never blocks longer than the network
+    /// timeout — pure C work, no UI involvement.
     static func representativeFrame(from url: URL) async -> NSImage? {
-        await Task.detached(priority: .utility) {
-            extract(url: url)
-        }.value
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                extractionQueue.async {
+                    extractionSlots.wait()
+                    defer { extractionSlots.signal() }
+                    continuation.resume(returning: extract(url: url))
+                }
+            }
+        } onCancel: {
+            // The C decode can't be interrupted safely; the network timeout and
+            // the single-flight gate in ThumbnailService bound the fallout.
+        }
     }
 
     // MARK: - Pipeline
@@ -56,7 +82,15 @@ enum VideoFrameExtractor {
         if !isRemote, !FileManager.default.fileExists(atPath: path) { return nil }
 
         var fmt: UnsafeMutablePointer<AVFormatContext>? = nil
-        guard path.withCString({ avformat_open_input(&fmt, $0, nil, nil) }) >= 0,
+        var options: OpaquePointer? = nil
+        if isRemote {
+            // No timeout in avformat by default — a silent loopback stream server
+            // (or any stalled connection) would make open/read block forever.
+            av_dict_set(&options, "rw_timeout", networkTimeoutMicros, 0)
+            av_dict_set(&options, "timeout", networkTimeoutMicros, 0)
+        }
+        defer { if options != nil { av_dict_free(&options) } }
+        guard path.withCString({ avformat_open_input(&fmt, $0, nil, &options) }) >= 0,
               let fmtCtx = fmt else {
             logger.warning("thumbnail: cannot open \(url.lastPathComponent, privacy: .public)")
             return nil
