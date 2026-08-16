@@ -219,7 +219,7 @@ Open a cloud file in the default macOS app, edit, and save back to the vault (Dr
 
 ### Backup / restore channel — PLANNED for implementation (design decided 2026-08-16)
 
-A second private Telegram channel ("xCloud Restore", archived + muted) receiving a
+A second private Telegram channel ("xCloud Backup", archived + muted) receiving a
 **forward** (`forwardMessages`, `sendCopy: false` = zero-cost reference, bytes and
 `xcloud:v1:` captions preserved → encryption intact) of every message the app posts
 to the vault channel (chunk messages, object metadata captions, vault key blob,

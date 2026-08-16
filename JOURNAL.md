@@ -328,3 +328,29 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
 - Build green (main + worktree), full test suite green, app relaunched. Pending
   user confirmation: "xCloud Restore" channel appears archived/muted, uploads are
   mirrored, permanent deletes vanish from both channels.
+
+## 2026-08-16 — Backup mirror: debug + rename + root cause
+
+### The bug: negative chat IDs vs `> 0` guards
+- User tested: upload worked, but nothing was mirrored. DB forensics showed the
+  `backup_msgs` queue was filling up with `attempts = 0` — the drainer never even
+  tried to forward.
+- Added file-based mirror logging (`/tmp/xcloud-backup.log`; the unified log is
+  unreadable on this machine and stdout is lost when launched via `open`) and
+  relaunched: `drain skipped (no vault/backup channel/authorization)`.
+- Root cause: **`backupChannelID > 0` checks — Telegram chat IDs are large negative
+  numbers** (`-100xxxxxxxxxx`), so `-1004350130680 > 0` is false and the guard ALWAYS
+  failed. This silently killed the drainer, `syncCaption`, backup-side deletes and
+  `wipeBackupChannel` — the whole mirror feature was dead on arrival.
+- Side effect of the same bug: `ensureBackupChannel`'s early return never triggered,
+  so every launch re-ran the full channel search (~10 s of launch time). When the
+  user deleted the empty "xCloud Restore" channel from their Telegram client, the
+  relaunch created a fresh "xCloud Backup" channel (-1004338372548) instead.
+- Fix: replaced all five `backupChannelID > 0` guards with plain
+  `if let backupID = vault.backupChannelID`.
+- Verification: relaunched; the 2 queued rows (test chunk + delta) forwarded to the
+  new channel and marked `done` (backup messages 1048577/1048585). Drainer logs
+  every forward; `drain done (forwarded N)`.
+- Rename per user request: channel is now **"xCloud Backup"**; `findBackupChannel`
+  adopts a legacy "xCloud Restore" channel if present and renames it via
+  `setChatTitle`.

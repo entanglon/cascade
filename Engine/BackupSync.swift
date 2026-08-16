@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// Mirrors every message the app posts to the vault channel into a second private
-/// channel ("xCloud Restore", archived + muted) via cheap reference forwards
+/// channel ("xCloud Backup", archived + muted) via cheap reference forwards
 /// (`sendCopy: false` — no re-upload, captions and encryption preserved). If the
 /// main vault channel is ever deleted — by the user or by a malfunctioning app —
 /// the backup channel still holds the complete storage + catalog, and a future
@@ -23,10 +23,26 @@ enum BackupSync {
     static let deltaObjectID = "xcloud:delta"
     static let keyRecordObjectID = "xcloud:vaultkey"
 
+    /// File-based mirror log (/tmp/xcloud-backup.log) — the unified log is not
+    /// reliably readable on this machine, and the app's stdout goes nowhere when
+    /// launched via `open`.
+    static func mirrorLog(_ line: String) {
+        let stamp = ISO8601DateFormatter().string(from: .now)
+        let entry = Data("\(stamp) \(line)\n".utf8)
+        if let handle = FileHandle(forWritingAtPath: "/tmp/xcloud-backup.log") {
+            handle.seekToEndOfFile()
+            handle.write(entry)
+            try? handle.close()
+        } else {
+            try? entry.write(to: URL(fileURLWithPath: "/tmp/xcloud-backup.log"))
+        }
+    }
+
     /// Records a vault-channel message for mirroring and kicks the drainer.
     static func enqueue(messageID: Int64, objectID: String) {
         guard messageID > 0 else { return }
         try? DatabaseManager.shared.enqueueBackup(messageID: messageID, objectID: objectID)
+        mirrorLog("enqueue message \(messageID) (\(objectID))")
         Task { await BackupDrainer.shared.drain() }
     }
 
@@ -51,7 +67,7 @@ enum BackupSync {
         }
 
         // Backup copies, then mapping rows.
-        if let backupID = vault.backupChannelID, backupID > 0,
+        if let backupID = vault.backupChannelID,
            let targets = try? await DatabaseManager.shared.backupTargets(for: messageIDs),
            !targets.isEmpty {
             let backupIDs = targets.compactMap(\.backupMessageID)
@@ -66,7 +82,7 @@ enum BackupSync {
     /// Wipes the entire backup channel and mirror queue (used by vault reset).
     static func wipeBackupChannel() async {
         guard let vault = try? await DatabaseManager.shared.firstVault(),
-              let backupID = vault.backupChannelID, backupID > 0 else { return }
+              let backupID = vault.backupChannelID else { return }
         let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: backupID)
         for i in stride(from: 0, to: ids.count, by: 100) {
             let batch = Array(ids[i..<min(i + 100, ids.count)])
@@ -77,7 +93,7 @@ enum BackupSync {
 
     private static func syncCaption(messageID: Int64, caption: String) async {
         guard let vault = try? await DatabaseManager.shared.firstVault(),
-              let backupID = vault.backupChannelID, backupID > 0,
+              let backupID = vault.backupChannelID,
               let row = try? await DatabaseManager.shared.backupRow(messageID: messageID),
               let backupMsgID = row.backupMessageID else { return }
         try? await TelegramClient.shared.editMessageCaption(chatId: backupID, messageId: backupMsgID, caption: caption)
@@ -86,9 +102,12 @@ enum BackupSync {
 
 /// Serial drainer for the mirror queue. The actor guard makes concurrent
 /// `drain()` calls coalesce — enqueueing kicks a drain, but only one runs.
+/// Processes at most `maxPerDrain` rows per invocation so a stuck TDLib request
+/// can never wedge the queue permanently (the launch drain re-triggers later).
 actor BackupDrainer {
     static let shared = BackupDrainer()
     private var active = false
+    private let maxPerDrain = 50
 
     func drain() async {
         guard !active else { return }
@@ -96,11 +115,17 @@ actor BackupDrainer {
         defer { active = false }
 
         guard let vault = try? await DatabaseManager.shared.firstVault(),
-              let backupID = vault.backupChannelID, backupID > 0,
-              await TelegramClient.shared.isAuthorized else { return }
+              let backupID = vault.backupChannelID,
+              await TelegramClient.shared.isAuthorized else {
+            BackupSync.mirrorLog("drain skipped (no vault/backup channel/authorization)")
+            return
+        }
 
-        while let pending = try? await DatabaseManager.shared.nextPendingBackup() {
+        var forwarded = 0
+        while forwarded < maxPerDrain,
+              let pending = try? await DatabaseManager.shared.nextPendingBackup() {
             do {
+                BackupSync.mirrorLog("forward \(pending.messageID) → \(backupID)")
                 let newID = try await TelegramClient.shared.withFloodWait {
                     try await TelegramClient.shared.forwardMessage(
                         chatId: backupID,
@@ -111,15 +136,19 @@ actor BackupDrainer {
                 try? await DatabaseManager.shared.markBackupForwarded(
                     messageID: pending.messageID, backupMessageID: newID
                 )
+                forwarded += 1
+                BackupSync.mirrorLog("forwarded \(pending.messageID) → backup message \(newID)")
             } catch {
                 // Non-flood failure: back off and retry on the next drain trigger
                 // (next upload, next launch). Flood waits are already handled inside
                 // withFloodWait — a return here means a real error.
                 try? await DatabaseManager.shared.bumpBackupAttempts(messageID: pending.messageID)
+                BackupSync.mirrorLog("forward FAILED for \(pending.messageID): \(error.localizedDescription)")
                 print("xCloud backup forward failed for \(pending.messageID): \(error.localizedDescription)")
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 return
             }
         }
+        BackupSync.mirrorLog("drain done (forwarded \(forwarded))")
     }
 }

@@ -529,7 +529,7 @@ final class AppState {
             // ensureVault returns early for an existing vault.
             await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
             // Disaster-recovery mirror: every vault-channel message is forwarded
-            // into the "xCloud Restore" backup channel (created on first run).
+            // into the "xCloud Backup" channel (created on first run).
             if let backupID = await VaultManager.ensureBackupChannel() {
                 print("xCloud post-auth: backup channel ready (channel \(backupID))")
                 // Drain any forwards queued while the app was closed.

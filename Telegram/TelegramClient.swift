@@ -753,10 +753,18 @@ final class TelegramClient {
         await findChannel(title: "xCloud Vault")
     }
 
-    /// Same discovery as `findVaultChannel` but for the "xCloud Restore" backup
-    /// channel (Engine/BackupSync.swift mirrors every vault message into it).
+    /// Same discovery as `findVaultChannel` but for the "xCloud Backup" channel
+    /// (Engine/BackupSync.swift mirrors every vault message into it). Adopts an
+    /// older "xCloud Restore" channel if present and renames it to the new title.
     func findBackupChannel() async -> Int64? {
-        await findChannel(title: "xCloud Restore")
+        if let id = await findChannel(title: "xCloud Backup") {
+            return id
+        }
+        if let id = await findChannel(title: "xCloud Restore") {
+            try? await client?.setChatTitle(chatId: id, title: "xCloud Backup")
+            return id
+        }
+        return nil
     }
 
     /// Generic channel-by-title discovery: local search first, then server search,

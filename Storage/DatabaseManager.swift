@@ -307,7 +307,7 @@ actor DatabaseManager {
             }
         }
         // Backup mirror channel: every vault-channel message is forwarded into a
-        // second private channel ("xCloud Restore") for disaster recovery.
+        // second private channel ("xCloud Backup") for disaster recovery.
         migrator.registerMigration("v20-backup-channel") { db in
             try db.alter(table: "vaults") { t in
                 t.add(column: "backupChannelID", .integer)

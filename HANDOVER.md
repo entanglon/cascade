@@ -951,7 +951,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       Moved to `completePostAuthSetup` (runs every launch).
 
 
-47. **Backup mirror channel — "xCloud Restore" (2026-08-16)**
+47. **Backup mirror channel — "xCloud Backup" (2026-08-16)**
     (`Engine/BackupSync.swift` NEW, `Storage/DatabaseManager.swift` v20,
     `Storage/Models.swift`, `Storage/VaultManager.swift`, `Storage/CatalogSnapshot.swift`,
     `Storage/VaultRepair.swift`, `Telegram/TelegramClient.swift`,
@@ -986,6 +986,25 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       explicit if/else. Committed 2026-08-16 as part of the mirror-channel commit.
       Pending user verification: mirror works, permanent deletes vanish from both
       channels.
+48. **Backup mirror debug + rename (2026-08-16)**
+    - **THE BIG ONE:** every `backupChannelID > 0` guard silently failed —
+      Telegram chat IDs are **large negative numbers** (`-100xxxxxxxxxx`), so the
+      drainer never forwarded (queue filled with `attempts = 0`), caption sync and
+      backup-side deletes never ran, and `ensureBackupChannel`'s early return never
+      triggered (every launch re-searched + re-created the channel after the user
+      deleted the empty one from Telegram). Fixed by replacing all five `> 0`
+      checks with `if let backupID = vault.backupChannelID`.
+    - Channel renamed "xCloud Restore" → **"xCloud Backup"** per user request;
+      `findBackupChannel` adopts a legacy "xCloud Restore" channel and renames it
+      via `setChatTitle`.
+    - Debug infrastructure: `BackupSync.mirrorLog` appends to
+      `/tmp/xcloud-backup.log` (the unified log is unreadable on this machine and
+      stdout is lost when launching via `open`); drainer logs each forward, failure,
+      and per-drain summary. Drainer now caps at 50 messages per drain so a stuck
+      TDLib request can't wedge the queue permanently.
+    - Verification: relaunch drained the 2 queued test rows → forwarded to the new
+      channel (backup messages 1048577/1048585), status `done`. Build + tests green.
+      Still pending user re-verification of a live upload + permanent delete.
 
 ---
 ## 5. Pending / next steps

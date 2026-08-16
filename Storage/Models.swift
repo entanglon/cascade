@@ -32,7 +32,7 @@ struct VaultRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, S
     /// v2 key record is first posted; stored here as a local cache (the salt also
     /// rides inside the key record itself, so a fresh device gets it from the channel).
     var recoverySalt: Data? = nil
-    /// Channel ID of the "xCloud Restore" backup channel: every message the app
+    /// Channel ID of the "xCloud Backup" channel: every message the app
     /// posts to the vault channel is forwarded here (see Engine/BackupSync.swift),
     /// so a deleted or malfunction-wiped vault channel can still be recovered.
     var backupChannelID: Int64? = nil

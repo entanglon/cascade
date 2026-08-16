@@ -263,18 +263,18 @@ enum VaultManager {
         logger.info("Removed \(stale.count) stale vault key record(s)")
     }
 
-    /// Returns the "xCloud Restore" backup channel, adopting an existing one or
-    /// creating it fresh, archived + muted like the vault itself. Every message the
-    /// app posts to the vault channel is mirrored into it (Engine/BackupSync.swift).
+    /// Returns the "xCloud Backup" channel, adopting an existing one or creating
+    /// it fresh, archived + muted like the vault itself. Every message the app
+    /// posts to the vault channel is mirrored into it (Engine/BackupSync.swift).
     static func ensureBackupChannel() async -> Int64? {
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }
-        if let existing = vault.backupChannelID, existing > 0 {
+        if let existing = vault.backupChannelID {
             return existing
         }
         let backupID: Int64
         if let found = await TelegramClient.shared.findBackupChannel() {
             backupID = found
-        } else if let created = try? await TelegramClient.shared.createVaultChannel(title: "xCloud Restore") {
+        } else if let created = try? await TelegramClient.shared.createVaultChannel(title: "xCloud Backup") {
             backupID = created
         } else {
             return nil
