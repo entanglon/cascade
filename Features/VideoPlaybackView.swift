@@ -169,12 +169,15 @@ struct PlayerControlsView: View {
     var onMinimize: () -> Void = {}
     var onToggleFullScreen: () -> Void = {}
     var onClose: () -> Void = {}
+    @Environment(AppState.self) private var appState
 
     @State private var isControlsVisible = true
     @State private var hoverTimer: Timer?
     @State private var showSubtitlePopover = false
     @State private var showAudioPopover = false
     @State private var dragProgress: Double?
+    @State private var isSharing = false
+    @State private var showShareFeedback = false
 
     private let autoHideDelay: TimeInterval = 3.0
 
@@ -199,7 +202,7 @@ struct PlayerControlsView: View {
                     // never overlaps the status spinner, and while buffering
                     // (spinner takes over).
                     if mpv.hasFirstFrame && !mpv.isBuffering {
-                        centerControls
+                        transportArea
                     }
 
                     Spacer()
@@ -216,6 +219,20 @@ struct PlayerControlsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+
+            // Share feedback — brief glass pill under the top bar after the link
+            // is created and copied.
+            if showShareFeedback {
+                Text("Share link copied")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 72)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
@@ -245,28 +262,32 @@ struct PlayerControlsView: View {
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            Button(action: onMinimize) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white.opacity(0.85))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
+            // Share the file currently playing — same ShareEngine flow as the
+            // browser's Share action (forward-based link, copied to clipboard).
+            Button {
+                shareCurrentFile()
+            } label: {
+                Group {
+                    if isSharing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
-            .help(isFullScreen ? "Exit Full Screen" : "Close Player")
+            .help("Share")
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.5))
-            }
-            .padding(.leading, 4)
-
+            // The file name + size live ONLY above the progress bar (bottom bar)
+            // — no duplicate title row up here. The X on the right closes the
+            // player, so there's no minimize chevron either.
             Spacer()
 
             // Volume pill — the app's volume IS the system output volume
@@ -323,44 +344,110 @@ struct PlayerControlsView: View {
 
     // MARK: - Center Transport
 
-    private var centerControls: some View {
-        HStack(spacing: 80) {
-            Button {
-                mpv.seek(relative: -10)
-            } label: {
-                Image(systemName: "gobackward.10")
-                    .font(.system(size: 28))
-                    .foregroundColor(.white.opacity(0.9))
-                    .padding(24)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
+    /// True while a previous file exists in the playlist row navigation — the
+    /// Previous button only shows then (no disabled ghost buttons).
+    private var canGoPrevious: Bool {
+        let engine = AudioPlayerEngine.shared
+        guard let track = engine.currentTrack, !engine.playlist.isEmpty else { return false }
+        guard let idx = engine.playlist.firstIndex(where: { $0.id == track.id }) else { return false }
+        return idx > 0
+    }
 
-            Button {
-                mpv.togglePlayPause()
-            } label: {
-                Image(systemName: mpv.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 44, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(36)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
+    /// True while a next file exists in the playlist row navigation.
+    private var canGoNext: Bool {
+        let engine = AudioPlayerEngine.shared
+        guard let track = engine.currentTrack, !engine.playlist.isEmpty else { return false }
+        guard let idx = engine.playlist.firstIndex(where: { $0.id == track.id }) else { return false }
+        return idx + 1 < engine.playlist.count
+    }
 
-            Button {
-                mpv.seek(relative: 10)
-            } label: {
-                Image(systemName: "goforward.10")
-                    .font(.system(size: 28))
-                    .foregroundColor(.white.opacity(0.9))
-                    .padding(24)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
+    /// The centered transport (-10s / play / +10s) with Play Previous / Play Next
+    /// pinned to the left and right edges of the player, vertically centered with
+    /// the transport. Every control is the same liquid-glass material
+    /// (.glassEffect regular interactive, circle) — the transport reads as one
+    /// glass control cluster; nothing is a solid fill.
+    private var transportArea: some View {
+        ZStack {
+            HStack(spacing: 56) {
+                Button {
+                    mpv.seek(relative: -10)
+                } label: {
+                    Image(systemName: "gobackward.10")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(width: 58, height: 58)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+                .help("Back 10 seconds")
+
+                Button {
+                    mpv.togglePlayPause()
+                } label: {
+                    Image(systemName: mpv.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 76, height: 76)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+                .help(mpv.isPlaying ? "Pause" : "Play")
+
+                Button {
+                    mpv.seek(relative: 10)
+                } label: {
+                    Image(systemName: "goforward.10")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(width: 58, height: 58)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+                .help("Forward 10 seconds")
             }
-            .buttonStyle(.plain)
+
+            // Previous / next arrows on the left/right edges, vertically centered
+            // with the transport. Each shows ONLY when a file exists on that side
+            // of the row navigation — never a disabled ghost.
+            HStack {
+                if canGoPrevious {
+                    Button {
+                        AudioPlayerEngine.shared.skipPrevious()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white.opacity(0.92))
+                            .frame(width: 46, height: 46)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Previous")
+                }
+
+                Spacer()
+
+                if canGoNext {
+                    Button {
+                        AudioPlayerEngine.shared.skipNext()
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white.opacity(0.92))
+                            .frame(width: 46, height: 46)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Next")
+                }
+            }
+            .padding(.horizontal, 28)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Bottom Bar
@@ -379,6 +466,7 @@ struct PlayerControlsView: View {
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
+                        .truncationMode(.middle) // long filenames keep their start + extension
                         .shadow(radius: 4)
                 }
 
@@ -483,6 +571,31 @@ struct PlayerControlsView: View {
     }
 
     // MARK: - Helpers
+
+    /// Creates a share link for the file currently playing (same ShareEngine
+    /// flow as the browser: forward-based link, Drive-style reuse) and copies it
+    /// to the clipboard with a brief glass confirmation.
+    private func shareCurrentFile() {
+        guard let track = AudioPlayerEngine.shared.currentTrack, !isSharing else { return }
+        isSharing = true
+        Task {
+            defer { isSharing = false }
+            do {
+                let link = try await ShareEngine.share(object: track)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+                withAnimation(.easeOut(duration: 0.2)) {
+                    showShareFeedback = true
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                withAnimation(.easeIn(duration: 0.2)) {
+                    showShareFeedback = false
+                }
+            } catch {
+                appState.alertMessage = ShareEngine.describe(error)
+            }
+        }
+    }
 
     private func showControls() {
         hoverTimer?.invalidate()

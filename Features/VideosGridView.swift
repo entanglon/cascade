@@ -24,9 +24,21 @@ struct VideosGridView: View {
     private var playlists: [ObjectRecord] { files.filter(\.isFolder) }
     private var videos: [ObjectRecord] { files.filter { !$0.isFolder } }
 
+    // Square tiles — sized like the current (good) video cards, with breathing
+    // room between cards (spacing 8 instead of the old cramped 2).
     private var columns: [GridItem] {
-        let minSize = max(120.0, cardWidth * 0.75)
-        return [GridItem(.adaptive(minimum: minSize, maximum: cardWidth * 1.4), spacing: 2)]
+        let minSize = max(150.0, cardWidth * 0.85)
+        return [GridItem(.adaptive(minimum: minSize, maximum: cardWidth * 1.3), spacing: 8)]
+    }
+
+    /// Column count the adaptive grid actually lays out for a given width — the
+    /// up/down arrow navigation steps by this many tiles, so it must match the
+    /// real layout or arrows land on the wrong row (the old width/150 estimate
+    /// went stale once cards grew and spacing went from 2 to 8).
+    private func adaptiveColumnCount(forWidth width: CGFloat) -> Int {
+        let spacing: CGFloat = 8
+        let minSize = max(150.0, cardWidth * 0.85)
+        return max(2, Int((width - 40 + spacing) / (minSize + spacing)))
     }
 
     var body: some View {
@@ -46,11 +58,11 @@ struct VideosGridView: View {
                     proxy.scrollTo(newID, anchor: nil)
                 }
             }
-            .onChange(of: Int(geo.size.width / 150)) { _, cols in
-                onColumnCountChange(max(2, cols))
+            .onChange(of: adaptiveColumnCount(forWidth: geo.size.width)) { _, cols in
+                onColumnCountChange(cols)
             }
             .onAppear {
-                onColumnCountChange(max(2, Int(geo.size.width / 150)))
+                onColumnCountChange(adaptiveColumnCount(forWidth: geo.size.width))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .xcThumbnailReady)) { _ in
@@ -118,7 +130,7 @@ struct VideosGridView: View {
     private var daySections: some View {
         ForEach(MediaGridLayout.dayGroups(videos)) { day in
             Section(header: MediaDayHeader(title: day.title)) {
-                LazyVGrid(columns: columns, spacing: 2) {
+                LazyVGrid(columns: columns, spacing: 8) {
                     ForEach(day.files) { video in
                         videoCell(video)
                     }

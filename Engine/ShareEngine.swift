@@ -160,6 +160,11 @@ enum ShareEngine {
         object: ObjectRecord,
         lifetime: TimeInterval = defaultLifetime
     ) async throws -> String {
+        // Private files can't be shared: the vault no longer encrypts anything, so
+        // the private flag is a PIN-gated visibility choice, not a key layer —
+        // sharing would leak the file outside the PIN gate. Guarded BEFORE auth so
+        // the rule is unit-testable without a live Telegram session.
+        guard !object.isPrivate else { throw ShareError.notShareable }
         guard TelegramClient.shared.isAuthorized else {
             throw ShareError.notAuthorized
         }
@@ -232,25 +237,10 @@ enum ShareEngine {
             throw ShareError.uploadFailed(describe(error))
         }
 
-        // Keys: only private files carry a key at all. The forwarded chunks are the
-        // vault's ciphertext (encrypted under the object key), so the link must
-        // carry that object key re-wrapped under a fresh share key. Non-private
-        // files: no key anywhere in the link.
-        var shareKeyB64 = ""
-        var wrappedB64 = ""
-        if object.isPrivate, let wk = object.wrappedKey, !wk.isEmpty {
-            do {
-                let master = try CryptoEngine.masterKey()
-                let objectKey = try CryptoEngine.unwrap(wk, with: master)
-                let shareKey = SymmetricKey(size: .bits256)
-                let wrapped = try CryptoEngine.wrap(objectKey, with: shareKey)
-                wrappedB64 = wrapped.base64EncodedString()
-                shareKeyB64 = shareKey.withUnsafeBytes { Data($0) }.base64EncodedString()
-            } catch {
-                try? await TelegramClient.shared.deleteMessages(chatId: channelID, messageIds: messageIDs)
-                throw ShareError.uploadFailed("Key re-wrap failed: \(describe(error))")
-            }
-        }
+        // No key layer anymore: the forwarded chunks are plaintext (the vault no
+        // longer encrypts file bytes), so the link carries no key material at all.
+        let shareKeyB64 = ""
+        let wrappedB64 = ""
 
         let expiry = Foundation.Date().addingTimeInterval(lifetime)
         let plainLink = ShareLink(
@@ -307,8 +297,12 @@ enum ShareEngine {
             // The record can outlive its channel (deleted manually in Telegram, or
             // a crash between deleteMessages and marking revoked) — never hand out
             // a link whose channel is gone. getChat is served from TDLib's cache, so
-            // this is cheap; skipped when Telegram isn't ready (e.g. unit tests).
+            // this is cheap; skipped when Telegram isn't ready or under XCTest (the
+            // app-hosted test suite boots the real app, whose auto-login can flip
+            // isAuthorized mid-run and would revoke the fake share records).
+            let underXCTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             if TelegramClient.shared.isAuthorized,
+               !underXCTest,
                !(await TelegramClient.shared.chatExists(chatId: share.channelID)) {
                 var stale = share
                 stale.state = "revoked"
@@ -431,8 +425,8 @@ enum ShareEngine {
     /// v2 import: the link names the file's forwarded messages (the reusable
     /// channel holds many files at once, so only those are touched). Captions are
     /// the vault's own unified/legacy chunk captions — parsed with the shared
-    /// codec. Private files decrypt with the object key from the link; non-private
-    /// files have no key at all.
+    /// codec. Chunks are plaintext (since the encryption drop), so the import is
+    /// a pure forward with no key handling.
     private static func importForwarded(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
         do {
             let messages = try await TelegramClient.shared.messagesByIds(chatId: channelID, messageIds: link.messageIDs)
@@ -444,19 +438,8 @@ enum ShareEngine {
             }
             guard let first = metas.first else { throw ShareError.invalidPayload }
 
-            // Key: private files carry the object key wrapped under the link's
-            // share key. The forwarded chunks are the SENDER's vault ciphertext —
-            // the caption's own wrappedKey is locked under the sender's master key
-            // and is never usable here; the link is the only key source.
-            var objectKey: SymmetricKey? = nil
-            if !link.wrappedKeyB64.isEmpty {
-                let shareKey = SymmetricKey(data: Data(base64Encoded: link.shareKey) ?? Data())
-                objectKey = try CryptoEngine.unwrap(
-                    Data(base64Encoded: link.wrappedKeyB64) ?? Data(),
-                    with: shareKey
-                )
-            }
-            let masterKey = try CryptoEngine.masterKey()
+            // No key layer: shared chunks are plaintext, so the import is a pure
+            // forward — the vault records the file as plaintext (isPrivate: false).
 
             // Forward every chunk message into our vault channel (server-side copy).
             let objectID = UUID().uuidString
@@ -488,12 +471,7 @@ enum ShareEngine {
             }
             guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
 
-            let wrappedForVault: Data?
-            if let objectKey {
-                wrappedForVault = try CryptoEngine.wrap(objectKey, with: masterKey)
-            } else {
-                wrappedForVault = nil
-            }
+            let wrappedForVault: Data? = nil
 
             let object = ObjectRecord(
                 id: objectID,
@@ -510,7 +488,7 @@ enum ShareEngine {
                 trashed: false,
                 parentID: nil,
                 isFolder: false,
-                isPrivate: objectKey != nil,
+                isPrivate: false,
                 sourcePath: nil,
                 chunkSize: first.chunkSize
             )
@@ -560,11 +538,9 @@ enum ShareEngine {
             // with the original caption would silently mismatch.
             guard metas.count == messages.count else { throw ShareError.invalidPayload }
 
-            let objectKey = try CryptoEngine.unwrap(
-                Data(base64Encoded: first.wrappedKey) ?? Data(),
-                with: SymmetricKey(data: Data(base64Encoded: link.shareKey) ?? Data())
-            )
-            let masterKey = try CryptoEngine.masterKey()
+            // No key layer: the imported chunks are recorded as plaintext. (Legacy
+            // v1 shares were always encrypted, but the vault no longer decrypts —
+            // the pre-refactor channels were wiped, so no live links remain.)
 
             // Forward every chunk message into our vault channel (server-side copy).
             let objectID = UUID().uuidString
@@ -601,14 +577,14 @@ enum ShareEngine {
                 mime: first.mime,
                 state: "ready",
                 rootHash: first.rootHash.isEmpty ? nil : first.rootHash,
-                wrappedKey: try CryptoEngine.wrap(objectKey, with: masterKey),
+                wrappedKey: nil,
                 createdAt: .now,
                 modifiedAt: .now,
                 isFavorite: false,
                 trashed: false,
                 parentID: nil,
                 isFolder: false,
-                isPrivate: true,       // legacy shares were always re-keyed under our vault key
+                isPrivate: false,
                 sourcePath: nil,
                 chunkSize: first.chunkSize
             )

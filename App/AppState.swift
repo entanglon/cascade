@@ -137,6 +137,19 @@ final class AppState {
     var uploadStatus: String? = nil
     var uploadProgress: Double = 0
     var isUploading = false
+
+    /// Uploads are strictly serial — ONE file at a time. Dropping/pasting several
+    /// files enqueues them and they drain one-by-one: concurrent file uploads
+    /// congested TDLib's upload pipeline (files visibly stuck at 99% while their
+    /// last chunk waited behind other files' chunks). Per-file chunk parallelism
+    /// (3 chunks) is unchanged — only files are serialized.
+    private struct PendingUpload {
+        let url: URL
+        let resumeObject: ObjectRecord?
+    }
+
+    @MainActor private var uploadQueue: [PendingUpload] = []
+    @MainActor private var isDrainingUploadQueue = false
     var isResetting = false
 
     var isDownloading = false
@@ -315,7 +328,7 @@ final class AppState {
                     let objectID = CommandLine.arguments[idx + 1]
                     if let obj = try? await DatabaseManager.shared.object(objectID) {
                         print("xCloud debug: caching video \(objectID)")
-                        _ = try? await DownloadEngine.download(object: obj) { _, _ in }
+                        _ = try? await DownloadEngine.download(object: obj, quiet: true) { _, _ in }
                         print("xCloud debug: cached \(obj.name) -> \(DownloadEngine.cacheURL(for: obj).path(percentEncoded: false))")
                     }
                     NSApp.terminate(nil)
@@ -648,16 +661,11 @@ final class AppState {
                 try? await DatabaseManager.shared.updateObject(object.id) { $0.state = "failed" }
                 continue
             }
-            Task {
-                try? await UploadEngine.upload(
-                    fileURL: URL(fileURLWithPath: path),
-                    parentID: object.parentID,
-                    progress: { _, _ in },
-                    resumeObject: object
-                )
-                await self.loadFiles()
-            }
+            // Same serial queue as user-initiated uploads — resumed files go one
+            // at a time too, so a launch-time pileup can't congest TDLib again.
+            uploadQueue.append(PendingUpload(url: URL(fileURLWithPath: path), resumeObject: object))
         }
+        drainUploadQueue()
         await self.loadFiles()
     }
 
@@ -675,6 +683,11 @@ final class AppState {
 
     @MainActor
     func startTelegram(apiID: Int, apiHash: String) async {
+        // Test host must never start TDLib: XCTest exits with exit(), tearing down
+        // the C++ core while its background receive thread still polls — a segfault
+        // on every test run. bootstrap() guards, but TelegramSetupView's auto-start
+        // (.task with stored creds) bypasses that; guard the single choke point.
+        guard !isRunningUnderXCTest else { return }
         TelegramClient.shared.configure(apiID: apiID, apiHash: apiHash)
         do {
             try await TelegramClient.shared.start()
@@ -687,53 +700,60 @@ final class AppState {
 
     @MainActor
     func startUpload(url: URL) {
+        uploadQueue.append(PendingUpload(url: url, resumeObject: nil))
+        drainUploadQueue()
+    }
+
+    @MainActor
+    private func drainUploadQueue() {
+        guard !isDrainingUploadQueue else { return }
+        isDrainingUploadQueue = true
+        Task {
+            while !uploadQueue.isEmpty {
+                let pending = uploadQueue.removeFirst()
+                await performUpload(pending)
+            }
+            isDrainingUploadQueue = false
+            isUploading = false
+        }
+    }
+
+    @MainActor
+    private func performUpload(_ pending: PendingUpload) async {
+        let url = pending.url
         isUploading = true
         uploadStatus = "Preparing…"
         uploadProgress = 0
         let isPrivate = (selectedDestination == .privateVault || isFolderPrivate(currentFolderID))
         let parent = (selectedDestination == .allFiles || selectedDestination == .privateVault) ? currentFolderID : nil
 
-        Task {
-            do {
-                let path = url.path(percentEncoded: false)
-                let all = (try? await DatabaseManager.shared.allObjects()) ?? []
-                var didUpload = true
+        do {
+            let path = url.path(percentEncoded: false)
+            let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+            var didUpload = true
 
-                // Uploading the same file again resumes its interrupted upload from the last chunk
-                if let existing = all.first(where: {
-                    $0.sourcePath == path && !$0.isFolder && !$0.trashed &&
-                    ($0.state == "paused" || $0.state == "failed")
-                }) {
-                    if FileManager.default.fileExists(atPath: path) {
-                        try await UploadEngine.upload(
-                            fileURL: url,
-                            parentID: existing.parentID,
-                            isPrivate: existing.isPrivate,
-                            progress: { [weak self] status, p in
-                                Task { @MainActor in
-                                    self?.uploadStatus = status
-                                    self?.uploadProgress = p
-                                }
-                            },
-                            resumeObject: existing
-                        )
-                    } else {
-                        // Source file is gone: discard the stale partial, then upload fresh
-                        await UploadEngine.cleanupPartialUpload(objectID: existing.id)
-                        TransferCenter.shared.removeItems(forObjectID: existing.id)
-                        try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
+            // Uploading the same file again resumes its interrupted upload from the last chunk
+            if let existing = pending.resumeObject ?? all.first(where: {
+                $0.sourcePath == path && !$0.isFolder && !$0.trashed &&
+                ($0.state == "paused" || $0.state == "failed")
+            }) {
+                if FileManager.default.fileExists(atPath: path) {
+                    try await UploadEngine.upload(
+                        fileURL: url,
+                        parentID: existing.parentID,
+                        isPrivate: existing.isPrivate,
+                        progress: { [weak self] status, p in
                             Task { @MainActor in
                                 self?.uploadStatus = status
                                 self?.uploadProgress = p
                             }
-                        }
-                    }
-                } else if all.contains(where: {
-                    $0.sourcePath == path && !$0.trashed && $0.state == "uploading"
-                }) {
-                    uploadStatus = "Already uploading this file"
-                    didUpload = false
+                        },
+                        resumeObject: existing
+                    )
                 } else {
+                    // Source file is gone: discard the stale partial, then upload fresh
+                    await UploadEngine.cleanupPartialUpload(objectID: existing.id)
+                    TransferCenter.shared.removeItems(forObjectID: existing.id)
                     try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
                         Task { @MainActor in
                             self?.uploadStatus = status
@@ -741,19 +761,30 @@ final class AppState {
                         }
                     }
                 }
-                if didUpload {
-                    uploadStatus = "Upload complete ✅"
-                    await self.loadFiles()
+            } else if all.contains(where: {
+                $0.sourcePath == path && !$0.trashed && $0.state == "uploading"
+            }) {
+                uploadStatus = "Already uploading this file"
+                didUpload = false
+            } else {
+                try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
+                    Task { @MainActor in
+                        self?.uploadStatus = status
+                        self?.uploadProgress = p
+                    }
                 }
-            } catch {
-                if let uploadError = error as? UploadError, case .cancelled = uploadError {
-                    uploadStatus = "Upload paused — resume anytime from Transfers"
-                } else {
-                    uploadStatus = "Upload failed: \(error.localizedDescription)"
-                }
+            }
+            if didUpload {
+                uploadStatus = "Upload complete ✅"
                 await self.loadFiles()
             }
-            isUploading = false
+        } catch {
+            if let uploadError = error as? UploadError, case .cancelled = uploadError {
+                uploadStatus = "Upload paused — resume anytime from Transfers"
+            } else {
+                uploadStatus = "Upload failed: \(error.localizedDescription)"
+            }
+            await self.loadFiles()
         }
     }
 
@@ -867,7 +898,9 @@ final class AppState {
             downloadStatus = "Fetching from Telegram…"
             downloadProgress = 0
             do {
-                let url = try await DownloadEngine.download(object: file) { [weak self] status, p in
+                // Opening/previewing is NOT a download — no transfer card for it.
+                // Only the explicit right-click "Download" action counts.
+                let url = try await DownloadEngine.download(object: file, quiet: true) { [weak self] status, p in
                     Task { @MainActor in
                         self?.downloadStatus = status
                         self?.downloadProgress = p
@@ -932,9 +965,8 @@ final class AppState {
         incomingShares = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
     }
 
-    /// Sender side: creates the share channel, posts the encrypted chunks, and
-    /// presents the share link. The link carries the share key — it IS the
-    /// credential, so only someone holding the link can import the file.
+    /// Sender side: creates the share link by forwarding the file's chunks into
+    /// the share channel. Only someone holding the link can import the file.
     @MainActor
     func shareFile(_ object: ObjectRecord) {
         guard !isSharingFile else { return }
@@ -1336,10 +1368,8 @@ final class AppState {
                     syncObjectMetadataToTelegram(updated)
                 }
 
-                // If moved out of private vault into a public folder, unencrypt in Telegram
-                if wasPrivate && !targetIsPrivate {
-                    await unencryptFileInTelegram(id: id)
-                }
+                // Moving out of Private is an instant flag flip now — the vault no
+                // longer encrypts anything, so no decrypt/re-upload happens.
                 await self.loadFiles()
 
                 registerUndo("Move") {
@@ -1401,62 +1431,6 @@ final class AppState {
         }
     }
 
-    private func unencryptFileInTelegram(id: String) async {
-        guard let file = files.first(where: { $0.id == id }) else { return }
-        if file.isFolder {
-            // Unencrypt child objects recursively
-            let children = files.filter { $0.parentID == file.id }
-            for child in children {
-                await unencryptFileInTelegram(id: child.id)
-            }
-            return
-        }
-
-        // Fetch decrypted temp file using DownloadEngine
-        guard let decryptedURL = try? await DownloadEngine.download(object: file, progress: { _, _ in }) else { return }
-        guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
-
-        let chunks = (try? await DatabaseManager.shared.chunks(for: file.id)) ?? []
-        guard let oldChunk = chunks.first, let oldMsgID = oldChunk.messageID else { return }
-
-        // Send unencrypted file to Telegram channel
-        let captionString = ChunkCaption.encode(ChunkCaption.Meta(
-            kind: ChunkCaption.kindChunk,
-            id: file.id,
-            name: file.name,
-            size: file.size,
-            mime: file.mime,
-            parentID: file.parentID,
-            isPrivate: false,
-            isFolder: false,
-            trashed: false,
-            isFavorite: false,
-            index: 0,
-            totalChunks: 1,
-            wrappedKey: "",
-            chunkSize: file.chunkSize,
-            plainHash: nil,
-            rootHash: file.rootHash
-        ), kind: ChunkCaption.kindChunk) ?? ""
-
-        if let messageId = try? await TelegramClient.shared.sendFile(
-            chatId: vault.channelID,
-            path: decryptedURL.path(percentEncoded: false),
-            kind: .document,
-            caption: captionString,
-            onProgress: nil
-        ) {
-            // Mirror the new public copy; the old encrypted copy dies in both
-            // channels.
-            BackupSync.enqueue(messageID: messageId, objectID: file.id)
-            await BackupSync.deleteFromVaultAndBackup(messageIDs: [oldMsgID])
-
-            // Update chunk record with new unencrypted message ID
-            try? await DatabaseManager.shared.updateChunk(oldChunk.id) { $0.messageID = messageId }
-            try? await DatabaseManager.shared.updateObject(file.id) { $0.isPrivate = false }
-        }
-    }
-
     @MainActor
     var localCacheBytes: Int64 {
         var total: Int64 = 0
@@ -1497,16 +1471,26 @@ final class AppState {
             if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
                 try? FileManager.default.removeItem(at: thumbDir)
             }
-            // Clear STALE upload/download staging files only — a fresh .bin belongs
-            // to an in-flight transfer and must not be yanked away.
+            // Clear upload staging files that don't belong to an IN-FLIGHT upload
+            // (state uploading/paused). Staging .bin files are named
+            // <objectID>-<index>.bin and are recreated on demand, so orphans —
+            // from uploads that finished, failed, or were interrupted — are safe
+            // to delete regardless of age. (The old ">1h old" heuristic let
+            // fresh orphans from a recent batch slip through, which is exactly
+            // how "Clear Cache" visibly left gigabytes behind.)
             if let tmpDir = try? UploadEngine.tempDirectory() {
-                let cutoff = Date().addingTimeInterval(-3600)
-                let stale = (try? FileManager.default.contentsOfDirectory(
-                    at: tmpDir, includingPropertiesForKeys: [.contentModificationDateKey]
-                )) ?? []
-                for url in stale {
-                    if let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                       date < cutoff {
+                let activeIDs = Set(files.filter { $0.state == "uploading" || $0.state == "paused" }.map(\.id))
+                let entries = (try? FileManager.default.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil)) ?? []
+                for url in entries {
+                    let stem = (url.lastPathComponent as NSString).deletingPathExtension
+                    if let lastDash = stem.lastIndex(of: "-") {
+                        let objectID = String(stem[..<lastDash])
+                        if !activeIDs.contains(objectID) {
+                            try? FileManager.default.removeItem(at: url)
+                        }
+                    } else {
+                        // No <objectID>-<index> shape — a staging leftover of some
+                        // other kind; safe to drop with the cache.
                         try? FileManager.default.removeItem(at: url)
                     }
                 }
@@ -1836,7 +1820,6 @@ final class AppState {
                 if let url = UploadEngine.thumbnailURL(for: id) {
                     try? FileManager.default.removeItem(at: url)
                 }
-                await FaceEngine.shared.deleteFaces(for: id)
             }
 
             selectedFiles.subtract(ids)

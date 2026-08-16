@@ -454,8 +454,6 @@ actor ThumbnailService {
                     try? png.write(to: destPNG)
                 }
             }
-            // Photo intelligence: faces + people for the Photos page.
-            Task { await FaceEngine.shared.indexIfNeeded(fileURL: fileURL, objectID: object.id) }
         }
     }
 

@@ -1,21 +1,18 @@
 import Foundation
 import UniformTypeIdentifiers
-import CryptoKit
 import os
 
 /// Byte-range streaming from the Telegram-backed vault — mpv only. There is NO
 /// AVFoundation anywhere in this app: mpv (libmpv + FFmpeg) demuxes every container
 /// from the local byte-range HTTP server (`VaultStreamServer`), which this engine
-/// feeds with decrypted plaintext slices.
+/// feeds with plaintext slices.
 ///
 /// Layout model (why the arithmetic works):
 /// - A file is split into chunk documents whose sizes are multiples of the 1 MB slice
 ///   size (except the final chunk), so no slice ever straddles two chunks.
-/// - Public files: chunk ciphertext == chunk plaintext; ranges map 1:1.
-/// - Private files: each 1 MB plaintext slice is AES-GCM sealed into
-///   `sealedSliceSize = sliceSize + 28` bytes (12 B nonce + 16 B tag) with a *per-chunk*
-///   slice index starting at 0. GCM cannot be opened from mid-box, so a fetch always
-///   starts at a slice boundary and pulls the FULL sealed slice, then we trim in memory.
+/// - All files are plaintext: chunk bytes == file bytes; ranges map 1:1.
+///   (Encryption was removed from the data path; the 1 MB slice alignment remains
+///   so mpv's byte-range requests map cleanly onto chunk boundaries.)
 final class VideoStreamingEngine {
     static let shared = VideoStreamingEngine()
 
@@ -24,7 +21,14 @@ final class VideoStreamingEngine {
     private let stateLock = NSLock()
     private var layouts: [String: ObjectLayout] = [:]
     private var fileIDs: [String: [Int: Int]] = [:] // objectID -> [chunkIndex: TDLib file id]
-    private var fetchers: [String: ObjectFetcher] = [:]
+    // objectID -> chunkIndex -> serialized range fetcher. Serialization is PER CHUNK
+    // (per TDLib fileId), NOT per object: TDLib lets a new downloadFile call supersede
+    // an in-flight one for the SAME file, so same-chunk ranges must chain — but
+    // different chunks are different TDLib files and can download in parallel. That
+    // parallelism matters: while mpv streams chunk 1, its probe/seek connections read
+    // the tail chunks; a per-object lock would serialize those behind the forward
+    // stream and starve it.
+    private var fetchers: [String: [Int: ObjectFetcher]] = [:]
     private let sliceCache = SliceCache()
     // In-flight layout loads, so concurrent callers (theater's play() kickoff +
     // the same file's stream-URL resolve) share ONE network fetch instead of
@@ -35,7 +39,7 @@ final class VideoStreamingEngine {
 
     /// Returns a playable mpv stream URL for any container with a loadable layout
     /// (mpv/FFmpeg demuxes what AVFoundation can't — mkv, webm, avi, ...). The URL
-    /// points at the local byte-range server, which serves decrypted plaintext.
+    /// points at the local byte-range server, which serves plaintext.
     /// Returns nil for cached files (the caller plays the local file directly via
     /// mpv) or unloadable layouts.
     func mpvStreamURL(for object: ObjectRecord) async -> URL? {
@@ -48,11 +52,19 @@ final class VideoStreamingEngine {
 
     // MARK: - Slice serving
 
+    /// How many 1 MB slices a single TDLib range fetch pulls at once. Streaming is
+    /// latency-bound at 1 slice/fetch (one downloadFile round trip per MB): a TrueHD +
+    /// HEVC stream needs ~1.25 MB/s sustained, so one-fetch-per-slice runs at the edge
+    /// and every round-trip hiccup collapses mpv's cache into endless buffering
+    /// (observed: cache 9.4s → 0.1s, then a permanent pause-for-cache trickle).
+    /// Batching 8 slices per call amortizes the round trip 8× — a fetch covers
+    /// ~6 s of playback.
+    private static let slicesPerFetch = 8
+
     private func plaintextSlice(
         _ fileSliceIndex: Int,
         objectID: String,
-        layout: ObjectLayout,
-        fetcher: ObjectFetcher
+        layout: ObjectLayout
     ) async throws -> Data {
         let cacheKey = SliceCache.Key(objectID: objectID, sliceIndex: fileSliceIndex)
         if let cached = sliceCache.get(cacheKey) { return cached }
@@ -62,37 +74,45 @@ final class VideoStreamingEngine {
         let fileID = try await fileID(for: objectID, chunkIndex: chunkIndex, layout: layout)
 
         let slicePlainOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize)
-        let slicePlainSize = min(Int64(CryptoEngine.sliceSize), chunk.plainSize - slicePlainOffset)
+        let remainingInChunk = chunk.plainSize - slicePlainOffset
+        // One TDLib call covers up to `slicesPerFetch` contiguous slices WITHIN this
+        // chunk (slices never straddle chunks — the layout guarantees it).
+        let batchBytes = min(
+            Int64(Self.slicesPerFetch) * Int64(CryptoEngine.sliceSize),
+            remainingInChunk
+        )
 
-        if layout.isPrivate {
-            guard let key = layout.objectKey else { throw DownloadError.fileNotFound }
-            // Fetch the FULL sealed slice from its boundary — GCM can't open mid-box.
-            let cipherOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sealedSliceSize)
-            let cipherLength = slicePlainSize + 28
-            let sealed = try await fetchWithRetry(
-                fetcher, fileID: fileID, offset: cipherOffset, limit: cipherLength, objectID: objectID
+        let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
+        let raw = try await fetchWithRetry(
+            fetcher, fileID: fileID, offset: slicePlainOffset, limit: batchBytes, objectID: objectID
+        )
+
+        // Split the batch into slice-sized pieces and cache every slice we got — the
+        // stream loop's next calls hit the cache instead of issuing more round trips.
+        var pieceStart = 0
+        while pieceStart < raw.count {
+            let pieceEnd = min(pieceStart + Int(CryptoEngine.sliceSize), raw.count)
+            let piece = raw.subdata(in: pieceStart..<pieceEnd)
+            sliceCache.put(
+                SliceCache.Key(
+                    objectID: objectID,
+                    sliceIndex: fileSliceIndex + pieceStart / Int(CryptoEngine.sliceSize)
+                ),
+                piece
             )
-            let plain = try CryptoEngine.decryptSlice(sealed, objectKey: key, index: localSliceIndex)
-            sliceCache.put(cacheKey, plain)
-            return plain
-        } else {
-            let raw = try await fetchWithRetry(
-                fetcher, fileID: fileID, offset: slicePlainOffset, limit: slicePlainSize, objectID: objectID
-            )
-            sliceCache.put(cacheKey, raw)
-            return raw
+            pieceStart = pieceEnd
         }
+        return sliceCache.get(cacheKey) ?? raw
     }
 
     /// Incrementally yields the plaintext bytes covering `start..<start+length` as
-    /// decrypted 1 MB slices, so a full-file GET never buffers the whole movie.
+    /// 1 MB slices, so a full-file GET never buffers the whole movie.
     /// Used by the local HTTP server that feeds mpv.
     func plaintextSliceStream(
         objectID: String,
         start: Int64,
         length: Int64,
-        layout: ObjectLayout,
-        fetcher: ObjectFetcher
+        layout: ObjectLayout
     ) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -110,7 +130,7 @@ final class VideoStreamingEngine {
                             return
                         }
                         let plain = try await plaintextSlice(
-                            sliceIndex, objectID: objectID, layout: layout, fetcher: fetcher
+                            sliceIndex, objectID: objectID, layout: layout
                         )
                         let sliceStart = Int64(sliceIndex) * Int64(CryptoEngine.sliceSize)
                         let from = max(0, start - sliceStart)
@@ -138,11 +158,41 @@ final class VideoStreamingEngine {
         objectID: String
     ) async throws -> Data {
         do {
-            return try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit)
+            return try await withFetchTimeout {
+                try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit)
+            }
+        } catch is FetchTimeout {
+            // A hung TDLib download (superseded/leftover session) would stall the
+            // serialized chain forever. Cancel the chain so the retry starts a
+            // fresh downloadFile call, which supersedes the hung one.
+            Self.logger.warning("Range fetch timed out for \(objectID, privacy: .public) offset=\(offset, privacy: .public) — cancelling the stale chain and retrying")
+            fetcher.cancelPending()
+            return try await withFetchTimeout {
+                try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit)
+            }
         } catch {
             Self.logger.warning("Range fetch failed once for \(objectID, privacy: .public) offset=\(offset, privacy: .public) limit=\(limit, privacy: .public), retrying")
             sliceCache.removeAll(for: objectID)
             return try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit)
+        }
+    }
+
+    private struct FetchTimeout: Error {}
+
+    /// Safety net so a hung TDLib downloadFile can never stall a stream forever:
+    /// 30 s is far beyond an 8 MB batch even on a slow link, but a download that
+    /// never returns (stale superseded session) must not block playback
+    /// indefinitely. On timeout the chain is cancelled and the retry supersedes it.
+    private func withFetchTimeout<T>(_ operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+                throw FetchTimeout()
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw FetchTimeout() }
+            return result
         }
     }
 
@@ -231,23 +281,12 @@ final class VideoStreamingEngine {
             $0.plainSize % Int64(CryptoEngine.sliceSize) == 0
         }
 
-        var objectKey: SymmetricKey? = nil
-        if object.isPrivate {
-            // An EMPTY wrapped key means unencrypted (public files carry "" in their
-            // metadata caption) — unwrapping zero-length Data throws CryptoKit error.
-            guard let wrapped = object.wrappedKey, !wrapped.isEmpty else { return nil }
-            let master = try CryptoEngine.masterKey()
-            objectKey = try CryptoEngine.unwrap(wrapped, with: master)
-        }
-
         let layout = ObjectLayout(
             // The layout must span the ACTUAL chunk bytes (sum of real sizes) — the
             // object's recorded size is usually the same, but a stale chunk record can
             // make it diverge, and the layout must agree with what TDLib can serve.
             fileSize: offset,
             channelID: vault.channelID,
-            isPrivate: object.isPrivate,
-            objectKey: objectKey,
             chunks: chunkLayouts,
             chunkStarts: starts,
             contentType: contentType,
@@ -285,13 +324,40 @@ final class VideoStreamingEngine {
         return id
     }
 
-    func fetcher(for objectID: String) -> ObjectFetcher {
+    func fetcher(for objectID: String, chunkIndex: Int) -> ObjectFetcher {
         stateLock.lock()
         defer { stateLock.unlock() }
-        if let existing = fetchers[objectID] { return existing }
+        if let existing = fetchers[objectID]?[chunkIndex] { return existing }
         let fetcher = ObjectFetcher()
-        fetchers[objectID] = fetcher
+        fetchers[objectID, default: [:]][chunkIndex] = fetcher
         return fetcher
+    }
+
+    /// Tears down ALL streaming state for an object — cancels in-flight fetcher
+    /// chains AND the underlying TDLib chunk downloads, then drops the fetchers.
+    /// Called when a playback stops or switches files, so the NEXT play of the
+    /// same file starts with a clean TDLib download queue.
+    ///
+    /// Why this is required (observed live): TDLib's ranged downloadFile does NOT
+    /// stop at the requested limit — it keeps downloading the whole chunk, and a
+    /// stopped playback leaves those full-chunk downloads running in the queue.
+    /// A fresh play's range requests then queue BEHIND the leftover downloads
+    /// (one 128 MB chunk at a time, ~50 s each), starving the stream into
+    /// permanent buffering until the queue drains. Cancelling on teardown removes
+    /// the leftovers so replays start instantly.
+    func invalidatePlayback(for objectID: String) {
+        stateLock.lock()
+        let chunkFetchers = fetchers[objectID] ?? [:]
+        let chunkFileIDs = fileIDs[objectID] ?? [:]
+        fetchers[objectID] = nil
+        stateLock.unlock()
+        for fetcher in chunkFetchers.values {
+            fetcher.cancelPending()
+        }
+        for fileID in chunkFileIDs.values {
+            TelegramClient.shared.cancelDownload(fileId: fileID)
+        }
+        sliceCache.removeAll(for: objectID)
     }
 }
 
@@ -305,15 +371,13 @@ struct ChunkLayout {
 struct ObjectLayout {
     let fileSize: Int64
     let channelID: Int64
-    let isPrivate: Bool
-    let objectKey: SymmetricKey?
     let chunks: [ChunkLayout]
     let chunkStarts: [Int64]
     let contentType: String
     let canStream: Bool
 
     /// Maps a file-wide plaintext slice index to its chunk and the slice's index
-    /// *within that chunk* (indices restart at 0 per chunk, as encrypted at upload time).
+    /// *within that chunk* (indices restart at 0 per chunk).
     func chunkAndLocalIndex(for fileSliceIndex: Int) -> (chunk: Int, local: Int) {
         let sliceBytes = Int64(fileSliceIndex) * Int64(CryptoEngine.sliceSize)
         var lo = 0
@@ -336,6 +400,15 @@ struct ObjectLayout {
 actor ObjectFetcher {
     private var tail: Task<Data, any Error>?
 
+    /// Cancels the queued chain and its in-flight fetch. Callers awaiting the
+    /// chain get CancellationError (the stream errors and mpv reconnects); the
+    /// NEXT fetch starts a clean chain. Used on playback teardown so a stopped
+    /// play never leaves stale queued fetches blocking the next play.
+    func cancelPending() {
+        tail?.cancel()
+        tail = nil
+    }
+
     func fetch(fileId: Int, offset: Int64, limit: Int64) async throws -> Data {
         let previous = tail
         let work = Task<Data, any Error> {
@@ -353,7 +426,7 @@ actor ObjectFetcher {
 
 // MARK: - Slice-granularity LRU
 
-/// In-memory LRU of fully decrypted 1 MB slices, keyed by (object, file-wide slice index).
+/// In-memory LRU of 1 MB plaintext slices, keyed by (object, file-wide slice index).
 /// Caching at slice granularity dedups the overlapping re-reads mpv's demuxer makes
 /// around the playhead and keeps eviction trivial (48 entries ≈ 48 MB).
 final class SliceCache: @unchecked Sendable {

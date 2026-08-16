@@ -298,6 +298,17 @@ class MPVController: ObservableObject {
         }
     }
 
+    /// Queues a seek to apply once the next file finishes loading — mpv drops
+    /// seeks issued before a file is loaded, so a seek requested during the
+    /// loading window must ride the MPV_EVENT_FILE_LOADED hook.
+    func seekAfterLoad(_ seconds: Double) {
+        if isHeadless {
+            headlessView?.seekAfterLoad(seconds)
+        } else {
+            playerView?.seekAfterLoad(seconds)
+        }
+    }
+
     private var volumeSyncTask: Task<Void, Never>?
 
     func setVolume(_ value: Double) {
@@ -514,6 +525,7 @@ class MPVViewController: NSViewController {
 
     func seek(absolute seconds: Double) { playerView.seek(absoluteSeconds: seconds) }
     func seek(relative seconds: Double) { playerView.seek(relativeSeconds: seconds) }
+    func seekAfterLoad(_ seconds: Double) { playerView.seekAfterLoad(seconds) }
 
     func setVolume(_ value: Double) { playerView.setVolume(value) }
     func getTracks() -> [Track] { return playerView.getTracks() }
@@ -1154,6 +1166,12 @@ final class MPVLayerView: NSView {
         command("seek", String(format: "%.2f", seconds), "relative")
     }
 
+    /// Queues a seek to apply once the next file finishes loading (mpv drops
+    /// pre-load seeks) — for seeks requested while the core was still loading.
+    func seekAfterLoad(_ seconds: Double) {
+        seekOnLoad = seconds
+    }
+
     func setVolume(_ value: Double) {
         guard mpv != nil else { return }
         var doubleVal = value * 100
@@ -1201,7 +1219,15 @@ final class MPVLayerView: NSView {
         withCStrings(args) { cArgs in
             var mutableArgs = cArgs
             mutableArgs.withUnsafeMutableBufferPointer { buffer in
-                _ = mpv_command(mpv, buffer.baseAddress)
+                // ASYNC, never blocking: mpv_command() blocks the CALLING thread
+                // until the core finishes the command. loadfile of a streamed
+                // file blocks through the whole network demuxer open, and stop
+                // blocks through the stream teardown — both ran on the main
+                // thread, which froze the theater's open/close exactly when it
+                // should be smoothest. mpv_command_async() queues the command
+                // onto the core's own thread and returns immediately; the args
+                // are copied internally, so the pointers only live for the call.
+                _ = mpv_command_async(mpv, 0, buffer.baseAddress)
             }
         }
     }

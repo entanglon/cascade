@@ -27,7 +27,7 @@ struct AboutView: View {
             }
 
             VStack(spacing: 8) {
-                Text("Unlimited, encrypted cloud storage")
+                Text("Unlimited cloud storage")
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.8))
                     .multilineTextAlignment(.center)

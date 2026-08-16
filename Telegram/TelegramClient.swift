@@ -647,6 +647,14 @@ final class TelegramClient {
 
     /// Downloads an exact byte range of a file — TDLib's media-streaming range support
     /// (added for "downloading any part of a file") — and returns those bytes. The
+    /// Stops any in-flight TDLib download of `fileId`. Called when a playback stops
+    /// or switches files so a stopped play can't leave a full-chunk download running
+    /// in TDLib's queue that would serialize behind (and starve) the next play.
+    func cancelDownload(fileId: Int) {
+        guard let client else { return }
+        Task { try? await client.cancelDownloadFile(fileId: fileId, onlyIfPending: false) }
+    }
+
     /// `synchronous: true` call returns once the range is on disk, so it blocks only the
     /// calling Task's thread, never the main thread. Callers must serialize range
     /// requests per file: TDLib lets a new downloadFile with a different offset/limit

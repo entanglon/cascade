@@ -45,6 +45,7 @@ enum MediaGridLayout {
     }
 }
 
+
 /// The pinned day pill that sticks to the top while scrolling a day section.
 struct MediaDayHeader: View {
     let title: String

@@ -140,11 +140,22 @@ final class AudioPlayerEngine {
 
     @MainActor
     func play(file: ObjectRecord, in trackList: [ObjectRecord] = []) {
-        playbackError = nil        // If already playing this exact track in video mode, don't restart it. Also bail while a
+        playbackError = nil
+        // The track we're leaving — its streaming state must be torn down (see
+        // stopMPVIfNeeded) so the next play starts with a clean TDLib download
+        // queue. Captured BEFORE currentTrack is overwritten below.
+        let previousTrackID = currentTrack?.id
+        // A seek requested while the previous player was still resolving (arrow
+        // keys during the open window) applies to the file we're about to start.
+        var resumePos: Double = 0
+        if let pending = pendingVideoSeek {
+            resumePos = pending
+            pendingVideoSeek = nil
+        }
+        // If already playing this exact track in video mode, don't restart it. Also bail while a
         // setup is still resolving: re-entering play() mid-setup would call
         // setupMPVPlayer again, which stops the controller it just created and
         // replaces it — churning mpv (and the MPVVideoView) mid-playback.
-        var resumePos: Double = 0
         if currentTrack?.id == file.id {
             if isLoading { return }
             if let mpv = mpvController {
@@ -178,7 +189,7 @@ final class AudioPlayerEngine {
                 // and play it from disk.
                 let url = try await resolvePlaybackURL(for: file)
                 let isVideo = file.isVideo
-                await MainActor.run { setupMPVPlayer(with: url, audioOnly: !isVideo, startPosition: resumePos) }
+                await MainActor.run { setupMPVPlayer(with: url, audioOnly: !isVideo, startPosition: resumePos, previousTrackID: previousTrackID) }
             } catch {
                 await MainActor.run {
                     isLoading = false
@@ -209,7 +220,7 @@ final class AudioPlayerEngine {
         if DownloadEngine.isCached(file) {
             return DownloadEngine.cacheURL(for: file)
         }
-        return try await DownloadEngine.download(object: file) { _, _ in }
+        return try await DownloadEngine.download(object: file, quiet: true) { _, _ in }
     }
 
     /// Starts mpv playback of a VaultStreamServer URL. The MPVController is owned
@@ -217,8 +228,8 @@ final class AudioPlayerEngine {
     /// MPVVideoView attaches later and picks up the pending URL when its view loads.
     /// For audio (`audioOnly`) the controller plays headless — mpv runs with no GL
     /// surface and the file loads immediately.
-    private func setupMPVPlayer(with url: URL, audioOnly: Bool = false, startPosition: Double = 0) {
-        stopMPVIfNeeded()
+    private func setupMPVPlayer(with url: URL, audioOnly: Bool = false, startPosition: Double = 0, previousTrackID: String? = nil) {
+        stopMPVIfNeeded(for: previousTrackID)
         let controller = MPVController()
         controller.onPlaybackError = { [weak self] in
             Task { @MainActor in
@@ -266,11 +277,18 @@ final class AudioPlayerEngine {
         }
     }
 
-    private func stopMPVIfNeeded() {
+    private func stopMPVIfNeeded(for objectID: String? = nil) {
         guard let mpv = mpvController else { return }
+        let stoppedObjectID = objectID ?? currentTrack?.id
         mpv.shutdown()
         mpvCancellables.removeAll()
         mpvController = nil
+        if let stoppedObjectID {
+            // Cancel any leftover TDLib chunk downloads from this playback so the
+            // next play of the same file starts with a clean download queue
+            // (stale full-chunk downloads were starving replays into buffering).
+            VideoStreamingEngine.shared.invalidatePlayback(for: stoppedObjectID)
+        }
     }
 
     func togglePlayPause() {
@@ -284,6 +302,26 @@ final class AudioPlayerEngine {
             mpv.seek(absolute: seconds)
             currentTime = seconds
         }
+    }
+
+    /// A seek requested while the mpv core wasn't up yet — applied once the next
+    /// file actually loads. Lets arrow/media-key seeks work even during the open
+    /// window instead of being dropped.
+    private var pendingVideoSeek: Double?
+
+    /// Video-player transport seek (arrow keys / media keys): relative ±N seconds.
+    /// If the mpv core isn't ready, the seek is remembered and applied on load —
+    /// it NEVER falls back to switching to another file.
+    func seekVideo(relative seconds: Double) {
+        if let mpv = mpvController {
+            if mpv.isCoreReady {
+                mpv.seek(relative: seconds)
+            } else {
+                mpv.seekAfterLoad(max(0, currentTime + seconds))
+            }
+            return
+        }
+        pendingVideoSeek = max(0, currentTime + seconds)
     }
 
     func skipNext() {
@@ -307,7 +345,7 @@ final class AudioPlayerEngine {
     }
 
     func stop() {
-        stopMPVIfNeeded()
+        stopMPVIfNeeded(for: currentTrack?.id)
         currentTrack = nil
         isPlaying = false
         isLoading = false

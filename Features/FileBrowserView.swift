@@ -205,7 +205,7 @@ struct FileBrowserView: View {
                     folderName = ""
                 }
             } message: {
-                Text("Files inside a private folder are encrypted on your Mac before upload. Telegram only sees noise.")
+                Text("Files inside a private folder are locked behind your PIN and hidden from the main library.")
             }
             .alert(appState.selectedDestination == .photos ? "New Photo Album" : "New Playlist", isPresented: $showNewPlaylist) {
                 TextField(appState.selectedDestination == .photos ? "Album name" : "Playlist name", text: $playlistName)
@@ -257,9 +257,9 @@ struct FileBrowserView: View {
                     }
                 }
             )) {
-                // Creating a share can take a while for large files (chunk encrypt +
-                // upload to the brand-new channel) — show progress so the user knows
-                // the action is running, then swap to the link when it's ready.
+                // Creating a share forwards the file's chunks into the share
+                // channel — show progress so the user knows the action is running,
+                // then swap to the link when it's ready.
                 if appState.isSharingFile {
                     ShareProgressSheet()
                 } else if let link = appState.shareResultLink {
@@ -1878,7 +1878,7 @@ struct FileItemContextMenu: View {
             if DownloadEngine.isCached(file) {
                 url = DownloadEngine.cacheURL(for: file)
             } else {
-                let downloaded = try? await DownloadEngine.download(object: file) { _, _ in }
+                let downloaded = try? await DownloadEngine.download(object: file, quiet: true) { _, _ in }
                 guard let downloaded else { return }
                 url = downloaded
             }
@@ -2791,10 +2791,10 @@ struct PrivateVaultLockView: View {
     }
     private var subtitle: String {
         switch phase {
-        case .enter: "Enter your 4-digit PIN to unlock encrypted files."
+        case .enter: "Enter your 4-digit PIN to unlock your Private Vault."
         case .create: "Choose a 4-digit PIN for your Private Vault. It also becomes the recovery key for your other devices."
         case .confirm: "Enter the same PIN again."
-        case .recover: "Enter the vault PIN you set on your other device to unlock your encrypted files here."
+        case .recover: "Enter the vault PIN you set on your other device to unlock your Private Vault here."
         }
     }
 
@@ -3033,7 +3033,7 @@ struct ShareLinkSheet: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Anyone with this link can import the file into their own cloud.\nThe link is encrypted so it carries no visible invite or key material.")
+            Text("Anyone with this link can import the file into their own cloud.\nThe link carries no visible invite or key material.")
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -3127,7 +3127,7 @@ struct ShareLinkSheet: View {
     }
 }
 
-/// Shown while a share is being created (channel setup + encrypted chunk upload),
+/// Shown while a share link is being created (channel setup + chunk forward),
 /// so the Share action gives immediate feedback instead of appearing to hang.
 struct ShareProgressSheet: View {
     var body: some View {
@@ -3140,7 +3140,7 @@ struct ShareProgressSheet: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Uploading encrypted chunks to the share channel.\nThis can take a moment for larger files.")
+            Text("Setting up the share link.\nThis can take a moment for larger files.")
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textSecondary)
                 .multilineTextAlignment(.center)

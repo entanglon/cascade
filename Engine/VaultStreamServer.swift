@@ -1,16 +1,17 @@
 import Foundation
 import Network
 
-/// A loopback-only HTTP/1.1 server that serves decrypted vault bytes to mpv.
+/// A loopback-only HTTP/1.1 server that serves vault chunk bytes to mpv.
 ///
 /// mpv (via FFmpeg's libavformat) demuxes any container itself — mkv, webm, avi,
 /// ts, flv, ... — but it needs a byte-range-capable HTTP source to seek. This
 /// server maps `GET /stream/<objectID>` (optionally with a `Range:` header) onto
-/// the same 1 MB slice fetch/decrypt pipeline the AVFoundation streaming engine
-/// uses, so formats AVFoundation can't range-demux stream through mpv instead.
+/// the vault's chunk-slice layout, so uncached files stream through mpv with
+/// byte-range seeks instead of a whole-file download. Chunks are plaintext
+/// (encryption was dropped 2026-08-16), so bytes are served verbatim.
 ///
 /// The listener is bound to 127.0.0.1 only and the response carries
-/// `Cache-Control: no-store`, so decrypted plaintext never touches disk.
+/// `Cache-Control: no-store`, so plaintext never touches disk.
 final class VaultStreamServer {
     static let shared = VaultStreamServer()
 
@@ -265,9 +266,8 @@ final class VaultStreamServer {
             return
         }
 
-        let fetcher = VideoStreamingEngine.shared.fetcher(for: objectID)
         let stream = VideoStreamingEngine.shared.plaintextSliceStream(
-            objectID: objectID, start: start, length: length, layout: layout, fetcher: fetcher
+            objectID: objectID, start: start, length: length, layout: layout
         )
         do {
             for try await slice in stream {

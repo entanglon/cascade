@@ -599,7 +599,7 @@ struct BookReaderView: View {
 
         Task {
             do {
-                let url = try await DownloadEngine.download(object: file) { _, progress in
+                let url = try await DownloadEngine.download(object: file, quiet: true) { _, progress in
                     Task { @MainActor in self.downloadProgress = progress }
                 }
                 await MainActor.run { finishLoad(cacheURL: url) }
@@ -676,7 +676,7 @@ struct BookReaderView: View {
 
     private func openExternally() {
         Task {
-            let url = try? await DownloadEngine.download(object: file) { _, _ in }
+            let url = try? await DownloadEngine.download(object: file, quiet: true) { _, _ in }
             if let url { NSWorkspace.shared.open(url) }
         }
     }

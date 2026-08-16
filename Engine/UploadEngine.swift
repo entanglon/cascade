@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 import os
 import UniformTypeIdentifiers
 import QuickLookThumbnailing
@@ -148,21 +147,6 @@ enum UploadEngine {
             }
         }
 
-        var objectKey: SymmetricKey? = nil
-        var wrappedKey: Data? = resumeObject?.wrappedKey
-        if isParentPrivate {
-            let master = try CryptoEngine.masterKey()
-            // Empty wrapped key = legacy/unencrypted record; treat as missing so we
-            // generate a fresh key instead of throwing on a zero-length sealed box.
-            if let wrapped = wrappedKey, !wrapped.isEmpty {
-                objectKey = try CryptoEngine.unwrap(wrapped, with: master)
-            } else {
-                let newKey = SymmetricKey(size: .bits256)
-                wrappedKey = try CryptoEngine.wrap(newKey, with: master)
-                objectKey = newKey
-            }
-        }
-
         if let resumeObject {
             try await DatabaseManager.shared.updateObject(resumeObject.id) {
                 $0.state = "uploading"
@@ -177,7 +161,7 @@ enum UploadEngine {
                 mime: mime,
                 state: "uploading",
                 rootHash: rootHash,
-                wrappedKey: wrappedKey,
+                wrappedKey: nil,
                 createdAt: .now,
                 modifiedAt: .now,
                 isFavorite: false,
@@ -253,8 +237,8 @@ enum UploadEngine {
                 progressState.setCompleted(doneIndexes.count)
 
                 // One chunk upload, fully independent of the others: it opens its own
-                // file handle (a shared handle would race on seek), reads, encrypts,
-                // writes a temp file, uploads via Telegram, and records its own row.
+                // file handle (a shared handle would race on seek), reads, writes a
+                // temp file, uploads via Telegram, and records its own row.
                 func uploadChunk(_ item: ChunkPlanItem) async throws {
                     if pauseToken.isCancelled { return }
 
@@ -274,25 +258,9 @@ enum UploadEngine {
                     }
                     let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
 
-                    if let key = objectKey {
-                        // ENCRYPT: Slice into 1MB chunks and seal with AES-GCM
-                        var encrypted = Data()
-                        encrypted.reserveCapacity(plain.count + 64)
-                        var offset = 0
-                        var sliceIndex = 0
-                        while offset < plain.count {
-                            let end = min(offset + CryptoEngine.sliceSize, plain.count)
-                            let slice = plain.subdata(in: offset..<end)
-                            let sealed = try CryptoEngine.encryptSlice(slice, objectKey: key, index: sliceIndex)
-                            encrypted.append(sealed)
-                            offset = end
-                            sliceIndex += 1
-                        }
-                        try encrypted.write(to: tmpURL)
-                    } else {
-                        // PLAINTEXT: Standard Telegram-native upload
-                        try plain.write(to: tmpURL)
-                    }
+                    // PLAINTEXT: Standard Telegram-native upload (all files — the
+                    // vault no longer encrypts anything).
+                    try plain.write(to: tmpURL)
 
                     var captionString: String? = nil
                     let meta = ChunkCaption.Meta(
@@ -308,7 +276,7 @@ enum UploadEngine {
                         isFavorite: false,
                         index: item.index,
                         totalChunks: plan.items.count,
-                        wrappedKey: wrappedKey?.base64EncodedString() ?? "",
+                        wrappedKey: "",
                         chunkSize: plan.chunkSize,
                         plainHash: plainHash,
                         rootHash: rootHash
@@ -348,6 +316,11 @@ enum UploadEngine {
                         createdAt: .now
                     )
                     try await DatabaseManager.shared.save(chunk)
+
+                    // The staging copy is transient — the chunk is in Telegram now.
+                    // Delete it so completed uploads never accumulate .bin files in
+                    // tmp (this was leaving gigabytes of orphans behind).
+                    try? FileManager.default.removeItem(at: tmpURL)
 
                     progressState.complete(item.index)
                     report("Uploaded \(progressState.completedCount)/\(plan.items.count) chunks", progressState.overall)

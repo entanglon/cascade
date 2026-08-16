@@ -273,13 +273,11 @@ struct xCloudTests {
     @Test func streamingSliceMappingAcrossChunks() {
         let mb: Int64 = 1024 * 1024
         // A 292 MB file in 3 chunks: 128 MB, 128 MB, 36 MB. Slice indices restart at 0
-        // within each chunk (as encrypted at upload time), so file-wide slice N maps to
-        // chunk k with local slice (N - startSliceOfChunkK).
+        // within each chunk, so file-wide slice N maps to chunk k with local slice
+        // (N - startSliceOfChunkK).
         let layout = ObjectLayout(
             fileSize: 292 * mb,
             channelID: 1,
-            isPrivate: false,
-            objectKey: nil,
             chunks: [
                 ChunkLayout(messageID: 1, plainSize: 128 * mb),
                 ChunkLayout(messageID: 2, plainSize: 128 * mb),
@@ -1400,29 +1398,6 @@ struct xCloudTests {
 
         try await DatabaseManager.shared.deleteShare(id: expired.id)
         try await DatabaseManager.shared.deleteShare(id: legacy.id)
-    }
-
-    @Test func faceEngineCosineAndVectorRoundTrip() {
-        // Clustering math backing the People feature: cosine similarity must rank
-        // near-identical embeddings high, orthogonal ones near zero, and the
-        // Data<->[Float] round trip must survive the BLOB storage path exactly.
-        let a: [Float] = [1, 0, 0, 0, 0]
-        let b: [Float] = [0.9, 0.1, 0, 0, 0]
-        let c: [Float] = [0, 0, 1, 0, 0]
-        let d: [Float] = [-1, 0, 0, 0, 0]
-
-        #expect(FaceEngine.cosine(a, b) > 0.9, "near-identical embeddings rank high")
-        #expect(FaceEngine.cosine(a, c) < 0.1, "orthogonal embeddings rank low")
-        #expect(FaceEngine.cosine(a, d) < -0.99, "opposite embeddings rank lowest")
-
-        let data = FaceEngine.data(from: a)
-        #expect(data.count == a.count * MemoryLayout<Float>.size)
-        #expect(FaceEngine.floats(from: data) == a, "vector survives the BLOB round trip")
-
-        // Empty / mismatched inputs must not crash and score zero.
-        #expect(FaceEngine.cosine([], []) == 0)
-        #expect(FaceEngine.cosine([1, 0], [1, 0, 0]) == 0)
-        #expect(FaceEngine.floats(from: Data([0x01, 0x02, 0x03])) == [], "non-float-aligned data rejected")
     }
 
     // MARK: - Data-Safety & Hardening Tests

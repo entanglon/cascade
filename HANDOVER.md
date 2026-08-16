@@ -9,10 +9,12 @@
 ## 1. What this project is
 
 **xCloud** — a native macOS SwiftUI app (the "Freebuff desktop" project) that turns a
-Telegram account into a private, encrypted cloud drive:
+Telegram account into a private cloud drive:
 
-- Files are encrypted (CryptoEngine) and chunked, uploaded to a private Telegram
-  channel ("vault"). Streams/downloads decrypt locally.
+- Files are chunked and uploaded to a private Telegram channel ("vault"). Chunks
+  are **plaintext** since 2026-08-16 (item 54 — per-file encryption dropped by user
+  decision); the `isPrivate` flag + PIN-gated section control visibility, and the
+  vault key seal (PIN/device) still gates app access.
 - `mpv` (bundled via LocalPackages/LocalMPVKit) plays **any video container** through a
   local byte-range HTTP server (`Engine/VaultStreamServer.swift`) + `libmpv` render API.
 - **mpv is the ONLY media engine. AVFoundation/AVKit are REMOVED from the codebase** —
@@ -1134,6 +1136,102 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       where the same field problem blocked input.
     - Next time the gate is touched: `.contentShape(Rectangle())` + hit-testing
       audit on the styled fields (and the same for the phone/code/password steps).
+54. **Encryption dropped — flag-only private vault (2026-08-16, COMPLETED)**
+    - User decision (approved design, now built): per-file encryption is GONE.
+      Private = `isPrivate` DB flag + PIN-gated section + `.bin` chunks. Files are
+      plaintext in the Telegram channel; the vault key seal (PIN/device) still
+      protects the app's vault access. Chunk slicing stays (same 128MB chunks,
+      same `CryptoEngine.sliceSize` layout) — only the AES-GCM layer is gone.
+    - `Engine/UploadEngine.swift`: private uploads no longer encrypt; chunks are
+      written raw, `wrappedKey` normalized to nil/empty (caption field kept for
+      schema compat). `Engine/DownloadEngine.swift`: no decrypt step — cache is
+      the plaintext file. `Engine/VideoStreamingEngine.swift`: `ObjectLayout` lost
+      `isPrivate`/`objectKey`; stream serves raw bytes at slice offsets.
+    - `Engine/ShareEngine.swift`: `share()` REFUSES private files
+      (`ShareError.notShareable`, guarded before auth so it's unit-testable) —
+      move the file out of Private to share. Link key layer removed: `w`/shareKey
+      always empty on mint; `importForwarded`/`importLegacy` never unwrap, import
+      records plaintext (`isPrivate: false`, `wrappedKey: nil`).
+    - `App/AppState.swift`: `unencryptFileInTelegram` DELETED; moving a file out
+      of Private is an instant flag flip, no decrypt/re-upload. Stale copy updated
+      app-wide (About/Onboarding/FileBrowser/ShareProgressSheet no longer claim
+      "encrypted" / "AES-GCM").
+    - `xCloudTests`: `ObjectLayout` test updated to the new init signature; the
+      share-reuse test now skips the `chatExists` stale-channel check under XCTest
+      (the app-hosted suite boots the real app whose auto-login flips
+      `isAuthorized`, which used to revoke the fake share records).
+    - Build green (main), full test suite green (48 unit tests). Old encrypted
+      chunks in the channel are junk/throwaway (test account).
+
+55. **Streaming replay buffering + player keyboard controls (2026-08-16, COMPLETED)**
+    - **Replay buffering root cause (the big one)**: TDLib's ranged `downloadFile`
+      does NOT stop at the requested limit — it keeps downloading the WHOLE chunk
+      (observed: 128 MB chunk files, fully written, one chunk at a time, ~50 s
+      each, even for 8 MB range requests). A STOPPED playback leaves those
+      full-chunk downloads running in TDLib's queue; the next play's range
+      requests then queue BEHIND the leftovers and starve into PERMANENT
+      buffering (telemetry: cache 9.4s → 0.1s, then endless pause-for-cache
+      trickle). First play of a file is smooth; REPLAYS collapse.
+    - Fixes in `Engine/VideoStreamingEngine.swift`:
+      - `invalidatePlayback(for:)` — cancels fetcher chains AND calls TDLib
+        `cancelDownloadFile` on every chunk of the stopped file, then drops the
+        fetchers, so the next play starts with a clean download queue. Called
+        from `AudioPlayerEngine.stopMPVIfNeeded(for:)` on EVERY teardown (stop /
+        close / file switch / error).
+      - Fetch batching: one TDLib call pulls up to 8×1 MB slices (`slicesPerFetch`)
+        — 8× fewer round trips; TrueHD+HEVC needs ~1.25 MB/s sustained and 1-slice
+        fetches ran at the edge.
+      - Per-chunk fetchers (parallel probe/seek vs stream — different chunks are
+        different TDLib files, only same-file ranges must serialize).
+      - 30 s `withFetchTimeout` safety net: a hung `downloadFile` (superseded /
+        leftover session) can no longer stall a stream forever — the chain is
+        cancelled and the retry supersedes it.
+    - **Player keyboard controls (`Features/TheaterView.swift` + `AudioPlayerEngine`)**: F7/F8/F9
+      media keys now work (NSSystemDefined subtype-8 monitor in `KeyView` + regular
+      F-key keyDown fallback for fn-lock keyboards): F8 play/pause, F9 +10s, F7 −10s
+      (video) / track skip (audio), held-key repeats throttled to ~3/s. Video arrows
+      now SEEK ±10s and ▲/▼ change volume instead of navigating files; the seek goes
+      through `AudioPlayerEngine.seekVideo(relative:)` which NEVER falls back to
+      switching files — if mpv isn't ready the seek is queued (`pendingVideoSeek` /
+      `seekAfterLoad`, applied on `MPV_EVENT_FILE_LOADED`). Volume keys stay with the
+      OS (they control the system volume = the app's volume).
+    - **AGENT GOTCHA (read this)**: file edits land in the Freebuff WORKTREE
+      (`.freebuff/worktrees/<id>/`), but `xcodebuild` runs from MAIN
+      (`~/Projects/xCloud`). NEVER sync main→worktree after editing — it wipes the
+      edits before they're built (this exact mistake made two builds ship without
+      the fixes). Sync WORKTREE→MAIN for every changed file, then build/test from
+      main, then relaunch. Verify with `grep` that main actually has the change
+      before building.
+
+56. **Player polish + stale production build removed (2026-08-16, COMPLETED)**
+    - **Prev/next buttons**: glass chevron circles pinned to the left/right edges
+      of the player, vertically centered with the transport; each shows ONLY when
+      a file exists on that side of the playlist (`canGoPrevious`/`canGoNext` —
+      no ghost buttons). Skip switches the engine's `currentTrack`; the theater
+      now follows it (`.onChange(of: currentTrack?.id)` in TheaterView) — without
+      that, the player view stayed bound to the old file and skip left a black
+      loading screen (also fixed video EOF auto-advance, same latent bug).
+    - **Share button in the player** (top-left, glass `square.and.arrow.up`):
+      reuses the browser's ShareEngine flow — forward-based link, Drive-style
+      reuse, copied to the clipboard with a 2s glass "Share link copied" pill.
+    - **Player chrome cleanups**: minimize chevron removed (X closes); file name
+      + size shown only above the progress bar (not duplicated in the top bar);
+      long filenames middle-truncate; the audio + mini player solid-accent play
+      buttons converted to liquid glass (`.glassEffect(.regular.interactive(),
+      in: .circle)`) so every transport control app-wide is the same glass.
+    - **Stale production build DELETED**: `~/Projects/xCloud/build/` (9.5 GB)
+      contained a Release app with bundle id `com.nemesys.xcloud.xCloud.prod` — a
+      separate app identity with empty data that hijacked the `xcloud://` scheme
+      (browser opened it and the test account wasn't logged in). Removed the
+      artifacts + `/private/tmp/xcloud-dmg-check*`, unregistered stale
+      LaunchServices entries, re-registered the Debug build (xCloud-main) as the
+      scheme handler. DMG backups kept (xCloud-1.0.0/1.1.0/1.1.1.dmg). If a
+      browser share link opens a logged-out app again, check `lsregister -dump`
+      for stray `xCloud.app` paths and unregister/delete them.
+    - **Logs verified**: MP4 replay now refills to a full 20s cache with zero
+      pause-for-cache (streaming fix confirmed); zero crash reports; no thumbnail
+      or share errors; the "xCloud Shares" channel created and reused.
+    - Committed to main. Build green, tests green, both repo copies identical.
 
 ---
 ## 5. Pending / next steps
@@ -1151,13 +1249,10 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
   material card; the Connect click itself works, creds save + TDLib initializes,
   but the next step's fields have the same problem), and there's no second device
   to test cross-account with. Resume when the user wants.
-- **Flag-only private vault (user-approved design, NOT built):** drop per-file
-  encryption; private = `isPrivate` DB flag + PIN-gated section + `.bin` chunks;
-  move in/out = instant flag flip (removes the decrypt + re-upload
-  `unencryptFileInTelegram` path); Share disabled on private items ("move it out of
-  Private to share"); share links lose the key layer (`w`/shareKey); import never
-  unwraps. Old encrypted chunks in the channel become junk (throwaway test data).
-  Don't start until the share mechanism is proven.
+- **Flag-only private vault — DONE 2026-08-16 (item 54):** per-file encryption
+  dropped; private = `isPrivate` flag + PIN-gated section + `.bin` chunks; move
+  in/out is an instant flag flip; Share refuses private items; links carry no key
+  layer; import never unwraps. Old encrypted chunks in the channel are junk.
 - **DONE 2026-08-15 (user verified):** Library poster cards — covers, corner menu
   button (placement + style), progress bars (books opened after this change only);
   photos upload progress (no more backward stutter); photos arrow-key navigation

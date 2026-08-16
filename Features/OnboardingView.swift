@@ -41,8 +41,8 @@ struct OnboardingView: View {
                 featureRow(
                     icon: "number",
                     color: .red,
-                    title: "Zero-Knowledge Private Folders",
-                    description: "Files in private folders are AES-GCM encrypted on your Mac before upload. Telegram only sees noise."
+                    title: "PIN-Locked Private Folders",
+                    description: "Files in private folders are locked behind your PIN and hidden from the main library."
                 )
 
                 featureRow(

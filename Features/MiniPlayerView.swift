@@ -94,9 +94,6 @@ struct MiniPlayerView: View {
 
                 Button { audioEngine.togglePlayPause() } label: {
                     ZStack {
-                        Circle().fill(XTheme.accent)
-                            .frame(width: 34, height: 34)
-                            .shadow(color: XTheme.accent.opacity(0.4), radius: 4, y: 2)
                         Image(systemName: audioEngine.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
@@ -104,6 +101,7 @@ struct MiniPlayerView: View {
                     }
                     .frame(width: 34, height: 34)
                     .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
                 }
                 .buttonStyle(.plain)
 

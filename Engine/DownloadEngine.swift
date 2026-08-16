@@ -1,6 +1,5 @@
 import Foundation
 import AppKit
-import CryptoKit
 import os
 import UniformTypeIdentifiers
 
@@ -94,15 +93,6 @@ enum DownloadEngine {
 
         let work = Task { () throws -> URL in
             do {
-                var objectKey: SymmetricKey? = nil
-                // An EMPTY wrapped key means the file is unencrypted (public files
-                // carry "" in their metadata caption). Guard against empty Data —
-                // unwrapping a zero-length sealed box throws a CryptoKit error.
-                if let wrapped = object.wrappedKey, !wrapped.isEmpty {
-                    let master = try CryptoEngine.masterKey()
-                    objectKey = try CryptoEngine.unwrap(wrapped, with: master)
-                }
-
                 guard let vault = try DatabaseManager.shared.firstVault() else {
                     throw DownloadError.vaultMissing
                 }
@@ -149,40 +139,16 @@ enum DownloadEngine {
                     report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)
                     let data = try Data(contentsOf: tmp)
 
-                    if let key = objectKey {
-                        // DECRYPT: Unseal AES-GCM slices using sealedSliceSize (sliceSize + 28B overhead)
-                        var offset = 0
-                        var sliceIndex = 0
-                        var decryptedChunkData = Data()
-                        decryptedChunkData.reserveCapacity(data.count)
-
-                        while offset < data.count {
-                            let end = min(offset + CryptoEngine.sealedSliceSize, data.count)
-                            let slice = data.subdata(in: offset..<end)
-                            let decrypted = try CryptoEngine.decryptSlice(slice, objectKey: key, index: sliceIndex)
-                            decryptedChunkData.append(decrypted)
-                            offset = end
-                            sliceIndex += 1
-                        }
-
-                        if let expected = chunk.plainHash,
-                           FileHasher.sha256(of: decryptedChunkData) != expected {
+                    // PLAINTEXT (all files): verify the recorded hash when present.
+                    if let expected = chunk.plainHash,
+                       FileHasher.sha256(of: data) != expected {
+                        if !(object.mime.hasPrefix("image/") && NSImage(data: data) != nil) {
                             throw DownloadError.hashMismatch
                         }
-
-                        handle.write(decryptedChunkData)
-                        writtenBytes += Int64(decryptedChunkData.count)
-                    } else {
-                        if let expected = chunk.plainHash,
-                           FileHasher.sha256(of: data) != expected {
-                            if !(object.mime.hasPrefix("image/") && NSImage(data: data) != nil) {
-                                throw DownloadError.hashMismatch
-                            }
-                        }
-
-                        handle.write(data)
-                        writtenBytes += Int64(data.count)
                     }
+
+                    handle.write(data)
+                    writtenBytes += Int64(data.count)
 
                     try? fm.removeItem(at: tmp)
                     report("Assembled chunk \(n)/\(chunks.count)", Double(n) / total)
@@ -190,10 +156,10 @@ enum DownloadEngine {
 
                 try handle.close()
                 // The assembled file must be exactly the recorded size. Catches
-                // catalog corruption (duplicated/missing chunk rows) for PUBLIC
-                // files too, where the root-hash check is skipped.
+                // catalog corruption (duplicated/missing chunk rows) even where
+                // the root-hash check doesn't apply.
                 guard writtenBytes == object.size else { throw DownloadError.hashMismatch }
-                if objectKey != nil, let root = object.rootHash,
+                if let root = object.rootHash,
                    try FileHasher.sha256(of: dest) != root {
                     throw DownloadError.hashMismatch
                 }
@@ -204,9 +170,6 @@ enum DownloadEngine {
                 }
                 logger.info("Download complete: \(object.name)")
                 await ThumbnailService.shared.generateAndSaveThumbnail(for: object, from: dest)
-                if object.mime.hasPrefix("image/") {
-                    await FaceEngine.shared.indexIfNeeded(fileURL: dest, objectID: object.id)
-                }
                 // Books: the download IS the trigger for cover generation (covers
                 // are otherwise made at upload time; older uploads have none until
                 // the book is next downloaded).

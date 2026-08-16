@@ -105,23 +105,47 @@ struct TheaterView: View {
                 navigationOverlay
             }
 
-            // Global window key monitor for ESC, Left/Right Arrows, and Spacebar
+            // Global window key monitor for ESC, Left/Right Arrows, Spacebar, and
+            // the media keys (F7/F8/F9). While a video plays, arrows seek instead of
+            // navigating files (player-standard) and up/down change volume — the
+            // seek is handled by AudioPlayerEngine.seekVideo which NEVER falls back
+            // to switching files.
             KeyMonitorView(
                 onEscape: { handleEscapeKey() },
-                onLeftArrow: { navigateMedia(delta: -1) },
-                onRightArrow: { navigateMedia(delta: 1) },
-                onUpArrow: { navigateMediaVertical(delta: -1) },
-                onDownArrow: { navigateMediaVertical(delta: 1) },
-                onSpacebar: {
-                    if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
-                        // Space toggles the viewer (Quick Look style): close it.
-                        appState.theaterFile = nil
-                    } else if previewKind == .video {
-                        NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
-                    } else if previewKind == .audio {
-                        AudioPlayerEngine.shared.togglePlayPause()
+                onLeftArrow: {
+                    if previewKind == .video {
+                        AudioPlayerEngine.shared.seekVideo(relative: -10)
+                    } else {
+                        navigateMedia(delta: -1)
                     }
-                }
+                },
+                onRightArrow: {
+                    if previewKind == .video {
+                        AudioPlayerEngine.shared.seekVideo(relative: 10)
+                    } else {
+                        navigateMedia(delta: 1)
+                    }
+                },
+                onUpArrow: {
+                    if previewKind == .video {
+                        SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
+                    } else {
+                        navigateMediaVertical(delta: -1)
+                    }
+                },
+                onDownArrow: {
+                    if previewKind == .video {
+                        SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
+                    } else {
+                        navigateMediaVertical(delta: 1)
+                    }
+                },
+                onSpacebar: {
+                    mediaPlayPause()
+                },
+                onMediaPlayPause: (previewKind == .video || previewKind == .audio) ? { mediaPlayPause() } : nil,
+                onMediaForward: (previewKind == .video || previewKind == .audio) ? { mediaForward() } : nil,
+                onMediaBackward: (previewKind == .video || previewKind == .audio) ? { mediaBackward() } : nil
             )
             .frame(width: 0, height: 0)
         }
@@ -179,30 +203,39 @@ struct TheaterView: View {
             handleEscapeKey()
         }
         .onKeyPress(.leftArrow) {
-            navigateMedia(delta: -1)
+            if previewKind == .video {
+                AudioPlayerEngine.shared.seekVideo(relative: -10)
+            } else {
+                navigateMedia(delta: -1)
+            }
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            navigateMedia(delta: 1)
+            if previewKind == .video {
+                AudioPlayerEngine.shared.seekVideo(relative: 10)
+            } else {
+                navigateMedia(delta: 1)
+            }
             return .handled
         }
         .onKeyPress(.upArrow) {
-            navigateMediaVertical(delta: -1)
+            if previewKind == .video {
+                SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
+            } else {
+                navigateMediaVertical(delta: -1)
+            }
             return .handled
         }
         .onKeyPress(.downArrow) {
-            navigateMediaVertical(delta: 1)
+            if previewKind == .video {
+                SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
+            } else {
+                navigateMediaVertical(delta: 1)
+            }
             return .handled
         }
         .onKeyPress(.space) {
-            if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
-                // Space toggles the viewer (Quick Look style): close it.
-                appState.theaterFile = nil
-            } else if previewKind == .video {
-                NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
-            } else if previewKind == .audio {
-                AudioPlayerEngine.shared.togglePlayPause()
-            }
+            mediaPlayPause()
             return .handled
         }
         .task(id: file.id) {
@@ -218,6 +251,20 @@ struct TheaterView: View {
                 AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
             }
             await loadFile()
+        }
+        .onChange(of: AudioPlayerEngine.shared.currentTrack?.id) { _, _ in
+            // Play Next / Previous (transport buttons, F7/F9, EOF auto-advance)
+            // swap the engine's currentTrack. The theater MUST follow: the player
+            // view is bound to the theater's file, so without this it stays on the
+            // old file and detaches from the new mpv controller — the black
+            // loading screen the skip buttons used to show.
+            guard let track = AudioPlayerEngine.shared.currentTrack,
+                  track.isVideo || track.isAudio,
+                  let current = appState.theaterFile,
+                  current.isVideo || current.isAudio,
+                  current.id != track.id else { return }
+            appState.theaterFile = track
+            appState.selectedFiles = [track.id]
         }
     }
 
@@ -544,7 +591,7 @@ struct TheaterView: View {
                 NSWorkspace.shared.open(cached)
                 return
             }
-            let downloaded = try? await DownloadEngine.download(object: file) { _, _ in }
+            let downloaded = try? await DownloadEngine.download(object: file, quiet: true) { _, _ in }
             if let downloaded {
                 NSWorkspace.shared.open(downloaded)
             }
@@ -972,6 +1019,38 @@ struct TheaterView: View {
         appState.theaterFile = next
         appState.selectedFiles = [next.id]
     }
+    // MARK: - Media key / player transport helpers
+
+    /// Shared by space, the F8 media key, and the .onKeyPress fallback.
+    private func mediaPlayPause() {
+        if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
+            // Space toggles the viewer (Quick Look style): close it.
+            appState.theaterFile = nil
+        } else if previewKind == .video {
+            NotificationCenter.default.post(name: .toggleVideoPlayback, object: nil)
+        } else if previewKind == .audio {
+            AudioPlayerEngine.shared.togglePlayPause()
+        }
+    }
+
+    /// F9 / fast-forward media key: videos seek +10 s, audio skips to the next track.
+    private func mediaForward() {
+        if previewKind == .video {
+            AudioPlayerEngine.shared.seekVideo(relative: 10)
+        } else if previewKind == .audio {
+            AudioPlayerEngine.shared.skipNext()
+        }
+    }
+
+    /// F7 / rewind media key: videos seek -10 s, audio goes to the previous track.
+    private func mediaBackward() {
+        if previewKind == .video {
+            AudioPlayerEngine.shared.seekVideo(relative: -10)
+        } else if previewKind == .audio {
+            AudioPlayerEngine.shared.skipPrevious()
+        }
+    }
+
     private var activeLocalURL: URL? {
         // The xcloud-stream:// URL is not a real file — only expose real local files
         // to "Open With" / "Open Externally".
@@ -1133,7 +1212,7 @@ struct TheaterView: View {
         }
 
         do {
-            let downloaded = try await DownloadEngine.download(object: file) { status, progress in
+            let downloaded = try await DownloadEngine.download(object: file, quiet: true) { status, progress in
                 Task { @MainActor in
                     self.downloadStatus = status
                     self.downloadProgress = progress
@@ -1294,9 +1373,7 @@ struct TheaterAudioPlayerView: View {
                     } label: {
                         ZStack {
                             Circle()
-                                .fill(XTheme.accent)
-                                .frame(width: 68, height: 68)
-                                .shadow(color: XTheme.accent.opacity(0.6), radius: 14, y: 6)
+                                .fill(Color.black.opacity(0.001)) // glass renders over the backdrop
                             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 26, weight: .bold))
                                 .foregroundStyle(.white)
@@ -1304,6 +1381,7 @@ struct TheaterAudioPlayerView: View {
                         }
                         .frame(width: 68, height: 68)
                         .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
                     }
                     .buttonStyle(.plain)
 
@@ -1446,6 +1524,11 @@ struct KeyMonitorView: NSViewRepresentable {
     var onUpArrow: (() -> Void)? = nil
     var onDownArrow: (() -> Void)? = nil
     var onSpacebar: (() -> Void)? = nil
+    // Media keys (F7/F8/F9 on a MacBook keyboard). Non-nil only while a media
+    // player is on screen — otherwise the keys pass through to the system.
+    var onMediaPlayPause: (() -> Void)? = nil
+    var onMediaForward: (() -> Void)? = nil
+    var onMediaBackward: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> KeyView {
         let v = KeyView()
@@ -1455,6 +1538,9 @@ struct KeyMonitorView: NSViewRepresentable {
         v.onUpArrow = onUpArrow
         v.onDownArrow = onDownArrow
         v.onSpacebar = onSpacebar
+        v.onMediaPlayPause = onMediaPlayPause
+        v.onMediaForward = onMediaForward
+        v.onMediaBackward = onMediaBackward
         return v
     }
 
@@ -1465,6 +1551,9 @@ struct KeyMonitorView: NSViewRepresentable {
         nsView.onUpArrow = onUpArrow
         nsView.onDownArrow = onDownArrow
         nsView.onSpacebar = onSpacebar
+        nsView.onMediaPlayPause = onMediaPlayPause
+        nsView.onMediaForward = onMediaForward
+        nsView.onMediaBackward = onMediaBackward
     }
 
     class KeyView: NSView {
@@ -1474,7 +1563,12 @@ struct KeyMonitorView: NSViewRepresentable {
         var onUpArrow: (() -> Void)?
         var onDownArrow: (() -> Void)?
         var onSpacebar: (() -> Void)?
+        var onMediaPlayPause: (() -> Void)?
+        var onMediaForward: (() -> Void)?
+        var onMediaBackward: (() -> Void)?
         private var monitor: Any?
+        private var mediaMonitor: Any?
+        private var lastMediaKeyTime: CFTimeInterval = 0
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -1502,6 +1596,15 @@ struct KeyMonitorView: NSViewRepresentable {
                     } else if event.keyCode == 49, let onSpace = self.onSpacebar { // Spacebar
                         DispatchQueue.main.async { onSpace() }
                         return nil
+                    } else if event.keyCode == 98, let cb = self.onMediaBackward { // F7 (rewind)
+                        DispatchQueue.main.async { cb() }
+                        return nil
+                    } else if event.keyCode == 100, let cb = self.onMediaPlayPause { // F8 (play/pause)
+                        DispatchQueue.main.async { cb() }
+                        return nil
+                    } else if event.keyCode == 101, let cb = self.onMediaForward { // F9 (forward)
+                        DispatchQueue.main.async { cb() }
+                        return nil
                     }
                     return event
                 }
@@ -1509,10 +1612,58 @@ struct KeyMonitorView: NSViewRepresentable {
                 if let monitor { NSEvent.removeMonitor(monitor) }
                 monitor = nil
             }
+
+            // Media keys are NSSystemDefined events (subtype 8, NX_SUBTYPE_AUX_CONTROL_BUTTONS),
+            // NOT keyDown events — a plain key monitor never sees F7/F8/F9. Consume only
+            // play/next/previous; volume/mute (codes 0/1/7) MUST pass through so the OS
+            // still adjusts the system output volume (which is the app's volume).
+            if window != nil && mediaMonitor == nil {
+                mediaMonitor = NSEvent.addLocalMonitorForEvents(matching: .systemDefined) { [weak self] event in
+                    guard let self, self.window != nil, event.subtype.rawValue == 8 else { return event }
+                    let keyCode = Int((event.data1 & 0xFFFF0000) >> 16)
+                    let keyFlags = event.data1 & 0x0000FFFF
+                    let keyState = (keyFlags & 0xFF00) >> 8 // 0xA = down, 0xB = up
+                    guard keyState == 0xA else { return event }
+                    let isRepeat = keyFlags & 0x1 != 0
+                    // Throttle held-key repeats to ~3 seeks/sec so holding F9 scrubs
+                    // forward instead of jumping 10s per event.
+                    if isRepeat {
+                        let now = CFAbsoluteTimeGetCurrent()
+                        guard now - self.lastMediaKeyTime >= 0.3 else { return event }
+                    }
+                    switch keyCode {
+                    case 16: // NX_KEYTYPE_PLAY
+                        if let cb = self.onMediaPlayPause {
+                            self.lastMediaKeyTime = CFAbsoluteTimeGetCurrent()
+                            DispatchQueue.main.async { cb() }
+                            return nil
+                        }
+                    case 17, 19: // NX_KEYTYPE_NEXT / NX_KEYTYPE_FAST
+                        if let cb = self.onMediaForward {
+                            self.lastMediaKeyTime = CFAbsoluteTimeGetCurrent()
+                            DispatchQueue.main.async { cb() }
+                            return nil
+                        }
+                    case 18, 20: // NX_KEYTYPE_PREVIOUS / NX_KEYTYPE_REWIND
+                        if let cb = self.onMediaBackward {
+                            self.lastMediaKeyTime = CFAbsoluteTimeGetCurrent()
+                            DispatchQueue.main.async { cb() }
+                            return nil
+                        }
+                    default:
+                        break // volume/mute and everything else: system handles it
+                    }
+                    return event
+                }
+            } else if window == nil && mediaMonitor != nil {
+                if let mediaMonitor { NSEvent.removeMonitor(mediaMonitor) }
+                mediaMonitor = nil
+            }
         }
 
         deinit {
             if let monitor { NSEvent.removeMonitor(monitor) }
+            if let mediaMonitor { NSEvent.removeMonitor(mediaMonitor) }
         }
     }
 }

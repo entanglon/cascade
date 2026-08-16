@@ -19,25 +19,26 @@ struct PhotosGridView: View {
     let onColumnCountChange: (Int) -> Void
     @Binding var scrollTargetID: String?
 
-    @State private var people: [(PersonRecord, Int)] = []
-    @State private var peopleByID: [String: PersonRecord] = [:]
-    @State private var personAvatars: [String: URL] = [:]
-    @State private var facesByObject: [String: [FaceRecord]] = [:]
-    @State private var selectedPersonID: String?
-    @State private var facesVersion = 0
-    @State private var nameAlertFace: FaceRecord?
-    @State private var nameDraft = ""
-    @State private var showNameAlert = false
-    @State private var renamePersonID: String?
-    @State private var showRenameAlert = false
     @State private var coverPickerAlbum: ObjectRecord?
 
     private var albums: [ObjectRecord] { files.filter(\.isFolder) }
     private var photos: [ObjectRecord] { files.filter { !$0.isFolder } }
 
+    // Square tiles — a bit larger than before, with breathing room between
+    // cards (spacing 8 instead of the old cramped 2).
     private var columns: [GridItem] {
-        let minSize = max(120.0, cardWidth * 0.75)
-        return [GridItem(.adaptive(minimum: minSize, maximum: cardWidth * 1.4), spacing: 2)]
+        let minSize = max(160.0, cardWidth * 0.9)
+        return [GridItem(.adaptive(minimum: minSize, maximum: cardWidth * 1.5), spacing: 8)]
+    }
+
+    /// Column count the adaptive grid actually lays out for a given width — the
+    /// up/down arrow navigation steps by this many tiles, so it must match the
+    /// real layout or arrows land on the wrong row (the old width/150 estimate
+    /// went stale once cards grew and spacing went from 2 to 8).
+    private func adaptiveColumnCount(forWidth width: CGFloat) -> Int {
+        let spacing: CGFloat = 8
+        let minSize = max(160.0, cardWidth * 0.9)
+        return max(2, Int((width - 40 + spacing) / (minSize + spacing)))
     }
 
     var body: some View {
@@ -45,18 +46,8 @@ struct PhotosGridView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        if selectedPersonID == nil {
-                            if showsCollections && !albums.isEmpty { albumSection }
-                            if showsCollections && !people.isEmpty { peopleSection }
-                        } else {
-                            personHeader
-                        }
-
-                        if let pid = selectedPersonID {
-                            personPhotoSection
-                        } else {
-                            daySections
-                        }
+                        if showsCollections && !albums.isEmpty { albumSection }
+                        daySections
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
@@ -67,65 +58,35 @@ struct PhotosGridView: View {
                     proxy.scrollTo(newID, anchor: nil)
                 }
             }
-            .onChange(of: Int(geo.size.width / 150)) { _, cols in
-                onColumnCountChange(max(2, cols))
+            .onChange(of: adaptiveColumnCount(forWidth: geo.size.width)) { _, cols in
+                onColumnCountChange(cols)
             }
             .onAppear {
-                onColumnCountChange(max(2, Int(geo.size.width / 150)))
+                onColumnCountChange(adaptiveColumnCount(forWidth: geo.size.width))
             }
-        }
-        .task(id: taskToken) { await loadFaces() }
-        .onReceive(NotificationCenter.default.publisher(for: .xcPhotoIndexed)) { _ in
-            facesVersion += 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .xcThumbnailReady)) { _ in
             // A thumbnail landed in the background (warm-up or thumbnail-only
             // download) — re-key every cell so it picks it up.
             appState.thumbnailVersion += 1
         }
-        .onChange(of: taskToken) { _, _ in reportOrdered() }
-        .alert("Name this person", isPresented: $showNameAlert) {
-            TextField("Name", text: $nameDraft)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { saveName() }
-        } message: {
-            Text("Faces like this will be grouped under this name.")
-        }
-        .alert("Rename Person", isPresented: $showRenameAlert) {
-            TextField("Name", text: $nameDraft)
-            Button("Cancel", role: .cancel) {}
-            Button("Rename") {
-                if let pid = renamePersonID {
-                    let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { return }
-                    Task { await FaceEngine.shared.renamePerson(pid, name: name) }
-                }
-            }
-        }
+        .onChange(of: files.map(\.id)) { _, _ in reportOrdered() }
         .sheet(item: $coverPickerAlbum) { album in
             AlbumCoverPickerSheet(album: album) { photoID in
                 appState.setAlbumCover(album, photoID: photoID)
             }
         }
         .onAppear {
-            selectedPersonID = nil
             reportOrdered()
         }
-    }
-
-    private var taskToken: String {
-        "\(files.map(\.id).joined(separator: ","))-v\(facesVersion)"
     }
 
     // MARK: - Keyboard navigation support
 
     /// Visual order of the tiles the arrow keys walk: albums first, then the
-    /// photos in day-section order (or the person's photos when filtered).
+    /// photos in day-section order.
     private var orderedIDs: [String] {
-        if let pid = selectedPersonID {
-            return personPhotos.map(\.id)
-        }
-        return albums.map(\.id) + photosInDayOrder.map(\.id)
+        albums.map(\.id) + photosInDayOrder.map(\.id)
     }
 
     private var photosInDayOrder: [ObjectRecord] {
@@ -134,34 +95,6 @@ struct PhotosGridView: View {
 
     private func reportOrdered() {
         onOrderedChange(orderedIDs)
-    }
-
-    // MARK: - Data
-
-    private func loadFaces() async {
-        let objectIDs = photos.map(\.id)
-        facesByObject = await FaceEngine.shared.facesByObject(for: objectIDs)
-        let loaded = await FaceEngine.shared.people()
-        people = loaded
-        peopleByID = Dictionary(uniqueKeysWithValues: loaded.map { ($0.0.id, $0.0) })
-        var avatars: [String: URL] = [:]
-        for (person, _) in loaded {
-            if let url = await FaceEngine.shared.personAvatarURL(person.id) {
-                avatars[person.id] = url
-            }
-        }
-        personAvatars = avatars
-        reportOrdered()
-    }
-
-    private func saveName() {
-        guard let face = nameAlertFace else { return }
-        let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        Task {
-            await FaceEngine.shared.nameFace(face.id, name: name)
-        }
-        nameDraft = ""
     }
 
     // MARK: - Sections
@@ -210,85 +143,11 @@ struct PhotosGridView: View {
 
     @State private var albumDropTargets: Set<String> = []
 
-    private var peopleSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("People")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(XTheme.textPrimary)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
-                    ForEach(people, id: \.0.id) { person, count in
-                        Button {
-                            selectedPersonID = person.id
-                        } label: {
-                            VStack(spacing: 6) {
-                                PersonAvatarView(url: personAvatars[person.id], size: 56)
-                                    .overlay {
-                                        Circle().strokeBorder(XTheme.textSecondary.opacity(0.3), lineWidth: 1)
-                                    }
-                                Text(person.name)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(XTheme.textPrimary)
-                                Text("\(count)")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(XTheme.textSecondary)
-                            }
-                            .frame(width: 76)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                renamePersonID = person.id
-                                nameDraft = person.name
-                                showRenameAlert = true
-                            } label: {
-                                Label("Rename Person", systemImage: "pencil")
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .padding(.bottom, 22)
-    }
-
-    private var personHeader: some View {
-        HStack(spacing: 12) {
-            Button {
-                selectedPersonID = nil
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.backward")
-                    Text("All Photos")
-                }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(XTheme.textSecondary)
-            }
-            .buttonStyle(.plain)
-
-            if let pid = selectedPersonID {
-                PersonAvatarView(url: personAvatars[pid], size: 40)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(peopleByID[pid]?.name ?? "Person")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(XTheme.textPrimary)
-                    Text("\(personPhotoIDs.count) photos")
-                        .font(.system(size: 11))
-                        .foregroundStyle(XTheme.textSecondary)
-                }
-            }
-            Spacer()
-        }
-        .padding(.vertical, 10)
-        .padding(.bottom, 6)
-    }
-
     @ViewBuilder
     private var daySections: some View {
         ForEach(MediaGridLayout.dayGroups(photos)) { day in
             Section(header: MediaDayHeader(title: day.title)) {
-                LazyVGrid(columns: columns, spacing: 2) {
+                LazyVGrid(columns: columns, spacing: 8) {
                     ForEach(day.files) { photo in
                         photoCell(photo)
                     }
@@ -297,21 +156,10 @@ struct PhotosGridView: View {
         }
     }
 
-    private var personPhotoSection: some View {
-        LazyVGrid(columns: columns, spacing: 2) {
-            ForEach(personPhotos) { photo in
-                photoCell(photo)
-            }
-        }
-    }
-
     private func photoCell(_ photo: ObjectRecord) -> some View {
         PhotoCellView(
             photo: photo,
-            isSelected: appState.selectedFiles.contains(photo.id),
-            faces: facesByObject[photo.id] ?? [],
-            peopleByID: peopleByID,
-            onFaceTap: { face in handleFaceTap(face) }
+            isSelected: appState.selectedFiles.contains(photo.id)
         )
         .id(photo.id)
         .onTapGesture(count: 2) { onOpen(photo) }
@@ -330,29 +178,6 @@ struct PhotosGridView: View {
         .onDrag { MediaDragPayload.provider(selected: appState.selectedFiles, fileID: photo.id) }
     }
 
-    private func handleFaceTap(_ face: FaceRecord) {
-        if let pid = face.personID, peopleByID[pid] != nil {
-            selectedPersonID = pid
-        } else {
-            nameAlertFace = face
-            nameDraft = ""
-            showNameAlert = true
-        }
-    }
-
-    // MARK: - Person filter
-
-    private var personPhotoIDs: Set<String> {
-        guard let pid = selectedPersonID else { return [] }
-        return Set(facesByObject.filter { _, faces in
-            faces.contains { $0.personID == pid }
-        }.keys)
-    }
-
-    private var personPhotos: [ObjectRecord] {
-        let ids = personPhotoIDs
-        return photos.filter { ids.contains($0.id) }.sorted { $0.createdAt < $1.createdAt }
-    }
 }
 
 // MARK: - Album tile (cover + drag-drop target)
@@ -383,13 +208,9 @@ private struct PhotoCellView: View {
     @Environment(AppState.self) private var appState
     let photo: ObjectRecord
     let isSelected: Bool
-    let faces: [FaceRecord]
-    let peopleByID: [String: PersonRecord]
-    let onFaceTap: (FaceRecord) -> Void
 
     @State private var thumbURL: URL?
     @State private var hovered = false
-    @State private var faceThumbs: [FaceRecord: URL] = [:]
 
     var body: some View {
         Color.black.opacity(0.04)
@@ -418,13 +239,6 @@ private struct PhotoCellView: View {
                 if hovered {
                     Color.black.opacity(0.08)
                         .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if hovered {
-                    faceChips
-                        .padding(6)
                         .transition(.opacity)
                 }
             }
@@ -462,15 +276,6 @@ private struct PhotoCellView: View {
             .task(id: photo.id) {
                 thumbURL = await ThumbnailService.shared.thumbnailURL(for: photo)
             }
-            .task(id: faces.map(\.id).joined(separator: ",")) {
-                var map: [FaceRecord: URL] = [:]
-                for face in faces {
-                    if let url = await FaceEngine.shared.faceThumbURL(objectID: face.objectID, faceID: face.id) {
-                        map[face] = url
-                    }
-                }
-                faceThumbs = map
-            }
     }
 
     @ViewBuilder
@@ -482,50 +287,6 @@ private struct PhotoCellView: View {
             .background(XTheme.textPrimary.opacity(0.05))
     }
 
-    @ViewBuilder
-    private var faceChips: some View {
-        let visible = Array(faces.prefix(3))
-        HStack(spacing: 4) {
-            ForEach(visible, id: \.id) { face in
-                Button {
-                    onFaceTap(face)
-                } label: {
-                    ZStack {
-                        Circle().fill(.white.opacity(0.85))
-                        if let url = faceThumbs[face] {
-                            AsyncImage(url: url) { phase in
-                                if case .success(let image) = phase {
-                                    image.resizable().scaledToFill()
-                                }
-                            }
-                            .clipShape(Circle())
-                        } else {
-                            Image(systemName: "person.crop.circle")
-                                .font(.system(size: 12))
-                                .foregroundStyle(XTheme.textSecondary)
-                        }
-                    }
-                    .frame(width: 20, height: 20)
-                    .shadow(radius: 1)
-                }
-                .buttonStyle(.plain)
-                .help(faceName(face))
-            }
-            if faces.count > 3 {
-                Text("+\(faces.count - 3)")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.55), in: Capsule())
-            }
-        }
-    }
-
-    private func faceName(_ face: FaceRecord) -> String {
-        guard let pid = face.personID, let person = peopleByID[pid] else { return "Name this person…" }
-        return person.name
-    }
 }
 
 // MARK: - Album cover picker
@@ -642,36 +403,5 @@ private struct CoverOptionCell: View {
         .task(id: photo.id) {
             thumbURL = await ThumbnailService.shared.thumbnailURL(for: photo)
         }
-    }
-}
-
-// MARK: - Person avatar
-
-private struct PersonAvatarView: View {
-    let url: URL?
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    default:
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: size * 0.5))
-                            .foregroundStyle(XTheme.textSecondary)
-                    }
-                }
-            } else {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: size * 0.5))
-                    .foregroundStyle(XTheme.textSecondary)
-            }
-        }
-        .frame(width: size, height: size)
-        .background(XTheme.textPrimary.opacity(0.08))
-        .clipShape(Circle())
     }
 }
