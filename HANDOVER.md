@@ -91,7 +91,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ---
 
-## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–48 committed 2026-08-16; items 49–52 committed 2026-08-16)
+## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–48 committed 2026-08-16; items 49–53 committed 2026-08-16)
 
 1. **HDR/EDR color pipeline fix** (`Features/MPVVideoView.swift`)
    - Root cause of "washed-out but brighter" video vs YouTube: the layer opted into
@@ -1120,6 +1120,20 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - `MARKETING_VERSION` → 1.1.1; `xCloud-1.1.1.dmg` built + verified. User flow
       now: install → (onboarding once) → API credentials → phone/code/password →
       cloud. The pending two-account share E2E resumes from here.
+53. **DMG login gate: field hit-testing findings — DMG path PAUSED (2026-08-16)**
+    - User: API ID/hash fields only accept clicks near the text center (clicks
+      elsewhere don't focus); after entering credentials, "Connect" seemed to do
+      nothing. Decision: pause the DMG/production path, continue on the dev build.
+    - Findings: (a) the field clicks = macOS 26 hit-testing on the custom-styled
+      fields inside the `.ultraThinMaterial` card — affects ANY build that shows
+      the gate, dev included (the card was already moved to material background
+      once for a container-glass hit-testing bug; the fields themselves still
+      restrict the hit area); (b) "Connect" actually worked — prod keychain got
+      `telegram-credentials` (19:05) and TDLib created `xCloud-Prod/tdlib/db.sqlite`
+      (19:06); no crash reports; the gate presumably advanced to the phone step
+      where the same field problem blocked input.
+    - Next time the gate is touched: `.contentShape(Rectangle())` + hit-testing
+      audit on the styled fields (and the same for the phone/code/password steps).
 
 ---
 ## 5. Pending / next steps
@@ -1132,6 +1146,11 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
   recipient's vault with correct size; sender's self-open reveal still works; the
   two accounts' data never mixes. Also verify the protectContent **second hop**:
   the recipient re-forwarding protected chunks out of the share channel.
+  **PAUSED 2026-08-16 by user decision**: the DMG login gate is unusable on this
+  Mac (field clicks only land near the text center — macOS 26 hit-testing on the
+  material card; the Connect click itself works, creds save + TDLib initializes,
+  but the next step's fields have the same problem), and there's no second device
+  to test cross-account with. Resume when the user wants.
 - **Flag-only private vault (user-approved design, NOT built):** drop per-file
   encryption; private = `isPrivate` DB flag + PIN-gated section + `.bin` chunks;
   move in/out = instant flag flip (removes the decrypt + re-upload

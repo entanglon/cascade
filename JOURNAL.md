@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-16 — fresh-install login deadlock fixed, v1.1.1 DMG (see end).
+> 2026-08-16 — DMG paused; login-gate hit-testing findings; dev build continues (see end).
 
 ---
 
@@ -554,3 +554,25 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
 - **v1.1.1**: `MARKETING_VERSION` → 1.1.1, rebuilt Release, `xCloud-1.1.1.dmg`
   created + `hdiutil verify` OK. User reinstalls, enters API credentials, and the
   phone/code/password flow proceeds as in the dev build.
+
+---
+
+## 2026-08-16 (third session) — DMG paused; login-gate hit-testing findings
+
+- **User decision**: stop working on the DMG/production path for now (no second
+  device to test cross-account share with; the installed app's login gate is
+  unusable). Resume with the dev/test build and improve other areas.
+- **Finding 1 — field clicks**: the API ID/hash fields in the login gate only
+  accept clicks near the text center; clicks on the rest of the field don't focus
+  it. macOS 26 hit-testing issue with the custom-styled fields inside the
+  `.ultraThinMaterial` card (the card itself was already moved to material
+  background for an earlier container-glass hit-testing bug). Affects any build
+  showing the gate, dev included.
+- **Finding 2 — "Connect does nothing"**: the click actually worked. Evidence:
+  `telegram-credentials` saved into the prod keychain at 19:05 and
+  `xCloud-Prod/tdlib/db.sqlite` created at 19:06 (TDLib initialized). No crash
+  reports. The gate presumably switched to the phone step, but the same field
+  hit-testing problem blocked further input — perceived as "nothing happens".
+- Paused: two-account share E2E via DMG (needs a second device), the
+  protectContent second-hop check, and the DMG login-gate UX until the user
+  wants to resume.
