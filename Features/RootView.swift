@@ -162,12 +162,48 @@ struct WindowChromeFixer: NSViewRepresentable {
 /// to a window (and again on every window change), so windowed mode never shows the
 /// default macOS titlebar band over the app's dark UI.
 final class WindowChromeView: NSView {
+    private var fullScreenObservers: [NSObjectProtocol] = []
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        guard let window else {
+            for o in fullScreenObservers { NotificationCenter.default.removeObserver(o) }
+            fullScreenObservers = []
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             self?.applyChrome()
         }
+        observeFullScreenTransitions(window)
+    }
+
+    /// `.moveToActiveSpace` (inserted below) is what makes a windowed window
+    /// follow the user to the active Space — but a FULL-SCREEN window owns its
+    /// Space. If the flag stays set while full screen, activating the app (e.g.
+    /// when a browser share link is delivered) makes the window server pull the
+    /// window OUT of full screen to follow the active space, stranding it so it
+    /// looks like it "disappeared". Remove the flag on enter, restore on exit.
+    private func observeFullScreenTransitions(_ window: NSWindow) {
+        guard fullScreenObservers.isEmpty else { return }
+        let nc = NotificationCenter.default
+        fullScreenObservers.append(nc.addObserver(
+            forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.window?.collectionBehavior.remove(.moveToActiveSpace)
+        })
+        // Belt and suspenders: re-assert the removal once the transition completes
+        // (in case something re-inserted the flag mid-transition), and restore it
+        // when full screen ends.
+        fullScreenObservers.append(nc.addObserver(
+            forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.window?.collectionBehavior.remove(.moveToActiveSpace)
+        })
+        fullScreenObservers.append(nc.addObserver(
+            forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.window?.collectionBehavior.insert(.moveToActiveSpace)
+        })
     }
 
     private func applyChrome() {
@@ -180,8 +216,12 @@ final class WindowChromeView: NSView {
         window.titlebarSeparatorStyle = .none
         // The window follows to whichever Space the user activates the app on, so
         // it can never be stranded invisible on another Space (the "window
-        // disappeared" bug).
-        window.collectionBehavior.insert(.moveToActiveSpace)
+        // disappeared" bug). Removed automatically while full screen (see
+        // observeFullScreenTransitions) because a full-screen window can't follow
+        // spaces — it owns its Space.
+        if !window.styleMask.contains(.fullScreen) {
+            window.collectionBehavior.insert(.moveToActiveSpace)
+        }
 
         let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
         for b in buttons {

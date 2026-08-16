@@ -73,22 +73,35 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             DistributedNotificationCenter.default().post(name: handoffNotificationName, object: nil)
         }
-        other.activate(options: [.activateAllWindows])
+        // NO activation from the duplicate: ANY programmatic activate (including
+        // .activateAllWindows / .activateIgnoringOtherApps) can yank a
+        // full-screen window out of its Space. Activation is the running
+        // instance's decision alone — its drainHandoff → raiseMainWindow raises
+        // its own window (full-screen aware). We just deliver the payload and
+        // exit.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             _exit(0)
         }
     }
 
     /// The running instance: pull any links a duplicate copy left in the handoff
-    /// file, queue them, and process them like any OS-delivered link.
-    private static func drainHandoff() {
-        guard let file = handoffFileURL() else { return }
+    /// file, queue them, and process them like any OS-delivered link. Also raises
+    /// THIS instance's own window — the URL was delivered to a copy that is now
+    /// exiting, so only this process can bring the real window forward.
+    private func drainHandoff() {
+        guard let file = Self.handoffFileURL() else { return }
         guard let data = try? Data(contentsOf: file),
               let stored = try? JSONDecoder().decode([String].self, from: data),
               !stored.isEmpty else { return }
         try? FileManager.default.removeItem(at: file)
-        pendingOpenURLs.append(contentsOf: stored.compactMap(URL.init(string:)))
-        NotificationCenter.default.post(name: didOpenURL, object: nil)
+        Self.pendingOpenURLs.append(contentsOf: stored.compactMap(URL.init(string:)))
+        NotificationCenter.default.post(name: Self.didOpenURL, object: nil)
+        // Same re-entry net as direct delivery: arm while the window is still
+        // full screen (the duplicate no longer activates us — we raise our own
+        // window).
+        FullScreenReentryGuard.shared.armIfNeeded(NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.canBecomeKey && $0.isVisible && !$0.isSheet }))
+        raiseMainWindow()
     }
 
     // MARK: - App lifecycle
@@ -100,18 +113,39 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
             name: Self.handoffNotificationName,
             object: nil
         )
+        // Re-assert ownership of the xcloud:// scheme on EVERY launch. Stale
+        // copies of the app (old DerivedData builds, DMG test installs) keep
+        // their LaunchServices registration and make the browser START a second
+        // instance instead of delivering the link to this one — the running
+        // instance then never sees application(_:open:) and the window is never
+        // raised. Whichever copy runs now claims the scheme, so this self-heals
+        // even if a stale bundle is ever re-registered.
+        NSWorkspace.shared.setDefaultApplication(
+            at: Bundle.main.bundleURL,
+            toOpenURLsWithScheme: "xcloud"
+        ) { error in
+            if let error {
+                print("xCloud URL: self-registration failed: \(error)")
+            } else {
+                print("xCloud URL: registered \(Bundle.main.bundleURL.lastPathComponent) as xcloud:// handler")
+            }
+        }
         // A duplicate instance may have left links behind before we registered.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            Self.drainHandoff()
+            self.drainHandoff()
         }
     }
 
     @objc private func handleHandoffNotification() {
-        Self.drainHandoff()
+        self.drainHandoff()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         print("xCloud URL: received \(urls.count) url(s): \(urls.map { $0.absoluteString.prefix(80) })")
+        // Arm the full-screen re-entry net FIRST, while the window's full-screen
+        // state still reflects pre-delivery reality.
+        FullScreenReentryGuard.shared.armIfNeeded(NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.canBecomeKey && $0.isVisible && !$0.isSheet }))
         // Duplicate instance? Hand the links to the running one and quit this
         // copy instead of fighting over the window.
         if let other = Self.otherRunningInstance() {
@@ -121,31 +155,58 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
         }
 
         Self.pendingOpenURLs.append(contentsOf: urls)
-        Self.drainHandoff()
+        self.drainHandoff()
         NotificationCenter.default.post(name: Self.didOpenURL, object: nil)
+        raiseMainWindow()
+    }
 
-        // Open the link in the app's EXISTING, active window. Three subtleties:
-        //  - Activating synchronously inside URL delivery can deadlock the main
-        //    thread on some macOS versions (the app then can't be closed) —
-        //    defer to the next main-thread tick.
-        //  - The window may live on another Space or display (where the user last
-        //    had it, or where macOS restored it), which makes it look like it
-        //    "disappeared". Move it onto the ACTIVE screen's visible frame before
-        //    ordering it front, so a link click can never strand it off-screen.
-        //  - moveToActiveSpace makes the window follow to the active Space; it is
-        //    intentionally NOT removed afterwards — removing it right away races
-        //    the window server's space move and can leave the window stranded
-        //    off-screen (verified live).
-        //  - A minimized window is still "visible == false" to SwiftUI, so the
-        //    makeKeyAndOrderFront below restores it (verified live); if the window
-        //    list is empty the scene was torn down and only the Dock icon remains.
+    /// Brings the app's existing window forward, or recreates the scene if none
+    /// exists. Called on direct URL delivery and after draining a handoff.
+    ///
+    /// RULES (verified live on this machine + confirmed by external review):
+    ///  - A FULL-SCREEN window owns its Space and is left COMPLETELY alone.
+    ///    `.moveToActiveSpace`'s documented semantics are "when the window
+    ///    becomes active, MOVE it to the active space instead of SWITCHING
+    ///    spaces" — for a full-screen window that's only satisfiable by first
+    ///    kicking it out of full screen. Any `NSApp.activate` /
+    ///    `makeKeyAndOrderFront` during delivery does the same (the window
+    ///    server un-full-screens it to make it key on the current space; worse
+    ///    since Sonoma, and when the user's Mission Control "switch to a Space
+    ///    with open windows" setting is off). The OS's own activation from the
+    ///    browser click switches to the window's Space (Cmd-Tab semantics).
+    ///  - A WINDOWED window may live on another Space/display, which makes it
+    ///    look like it vanished — move it onto the ACTIVE screen's visible frame
+    ///    and order it front. Only activate when the app isn't already active
+    ///    (avoids pointless activation churn).
+    ///  - A minimized window is still "visible == false" to SwiftUI, so
+    ///    deminiaturize first; if the window list is empty the scene was torn
+    ///    down and only the Dock icon remains → recreate the scene.
+    private func raiseMainWindow() {
         DispatchQueue.main.async {
-            print("xCloud URL: windows before activate: \(NSApp.windows.map { "\(String(describing: $0.title)) visible=\($0.isVisible) mini=\($0.isMiniaturized)" })")
-            NSApp.activate(ignoringOtherApps: true)
             let window = NSApp.mainWindow
                 ?? NSApp.windows.first(where: { $0.canBecomeKey && $0.isVisible && !$0.isSheet })
                 ?? NSApp.windows.first(where: { $0.canBecomeKey && !$0.isSheet })
-            print("xCloud URL: chosen window: \(String(describing: window?.title)) isMiniaturized=\(window?.isMiniaturized ?? false)")
+
+            if let window, window.styleMask.contains(.fullScreen) {
+                // Belt and suspenders only: ensure the flag can't trigger an exit
+                // and log whether it was present (re-insertion race check). The
+                // window itself is untouched — the OS's own activation already
+                // switched to its Space.
+                let hadFlag = window.collectionBehavior.contains(.moveToActiveSpace)
+                window.collectionBehavior.remove(.moveToActiveSpace)
+                print("xCloud URL: full-screen window — leaving untouched (had moveToActiveSpace: \(hadFlag))")
+                return
+            }
+
+            // Windowed (or no window): activate only if needed. We keep
+            // activate(ignoringOtherApps:) here on purpose — its Spaces
+            // degradation only affects full-screen windows, which never reach
+            // this path, and it is what makes windowed delivery reliably raise
+            // the app (the macOS 14+ cooperative NSApp.activate() can silently
+            // no-op when the frontmost app doesn't yield).
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
             if let window {
                 if window.isMiniaturized { window.deminiaturize(nil) }
                 window.collectionBehavior.insert(.moveToActiveSpace)
@@ -161,11 +222,13 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
                 //  - simulate the Dock-icon reopen, which SwiftUI Window scenes
                 //    answer natively by restoring the scene window.
                 print("xCloud URL: no window found — asking scene to recreate")
-                NotificationCenter.default.post(name: Self.recreateMainWindow, object: nil)
+                NotificationCenter.default.post(name: TerminationHandler.recreateMainWindow, object: nil)
                 for delay in [0.4, 1.2] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        NSApp.activate(ignoringOtherApps: true)
-                        _ = self.applicationShouldHandleReopen(application, hasVisibleWindows: false)
+                        if !NSApp.isActive {
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
+                        _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false)
                     }
                 }
             }
@@ -203,9 +266,16 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             if let window = sender.windows.first(where: { $0.canBecomeKey && !$0.isSheet }) {
-                window.collectionBehavior.insert(.moveToActiveSpace)
-                TerminationHandler.rescueWindowOnScreen(window)
-                window.makeKeyAndOrderFront(nil)
+                if window.styleMask.contains(.fullScreen) {
+                    window.collectionBehavior.remove(.moveToActiveSpace)
+                    // Same rule as URL delivery: never order-front a full-screen
+                    // window (it would exit full screen). The dock-click activation
+                    // already switches to its Space.
+                } else {
+                    window.collectionBehavior.insert(.moveToActiveSpace)
+                    TerminationHandler.rescueWindowOnScreen(window)
+                    window.makeKeyAndOrderFront(nil)
+                }
             }
         }
         return true
@@ -218,5 +288,63 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
         // _exit(0) instantly kills the process at the kernel level, bypassing 
         // the teardown race safely.
         _exit(0)
+    }
+}
+
+/// Safety net for URL delivery while the window is full screen. If the OS still
+/// kicks the window out of full screen during delivery (some macOS versions, or
+/// the user's Mission Control "switch to a Space with open windows" setting),
+/// re-enter full screen — but ONLY if the exit happens within a tight window of
+/// the delivery, so a genuine user-initiated exit (Esc, green button) is never
+/// overridden.
+///
+/// Arm at the very top of URL processing, while the window's full-screen state
+/// still reflects pre-delivery reality. If the window is already windowed by the
+/// time we can look at it (the OS exited it before the delegate callback), the
+/// windowed path of `raiseMainWindow` handles it instead — the two paths together
+/// mean the window can never be stranded invisible.
+private final class FullScreenReentryGuard {
+    static let shared = FullScreenReentryGuard()
+    private var pendingWindow: NSWindow?
+    private var deliveryTimestamp: Date?
+    private var observer: NSObjectProtocol?
+    private let reentryWindow: TimeInterval = 0.75   // exit must be within this of delivery
+    private let settleDelay: TimeInterval = 0.4      // let AppKit's exit animation finish first
+
+    func armIfNeeded(_ window: NSWindow?) {
+        guard let window, window.styleMask.contains(.fullScreen) else { return }
+        pendingWindow = window
+        deliveryTimestamp = Date()
+        if observer == nil {
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handleExit(of: window)
+            }
+        }
+    }
+
+    private func handleExit(of window: NSWindow) {
+        guard let ts = deliveryTimestamp,
+              Date().timeIntervalSince(ts) < reentryWindow else {
+            disarm()
+            return
+        }
+        disarm()
+        print("xCloud URL: window exited full screen \(String(format: "%.2f", Date().timeIntervalSince(ts)))s after delivery — re-entering")
+        DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) {
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    private func disarm() {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observer = nil
+        pendingWindow = nil
+        deliveryTimestamp = nil
     }
 }

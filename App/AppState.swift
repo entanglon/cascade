@@ -89,7 +89,13 @@ final class AppState {
     /// install even before TDLib has reported an authorization state — without
     /// stored credentials TDLib can never start, so the neutral splash would
     /// otherwise trap a first-time user on a loading screen forever.
-    var hasTelegramCredentials = false
+    /// Set synchronously from the Keychain at init so the very FIRST RootView
+    /// render already knows whether API credentials exist. Previously this started
+    /// false and bootstrap() set it only after ~1-3s of DB/engine setup, so every
+    /// launch briefly flashed the login gate (`!hasTelegramCredentials` branch)
+    /// before swapping to the auth splash — the "login screen for a split second"
+    /// bug for already-logged-in users.
+    var hasTelegramCredentials: Bool = (try? KeychainStore.loadTelegramCredentials()) != nil
     var databaseError: String?
 
     /// Guards the post-auth reconciliation (channel scan, profile, transfers) so it

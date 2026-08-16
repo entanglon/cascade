@@ -605,6 +605,102 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
 
 ---
 
+## 2026-08-17 — Wrap-up: full-screen link fix CONFIRMED, release 1.2.0, cleanup
+
+- **Full-screen link delivery — user confirmed FIXED** after the consolidated
+  consult fix (raiseMainWindow leaves full-screen windows alone, the
+  timestamp-guarded FullScreenReentryGuard re-enters if the OS kicks it out, the
+  duplicate handoff no longer activates, and the chrome fixer keeps
+  `.moveToActiveSpace` off full-screen windows).
+- **Release build 1.2.0**: `xcodebuild -configuration Release -derivedDataPath
+  build` (prod bundle id `com.nemesys.xcloud.xCloud.prod`), then
+  `scripts/make_dmg.sh 1.2.0` → **xCloud-1.2.0.dmg (53 MB)**, verified via
+  hdiutil; app inside reads 1.2.0. `MARKETING_VERSION` in the Release config was
+  an uncommitted `1.1` leftover — bumped to `1.2.0` (also fixes the stale
+  commit-state inconsistency). Reinstalled the `dmgbuild` tooling to
+  `build/dmgbuild-tools` (it had been deleted with the stale build/ earlier).
+- **Storage freed ≈ 20 GB**: deleted four stale DerivedData folders (xCloud,
+  xCloud-wt, xCloud-cdpcj…, xCloud-ddqgy… — kept xCloud-main), cleaned /tmp
+  agent junk (xc-unit logs, mpvshot artifacts), deleted stale untracked
+  root-level duplicates `AppState.swift`, `RootView.swift`, and
+  `project.pbxproj` (old flat project layout; not in the Xcode target — the
+  App/ and Features/ copies are authoritative). Disk free 17 → 33 GB.
+- `build/` and `xCloud-1.2.0.dmg` are gitignored. Both repo copies in sync;
+  debug app still running.
+
+## 2026-08-16/17 (eighth session) — Full-screen link delivery: consolidated consult fix
+
+- External models (Claude + Qwen) confirmed the v4 approach and both emphasized:
+  `.moveToActiveSpace`'s documented semantics ("move to active space instead of
+  switching spaces") make it the prime culprit on full-screen windows; never
+  order-front or activate a full-screen window during URL delivery; the duplicate
+  instance must not activate the running one; and add a timestamp-guarded
+  full-screen re-entry safety net.
+- Implemented in TerminationHandler: raiseMainWindow leaves full-screen windows
+  alone (only strips the flag); windowed path activates only when `!NSApp.isActive`;
+  new `FullScreenReentryGuard` re-enters full screen if an exit lands within 0.75s
+  of a delivery (0.4s settle delay; user exits never overridden); duplicate
+  handoff no longer calls activate. Mission Control auto-space-switch is enabled
+  on this Mac, so the setting wasn't the trigger.
+- Escaping note: a str_replace with `String(format:)` nested quotes double-escaped
+  the line (`\"` instead of `"`); fixed with a targeted byte-exact replacement.
+- Handover item 60. Build green, tests green, zero crash reports, app running.
+
+## 2026-08-16 (seventh session) — Login flash fixed; full-screen link delivery root cause
+
+- **Login flash**: `hasTelegramCredentials` was set late in bootstrap → every
+  launch flashed the login gate for logged-in users. Fixed by initializing it
+  synchronously from the Keychain at AppState init.
+- **Full-screen link delivery**: live-isolated with AX — delivering an
+  `xcloud://` link while full screen made the window exit to windowed. Tested
+  four variants: any app-side `NSApp.activate` / `makeKeyAndOrderFront` on a
+  full-screen window during delivery exits full screen (window server pulls it
+  out to become key on the current space). Final fix: `raiseMainWindow` leaves
+  full-screen windows completely alone (only strips `.moveToActiveSpace`); the
+  OS's own activation from the browser click switches to the window's Space.
+  WindowChromeFixer also removes `.moveToActiveSpace` on full-screen enter.
+- **Popup blocks full screen** = macOS sheet limitation, not a bug (same in all
+  apps). Dismiss the dialog first.
+- Handover item 59. Build green, tests green, zero crash reports, app running.
+
+## 2026-08-16 (sixth session) — Share-link window vanishing: real root cause
+
+- The full-screen guard alone didn't fix the "browser link makes the window
+  disappear". Deep dive: `lsregister -dump` revealed NINE registered xCloud.app
+  copies; the scheme resolved to an OLD `DerivedData/xCloud` build (18:36), so
+  every link click STARTED a second instance of the old copy, which handed off
+  to the running app and exited — and the running app only imported the link,
+  never raised its window (`drainHandoff` had no raise; the raise code only ran
+  in the process that received the URL from the OS, i.e. the dying duplicate).
+- Fixed three ways: (1) self-register the scheme on every launch via
+  `NSWorkspace.setDefaultApplication`; (2) `drainHandoff` now calls the
+  extracted `raiseMainWindow()` (full-screen aware); (3) `handOff` uses plain
+  activation instead of `.activateAllWindows`. Deleted 4 stale app bundles and
+  unregistered all stale scheme entries (incl. a `/Volumes/xCloud` DMG record
+  and `build/` Release/dmg-staging). Verified live: `open xcloud://…` spawns no
+  second process and the running instance processes the link.
+- Learned: agent-shell background (nohup) launches die when the tool command
+  exits — the app wasn't crashing (zero crash reports), the environment was
+  reaping it. Launch via `open` (LaunchServices) for persistence.
+- Handover items 57–58. Build green, tests green, app running via `open`.
+
+## 2026-08-16 (fifth session) — Share-link window recovery in full screen
+
+- **Bug**: browser share link while the app window was full screen → window
+  vanished. Root cause: `TerminationHandler` inserted `.moveToActiveSpace` into
+  the window's `collectionBehavior` unconditionally; for a full-screen window
+  (which owns its Space) that forces it OUT of full screen to follow the active
+  space, stranding it off-screen. Fixed by guarding on
+  `styleMask.contains(.fullScreen)` — pure `makeKeyAndOrderFront` lets macOS
+  switch to the window's Space (also applied to Dock-reopen).
+- **Collateral lesson**: the `rsync -a --delete` worktree→main sync wiped
+  `website/node_modules` in main (gitignored; the worktree never has it). Two
+  astro servers were running from it and files were locked. Restored via
+  `npm install` in `website/`; from now on the sync MUST pass
+  `--exclude node_modules`.
+- Handover item 57 documents both. Build green, tests green, zero crash
+  reports, app relaunched (fresh build).
+
 ## 2026-08-16 — Player polish: streaming fixes, keyboard, glass, share
 
 - **Streaming replay buffering — root cause found (TDLib queue leftovers)**: TDLib's

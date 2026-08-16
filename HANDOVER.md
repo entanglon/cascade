@@ -1233,6 +1233,152 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       or share errors; the "xCloud Shares" channel created and reused.
     - Committed to main. Build green, tests green, both repo copies identical.
 
+57. **Share-link window recovery in full screen — fixed (2026-08-16, COMPLETED)**
+    - **Bug**: opening an `xcloud://` share link in the browser while the app's
+      window was FULL SCREEN made the window "disappear" (non-full-screen had a
+      milder version of the same weirdness).
+    - **Root cause**: `TerminationHandler.application(_:open:)` unconditionally
+      inserted `.moveToActiveSpace` into the window's `collectionBehavior` and
+      called `rescueWindowOnScreen`. A full-screen window owns its Space —
+      `moveToActiveSpace` forces the window server to pull it OUT of full screen
+      to follow the active space, stranding it on another Space so it looks gone.
+    - **Fix**: if `window.styleMask.contains(.fullScreen)`, skip collection/frame
+      surgery entirely and just `makeKeyAndOrderFront` — macOS switches to the
+      window's Space automatically (standard Cmd-Tab-style full-screen switch).
+      Same guard added to `applicationShouldHandleReopen` (Dock-icon reopen).
+    - **Gotcha for future agents**: my `rsync -a --delete` worktree→main sync
+      nukes `website/node_modules` in main (gitignored, absent in the worktree) —
+      ALWAYS pass `--exclude node_modules` (and re-run `npm install` in
+      `website/` if it ever gets wiped; astro dev/preview servers may be running
+      from it).
+    - Build green, tests green, zero crash reports, both repo copies identical.
+
+58. **Share-link window vanishing — TRUE root cause: stale scheme registration + handoff never raises (2026-08-16, COMPLETED)**
+    - The full-screen guard in item 57 was necessary but NOT sufficient — the bug
+      persisted. Investigation (`lsregister -dump` + app stdout) proved the real
+      mechanism: NINE xCloud.app copies were registered for the `xcloud://`
+      scheme — `DerivedData/xCloud` (18:36), `xCloud-wt`, `xCloud-cdpcj…`,
+      `xCloud-ddqgy…`, `/Volumes/xCloud/xCloud.app` (a DMG copy, twice), and
+      `~/Projects/xCloud/build/{Release,dmg-staging}`. The scheme resolved to the
+      OLD `DerivedData/xCloud` build, so every browser click made LaunchServices
+      START a second instance of that old copy. The duplicate detected the
+      running instance, wrote the handoff file, posted the distributed
+      notification, and `_exit(0)`d — and the RUNNING instance only drained the
+      handoff (imported the link) but NEVER raised its own window. The
+      window-raising code in `application(_:open:)` only runs in the process that
+      receives the URL from the OS — which was the dying duplicate. Hence
+      "window disappears".
+    - **Fixes (all in `App/TerminationHandler.swift`):**
+      1. **Self-register the scheme on every launch**:
+         `NSWorkspace.setDefaultApplication(at: Bundle.main.bundleURL,
+         toOpenURLsWithScheme: "xcloud")` in `applicationDidFinishLaunching` —
+         whichever copy runs claims the scheme, so a stale bundle can never
+         hijack delivery again (self-healing).
+      2. **Running instance raises its own window on handoff**: extracted the
+         full-screen-aware raise into `raiseMainWindow()` and call it from
+         `drainHandoff()` (was only in `application(_:open:)`). Even if a
+         duplicate instance ever starts, the running process brings its own
+         window forward.
+      3. **`handOff()` uses `.activateIgnoringOtherApps` instead of
+         `.activateAllWindows`** — bringing all windows forward can yank a
+         full-screen window out of its Space.
+    - **Cleanup**: deleted the four stale on-disk app bundles (xCloud, xCloud-wt,
+      xCloud-cdpcj…, xCloud-ddqgy…), `lsregister -u` all stale entries including
+      the `/Volumes/xCloud` DMG record and the `build/` Release/dmg-staging
+      entries, re-registered xCloud-main. Verified: only xCloud-main claims
+      `xcloud:` now; `open xcloud://…` with the app running spawns NO second
+      process and the running instance processes the link (TDLib reads the shares
+      channel).
+    - **Environment gotcha**: background processes started by an agent shell
+      (nohup) die when the tool-call shell exits — the app appears to "keep
+      crashing" but never crashes (zero crash reports). Launch the app with
+      `open <path>/xCloud.app` instead — LaunchServices-managed instances persist
+      across commands. User-launched instances (Dock/Xcode) persist normally.
+    - Build green, tests green, zero crash reports, both repo copies identical.
+
+59. **Login-screen flash + full-screen link delivery + sheet/full-screen (2026-08-16, COMPLETED)**
+    - **Login flash on every restart — FIXED**: `AppState.hasTelegramCredentials`
+      started `false` and bootstrap() set it only after ~1-3s of DB/engine setup,
+      so RootView's `!hasTelegramCredentials` branch flashed the login gate at
+      every launch for logged-in users. Now initialized synchronously from the
+      Keychain at AppState init (`(try? KeychainStore.loadTelegramCredentials())
+      != nil`), so the first render already knows — logged-in users go splash →
+      main UI, never the login form. First-time users still get the gate.
+    - **Full-screen link delivery — root cause found and fixed**: live-isolated
+      on this Mac with AX attributes: entering full screen (1440×900) then
+      delivering an `xcloud://` link made the window exit to windowed (1224×776).
+      The culprit is ANY app-side window work during delivery: `NSApp.activate`
+      and `makeKeyAndOrderFront` both make the window server pull a full-screen
+      window OUT of full screen so it can become key on the current space (a
+      full-screen window can't share a space). `raiseMainWindow` now leaves a
+      full-screen window COMPLETELY alone (removes only the `.moveToActiveSpace`
+      flag, which would also yank it out on activation) — the OS's own activation
+      from the browser click switches to the window's Space (Cmd-Tab semantics)
+      and keeps it full screen. If the OS kicks it to windowed anyway, the
+      windowed raise path (moveToActiveSpace + rescue + orderFront) brings it
+      forward — it can no longer vanish either way. Also: WindowChromeFixer now
+      removes `.moveToActiveSpace` on full-screen enter (will/didEnter observers)
+      and restores it on exit, so the flag can never sit on a full-screen window.
+    - **Popup blocks full screen — macOS-level, not a bug**: a window with an
+      attached sheet/alert can't enter full screen (green button / ⌃⌘F silently
+      no-op) — same in Safari, Finder, every app. Dismiss the dialog first.
+    - **Environment note**: agent-launched apps' windows eventually stop
+      compositing and become unreachable via System Events ("Can't get window 1")
+      — live full-screen verification is only possible early after a fresh
+      launch, and user-launched windows are the real test bed.
+    - Build green, tests green, zero crash reports, both repo copies identical.
+
+60. **Full-screen link delivery — consolidated consult fix implemented (2026-08-16/17, COMPLETED)**
+    - External review (Claude + Qwen, prompt in `docs/fullscreen-link-consult.md`)
+      confirmed v4 and added specifics, now implemented in
+      `App/TerminationHandler.swift`:
+      1. **`raiseMainWindow`**: full-screen window → left COMPLETELY alone (belt:
+         strip `.moveToActiveSpace`, log whether it was present for a
+         re-insertion-race check). Windowed → activate only if `!NSApp.isActive`
+         (deliberately keeping `activate(ignoringOtherApps:)` here — its Spaces
+         degradation only affects full-screen windows, which never reach this
+         path, and the macOS 14+ cooperative `NSApp.activate()` can silently
+         no-op when the frontmost app doesn't yield), then deminiaturize +
+         moveToActiveSpace + rescue + orderFront. No window → activate + recreate
+         scene. NEVER orderFront/activate a full-screen window.
+      2. **`FullScreenReentryGuard`**: armed at the top of `application(_:open:)`
+         and in `drainHandoff` (pre-delivery state); observes
+         `didExitFullScreenNotification`; if the window exits full screen within
+         0.75s of the delivery it re-enters full screen after 0.4s (letting the
+         exit animation settle). A user-initiated exit later is never touched.
+      3. **Handoff**: the duplicate instance NO LONGER activates the running one
+         (`other.activate` removed) — it delivers the payload (file + distributed
+         notification) and exits; the running instance raises its own window via
+         `raiseMainWindow`, so activation is a single decision point.
+      4. Chrome fixer (`Features/RootView.swift`) unchanged: strips
+         `.moveToActiveSpace` on will/didEnterFullScreen, restores on exit.
+    - **Diagnostic**: Mission Control "switch to a Space with open windows" is at
+      default (enabled) on this Mac, so Qwen's "setting disabled" trigger does
+      NOT apply here — the `.moveToActiveSpace`/programmatic-activation mechanism
+      is the culprit.
+    - Build green, tests green, zero crash reports, both repo copies identical.
+
+61. **Release 1.2.0 + storage cleanup (2026-08-17, COMPLETED)**
+    - **Full-screen link delivery USER-CONFIRMED FIXED** (item 60's consolidated
+      fix: full-screen windows left alone + FullScreenReentryGuard + no
+      activation from the duplicate handoff).
+    - **Release build**: `xcodebuild -configuration Release -derivedDataPath
+      build` (prod bundle id `com.nemesys.xCloud.xCloud.prod`, isolated data) →
+      `scripts/make_dmg.sh 1.2.0` → `xCloud-1.2.0.dmg` (53 MB, hdiutil-verified,
+      app version 1.2.0). `MARKETING_VERSION` in the Release config was a stale
+      uncommitted `1.1` — now `1.2.0`. `dmgbuild` reinstalled to
+      `build/dmgbuild-tools` (it lived in the deleted stale build/).
+    - **Cleanup (~20 GB freed)**: deleted stale DerivedData `xCloud`, `xCloud-wt`,
+      `xCloud-cdpcj…`, `xCloud-ddqgy…` (kept `xCloud-main` — the running dev
+      build); cleaned /tmp agent junk; deleted stale untracked root-level
+      duplicates `AppState.swift`, `RootView.swift`, `project.pbxproj` (old flat
+      layout, NOT in the Xcode target — App/ and Features/ copies are
+      authoritative). Disk free 17 → 33 GB.
+    - **Gotchas**: `make_dmg.sh` isn't executable — run with `bash
+      scripts/make_dmg.sh <version>`. `build/` and `*.dmg` are gitignored.
+    - Uncommitted work on main (waiting for a commit): full-screen link fix,
+      login-flash fix, scheme registration, docs 57–61, MARKETING_VERSION bump.
+
 ---
 ## 5. Pending / next steps
 
