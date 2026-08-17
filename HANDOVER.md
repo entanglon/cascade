@@ -1696,6 +1696,38 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       (value × duration), optimistic scrub while dragging — no change needed.
     - Committed as `cf91383` (2026-08-17). Debug app running. **No Release
       build** — user policy.
+ 71. **Follow-up round 6 (2026-08-18): Share menu split, channel naming,
+     duplicate-file heal, rename-field fixes**
+     - **Share menu** (`Features/FileBrowserView.swift`): the "Share via
+       Public Link…" action became an expandable `Menu` "Share" (or
+       "Share N Items") with PRIVATE (`lock.fill`, expiring, pool of 5) and
+       PUBLIC (`globe`, never expires) submenus — one menu, both kinds.
+     - **Channel naming** (`Engine/ShareEngine.swift`, `Telegram/
+       TelegramClient.swift`): public channel = "xCloud OC"; private pool
+       slots = "xCloud PC1"…"xCloud PC5" via `poolChannelTitle(id:kind:)`;
+       legacy "xCloud Shares" channels renamed at reuse time by the new
+       `renameChatIfNeeded` (getChat compare → setChatTitle, errors swallowed).
+     - **Duplicate-file heal** (`Storage/DatabaseManager.swift` +
+       post-auth block in `App/AppState.swift`): two catalog records can
+       reference the SAME Telegram chunk message (observed on the real DB:
+       `ChatGPT Image Aug 14, 2026, 04_34_16 PM.png` twice at root — record B
+       had no rootHash and pointed at the same vault message 355467264 the
+       original owned; chunk-level dedupe never sees it). New
+       `dedupeDuplicateObjects()` keeps the record WITH a rootHash (content
+       dedup then works) or the older one, deletes the loser + its chunk rows
+       (the survivor keeps cataloging the message — Telegram untouched), and
+       runs in the same post-auth heal block as `dedupeChunkRecords()` so a
+       corrected checkpoint is republished when anything is removed.
+     - **Rename field** (`Features/FileBrowserView.swift`): the alert
+       TextField got `.id(renameTarget?.id ?? "no-target")` so every
+       presentation starts from a fresh field reading the binding (a reused
+       alert field kept its previous cleared session → reopened empty); the
+       grid's `.onKeyPress("a"/"c"/"v")` handlers now return `.ignored`
+       while `renameTarget != nil`, so Cmd+A/Cmd+C/Cmd+V reach the rename
+       field instead of select-all/copy/paste on the file grid.
+     - Committed as `4ecb5e1` (2026-08-18). Tests green (67: 59 unit +
+       4 UI + 4 launch). Debug app relaunched; heal verified live on the real
+       DB. **No Release build** — user policy.
 
 ## 5. Pending / next steps
 

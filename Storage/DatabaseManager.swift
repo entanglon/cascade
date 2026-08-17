@@ -772,6 +772,56 @@ actor DatabaseManager {
         }
     }
 
+    /// Objects must be unique by content: two catalog records referencing the
+    /// SAME Telegram chunk message render as the same file twice in the browser
+    /// (2026-08-17: a second root-level object with no rootHash was recorded for
+    /// a message the original already owned). Keeps the record WITH a rootHash
+    /// (content-dedup then works), or the older one on ties, and deletes the
+    /// duplicate object plus its chunk rows — the survivor still references the
+    /// message, so Telegram is untouched. Idempotent — a healthy catalog yields 0.
+    func dedupeDuplicateObjects() throws -> Int {
+        try write { db in
+            let objects = try ObjectRecord.fetchAll(db)
+            var messageOwner: [Int64: String] = [:]
+            var deletedIDs = Set<String>()
+            var removed = 0
+            for object in objects where !object.isFolder && object.state == "ready" {
+                let chunks = try ChunkRecord
+                    .filter(Column("objectID") == object.id)
+                    .fetchAll(db)
+                for chunk in chunks {
+                    guard let messageID = chunk.messageID else { continue }
+                    if let ownerID = messageOwner[messageID] {
+                        guard ownerID != object.id else { continue }
+                        guard let owner = objects.first(where: { $0.id == ownerID }) else { continue }
+                        let ownerHasHash = owner.rootHash?.isEmpty == false
+                        let objectHasHash = object.rootHash?.isEmpty == false
+                        let survivor: ObjectRecord
+                        let loser: ObjectRecord
+                        if ownerHasHash && !objectHasHash {
+                            survivor = owner; loser = object
+                        } else if objectHasHash && !ownerHasHash {
+                            survivor = object; loser = owner
+                        } else {
+                            survivor = owner.createdAt <= object.createdAt ? owner : object
+                            loser = survivor.id == owner.id ? object : owner
+                        }
+                        if !deletedIDs.contains(loser.id) {
+                            deletedIDs.insert(loser.id)
+                            try ObjectRecord.deleteOne(db, key: loser.id)
+                            try ChunkRecord.filter(Column("objectID") == loser.id).deleteAll(db)
+                            removed += 1
+                        }
+                        messageOwner[messageID] = survivor.id
+                    } else {
+                        messageOwner[messageID] = object.id
+                    }
+                }
+            }
+            return removed
+        }
+    }
+
     func updateChunk(_ id: String, _ mutate: (inout ChunkRecord) -> Void) throws {
         try write { db in
             guard var chunk = try ChunkRecord.fetchOne(db, id: id) else { return }

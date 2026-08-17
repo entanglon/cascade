@@ -24,11 +24,20 @@ enum ShareEngine {
     /// Legacy share-channel caption prefix (pre-v22 disposable channels).
     static let captionPrefix = "xcloud:share:v1:"
     static let defaultLifetime: TimeInterval = 7 * 24 * 3600
-    static let reusableChannelTitle = "xCloud Shares"
     /// v24: how many private links can be live at once — each takes a dedicated
     /// channel from the pool (ids 1…privatePoolSize). A pool-full share request
     /// is blocked with a clear error (never silently evicts an older share).
     static let privatePoolSize = 5
+
+    /// Per-slot channel titles, so Telegram shows WHICH channel is which: the
+    /// persistent public channel is "xCloud OC" (open channel — home of every
+    /// everlasting public link), private pool slots are "xCloud PC1"…"xCloud
+    /// PC5" (private channels — one expiring private link each). All of them
+    /// are private Telegram channels; the difference is what they carry.
+    static func poolChannelTitle(id: Int64, kind: ShareKind) -> String {
+        if kind == .public { return "xCloud OC" }
+        return "xCloud PC\(id)"
+    }
     /// Row id of the persistent public channel in share_state.
     static let publicChannelRowID: Int64 = 100
 
@@ -614,6 +623,11 @@ enum ShareEngine {
         for slot in 1...Int64(privatePoolSize) where !busySlots.contains(slot) {
             if let state = try? await DatabaseManager.shared.shareChannelState(id: slot),
                await TelegramClient.shared.chatExists(chatId: state.channelID) {
+                // Legacy channels (pre-naming) are renamed to their slot title.
+                await TelegramClient.shared.renameChatIfNeeded(
+                    chatId: state.channelID,
+                    title: poolChannelTitle(id: state.id, kind: .private)
+                )
                 return state
             }
         }
@@ -635,6 +649,11 @@ enum ShareEngine {
     static func publicChannel() async throws -> ShareChannelState {
         if let state = try? await DatabaseManager.shared.shareChannelState(id: publicChannelRowID),
            await TelegramClient.shared.chatExists(chatId: state.channelID) {
+            // Legacy channels (pre-naming) are renamed to their slot title.
+            await TelegramClient.shared.renameChatIfNeeded(
+                chatId: state.channelID,
+                title: poolChannelTitle(id: state.id, kind: .public)
+            )
             return state
         }
         return try await createPoolChannel(id: publicChannelRowID, kind: .public)
@@ -647,7 +666,7 @@ enum ShareEngine {
         guard !underXCTest else {
             throw ShareError.createFailed("Telegram unavailable under test")
         }
-        let channelID = try await TelegramClient.shared.createShareChannel(title: reusableChannelTitle)
+        let channelID = try await TelegramClient.shared.createShareChannel(title: poolChannelTitle(id: id, kind: kind))
         await TelegramClient.shared.archiveVaultChannel(chatId: channelID)
         let invite = (try? await TelegramClient.shared.createPermanentShareInvite(chatId: channelID)) ?? ""
         var state = ShareChannelState(

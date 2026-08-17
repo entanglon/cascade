@@ -224,6 +224,10 @@ struct FileBrowserView: View {
                 set: { if !$0 { renameTarget = nil } }
             )) {
                 TextField("Name", text: $renameText)
+                    // Fresh field per presentation: a reused alert TextField keeps
+                    // its previous editing session's text, so a cleared-then-canceled
+                    // rename would reopen showing stale (empty) text.
+                    .id(renameTarget?.id ?? "no-target")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
                     if let target = renameTarget {
@@ -386,6 +390,9 @@ struct FileBrowserView: View {
             return .handled
         }
         .onKeyPress("a", phases: .down) { press in
+            // While the rename alert's field is up, Cmd+A belongs to the text
+            // field (select-all text), not the file grid — let the event through.
+            if renameTarget != nil { return .ignored }
             if press.modifiers.contains(.command) {
                 appState.selectAll()
                 return .handled
@@ -393,6 +400,7 @@ struct FileBrowserView: View {
             return .ignored
         }
         .onKeyPress("c", phases: .down) { press in
+            if renameTarget != nil { return .ignored }
             if press.modifiers.contains(.command) {
                 copySelectedFilesToClipboard()
                 return .handled
@@ -400,6 +408,7 @@ struct FileBrowserView: View {
             return .ignored
         }
         .onKeyPress("v", phases: .down) { press in
+            if renameTarget != nil { return .ignored }
             if press.modifiers.contains(.command) {
                 pasteFromClipboard()
                 return .handled
@@ -1758,18 +1767,25 @@ struct FileItemContextMenu: View {
             if !file.trashed {
                 // The whole shareable selection shares as ONE group link — a
                 // multi-selection produces a single grouped share the recipient
-                // imports together. Private: expiring, dedicated channel, max 5.
-                // Public: never expires, persistent public channel.
+                // imports together. The Share menu expands into the two kinds:
+                // PRIVATE (lock) — expiring link in a dedicated pool channel,
+                // max 5; PUBLIC (globe) — never expires, persistent channel.
                 let shareTargets = actionTargets.filter { !$0.isFolder && !$0.isPrivate }
-                Button {
-                    appState.shareFiles(shareTargets)
-                } label: {
-                    Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items via Link…" : "Share via Link…", systemImage: "arrow.triangle.swap")
-                }
-                Button {
-                    appState.shareFiles(shareTargets, isPublic: true)
-                } label: {
-                    Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items via Public Link…" : "Share via Public Link…", systemImage: "globe")
+                if !shareTargets.isEmpty {
+                    Menu {
+                        Button {
+                            appState.shareFiles(shareTargets)
+                        } label: {
+                            Label("Private", systemImage: "lock.fill")
+                        }
+                        Button {
+                            appState.shareFiles(shareTargets, isPublic: true)
+                        } label: {
+                            Label("Public", systemImage: "globe")
+                        }
+                    } label: {
+                        Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items" : "Share", systemImage: "arrow.triangle.swap")
+                    }
                 }
             }
             Divider()

@@ -702,9 +702,10 @@ final class AppState {
         // made downloads assemble files twice the real size). Publish a corrected
         // checkpoint when anything was removed so the channel's state can't
         // resurrect the duplicates on the next reconcile.
-        let removedDuplicates = (try? await DatabaseManager.shared.dedupeChunkRecords()) ?? 0
+        let removedDuplicates = ((try? await DatabaseManager.shared.dedupeChunkRecords()) ?? 0)
+            + ((try? await DatabaseManager.shared.dedupeDuplicateObjects()) ?? 0)
         if removedDuplicates > 0 {
-            print("xCloud post-auth: removed \(removedDuplicates) duplicate chunk record(s)")
+            print("xCloud post-auth: removed \(removedDuplicates) duplicate chunk/object record(s)")
             let dedupeFileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
                 .filter { !$0.isFolder }.count
             if dedupeFileCount > 0, let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal() {

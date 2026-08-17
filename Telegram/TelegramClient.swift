@@ -859,6 +859,15 @@ final class TelegramClient {
         return false
     }
 
+    /// Renames a chat when its current title differs — used to bring legacy
+    /// share channels (all titled "xCloud Shares") up to the per-slot naming.
+    /// Errors are swallowed: naming is cosmetic, never share-critical.
+    func renameChatIfNeeded(chatId: Int64, title: String) async {
+        guard let client, let chat = try? await client.getChat(chatId: chatId) else { return }
+        guard chat.title != title else { return }
+        try? await client.setChatTitle(chatId: chatId, title: title)
+    }
+
     func withFloodWait<T>(_ action: @escaping () async throws -> T) async throws -> T {
         while true {
             do {
