@@ -127,17 +127,15 @@ struct TheaterView: View {
                     }
                 },
                 onUpArrow: {
+                    // Video: volume. Non-video previews deliberately do NOT column-
+                    // navigate — left/right walk the file list; up/down are a no-op.
                     if previewKind == .video {
                         SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
-                    } else {
-                        navigateMediaVertical(delta: -1)
                     }
                 },
                 onDownArrow: {
                     if previewKind == .video {
                         SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
-                    } else {
-                        navigateMediaVertical(delta: 1)
                     }
                 },
                 onSpacebar: {
@@ -219,18 +217,15 @@ struct TheaterView: View {
             return .handled
         }
         .onKeyPress(.upArrow) {
+            // Video: volume. Non-video previews do not column-navigate.
             if previewKind == .video {
                 SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
-            } else {
-                navigateMediaVertical(delta: -1)
             }
             return .handled
         }
         .onKeyPress(.downArrow) {
             if previewKind == .video {
                 SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
-            } else {
-                navigateMediaVertical(delta: 1)
             }
             return .handled
         }
@@ -880,8 +875,13 @@ struct TheaterView: View {
                  $0.mime.contains("msword") || $0.mime.contains("officedocument")) }
         case .library:
             base = files.filter { !$0.trashed && $0.isBook }
-        case .transfers, .shared:
+        case .transfers:
             base = []
+        case .shared:
+            // Both directions: files shared with me (incoming) and files I've
+            // shared out (outgoing live links) — mirrors the browser grid.
+            let sharedIDs = appState.sharedObjectIDs
+            base = files.filter { sharedIDs.contains($0.id) && !$0.trashed }
         case .archive:
             base = files.filter { $0.isArchived }
         case .trash:
@@ -1003,22 +1003,6 @@ struct TheaterView: View {
         appState.selectedFiles = [next.id]
     }
 
-    /// Up/down arrow navigation: moves to the file in the same grid column of the
-    /// row above/below, using the exact row/column math the browser's arrow keys
-    /// use (FileBrowserView.gridVerticalStep) over the same on-screen order. This
-    /// is what makes "column navigation" work while previewing, matching what the
-    /// grid shows under the viewer.
-    private func navigateMediaVertical(delta: Int) {
-        refreshTimerIfVisible()
-        let files = navigableFiles
-        guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
-        let cols = max(2, appState.gridColumnCount)
-        let nextIndex = FileBrowserView.gridVerticalStep(current: currentIndex, delta: delta, files: files, cols: cols)
-        guard nextIndex != currentIndex, files.indices.contains(nextIndex) else { return }
-        let next = files[nextIndex]
-        appState.theaterFile = next
-        appState.selectedFiles = [next.id]
-    }
     // MARK: - Media key / player transport helpers
 
     /// Shared by space, the F8 media key, and the .onKeyPress fallback.

@@ -1022,6 +1022,16 @@ final class TelegramClient {
             )
         }
 
+        return try await resolveConfirmedMessageID(message)
+    }
+
+    /// Resolves a message to its final, server-confirmed id. TDLib hands back a
+    /// message with a LOCAL id while the send is still pending (sendingState != nil);
+    /// the real server id arrives asynchronously via `updateMessageSendSucceeded`
+    /// (old_message_id → new id). Callers that skip this wait — the old
+    /// forwardMessage did — persist local ids that don't exist server-side, which
+    /// broke share links: the recipient's getMessage failed with "Not Found".
+    private func resolveConfirmedMessageID(_ message: Message) async throws -> Int64 {
         if message.sendingState == nil {
             return message.id
         }
@@ -1328,7 +1338,12 @@ final class TelegramClient {
         print("xCloud debug: dumped \(lines.count) message(s) of chat \(chatId)")
     }
 
-    /// Forwards a message into another chat and returns the new message id.
+    /// Forwards a message into another chat and returns the new message's REAL
+    /// server id. The forward response can arrive with a LOCAL (pending) id;
+    /// resolveConfirmedMessageID waits for the server-confirmed id, so the value
+    /// stored in share records actually exists on Telegram and recipients can
+    /// getMessage it. (This was the root cause of "Importing the shared file
+    /// failed. Not Found." — the sender had persisted TDLib local ids.)
     func forwardMessage(chatId: Int64, fromChatId: Int64, messageId: Int64) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
         let result = try await client.forwardMessages(
@@ -1352,7 +1367,10 @@ final class TelegramClient {
             sendCopy: false,
             topicId: nil as MessageTopic?
         )
-        return result.messages?.first?.id ?? 0
+        guard let message = result.messages?.first else {
+            throw TelegramError.joinFailed("Forward returned no message")
+        }
+        return try await resolveConfirmedMessageID(message)
     }
 
     func leaveChat(chatId: Int64) async throws {

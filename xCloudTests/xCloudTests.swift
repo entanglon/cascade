@@ -215,6 +215,21 @@ struct xCloudTests {
         #expect(FileBrowserView.gridVerticalStep(current: 5, delta: -1, files: files, cols: 4) == 4)
     }
 
+    @Test func importUniqueNameAppendsFinderStyleSuffix() {
+        // Free name → unchanged.
+        #expect(ShareEngine.uniqueName("Report.pdf", taken: ["Other.pdf"]) == "Report.pdf")
+        // Collision → " 2" before the extension, Finder-style.
+        #expect(ShareEngine.uniqueName("Report.pdf", taken: ["report.pdf"]) == "Report 2.pdf")
+        // Existing " 2" → skip to " 3".
+        #expect(ShareEngine.uniqueName("Report.pdf", taken: ["report.pdf", "REPORT 2.PDF"]) == "Report 3.pdf")
+        // Case-insensitive, like Apple (names collide regardless of case).
+        #expect(ShareEngine.uniqueName("Photo.JPG", taken: ["photo.jpg"]) == "Photo 2.JPG")
+        // Extensionless names get the suffix appended directly.
+        #expect(ShareEngine.uniqueName("Folder", taken: ["folder"]) == "Folder 2")
+        // Multi-dot names keep the full extension intact.
+        #expect(ShareEngine.uniqueName("archive.tar.gz", taken: ["archive.tar.gz"]) == "archive.tar 2.gz")
+    }
+
     @Test @MainActor func thumbnailCropProducesSquareSubjectThumbnail() {
         // Landscape 800×600 source (a phone photo) → square 320×320 thumb.
         let source = NSImage(size: NSSize(width: 800, height: 600))
@@ -1332,12 +1347,15 @@ struct xCloudTests {
         // mint a fresh v2 share instead of reusing the old link. Clean up after
         // itself (the test host shares the real DB).
         let now = Date()
+        // Server-confirmed message ids in a channel are multiples of 2^20
+        // (TDLib's shifted id space); only those are reusable. Local ids (e.g.
+        // 101) are broken and must be revoked — covered in step 5 below.
         let live = ShareRecord(
             id: "share-test-live", objectID: "obj-share-reuse",
             channelID: -100123, inviteLink: "https://t.me/+abc", shareKey: "bGl2ZQ==",
             expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
             fileName: "reuse-test.png", createdAt: now,
-            messageIDs: "101,102"
+            messageIDs: "1048576,2097152"
         )
         let expired = ShareRecord(
             id: "share-test-expired", objectID: "obj-share-reuse",
@@ -1355,7 +1373,7 @@ struct xCloudTests {
             #expect(parsed.id == live.id)
             #expect(parsed.channelID == live.channelID)
             #expect(parsed.shareKey == live.shareKey)
-            #expect(parsed.messageIDs == [101, 102])
+            #expect(parsed.messageIDs == [1048576, 2097152])
             // The URL codec stores expiry as whole seconds, so compare at that
             // precision (the record keeps sub-second components).
             #expect(Int(parsed.expiry.timeIntervalSince1970) == Int(live.expiry.timeIntervalSince1970))
@@ -1398,6 +1416,25 @@ struct xCloudTests {
 
         try await DatabaseManager.shared.deleteShare(id: expired.id)
         try await DatabaseManager.shared.deleteShare(id: legacy.id)
+
+        // 5) A v2 record whose messageIDs are TDLib LOCAL ids (not multiples of
+        // 2^20 — the pre-server-confirm-fix bug that made imports fail with "Not
+        // Found") is never reused: it's revoked on sight so re-sharing mints a
+        // fresh, valid link instead of handing out a link that can never import.
+        try await DatabaseManager.shared.deleteShare(id: live.id)
+        let broken = ShareRecord(
+            id: "share-test-broken", objectID: "obj-share-reuse",
+            channelID: -100126, inviteLink: "https://t.me/+jkl", shareKey: "YnJva2Vu",
+            expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
+            fileName: "reuse-test.png", createdAt: now,
+            messageIDs: "1048577,1048585"
+        )
+        try await DatabaseManager.shared.saveShare(broken)
+        let afterBroken = try await ShareEngine.reusableShareLink(for: "obj-share-reuse")
+        #expect(afterBroken == nil, "local-id (broken) shares are never reused")
+        let reloadedBroken = try await DatabaseManager.shared.share(id: "share-test-broken")
+        #expect(reloadedBroken?.state == "revoked", "broken share is revoked so a fresh link is minted")
+        try await DatabaseManager.shared.deleteShare(id: "share-test-broken")
     }
 
     // MARK: - Data-Safety & Hardening Tests

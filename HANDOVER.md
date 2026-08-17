@@ -1379,6 +1379,134 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Uncommitted work on main (waiting for a commit): full-screen link fix,
       login-flash fix, scheme registration, docs 57–61, MARKETING_VERSION bump.
 
+62. **Share-import "Not Found" + blinking-wrong-file + post-login loading + chunk-size/phantom cleanup (2026-08-17, COMPLETED)**
+    - **Root cause of "Importing the shared file failed. Not Found."**: the OLD
+      `forwardMessage` persisted TDLib **LOCAL** ids (forwarded messages come back
+      with a pending id while `sendingState != nil`; the real server id arrives via
+      `updateMessageSendSucceeded`). Recipient `getMessage` on a local id → 404.
+      Fix: `resolveConfirmedMessageID(_:)` in `TelegramClient.swift` (waits on
+      `completedSends` / pending continuations; local ids in a channel are NOT
+      multiples of 2^20, real server ids ARE) — used by both `sendFile` and
+      `forwardMessage`. VERIFIED LIVE: fresh share stores real ids (`11534336` =
+      11×2^20 …), recipient import succeeds; the old broken share is auto-revoked
+      by the `reusableShareLink` guard (any stored id that isn't a clean 2^20
+      multiple is marked revoked so re-sharing mints a fresh valid link).
+    - **Root cause of "importing a link blinked the FIRST image in the debug
+      cloud"**: self-open detection matched on `messageIDs` alone — ids are only
+      unique WITHIN a chat, so two accounts' channels can contain the same numeric
+      id and a recipient mistook a foreign link for their own share. Fix:
+      `importLink` matches `channelID AND messageIDs` for forward-based (v2)
+      links; legacy disposable-channel links match channelID only.
+    - **Post-login loading screen (10–20s)**: `completePostAuthSetup` now fetches
+      `identity` + `profilePhotoData` FIRST, so the sidebar user card fills
+      immediately; the channel scan still runs but the generic placeholder is gone.
+    - **VaultRepair chunk-size bug**: reconstructed chunk records used
+      `size / totalChunks` (floor division → wrong per-chunk boundaries; the real
+      docs are full plan size except the remainder tail). The wrong sizes corrupt
+      the byte-range layout used by streaming fallbacks. Fix: existing chunks are
+      now re-synced to the message's ACTUAL document size (`fileSize`), and new
+      chunk records use it too.
+    - **New debug hook `--repair-catalog <comma,objectIDs>`** (AppState,
+      pre-post-auth): drops the given objects + chunks THROUGH the app's own GRDB
+      connection, re-syncs every chunk size to the actual document size, then
+      republishes the corrected catalog as a fresh checkpoint (pruning old ones)
+      and quits — used for operator-level catalog surgery the UI doesn't expose.
+    - **THE PHANTOM OBJECT LESSON (5C3C5432)**: my test-import object was deleted
+      from the LOCAL DB but its record lived on in the CHANNEL snapshot. The
+      `CatalogSnapshot.upload()` reconcile merge treats the channel state as
+      authoritative (remote wins for same-id chunks; remote-only records are
+      unioned in), then `replaceCatalog` — so ANY launch re-resurrected it, and
+      worse, one headless run's upload() published it as a **dbdelta** message
+      that then re-injected it on EVERY subsequent launch. Fix procedure:
+      (1) delete the poisoned checkpoint/delta MESSAGE from the channel,
+      (2) stop the app, delete `xcloud.sqlite-wal`/`-shm` (a leftover WAL from a
+      `pkill`'d session kept re-injecting stale state into app reads AND made
+      sqlite3 CLI reads disagree with the app), (3) clean the main file,
+      (4) relaunch → reconcile is now idempotent. Verified stable across several
+      launches: release account shows exactly photo + mp4, both `ready`, real
+      message ids, sizes 134217728×6 + 7634680 (sum = object size), zero crashes.
+    - **Session preserved**: `xCloud-Prod` (tdlib state + Keychain) untouched — the
+      release build still logs in as the same account after the app was replaced.
+    - **Gotcha for future agents**: the `--delete-messages` / `--dump-chat` /
+      `--create-share` / `--import-share` hooks all run AFTER
+      `completePostAuthSetup` — post-auth re-merges the channel state first, so a
+      stale channel can re-poison a clean DB before the hook runs. Only
+      `--repair-catalog` runs pre-post-auth. After killing an app process with
+      pkill, remove `xcloud.sqlite-wal`/`-shm` before trusting sqlite3 reads.
+
+63. **All Files / Shared visibility + leave-share-channel after import (2026-08-17, COMPLETED)**
+    - **Why a file can vanish from All Files but stay in Recent/Videos**: chunk
+      captions carry `parentID`, and VaultRepair adopted it WITHOUT checking the
+      folder exists locally. Imported files carry the SENDER's folder id (folder
+      metadata doesn't travel with a share link), so on the recipient the file
+      pointed at a non-existent folder and matched no
+      `parentID == currentFolderID` filter — invisible in All Files while
+      Recent/Photos/Videos (type-based filters) still showed it. Fix: VaultRepair
+      now ends with an orphaned-parent reconciliation — any file whose parentID
+      doesn't resolve to a local folder is placed at the root (parentID nil).
+      Applied automatically on the next launch; verified (release account's mp4
+      went from parentID DF58FC5B → nil).
+    - **Why the Shared page was empty for the mp4**: the page showed only
+      INCOMING share records, and the user's old-binary import never recorded one
+      (0 incoming rows). Also, the user's OWN outgoing share (created in the
+      fixed build — real message IDs) was invisible because the page ignored
+      outgoing. Fix: (a) import already writes an incoming record in the current
+      code; (b) the Shared destination now shows BOTH directions —
+      `sharedObjectIDs = incoming ∪ outgoing(active)`, like Drive/iCloud;
+      (c) backfilled the release account's missing incoming record for the mp4
+      with the real share data (channel -1004357139874, message IDs
+      11534336..17825792 from the debug account's share).
+    - **Why the share channel stayed in the Telegram chat list after import**: the
+      import forwarded the chunks but never left the channel. Fix: both the v2 and
+      legacy import paths call `leaveChat(channelID)` after the full import
+      succeeds (never on failure — a retry needs membership to rejoin with the
+      one-use invite).
+    - Session preserved; both repo copies in sync; Debug + Release rebuilt;
+      release app running for user testing.
+64. **Shared page viewer keyboard navigation (2026-08-17, COMPLETED — VERIFIED IN BINARY 14:51)**
+    - The viewer (TheaterView) treated `.shared` like `.transfers` — `base = []`
+      in `mediaBase` — so opening a file from the Shared page made left/right
+      (row, next/previous file) arrows dead: there was no navigable list.
+    - Fix: `mediaBase` now has a dedicated `.shared` case mirroring the browser
+      grid filter (`sharedObjectIDs ∩ !trashed`), so the viewer's arrows walk
+      the shared files in the same on-screen order.
+    - Also: removed up/down column navigation in the preview entirely — video
+      up/down remains volume; non-video up/down are now a no-op (the user
+      explicitly doesn't want column nav in preview mode). `navigateMediaVertical`
+      and its call sites were removed.
+    - **GOCHA — first attempt never reached the binary**: the edit was applied to
+      the Freebuff worktree (relative tool paths resolve there), then a later
+      `rsync main→worktree` wiped it, so the built/installed app still had
+      `case .transfers, .shared: base = []` and arrows stayed dead. Always
+      verify with `grep 'case .shared' Features/TheaterView.swift` in MAIN and
+      rebuild + reinstall after every TheaterView change.
+65. **Re-import dedup, import name dedup, and the VaultRepair phantom-object bug (2026-08-17, COMPLETED)**
+    - **Re-import blinks the existing file**: `ShareEngine.importLink` now checks
+      the recipient's catalog for an object with the same content `rootHash`
+      (both v2 and legacy paths) and returns a new `.alreadyImported(objectID:)`
+      outcome instead of forwarding a duplicate. `AppState.importShareLink`
+      handles it like `.selfOpen` — reveal + border flash on the existing copy.
+    - **Finder-style name dedup on import**: `uniqueImportName` (pure math in
+      `uniqueName(_:taken:)`, unit-tested) appends " 2", " 3", … before the
+      extension ("Report.pdf" → "Report 2.pdf") when a same-named, non-trashed
+      root-level file already exists — case-insensitive, like Apple.
+    - **ROOT CAUSE of the recurring phantom duplicates (5C3C5432, B0D9C02D)**: a
+      forwarded share chunk keeps the SENDER's object id in its caption. The
+      recipient's import mints its own UUID, so when VaultRepair later scanned
+      the vault channel it saw the sender's id, found no matching local object,
+      and fabricated a phantom duplicate pointing at the SAME message. Every
+      launch's scan re-created it, and since the catalog snapshot merge treats
+      the channel as authoritative it survived DB cleanups.
+    - Fix: VaultRepair now skips creating an object when a local chunk already
+      references the caption's message id (logs "skipping phantom object").
+      Also hardened `deleteForever`: it never deletes a channel message still
+      referenced by ANOTHER object's chunk (deleting a phantom would otherwise
+      destroy the real file's message, since both share it).
+    - Cleanup: dropped the live phantom (B0D9C02D, the release account's
+      duplicate jpg) via the `--repair-catalog` hook + clean checkpoint; verified
+      stable across relaunches (3 objects / 9 chunks, no resurrection). The
+      chunk message itself stays — the real object (D8A2E24A) owns it.
+
 ---
 ## 5. Pending / next steps
 

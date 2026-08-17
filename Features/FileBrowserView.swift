@@ -129,7 +129,9 @@ struct FileBrowserView: View {
             case .transfers:
                 return []
             case .shared:
-                let sharedIDs = Set(appState.incomingShares.map(\.objectID))
+                // Both directions: files shared with me (incoming) and files I've
+                // shared out (outgoing live links) — like Drive/iCloud.
+                let sharedIDs = appState.sharedObjectIDs
                 return files.filter { sharedIDs.contains($0.id) && !$0.trashed }
             case .archive:
                 return files.filter { $0.isArchived }

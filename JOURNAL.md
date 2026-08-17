@@ -750,3 +750,80 @@ New `JOURNAL.md` (this file) + HANDOVER.md kept in sync.
   sync after editing silently reverted fixes and shipped two builds without them.
 - Build green, test suite green, zero crash reports; both repo copies identical;
   changes committed to main.
+
+## 2026-08-17 (late) — Share-import "Not Found", blinking wrong file, post-login loading, phantom-object saga
+
+**Context**: user tested the release build across accounts — sharing from the debug account and importing in the release account failed with "Not Found", importing a release-account photo link into debug "blinked" the first image, and the post-login loading screen lingered 10–20s.
+
+### Root causes & fixes (all in main, Debug+Release rebuilt)
+1. **forwardMessage stored TDLib LOCAL ids** → recipients' getMessage 404'd. Fixed with `resolveConfirmedMessageID` (waits for the server-confirmed id via completedSends/pending continuations); used by `sendFile` and `forwardMessage`. Old broken share records are auto-revoked by a `reusableShareLink` guard (ids must be clean multiples of 2^20). Verified live both directions.
+2. **Self-open detection matched messageIDs alone** → cross-account id collision made a foreign link "reveal" (blink) the wrong file. Fixed: forward-based links match `channelID AND messageIDs`.
+3. **Post-login loading** → `completePostAuthSetup` fetches identity/profile first; user card fills immediately.
+4. **VaultRepair reconstructed chunks with `size/totalChunks`** (floor division → wrong boundaries, corrupts stream-layout fallbacks). Fixed to use the message's actual document size for both new and existing chunk records.
+
+### The phantom-object saga (5C3C5432) — why "just delete it from the DB" never worked
+A test-import object I deleted locally stayed in the **channel snapshot**. `CatalogSnapshot.upload()` merges the channel state as authoritative and `replaceCatalog`s — every launch resurrected it. Worse, one headless run's `upload()` published it as a **dbdelta**, which then re-injected it on every subsequent launch. Also discovered: a leftover **WAL file** from a pkill'd app session kept re-injecting stale DB state into app reads AND made sqlite3 CLI reads disagree with the app. Final fix: delete the poisoned delta message from the channel → stop app → remove `-wal`/`-shm` → clean the main DB file → relaunch. Now stable across multiple launches (2 objects, real ids, correct sizes, no crashes).
+
+### New tooling
+- `--repair-catalog <comma,objectIDs>` pre-post-auth hook: drops objects/chunks via the app's own GRDB connection, re-syncs chunk sizes to actual doc sizes, republishes a corrected checkpoint, quits.
+
+### State
+- Release account (`xCloud-Prod`): photo + Rings-Dolby-Atmos mp4, both ready; chunk ids 4194304..10485760 (real), sizes 134217728×6 + 7634680; session preserved (same login after app replacement).
+- Debug account: untouched, 20 objects healthy.
+- Both repo copies in sync; Debug + Release builds green; release app running for user testing.
+
+## 2026-08-17 (late 2) — All Files / Shared visibility + leave share channel
+
+User found the imported mp4 in Recent/Videos but missing from All Files and Shared, and asked why the app doesn't leave the share channel after importing.
+
+1. **All Files invisibility** — VaultRepair adopted the caption's `parentID` (the sender's "Videos" folder) without checking the folder exists locally; the recipient had no such folder, so the file matched no folder filter. Added an orphaned-parent reconciliation pass at the end of `VaultRepair.run()`: files whose parentID doesn't resolve to a local folder are placed at root. Fixed the release account's mp4 automatically on next launch.
+2. **Shared page** — showed only incoming shares; the old-binary import never recorded one (0 rows) and the user's own outgoing share was ignored. Now the Shared destination shows both directions (`sharedObjectIDs` = incoming ∪ outgoing-active), and I backfilled the release account's missing incoming record for the mp4 from the real share data (channel -1004357139874, ids 11534336..17825792).
+3. **Leave share channel** — both import paths (v2 + legacy) now call `leaveChat` after a fully successful import, so the "xCloud Shares" channel doesn't clutter the Telegram chat list. Deliberately not on failure (retry needs membership for the one-use invite).
+
+Debug + Release rebuilt, /Applications refreshed, session preserved, release app running.
+
+## 2026-08-17 — Shared page keyboard navigation + log health check
+
+- **Fix**: TheaterView.mediaBase treated `.shared` as empty (`base = []`), so
+  opening any shared file made the viewer's arrow keys dead (no navigable list).
+  Added a dedicated `.shared` case mirroring the browser grid filter
+  (`sharedObjectIDs ∩ !trashed`) — row (left/right) and column (up/down) nav now
+  work while previewing files from the Shared page.
+- **Logs**: no crash reports; the only error-level unified-log line is harmless
+  CFBundle codec-plugin factory noise; ~688 log lines over 15 min is normal
+  TDLib/Telegram activity.
+- Debug + Release rebuilt, worktree synced, /Applications reinstalled, release
+  app running. Unit tests pass.
+
+## 2026-08-17 — Shared nav, re-import dedup, import name dedup, phantom-object root cause
+
+- **Viewer nav on Shared**: TheaterView.mediaBase now includes shared files
+  (was `[]`), so left/right arrows open next/previous from the Shared page.
+  Up/down column navigation removed from the preview (video up/down = volume;
+  non-video = no-op); `navigateMediaVertical` deleted.
+- **Re-import**: importing a link whose content rootHash already exists in the
+  vault returns `.alreadyImported` → reveal + flash the existing file, no
+  duplicate forward. Handled in AppState like `.selfOpen`.
+- **Name dedup**: imports get Finder-style "Name 2.ext" suffixes when a
+  same-named root file exists (`uniqueName`, unit-tested).
+- **Phantom root cause found**: forwarded share chunks keep the SENDER's object
+  id in the caption; VaultRepair fabricated phantom duplicates under that id
+  on every channel scan (this is what 5C3C5432 and the release account's
+  duplicate jpg B0D9C02D were). Guard added: skip if the message is already
+  cataloged under another object. `deleteForever` also now refuses to delete
+  channel messages still referenced by another object.
+- Cleaned the release duplicate via --repair-catalog; verified stable (3
+  objects / 9 chunks across relaunches). Tests pass; worktree synced; release
+  app running with the fix.
+
+## 2026-08-17 — Viewer Shared-nav actually landed; uniqueName case-insensitivity
+
+- The TheaterView `.shared` mediaBase fix from earlier never reached the binary
+  (edit landed in the worktree and was wiped by a main→worktree rsync before
+  the build). Re-applied directly to main, rebuilt, verified in the installed
+  app — forward/backward arrows on the Shared page preview now work.
+- ShareEngine.uniqueName made case-insensitive against the taken set
+  (`contains(where:)`) so it behaves like the Finder regardless of the input
+  casing; added/kept the unit test (6 cases). Full test suite green.
+- Everything committed to main; HANDOVER items 64-65 updated with the gotcha;
+  JOURNAL updated.

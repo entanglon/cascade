@@ -112,6 +112,18 @@ enum VaultRepair {
                             changed = true
                         }
                     } else {
+                        // A forwarded SHARE chunk's caption carries the SENDER's
+                        // object id — the recipient's import mints its own UUID, so
+                        // the local catalog references this message under a
+                        // DIFFERENT object id. If a local chunk already references
+                        // this exact message, the object is already cataloged;
+                        // fabricating a new object here creates a phantom duplicate
+                        // that resurrects on every scan (2026-08-17 incident).
+                        let alreadyCataloged = chunks.contains { $0.messageID == message.id }
+                        if alreadyCataloged {
+                            logger.info("VaultRepair: message \(message.id, privacy: .public) already cataloged under another object — skipping phantom object \(objectID)")
+                            continue
+                        }
                         let newObj = ObjectRecord(
                             id: objectID,
                             vaultID: vault.id,
@@ -145,14 +157,31 @@ enum VaultRepair {
                         // Restore Chunk if missing or update messageID
                         let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
                         if let target = existingChunks.first(where: { $0.index == index }) {
+                            // Repair BOTH the message id and the recorded chunk size.
+                            // Sizes derived by dividing the object size by the chunk
+                            // count produce wrong per-chunk boundaries (real chunk
+                            // documents are the full plan size except the remainder
+                            // tail), which corrupts the byte-range layout streaming
+                            // relies on. The message's own document size is ground truth.
+                            let realSize = fileSize > 0 ? fileSize : target.size
+                            var repaired = false
                             if target.messageID != message.id {
                                 do {
                                     try await DatabaseManager.shared.updateChunk(target.id) { $0.messageID = message.id }
+                                    repaired = true
                                 } catch {
                                     logger.error("VaultRepair: failed to update chunk messageID for \(objectID)/\(index): \(error.localizedDescription)")
                                 }
-                                changed = true
                             }
+                            if target.size != realSize {
+                                do {
+                                    try await DatabaseManager.shared.updateChunk(target.id) { $0.size = realSize }
+                                    repaired = true
+                                } catch {
+                                    logger.error("VaultRepair: failed to update chunk size for \(objectID)/\(index): \(error.localizedDescription)")
+                                }
+                            }
+                            changed = changed || repaired
                         } else {
                             // Never fabricate missing chunk records for an existing object that is
                             // still being uploaded (paused/failed/uploading). Those are resumable
@@ -166,7 +195,7 @@ enum VaultRepair {
                                     id: UUID().uuidString,
                                     objectID: objectID,
                                     index: index,
-                                    size: size / Int64(max(1, totalChunks)),
+                                    size: fileSize > 0 ? fileSize : size / Int64(max(1, totalChunks)),
                                     plainHash: nil,
                                     cipherHash: nil,
                                     state: "uploaded",
@@ -219,6 +248,22 @@ enum VaultRepair {
                 try? await DatabaseManager.shared.save(object)
                 changed = true
             }
+        }
+
+        // 2b. Orphaned-parent reconciliation: a file whose parentID references a
+        //     folder that doesn't exist locally (e.g. imported from a share — folder
+        //     metadata does not travel with a share link, so the recipient has no
+        //     such folder) is placed at the root. Without this, the file matches no
+        //     folder's `parentID == currentFolderID` filter and becomes INVISIBLE in
+        //     All Files while still showing in Recent/Photos/Videos (which filter by
+        //     type, not parent). Fresh fetch so folders created earlier in this scan
+        //     are honored.
+        let reconcileObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let folderIDs = Set(reconcileObjects.filter(\.isFolder).map(\.id))
+        for var orphan in reconcileObjects where !orphan.isFolder && orphan.parentID != nil && !folderIDs.contains(orphan.parentID!) {
+            orphan.parentID = nil
+            try? await DatabaseManager.shared.save(orphan)
+            changed = true
         }
 
         // 3. DIAGNOSTIC ONLY — ready objects whose chunks carry no valid message ID.

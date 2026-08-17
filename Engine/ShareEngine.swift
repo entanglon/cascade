@@ -294,6 +294,21 @@ enum ShareEngine {
             // Re-sharing such a file mints a fresh v2 share; the legacy record
             // stays valid for recipients until expiry and is cleaned up then.
             guard !share.messageIDs.isEmpty else { continue }
+            // Shares created before the server-confirm fix persisted TDLib LOCAL
+            // ids (forwardMessages returned pending ids). Real server ids in a
+            // channel are multiples of 2^20 (TDLib's shifted id space); local ids
+            // carry low bits, so any stored id that isn't a clean multiple is a
+            // broken local id whose message never existed server-side — importing
+            // that link fails with "Not Found". Never hand such a link out again:
+            // revoke it so the next share of the same file mints a fresh, valid
+            // link with confirmed ids.
+            let storedIDs = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
+            if storedIDs.contains(where: { $0 % (1 << 20) != 0 }) {
+                var broken = share
+                broken.state = "revoked"
+                try? await DatabaseManager.shared.saveShare(broken)
+                continue
+            }
             // The record can outlive its channel (deleted manually in Telegram, or
             // a crash between deleteMessages and marking revoked) — never hand out
             // a link whose channel is gone. getChat is served from TDLib's cache, so
@@ -366,6 +381,10 @@ enum ShareEngine {
         /// surfaced so the UI can reveal the original (Drive/iCloud behavior)
         /// instead of importing a duplicate.
         case selfOpen(objectID: String)
+        /// The recipient ALREADY holds this exact file (same content rootHash)
+        /// from an earlier import of the same share — nothing was imported;
+        /// surfaced so the UI can reveal the existing copy instead of duplicating.
+        case alreadyImported(objectID: String)
     }
 
     /// Opens a share link: joins the channel, forwards every chunk into the
@@ -385,10 +404,19 @@ enum ShareEngine {
         // deleted since sharing, fall through to a normal import — the channel
         // copy is still valid until expiry.) With the reusable channel, every
         // outgoing share lives in the SAME channel, so match by forwarded message
-        // IDs for v2 links; legacy links (own disposable channel) match by id.
+        // IDs AND the channel for v2 links; legacy links (own disposable channel)
+        // match by id. Matching channelID is mandatory: message IDs are only
+        // unique WITHIN a chat — two accounts' channels can contain messages with
+        // the same numeric id (e.g. local ids before the server-confirm fix), and
+        // matching messageIDs alone made a recipient mistake a foreign link for
+        // their own share, revealing (and blinking) the wrong file instead of
+        // importing.
         let outgoing = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         let own: ShareRecord? = link.isForwardBased
-            ? outgoing.first { $0.messageIDs == link.messageIDs.map(String.init).joined(separator: ",") }
+            ? outgoing.first {
+                $0.channelID == link.channelID
+                    && $0.messageIDs == link.messageIDs.map(String.init).joined(separator: ",")
+            }
             : outgoing.first { $0.channelID == link.channelID }
         if let own, let object = try? await DatabaseManager.shared.object(own.objectID) {
             return .selfOpen(objectID: object.id)
@@ -438,6 +466,13 @@ enum ShareEngine {
             }
             guard let first = metas.first else { throw ShareError.invalidPayload }
 
+            // Re-import of a file this account already holds (same content hash,
+            // e.g. the sharer shared it again after the first import): reveal the
+            // existing copy instead of forwarding a duplicate into the vault.
+            if let existing = try await Self.existingObject(rootHash: first.rootHash) {
+                return .alreadyImported(objectID: existing.id)
+            }
+
             // No key layer: shared chunks are plaintext, so the import is a pure
             // forward — the vault records the file as plaintext (isPrivate: false).
 
@@ -472,11 +507,12 @@ enum ShareEngine {
             guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
 
             let wrappedForVault: Data? = nil
+            let finalName = try await Self.uniqueImportName(first.name)
 
             let object = ObjectRecord(
                 id: objectID,
                 vaultID: vault.id,
-                name: first.name,
+                name: finalName,
                 size: first.size,
                 mime: first.mime,
                 state: "ready",
@@ -506,12 +542,18 @@ enum ShareEngine {
                 expiry: link.expiry,
                 role: "incoming",
                 state: "imported",
-                fileName: first.name,
+                fileName: finalName,
                 createdAt: .now,
                 messageIDs: link.messageIDs.map(String.init).joined(separator: ","),
                 wrappedKeyB64: link.wrappedKeyB64
             )
             try await DatabaseManager.shared.saveShare(record)
+
+            // The file's chunks are now copied into our vault — leave the share
+            // channel so it doesn't clutter the Telegram chat list (the invite was
+            // one-use and is consumed anyway). Only on full success: a failed import
+            // may need to retry, and rejoining requires membership.
+            try? await TelegramClient.shared.leaveChat(chatId: channelID)
 
             logger.info("Share \(link.id): imported \(first.name) (\(chunkRecords.count) chunks)")
             NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
@@ -531,6 +573,12 @@ enum ShareEngine {
             let messages = try await TelegramClient.shared.shareChannelMessages(chatId: channelID, prefix: captionPrefix)
             let metas = messages.compactMap { ShareEngine.parseChunkMeta($0.caption) }
             guard !metas.isEmpty, let first = metas.first else { throw ShareError.invalidPayload }
+
+            // Same re-import guard as the v2 path: if this exact file (content
+            // hash) is already in the vault, reveal it instead of duplicating.
+            if let existing = try await Self.existingObject(rootHash: first.rootHash) {
+                return .alreadyImported(objectID: existing.id)
+            }
             // Positional pairing: shareChannelMessages returns messages ordered by
             // message id, and compactMap preserves order, so index i in one list is
             // index i in the other. Never string-compare a re-encoded caption —
@@ -569,10 +617,12 @@ enum ShareEngine {
             }
             guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
 
+            let finalName = try await Self.uniqueImportName(first.name)
+
             let object = ObjectRecord(
                 id: objectID,
                 vaultID: vault.id,
-                name: first.name,
+                name: finalName,
                 size: first.size,
                 mime: first.mime,
                 state: "ready",
@@ -602,10 +652,14 @@ enum ShareEngine {
                 expiry: link.expiry,
                 role: "incoming",
                 state: "imported",
-                fileName: first.name,
+                fileName: finalName,
                 createdAt: .now
             )
             try await DatabaseManager.shared.saveShare(record)
+
+            // Same as the v2 path: once every chunk is forwarded into our vault we
+            // no longer need membership in the disposable share channel.
+            try? await TelegramClient.shared.leaveChat(chatId: channelID)
 
             logger.info("Share \(link.id): imported \(first.name) (\(chunkRecords.count) chunks)")
             NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
@@ -615,6 +669,46 @@ enum ShareEngine {
         } catch {
             throw ShareError.importFailed(describe(error))
         }
+    }
+
+
+    // MARK: - Import helpers
+
+    /// The recipient's copy of a file this account already holds, matched by
+    /// content rootHash (files only — folders carry no hash). Trashed copies are
+    /// ignored so a trashed-then-reimported file imports fresh instead of
+    /// revealing the trash row.
+    private static func existingObject(rootHash: String?) async throws -> ObjectRecord? {
+        guard let rootHash, !rootHash.isEmpty else { return nil }
+        let objects = try await DatabaseManager.shared.allObjects()
+        return objects.first { $0.rootHash == rootHash && !$0.trashed }
+    }
+
+    /// Finder-style unique name for imports that land at the root: if a
+    /// non-trashed root-level file already uses the name, append " 2", " 3", …
+    /// before the extension ("Report.pdf" → "Report 2.pdf"), matching how the
+    /// Finder keeps same-named items side by side. Case-insensitive, like Apple.
+    private static func uniqueImportName(_ base: String) async throws -> String {
+        let objects = try await DatabaseManager.shared.allObjects()
+        let taken = Set(objects
+            .filter { $0.parentID == nil && !$0.trashed }
+            .map { $0.name.lowercased() })
+        return uniqueName(base, taken: taken)
+    }
+
+    /// Pure name-collision math (unit-tested): returns `base` unchanged when
+    /// free, otherwise "Name 2.ext", "Name 3.ext", … skipping every name in
+    /// `taken` (compared case-insensitively, like the Finder).
+    static func uniqueName(_ base: String, taken: Set<String>) -> String {
+        let ext = (base as NSString).pathExtension
+        let stem = (base as NSString).deletingPathExtension
+        var name = base
+        var n = 2
+        while taken.contains(where: { $0.lowercased() == name.lowercased() }) {
+            name = ext.isEmpty ? "\(stem) \(n)" : "\(stem) \(n).\(ext)"
+            n += 1
+        }
+        return name
     }
 
     // MARK: - Expiry cleanup (sender side)

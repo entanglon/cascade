@@ -66,6 +66,9 @@ final class AppState {
     /// Files shared WITH me — incoming share records, each keyed to the vault
     /// object its import created. Loaded at launch; shown under "Shared".
     var incomingShares: [ShareRecord] = []
+    /// Files I shared with others (live outgoing links). Shown under "Shared"
+    /// alongside incoming ones — a link that's been revoked/expired is filtered out.
+    var outgoingShares: [ShareRecord] = []
     /// Share link waiting to be shown (drives the "Share Link Ready" sheet).
     var shareResultLink: String? = nil
     var isSharingFile = false
@@ -324,6 +327,52 @@ final class AppState {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
             if TelegramClient.shared.isAuthorized {
+                // Hidden debug hook: `--repair-catalog <comma,objectIDs>` performs
+                // catalog surgery THROUGH the app's own DatabaseManager (same GRDB
+                // connection — no CLI-vs-app WAL divergence), then republishes the
+                // corrected catalog as a fresh checkpoint (pruning stale ones) and
+                // quits. It runs BEFORE completePostAuthSetup so the reconcile merge
+                // (which folds stale records from an old checkpoint back in) can't
+                // undo the surgery. Operations: (1) drop the given object IDs and
+                // their chunk rows, (2) re-sync every chunk's recorded size to the
+                // actual document size Telegram stores, (3) publish checkpoint.
+                // Result goes to /tmp/xcloud-repair-catalog.txt.
+                if let idx = CommandLine.arguments.firstIndex(of: "--repair-catalog"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let dropIDs = CommandLine.arguments[idx + 1].split(separator: ",").map(String.init)
+                    var log = "repair-catalog: dropping \(dropIDs.count) object(s)\n"
+                    for id in dropIDs {
+                        do {
+                            try await DatabaseManager.shared.deleteObjectWithChunks(id: id)
+                            log += "dropped \(id)\n"
+                        } catch {
+                            log += "drop failed \(id): \(error.localizedDescription)\n"
+                        }
+                    }
+                    var fixed = 0
+                    if let vault = try? await DatabaseManager.shared.firstVault() {
+                        let chunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+                        for chunk in chunks {
+                            guard let messageID = chunk.messageID, messageID > 0 else { continue }
+                            if let actual = try? await TelegramClient.shared.fileSize(
+                                forMessage: messageID, chatId: vault.channelID
+                            ), actual > 0, actual != chunk.size {
+                                try? await DatabaseManager.shared.updateChunk(chunk.id) { $0.size = actual }
+                                fixed += 1
+                            }
+                        }
+                    }
+                    log += "fixed \(fixed) chunk size(s)\n"
+                    if let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal(force: true) {
+                        log += "checkpoint republished: \(syncedAt)\n"
+                    } else {
+                        log += "checkpoint publish FAILED\n"
+                    }
+                    try? log.write(toFile: "/tmp/xcloud-repair-catalog.txt", atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                    return
+                }
+
                 await completePostAuthSetup()
 
                 // Hidden debug hook: `--cache-video <objectID>` downloads the object
@@ -507,6 +556,47 @@ final class AppState {
                     NSApp.terminate(nil)
                 }
 
+                // Hidden debug hook: `--create-share <objectID>` runs the full sender
+                // share path (forward chunks into the reusable channel) and writes
+                // the minted link to /tmp/xcloud-share-link.txt, then quits — lets
+                // the forward/serve side be tested headlessly.
+                if let idx = CommandLine.arguments.firstIndex(of: "--create-share"),
+                   CommandLine.arguments.indices.contains(idx + 1) {
+                    let objectID = CommandLine.arguments[idx + 1]
+                    let result: String
+                    do {
+                        if let object = try await DatabaseManager.shared.object(objectID) {
+                            result = try await ShareEngine.share(object: object)
+                        } else {
+                            result = "FAILED: no object \(objectID)"
+                        }
+                    } catch {
+                        result = "FAILED: \(ShareEngine.describe(error))"
+                    }
+                    try? result.write(toFile: "/tmp/xcloud-share-link.txt", atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                }
+
+                // Hidden debug hook: `--delete-messages <chatID> <comma,ids>` deletes
+                // the given messages from a chat (vault cleanup / test data removal)
+                // and writes the count to /tmp/xcloud-deleted.txt, then quits.
+                if let idx = CommandLine.arguments.firstIndex(of: "--delete-messages"),
+                   CommandLine.arguments.indices.contains(idx + 2),
+                   let chatID = Int64(CommandLine.arguments[idx + 1]) {
+                    let ids = CommandLine.arguments[idx + 2]
+                        .split(separator: ",")
+                        .compactMap { Int64($0) }
+                    var deleted = 0
+                    if !ids.isEmpty {
+                        try? await TelegramClient.shared.deleteMessages(chatId: chatID, messageIds: ids)
+                        deleted = ids.count
+                    }
+                    try? "deleted \(deleted) message(s)".write(
+                        toFile: "/tmp/xcloud-deleted.txt", atomically: true, encoding: .utf8
+                    )
+                    NSApp.terminate(nil)
+                }
+
                 // Hidden debug hook: `--revoke-shares` deletes every outgoing share
                 // channel (revoking their links) so stale test channels can be
                 // cleaned up, writes the count to /tmp/xcloud-revoke.txt, then quits.
@@ -541,6 +631,16 @@ final class AppState {
         hasCompletedPostAuthSetup = true
         isInitialLoading = true
         defer { isInitialLoading = false }
+
+        // Fetch the account identity/profile FIRST — the sidebar user card fills
+        // in within a second of login instead of waiting for the full channel
+        // scan (which can take 10–20s on a fresh account and left the card
+        // showing the generic "Telegram Vault / Connected" placeholder).
+        identity = try? await TelegramClient.shared.fetchIdentity()
+        print("xCloud post-auth: identity=\(identity?.firstName ?? "nil")")
+        if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
+            profilePhotoData = photo
+        }
 
         // Ensure the vault record exists BEFORE the scan so we have a channel to
         // read. On a fresh container this adopts the account's existing vault channel
@@ -613,11 +713,6 @@ final class AppState {
             await self.loadFiles()
         }
 
-        identity = try? await TelegramClient.shared.fetchIdentity()
-        print("xCloud post-auth: identity=\(identity?.firstName ?? "nil")")
-        if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
-            profilePhotoData = photo
-        }
         await cleanupExpiredTransfers()
         await restoreTransferCards()
         await loadShares()
@@ -965,10 +1060,19 @@ final class AppState {
 
     // MARK: - Cloud sharing
 
-    /// Loads incoming share records (files other xCloud users shared with me).
+    /// Loads share records — files other xCloud users shared with me (incoming)
+    /// and files I shared out (outgoing, live links only).
     @MainActor
     func loadShares() async {
         incomingShares = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
+        outgoingShares = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
+            .filter { $0.state == "active" }
+    }
+
+    /// Object IDs shown under "Shared": files shared with me plus files I've
+    /// shared out — both directions, like Drive/iCloud.
+    var sharedObjectIDs: Set<String> {
+        Set((incomingShares + outgoingShares).map(\.objectID))
     }
 
     /// Sender side: creates the share link by forwarding the file's chunks into
@@ -1022,6 +1126,14 @@ final class AppState {
                         } else {
                             revealObject(object)
                         }
+                    }
+                case .alreadyImported(let objectID):
+                    print("xCloud URL: already imported, revealing object \(objectID)")
+                    // The same exact file was imported before (content hash match) —
+                    // reveal + blink the existing copy instead of a duplicate import.
+                    await self.loadFiles()
+                    if let object = self.files.first(where: { $0.id == objectID }) {
+                        revealObject(object)
                     }
                 }
             } catch {
@@ -1188,8 +1300,7 @@ final class AppState {
         case .transfers:
             base = []
         case .shared:
-            let sharedIDs = Set(incomingShares.map(\.objectID))
-            base = files.filter { sharedIDs.contains($0.id) && !$0.trashed }
+            base = files.filter { sharedObjectIDs.contains($0.id) && !$0.trashed }
         }
         // Archived files are hidden everywhere except the Archive destination.
         if selectedDestination == .archive { return base }
@@ -1816,9 +1927,17 @@ final class AppState {
                     let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
                     allMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))
                 }
+                // Safety: never delete a channel message that ANOTHER object's chunk
+                // still references. A phantom duplicate (VaultRepair fabricating the
+                // sender's id from a forwarded share caption) shares the real file's
+                // message — deleting it here would break the surviving file.
+                let allChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+                let deleteIDs = allMsgIDs.filter { mid in
+                    !allChunks.contains { $0.messageID == mid && !ids.contains($0.objectID) }
+                }
                 // Deletes from the vault channel AND the backup channel's forwarded
                 // copies — permanent deletion means gone from both mirrors.
-                await BackupSync.deleteFromVaultAndBackup(messageIDs: allMsgIDs)
+                await BackupSync.deleteFromVaultAndBackup(messageIDs: deleteIDs)
             }
 
             for id in ids {
