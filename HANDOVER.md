@@ -1670,7 +1670,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       technique as FileBrowserKeyView); FileBrowserView's monitor now defers on
       `.shared` so the two never fight. Lock icon is now the proper padlock —
       orange `lock.fill` (private) / green `lock.open.fill` (public). Committed
-      as `a3c9d41` (2026-08-17). **No Release build** — user policy: Debug only
+      as `0463e54` (2026-08-17). **No Release build** — user policy: Debug only
       until the user approves a release build.
 
 ## 5. Pending / next steps
