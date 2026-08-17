@@ -17,6 +17,12 @@ struct ShareManagerView: View {
     @State private var cancelTarget: ShareRecord? = nil
     @State private var showCancelAll = false
     @State private var selectedShareID: String? = nil
+    @State private var columnCount = 2
+    @State private var scrollTargetID: String? = nil
+
+    /// Flat list in visual order (public section first, then private section) —
+    /// the order arrow-key navigation walks, matching the grid layout.
+    private var navigableShares: [ShareRecord] { publicShares + privateShares }
 
     private var active: [ShareRecord] { appState.activeOutgoingShares }
     private var privateShares: [ShareRecord] { active.filter { !$0.isPublic } }
@@ -29,6 +35,7 @@ struct ShareManagerView: View {
             } else {
                 GeometryReader { geo in
                     let cols = max(2, Int(geo.size.width / cardWidth))
+                    ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             if active.count > 1 {
@@ -65,6 +72,7 @@ struct ShareManagerView: View {
                                         } onCancel: {
                                             cancelTarget = share
                                         }
+                                        .id(share.id)
                                     }
                                 }
                                 .padding(.horizontal, 24)
@@ -83,6 +91,7 @@ struct ShareManagerView: View {
                                         } onCancel: {
                                             cancelTarget = share
                                         }
+                                        .id(share.id)
                                     }
                                 }
                                 .padding(.horizontal, 24)
@@ -92,6 +101,30 @@ struct ShareManagerView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 80)
                     }
+                    .onChange(of: geo.size.width, initial: true) {
+                        columnCount = max(2, Int(geo.size.width / cardWidth))
+                    }
+                    .onChange(of: scrollTargetID) { _, newID in
+                        guard let newID else { return }
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            proxy.scrollTo(newID, anchor: .center)
+                        }
+                    }
+                    }
+                }
+                .background {
+                    // Arrow keys + Return drive the grid selection exactly like
+                    // the file browser's grid (see FileBrowserKeyView).
+                    ShareKeyMonitorView(
+                        onArrow: { delta, isVertical in
+                            navShare(delta, isVertical: isVertical)
+                            return true
+                        },
+                        onReturn: {
+                            openSelected()
+                            return true
+                        }
+                    )
                 }
             }
         }
@@ -113,6 +146,50 @@ struct ShareManagerView: View {
             Button("Keep", role: .cancel) {}
         } message: {
             Text("Every share link stops working immediately. The files stay in your vault.")
+        }
+    }
+
+    /// Arrow-key grid navigation, matching the file browser: left/right move
+    /// along the row, up/down move to the same column of the next/previous row.
+    /// The flat navigable list is row-major over the grid columns, so the same
+    /// math as the file grid applies (both sections share the column count).
+    private func navShare(_ delta: Int, isVertical: Bool) {
+        let shares = navigableShares
+        guard !shares.isEmpty else { return }
+        guard let current = shares.firstIndex(where: { $0.id == selectedShareID }) else {
+            selectedShareID = shares[0].id
+            scrollTargetID = shares[0].id
+            return
+        }
+        let nextIndex: Int
+        if isVertical {
+            let target = current + (delta * columnCount)
+            nextIndex = min(max(target, 0), shares.count - 1)
+        } else {
+            nextIndex = min(max(current + delta, 0), shares.count - 1)
+        }
+        selectedShareID = shares[nextIndex].id
+        scrollTargetID = shares[nextIndex].id
+    }
+
+    /// Return key: reveals the selected share's file, same as double-click.
+    private func openSelected() {
+        guard let selectedShareID,
+              let share = navigableShares.first(where: { $0.id == selectedShareID }) else { return }
+        reveal(share)
+    }
+
+    /// Finder-style reveal: jumps to the shared file in All Files / Private
+    /// Vault, selects it, and flashes its border. Group shares reveal the first
+    /// member.
+    private func reveal(_ share: ShareRecord) {
+        let ids = !share.groupObjectIDs.isEmpty
+            ? share.groupObjectIDs.split(separator: ",").map(String.init)
+            : [share.objectID]
+        guard let first = ids.first else { return }
+        Task {
+            guard let object = try? await DatabaseManager.shared.object(first) else { return }
+            appState.revealObject(object)
         }
     }
 
@@ -175,7 +252,7 @@ struct ShareGridCard: View {
     private var isGroup: Bool { !share.groupObjectIDs.isEmpty }
     private var isPublic: Bool { share.isPublic }
     private var kindColor: Color { isPublic ? .green : .orange }
-    private var kindIcon: String { isPublic ? "lock.open.fill" : "lock.shield.fill" }
+    private var kindIcon: String { isPublic ? "lock.open.fill" : "lock.fill" }
     private var fileIcon: String {
         guard !isGroup else { return "folder" }
         let mime = object?.mime ?? ""
@@ -347,6 +424,74 @@ struct ShareGridCard: View {
         Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             copied = false
+        }
+    }
+}
+// MARK: - Keyboard navigation
+
+/// Window-scoped key monitor for the Shared page (same technique as the file
+/// browser's FileBrowserKeyView): arrow keys move the grid selection, Return
+/// reveals the selected share's file. Never steals keys while the user is
+/// typing in a text field, and defers to other windows.
+private struct ShareKeyMonitorView: NSViewRepresentable {
+    var onArrow: (Int, Bool) -> Bool
+    var onReturn: () -> Bool
+
+    func makeNSView(context: Context) -> ShareKeyView {
+        let view = ShareKeyView()
+        apply(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: ShareKeyView, context: Context) {
+        apply(nsView)
+    }
+
+    private func apply(_ view: ShareKeyView) {
+        view.onArrow = onArrow
+        view.onReturn = onReturn
+    }
+}
+
+final class ShareKeyView: NSView {
+    var onArrow: ((Int, Bool) -> Bool)?
+    var onReturn: (() -> Bool)?
+    private var monitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && monitor == nil {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.window != nil else { return event }
+                guard event.window === self.window else { return event }
+                if let responder = self.window?.firstResponder,
+                   responder is NSTextView || responder is NSTextField {
+                    return event
+                }
+                let flags = event.modifierFlags
+                let isCmd = flags.contains(.command)
+                if isCmd { return event }
+
+                switch event.keyCode {
+                case 123: // left
+                    if self.onArrow?(-1, false) == true { return nil }
+                case 124: // right
+                    if self.onArrow?(1, false) == true { return nil }
+                case 125: // down
+                    if self.onArrow?(1, true) == true { return nil }
+                case 126: // up
+                    if self.onArrow?(-1, true) == true { return nil }
+                case 36: // return
+                    if self.onReturn?() == true { return nil }
+                default:
+                    break
+                }
+                return event
+            }
+        }
+        if window == nil, let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
     }
 }

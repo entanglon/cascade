@@ -486,6 +486,7 @@ struct FileBrowserView: View {
                         || appState.readerFile != nil
                         || AudioPlayerEngine.shared.isFullScreen
                         || appState.selectedDestination == .transfers
+                        || appState.selectedDestination == .shared
                 },
                 onDelete: {
                     if appState.selectedDestination == .trash {

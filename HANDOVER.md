@@ -1660,14 +1660,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Shared page can't upload/create** (`Features/FileBrowserView.swift`):
       `.shared` excluded from `canUploadOnThisPage` and `createMenuItems` (New
       Folder / New Private Folder) — the page lists handed-out links, not files.
-- **Shared page interactions** (follow-up): the kind lock moved to the
-      card's TOP-LEFT corner as a 24pt button identical in size/styling to the
-      top-right ellipsis menu button — orange `lock.shield.fill` (private) /
-      green `lock.open.fill` (public). Cards are now interactive like the file
-      grid: single click selects (accent highlight, one card at a time),
-      double-click reveals the shared file (All Files / Private Vault, selects
-      + flashes; group shares reveal the first member). Committed as
-      `7efdfc8` (2026-08-17). **No Release build** — user policy: Debug only
+- **Shared page keyboard navigation** (follow-up): arrow keys move the
+      card selection like the file grid — left/right along the row, up/down to
+      the same column of the next/previous row (row-major math over
+      `columnCount`, clamped; visual order = public section then private), and
+      the scroll view follows the selection. Return reveals the selected
+      share's file. Implemented via a window-scoped key monitor
+      (`ShareKeyMonitorView`/`ShareKeyView` in ShareManagerView.swift, same
+      technique as FileBrowserKeyView); FileBrowserView's monitor now defers on
+      `.shared` so the two never fight. Lock icon is now the proper padlock —
+      orange `lock.fill` (private) / green `lock.open.fill` (public). Committed
+      as `a3c9d41` (2026-08-17). **No Release build** — user policy: Debug only
       until the user approves a release build.
 
 ## 5. Pending / next steps

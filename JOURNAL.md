@@ -62,6 +62,14 @@
   highlight) and double-click reveals the shared file via `revealObject`
   (group shares reveal the first member). **User policy change: no Release
   builds until the user approves — Debug only from now on.**
+- **Round 4 (user correction)**: arrow-key navigation on the Shared page was
+  missing — now left/right move along the row and up/down move to the same
+  column of the next/previous row (row-major math over the grid's column
+  count), the scroll view follows the selection, and Return reveals the
+  selected share's file. New window-scoped `ShareKeyMonitorView` (same
+  technique as the file browser's monitor; FileBrowserView now defers on
+  `.shared`). Lock icon fixed to the proper padlock: orange `lock.fill`
+  (private) / green `lock.open.fill` (public) — the shield-lock was rejected.
 
 ## 2026-08-14 — Foundation work
 
