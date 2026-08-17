@@ -16,6 +16,7 @@ struct ShareManagerView: View {
     @AppStorage("xc.cardWidth") private var cardWidth = 200.0
     @State private var cancelTarget: ShareRecord? = nil
     @State private var showCancelAll = false
+    @State private var selectedShareID: String? = nil
 
     private var active: [ShareRecord] { appState.activeOutgoingShares }
     private var privateShares: [ShareRecord] { active.filter { !$0.isPublic } }
@@ -59,7 +60,11 @@ struct ShareManagerView: View {
                                     spacing: 12
                                 ) {
                                     ForEach(publicShares) { share in
-                                        ShareGridCard(share: share, onCancel: { cancelTarget = share })
+                                        ShareGridCard(share: share, isSelected: selectedShareID == share.id) {
+                                            selectedShareID = share.id
+                                        } onCancel: {
+                                            cancelTarget = share
+                                        }
                                     }
                                 }
                                 .padding(.horizontal, 24)
@@ -73,7 +78,11 @@ struct ShareManagerView: View {
                                     spacing: 12
                                 ) {
                                     ForEach(privateShares) { share in
-                                        ShareGridCard(share: share, onCancel: { cancelTarget = share })
+                                        ShareGridCard(share: share, isSelected: selectedShareID == share.id) {
+                                            selectedShareID = share.id
+                                        } onCancel: {
+                                            cancelTarget = share
+                                        }
                                     }
                                 }
                                 .padding(.horizontal, 24)
@@ -153,8 +162,11 @@ struct ShareManagerView: View {
 /// the same actions.
 struct ShareGridCard: View {
     let share: ShareRecord
+    let isSelected: Bool
+    let onSelect: () -> Void
     let onCancel: () -> Void
 
+    @Environment(AppState.self) private var appState
     @State private var thumbURL: URL? = nil
     @State private var object: ObjectRecord? = nil
     @State private var copied = false
@@ -163,7 +175,7 @@ struct ShareGridCard: View {
     private var isGroup: Bool { !share.groupObjectIDs.isEmpty }
     private var isPublic: Bool { share.isPublic }
     private var kindColor: Color { isPublic ? .green : .orange }
-    private var kindIcon: String { isPublic ? "lock.open.fill" : "lock.fill" }
+    private var kindIcon: String { isPublic ? "lock.open.fill" : "lock.shield.fill" }
     private var fileIcon: String {
         guard !isGroup else { return "folder" }
         let mime = object?.mime ?? ""
@@ -226,45 +238,71 @@ struct ShareGridCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
+                .fill(isSelected ? XTheme.accent.opacity(0.18)
+                    : (hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.06), lineWidth: isSelected ? 1.5 : 1)
         )
-        .overlay(alignment: .topTrailing) {
-            HStack(spacing: 4) {
-                // Kind badge: small orange lock (private) / green unlocked lock (public).
+        .overlay(alignment: .topLeading) {
+            // Kind button, top-left corner: same size and styling as the menu
+            // button on the top-right. Orange shield-lock for private, green
+            // unlocked lock for public.
+            ZStack {
+                Circle()
+                    .fill(Color.black.opacity(0.55))
                 Image(systemName: kindIcon)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(Circle().fill(kindColor))
-
-                Menu {
-                    shareMenuContent
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color.black.opacity(0.55))
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .frame(width: 24, height: 24)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .contentShape(Circle())
-                }
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(kindColor)
             }
+            .frame(width: 24, height: 24)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .contentShape(Circle())
+            .help(isPublic ? "Public share — never expires" : "Private share — expires, revocable")
+            .padding(6)
+        }
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                shareMenuContent
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.black.opacity(0.55))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .help("Share options")
             .padding(6)
         }
         .contextMenu { shareMenuContent }
         .scaleEffect(hovering ? 1.02 : 1.0)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .onHover { hovering = $0 }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { openSharedFile() }
+        .simultaneousGesture(TapGesture(count: 1).onEnded { onSelect() })
+        .help("Double-click to show the file")
         .task(id: share.id) { await loadThumbnail() }
+    }
+
+    /// Finder-style reveal: jumps to the shared file in All Files / Private
+    /// Vault, selects it, and flashes its border. Group shares reveal the first
+    /// member.
+    private func openSharedFile() {
+        let ids = isGroup ? share.groupObjectIDs.split(separator: ",").map(String.init) : [share.objectID]
+        guard let first = ids.first else { return }
+        Task {
+            guard let object = try? await DatabaseManager.shared.object(first) else { return }
+            appState.revealObject(object)
+        }
     }
 
     @ViewBuilder

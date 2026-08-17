@@ -1660,12 +1660,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Shared page can't upload/create** (`Features/FileBrowserView.swift`):
       `.shared` excluded from `canUploadOnThisPage` and `createMenuItems` (New
       Folder / New Private Folder) — the page lists handed-out links, not files.
-    - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Committed as
-      `95d7579` (2026-08-17); grid-card + fixed-transfer-card follow-up as
-      `cf3a1ce` (2026-08-17). Debug app running with the new UI. Release rebuilt
-      and re-installed over `/Applications/xCloud.app` (1.2.0, bundle id
-      `.prod`, session/data preserved — backed up to
-      `~/Library/Application Support/xCloud-Prod.bak-2026-08-17` first).
+- **Shared page interactions** (follow-up): the kind lock moved to the
+      card's TOP-LEFT corner as a 24pt button identical in size/styling to the
+      top-right ellipsis menu button — orange `lock.shield.fill` (private) /
+      green `lock.open.fill` (public). Cards are now interactive like the file
+      grid: single click selects (accent highlight, one card at a time),
+      double-click reveals the shared file (All Files / Private Vault, selects
+      + flashes; group shares reveal the first member). Committed as
+      `e6f4a9d` (2026-08-17). **No Release build** — user policy: Debug only
+      until the user approves a release build.
 
 ## 5. Pending / next steps
 

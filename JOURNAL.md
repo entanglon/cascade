@@ -55,6 +55,13 @@
   icon area, 1-line name/status with fixed heights) so every card is
   pixel-identical. Debug app relaunched; DB confirms 3 real active private
   shares render as grid cards.
+- **Round 3 (user correction)**: lock badge moved to the card's TOP-LEFT as a
+  24pt button exactly like the top-right ellipsis menu (same size/styling);
+  private = orange `lock.shield.fill`, public = green `lock.open.fill`.
+  Share cards were dead (no tap gestures) — now single-click selects (accent
+  highlight) and double-click reveals the shared file via `revealObject`
+  (group shares reveal the first member). **User policy change: no Release
+  builds until the user approves — Debug only from now on.**
 
 ## 2026-08-14 — Foundation work
 
