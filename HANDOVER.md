@@ -1611,12 +1611,50 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       reuse, pool-full guard (relative to the REAL DB's pre-existing active
       private shares — the suite runs against the real app database and real
       shares from earlier testing exist! never assume an empty pool), cancel →
-      revoked. Full suite green (46 unit + 4 UI + 4 launch). Debug build green,
-      app launched, migration verified on the real DB (isPublic column, slot 1
-      private). **NOT committed. NOT yet verified in-app: create a private
-      share (expires, cancelable), a public share (never expires), fill the
-      pool to 5 → block alert, import from a second account, check imports
-      show under Transfers.**
+       revoked. Full suite green (46 unit + 4 UI + 4 launch). Debug build green,
+       app launched, migration verified on the real DB (isPublic column, slot 1
+       private). **Committed as `d9a3e4d` (2026-08-17). NOT yet verified in-app:
+       create a private share (expires, cancelable), a public share (never
+       expires), fill the pool to 5 → block alert, import from a second account,
+       check imports show under Transfers.**
+69. **Shared page redesign + Library covers + transfer clarity (2026-08-17 —
+    IMPLEMENTED, NOT VERIFIED IN-APP)**
+    - **Why**: user feedback — the v3 Shared page "didn't follow the app's
+      design scheme"; the simple cards from before were fine; Library book covers
+      only appeared after opening the file (Library poster cards showed
+      placeholders while All Files thumbs load); Transfers "Downloads" cards were
+      confusing ("are those even real?" — YES: real persisted history incl.
+      phantom-era junk names; nothing fake was deleted).
+    - **Shared page (`Features/ShareManagerView.swift`, redesigned)**: full-width
+      cards like the transfer rows — glassEffect, leading kind icon circle (lock
+      orange / globe green), name + expiry line ("Expires in 3 days" /
+      "Never expires"), a small kind badge on the card's top-trailing corner
+      (above the ellipsis menu), and Copy Link / Cancel Share inside the trailing
+      ellipsis menu (same circle-menu styling as transfer cards). "Cancel All
+      Shares" button appears in the page header only when >1 active. Cancel
+      confirm alerts kept.
+    - **Library covers** (`Engine/ThumbnailService.swift`): `bookCoverURL` was
+      cache-only by design (storm-avoidance); now when the cover is missing AND
+      the book isn't cached it starts a background fetch via new private actor
+      `BookCoverFetcher` — single-flight per book, bounded concurrency (3),
+      `DownloadEngine.download(quiet:)` (no Transfers card) which generates the
+      cover at completion, then posts `.xcThumbnailReady`; the grid's existing
+      onReceive re-keys cards (thumbnailVersion++) and the cover appears live.
+      Cached books still generate in place. Failure is silent + non-critical.
+    - **Transfers clarity** (`Engine/TransferCenter.swift`,
+      `Features/TransfersView.swift`): `Item.finishedAt` (set on finish, restored
+      from history); terminal statusText is now semantic — "Uploaded" /
+      "Downloaded" / "Imported" (was "Complete") — and cards append the finished
+      time ("Uploaded · 4:12 PM", "MMM d, h:mm a" for older rows), so restored
+      history reads as history.
+    - **Shared page can't upload/create** (`Features/FileBrowserView.swift`):
+      `.shared` excluded from `canUploadOnThisPage` and `createMenuItems` (New
+      Folder / New Private Folder) — the page lists handed-out links, not files.
+    - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Committed as
+      `f3b02ee` (2026-08-17). Debug app running with the new UI. Release rebuilt
+      and re-installed over `/Applications/xCloud.app` (1.2.0, bundle id
+      `.prod`, session/data preserved — backed up to
+      `~/Library/Application Support/xCloud-Prod.bak-2026-08-17` first).
 
 ## 5. Pending / next steps
 

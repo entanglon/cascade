@@ -225,7 +225,7 @@ struct TransferGridCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                Text(item.statusText)
+                Text(item.statusLine)
                     .font(.system(size: 11))
                     .foregroundStyle(item.statusColor)
                     .lineLimit(1)
@@ -286,7 +286,7 @@ struct TransferRow: View {
                     .allowsHitTesting(false)
 
                 HStack {
-                    Text(item.statusText)
+                    Text(item.statusLine)
                         .font(.system(size: 11))
                         .foregroundStyle(item.statusColor)
                     Spacer()
@@ -550,5 +550,19 @@ func TransferItemMenuContent(item: TransferCenter.Item, appState: AppState) -> s
         } label: {
             Label("Remove", systemImage: "xmark.circle.fill")
         }
+    }
+}
+
+// MARK: - Status line
+
+extension TransferCenter.Item {
+    /// The status text plus, for terminal cards, when they finished — e.g.
+    /// "Uploaded · 4:12 PM" — so restored history reads as history, not as
+    /// something still happening.
+    var statusLine: String {
+        guard let finishedAt, state == .complete || state == .failed else { return statusText }
+        let formatter = DateFormatter()
+        formatter.dateFormat = Calendar.current.isDateInToday(finishedAt) ? "h:mm a" : "MMM d, h:mm a"
+        return "\(statusText) · \(formatter.string(from: finishedAt))"
     }
 }

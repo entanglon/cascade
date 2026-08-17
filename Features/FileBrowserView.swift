@@ -599,7 +599,7 @@ struct FileBrowserView: View {
                     showEmptyTrashAlert = true
                 }
             }
-        } else {
+        } else if appState.selectedDestination != .shared {
             createMenuItems
         }
 
@@ -615,7 +615,11 @@ struct FileBrowserView: View {
     }
 
     private var canUploadOnThisPage: Bool {
-        appState.selectedDestination != .trash && appState.selectedDestination != .archive
+        // The Shared page lists handed-out links, not files — uploading/creating
+        // there would be meaningless.
+        appState.selectedDestination != .trash
+            && appState.selectedDestination != .archive
+            && appState.selectedDestination != .shared
     }
 
     @ViewBuilder

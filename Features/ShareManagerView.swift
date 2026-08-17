@@ -45,16 +45,20 @@ struct ShareManagerView: View {
 
                         if !publicShares.isEmpty {
                             sectionHeader("Public — never expires")
-                            ForEach(publicShares) { share in
-                                ShareRowCard(share: share, onCancel: { cancelTarget = share })
+                            LazyVStack(spacing: 10) {
+                                ForEach(publicShares) { share in
+                                    ShareRowCard(share: share, onCancel: { cancelTarget = share })
+                                }
                             }
                             .padding(.horizontal, 24)
                         }
 
                         if !privateShares.isEmpty {
                             sectionHeader("Private — expires, revocable")
-                            ForEach(privateShares) { share in
-                                ShareRowCard(share: share, onCancel: { cancelTarget = share })
+                            LazyVStack(spacing: 10) {
+                                ForEach(privateShares) { share in
+                                    ShareRowCard(share: share, onCancel: { cancelTarget = share })
+                                }
                             }
                             .padding(.horizontal, 24)
                         }
@@ -123,24 +127,29 @@ struct ShareManagerView: View {
     }
 }
 
-/// One outgoing share card: name (or "N files" for a group), share kind, expiry,
-/// Copy Link, and Cancel.
+/// One outgoing share card, styled like the transfer cards: kind icon up front,
+/// a corner badge marking private vs public, and Copy Link / Cancel Share in the
+/// trailing ellipsis menu (the same menu style as transfer cards).
 struct ShareRowCard: View {
     let share: ShareRecord
     let onCancel: () -> Void
     @State private var copied = false
 
     private var isGroup: Bool { !share.groupObjectIDs.isEmpty }
+    private var isPublic: Bool { share.isPublic }
+    private var kindColor: Color { isPublic ? Color.green : Color.orange }
+    private var kindIcon: String { isPublic ? "globe" : "lock.fill" }
 
     var body: some View {
         HStack(spacing: 14) {
+            // Kind icon: lock for private, globe for public.
             ZStack {
                 Circle()
-                    .fill(share.isPublic ? Color.green.opacity(0.16) : Color.orange.opacity(0.16))
+                    .fill(kindColor.opacity(0.16))
                     .frame(width: 38, height: 38)
-                Image(systemName: share.isPublic ? "globe" : "lock")
+                Image(systemName: kindIcon)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(share.isPublic ? Color.green : Color.orange)
+                    .foregroundStyle(kindColor)
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -148,42 +157,43 @@ struct ShareRowCard: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(XTheme.textPrimary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Text(expiryText)
                     .font(.system(size: 11))
-                    .foregroundStyle(share.isPublic ? Color.green.opacity(0.9) : XTheme.textSecondary)
+                    .foregroundStyle(isPublic ? Color.green.opacity(0.9) : XTheme.textSecondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button {
-                copyLink()
+            // Copy Link + Cancel Share live in the ellipsis menu, matching the
+            // transfer cards' menu button styling.
+            Menu {
+                Button {
+                    copyLink()
+                } label: {
+                    Label(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+                Button(role: .destructive) {
+                    onCancel()
+                } label: {
+                    Label("Cancel Share", systemImage: "xmark.circle.fill")
+                }
             } label: {
-                Label(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(XTheme.accent)
-                    )
+                ZStack {
+                    Circle()
+                        .fill(Color.black.opacity(0.40))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
             }
+            .menuIndicator(.hidden)
             .buttonStyle(.plain)
-
-            Button {
-                onCancel()
-            } label: {
-                Label("Cancel", systemImage: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color.white.opacity(0.10))
-                    )
-            }
-            .buttonStyle(.plain)
+            .help("Share options")
+            .accessibilityLabel("Options for \(share.fileName)")
         }
         .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
@@ -191,6 +201,19 @@ struct ShareRowCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
+        // Corner badge: small kind icon on the card's top-trailing corner, above
+        // the menu — the private/public distinction at a glance.
+        .overlay(alignment: .topTrailing) {
+            ZStack {
+                Circle()
+                    .fill(kindColor.opacity(0.14))
+                Image(systemName: isPublic ? "globe" : "lock.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(kindColor)
+            }
+            .frame(width: 18, height: 18)
+            .padding(6)
+        }
     }
 
     private var expiryText: String {

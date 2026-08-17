@@ -388,7 +388,16 @@ actor ThumbnailService {
             cache[object.id] = cover
             return cover
         }
-        guard DownloadEngine.isCached(object) else { return nil }
+        guard DownloadEngine.isCached(object) else {
+            // Cover not made yet AND the book isn't local: fetch it quietly in
+            // the background (bounded concurrency, single-flight per book) so
+            // every Library poster materializes without a download storm and
+            // without waiting for the user to open the book. The fetch posts
+            // .xcThumbnailReady when the cover lands, which re-keys open grids
+            // so the card picks it up live.
+            Task { await BookCoverFetcher.shared.fetch(object) }
+            return nil
+        }
         let source = DownloadEngine.cacheURL(for: object)
         await UploadEngine.generateBookCover(for: source, objectID: object.id)
         if let cover = bookCoverOnDisk(for: object.id) {
@@ -509,4 +518,43 @@ actor ThumbnailService {
         return nil
     }
 
+    // MARK: - Background book-cover fetch (Library)
+
+    /// Fetches uncached books quietly so their covers materialize on Library
+    /// poster cards without waiting for the book to be opened. Single-flight per
+    /// book (repeated re-keys of the grid never double-download) and bounded
+    /// concurrency (3 at a time) so a Library full of books can't start a
+    /// download storm. On success the cover is on disk and .xcThumbnailReady is
+    /// posted — open grids re-key and pick it up live.
+    private actor BookCoverFetcher {
+        static let shared = BookCoverFetcher()
+        private var inFlight: Set<String> = []
+        private var running = 0
+        private let maxConcurrent = 3
+
+        func fetch(_ object: ObjectRecord) async {
+            guard !inFlight.contains(object.id) else { return }
+            inFlight.insert(object.id)
+            defer { inFlight.remove(object.id) }
+            while running >= maxConcurrent {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            running += 1
+            defer { running -= 1 }
+            // Another fetch may have landed the file (or the user opened the
+            // book) while we waited for a slot.
+            if DownloadEngine.isCached(object) { return }
+            do {
+                _ = try await DownloadEngine.download(
+                    object: object,
+                    progress: { _, _ in },
+                    quiet: true
+                )
+                NotificationCenter.default.post(name: .xcThumbnailReady, object: nil)
+            } catch {
+                // Non-critical: the cover just doesn't appear until the book is
+                // read (DownloadEngine makes it then).
+            }
+        }
+    }
 }

@@ -25,6 +25,9 @@ final class TransferCenter {
         var progress: Double = 0
         var statusText: String = "Starting…"
         var state: State = .active
+        /// When the transfer reached a terminal state (complete/failed). Restored
+        /// from persisted history so finished cards can show when they happened.
+        var finishedAt: Date? = nil
         /// How much work this transfer represents (e.g. chunk count), used to
         /// aggregate collective progress across concurrent transfers.
         var totalWork: Double = 1
@@ -208,7 +211,12 @@ final class TransferCenter {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].state = success ? .complete : .failed
         items[i].progress = success ? 1 : items[i].progress
-        items[i].statusText = success ? "Complete" : (error ?? "Failed")
+        items[i].finishedAt = .now
+        items[i].statusText = success
+            ? (items[i].direction == .upload ? "Uploaded"
+               : items[i].direction == .inbound ? "Imported"
+               : "Downloaded")
+            : (error ?? "Failed")
         if success {
             // Move this transfer's work into the settled bucket so the FAB's
             // aggregate stays monotonic when parallel transfers finish.
@@ -329,6 +337,7 @@ extension TransferCenter.Item {
                 ? (record.state == "failed" ? "Failed" : "Complete")
                 : record.statusText,
             state: record.state == "failed" ? .failed : .complete,
+            finishedAt: record.finishedAt,
             totalWork: record.totalWork
         )
     }

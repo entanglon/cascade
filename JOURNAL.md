@@ -2,9 +2,44 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-16 — DMG paused; login-gate hit-testing findings; dev build continues (see end).
+> 2026-08-17 (evening) — Post-v3 polish: Shared page redesign, Library covers,
+> transfer clarity, Release reinstall to /Applications.
 
 ---
+
+## 2026-08-17 (evening) — Post-v3 polish: Shared page redesign, Library covers, transfer clarity
+
+- **User feedback on the v3 Shared page**: "the UI is too bad, it doesn't even
+  follow the app's design scheme — the simple cards like before were already
+  good". Redesigned `ShareManagerView` to the app's transfer-row card language:
+  full-width glassEffect cards, leading kind icon circle (lock orange / globe
+  green), name + expiry line ("Expires in 3 days" / "Never expires"), small
+  kind badge on the card's top-trailing corner, and Copy Link / Cancel Share in
+  the trailing ellipsis menu (same circle menu as transfer cards). "Cancel All
+  Shares" only appears when >1 active. `.shared` page can no longer
+  Upload/Create (page lists links, not files).
+- **Library covers fixed**: root cause — `bookCoverURL` was cache-only by
+  design; uncached books returned nil (placeholder) until the book was opened
+  (that's when DownloadEngine generated the cover). Now missing covers on
+  uncached books trigger a background fetch (new `BookCoverFetcher` actor:
+  single-flight per book, max 3 concurrent, `DownloadEngine.download(quiet:)` →
+  cover generated → `.xcThumbnailReady` → grid re-keys → cover appears live).
+  No download storm, no waiting for the user to open books.
+- **Transfers cards explained (user asked "are those even real?")**: YES — real
+  persisted history rows, including phantom-era junk names (from the
+  phantom-object bug sessions). Nothing was deleted. Added clarity: terminal
+  statusText is now semantic ("Uploaded" / "Downloaded" / "Imported" instead of
+  "Complete") and cards show their finished time ("Uploaded · 4:12 PM"; older
+  rows "MMM d, h:mm a") via new `Item.finishedAt`.
+- **Release reinstall**: built Release (bundle id `.prod`), backed up
+  `~/Library/Application Support/xCloud-Prod` → `xCloud-Prod.bak-2026-08-17`,
+  replaced `/Applications/xCloud.app` (1.2.0) — the prod session (Telegram user
+  946154826, state ready) lives in Application Support so it survives the
+  swap. Both Debug (com.nemesys.xcloud.xCloud) and Release (…prod) apps can run
+  side by side with separate data — the basis for the user's two-account share
+  test.
+- **Tests**: full suite green (46 unit + 4 UI + 4 launch). Commits: `d9a3e4d`
+  (v3 share upgrade) + `f3b02ee` (this polish).
 
 ## 2026-08-14 — Foundation work
 
