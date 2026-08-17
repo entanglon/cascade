@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-08-18 — Manual TDLib probe: deleteChat does NOT delete pool channels (join/leave confirmed)
+
+- **User's claim to verify**: "deleteChat didn't really delete the channel, it
+  just left the channel — with the invite link we could still rejoin the same
+  channel and gain admin rights right away; the old mechanism was 5 channels
+  we join/leave on share create/cancel." Asked for a manual test.
+- **Method**: built a standalone TDLib harness (SwiftPM exe, TDLibKit
+  1.5.2-tdlib-1.8.66, in the temp dir `tdtest/`) running against a COPY of
+  the Debug app's TDLib session (`~/Library/Application Support/xCloud/tdlib`
+  → temp; credentials read from Keychain: apiID 34035379 / apiHash from
+  `security find-generic-password -s com.nemesys.xcloud.xCloud -a
+  telegram-credentials`). Session copy logged in fine (authorizationStateReady).
+  Probed getChat on 11 channel ids + checkChatInviteLink on 8 links from the
+  real DB.
+- **RESULTS (all five original pool slots)**: getChat on slots 1-5 recorded
+  channels → "Chat not found" (the account is NO LONGER a member), BUT their
+  PERMANENT pool invites still resolve — `t.me/+5VSskzM6sjk4MDY1` →
+  'xCloud PC1' (memberCount=0), etc. Public channel alive, creator, title
+  'xCloud OC'. Some newer revoked test channels alive too; the per-share
+  ONE-USE invite links (expiring) are dead (INVITE_HASH_EXPIRED) as designed.
+- **CONCLUSION — user is right**: TDLib `deleteChat` on these owned channels
+  LEFT them (creator removed) instead of destroying them server-side. The
+  channels persist with memberCount=0 and their permanent invites stay valid
+  — the creator can rejoin and regain admin instantly. So the old
+  join/leave-on-cancel mechanism was leaving channels, and
+  `allocatePrivateChannel`'s reuse pass (chatExists/getChat-based) saw left
+  channels as "lost" and created new ones every cycle — the "new channels
+  again and again" bug the user reported.
+- Follow-up options for the user: (a) keep current keep-membership reuse
+  (channels stay archived in the chat list), or (b) true join/leave: cancel
+  LEAVES the channel, create REJOINS via the stored permanent invite and only
+  creates new when rejoin fails (also cleans the 5 zombie slot channels by
+  reusing them). Awaiting user decision. Harness kept at
+  /var/folders/…/opencode/tdtest.
+
 ## 2026-08-18 — Private channel REUSE (disposed channels never deleted) + imports backed up
 
 - **User tested again and found a regression vs expectations**: shared several
