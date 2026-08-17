@@ -1651,7 +1651,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       `.shared` excluded from `canUploadOnThisPage` and `createMenuItems` (New
       Folder / New Private Folder) — the page lists handed-out links, not files.
     - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Committed as
-      `f3b02ee` (2026-08-17). Debug app running with the new UI. Release rebuilt
+      `95d7579` (2026-08-17). Debug app running with the new UI. Release rebuilt
       and re-installed over `/Applications/xCloud.app` (1.2.0, bundle id
       `.prod`, session/data preserved — backed up to
       `~/Library/Application Support/xCloud-Prod.bak-2026-08-17` first).

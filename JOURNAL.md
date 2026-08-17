@@ -39,7 +39,7 @@
   side by side with separate data — the basis for the user's two-account share
   test.
 - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Commits: `d9a3e4d`
-  (v3 share upgrade) + `f3b02ee` (this polish).
+  (v3 share upgrade) + `95d7579` (this polish).
 
 ## 2026-08-14 — Foundation work
 
