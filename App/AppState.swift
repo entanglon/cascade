@@ -1308,20 +1308,37 @@ final class AppState {
         let ids = selectedFiles.filter { $0 != folderID }
         Task {
             var oldParents: [String: String?] = [:]
+            var oldNames: [String: String] = [:]
+            var newNames: [String: String] = [:]
+            var reserved: Set<String> = []
             for id in ids {
+                let name = files.first(where: { $0.id == id })?.name ?? ""
                 oldParents[id] = files.first(where: { $0.id == id })?.parentID
-                try? await DatabaseManager.shared.updateObject(id) { $0.parentID = folderID }
+                oldNames[id] = name
+                let newName = (try? await DatabaseManager.shared.uniqueObjectName(base: name, parentID: folderID, reserved: reserved)) ?? name
+                newNames[id] = newName
+                reserved.insert(newName.lowercased())
+                try? await DatabaseManager.shared.updateObject(id) {
+                    $0.parentID = folderID
+                    $0.name = newName
+                }
             }
             selectedFiles.removeAll()
             await self.loadFiles()
             registerUndo("Move \(ids.count) Items") {
                 for id in ids {
-                    try? await DatabaseManager.shared.updateObject(id) { $0.parentID = oldParents[id] ?? nil }
+                    try? await DatabaseManager.shared.updateObject(id) {
+                        $0.parentID = oldParents[id] ?? nil
+                        $0.name = oldNames[id] ?? ""
+                    }
                 }
                 await self.loadFiles()
             } redo: {
                 for id in ids {
-                    try? await DatabaseManager.shared.updateObject(id) { $0.parentID = folderID }
+                    try? await DatabaseManager.shared.updateObject(id) {
+                        $0.parentID = folderID
+                        $0.name = newNames[id] ?? ""
+                    }
                 }
                 await self.loadFiles()
             }
@@ -1476,11 +1493,16 @@ final class AppState {
     func addToPlaylist(_ file: ObjectRecord, playlistID: String) {
         Task {
             let oldParent = file.parentID
+            let oldName = file.name
+            let newName = (try? await DatabaseManager.shared.uniqueObjectName(base: file.name, parentID: playlistID)) ?? file.name
             // Must go through updateObject: a plain save() writes the record with
             // its OLD modifiedAt, the snapshot merge sees a tie with the channel's
             // copy, keeps the remote parentID and the move silently reverts ~4s
             // later (the "photo moves back" bug).
-            try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = playlistID }
+            try? await DatabaseManager.shared.updateObject(file.id) {
+                $0.parentID = playlistID
+                $0.name = newName
+            }
             if let updated = try? await DatabaseManager.shared.object(file.id) {
                 syncObjectMetadataToTelegram(updated)
                 // Auto cover: the first photo added to an album without a cover
@@ -1496,10 +1518,16 @@ final class AppState {
             }
             await self.loadFiles()
             registerUndo("Add to Playlist") {
-                try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = oldParent }
+                try? await DatabaseManager.shared.updateObject(file.id) {
+                    $0.parentID = oldParent
+                    $0.name = oldName
+                }
                 await self.loadFiles()
             } redo: {
-                try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = playlistID }
+                try? await DatabaseManager.shared.updateObject(file.id) {
+                    $0.parentID = playlistID
+                    $0.name = newName
+                }
                 await self.loadFiles()
             }
         }
@@ -1543,10 +1571,7 @@ final class AppState {
 
     @MainActor
     func moveToFolder(_ file: ObjectRecord, _ folderID: String?) {
-        Task {
-            try? await DatabaseManager.shared.updateObject(file.id) { $0.parentID = folderID }
-            await self.loadFiles()
-        }
+        moveObject(id: file.id, to: folderID)
     }
 
     private func isFolderPrivate(_ folderID: String?) -> Bool {
@@ -1557,7 +1582,7 @@ final class AppState {
     }
 
     @MainActor
-    func moveObject(id: String, to folderID: String?) {
+    func moveObject(id: String, to folderID: String?, overrideName: String? = nil) {
         guard id != folderID else { return }
         if let folderID, isDescendant(folderID, of: id) { return }
 
@@ -1567,8 +1592,18 @@ final class AppState {
             if let obj = files.first(where: { $0.id == id }) {
                 let wasPrivate = obj.isPrivate
                 let oldParent = obj.parentID
+                let oldName = obj.name
+                // Finder-style name conflict handling: a moved file never
+                // collides with a same-named sibling — it becomes "file 2.mp4"
+                // etc. Batch moves pre-compute names (overrideName) so items
+                // moving together don't race each other.
+                var newName = overrideName ?? obj.name
+                if overrideName == nil {
+                    newName = (try? await DatabaseManager.shared.uniqueObjectName(base: obj.name, parentID: folderID)) ?? obj.name
+                }
                 try? await DatabaseManager.shared.updateObject(id) {
                     $0.parentID = folderID
+                    $0.name = newName
                     if !targetIsPrivate && wasPrivate {
                         $0.isPrivate = false
                     }
@@ -1586,6 +1621,7 @@ final class AppState {
                     try? await DatabaseManager.shared.updateObject(id) {
                         $0.parentID = oldParent
                         $0.isPrivate = wasPrivate
+                        $0.name = oldName
                     }
                     await self.loadFiles()
                 } redo: {
@@ -1594,6 +1630,7 @@ final class AppState {
                         if !targetIsPrivate && wasPrivate {
                             $0.isPrivate = false
                         }
+                        $0.name = newName
                     }
                     await self.loadFiles()
                 }
@@ -1603,11 +1640,23 @@ final class AppState {
 
     /// Moves several objects into a folder/album at once. When the target is an
     /// album with no cover yet, the first moved photo becomes its cover.
+    /// Names are pre-computed with a shared reserved set: two same-named files
+    /// moved together land as "file.mp4" and "file 2.mp4", not as a race.
     @MainActor
     func moveObjects(ids: [String], to folderID: String?) {
         let target = folderID.flatMap { id in files.first(where: { $0.id == id }) }
+        // In-memory sibling names (the catalog as last loaded) + a reserved set
+        // shared across the batch: two same-named files moving together land as
+        // "file.mp4" and "file 2.mp4" without racing each other's DB writes.
+        let siblingNames = Set(files
+            .filter { $0.parentID == folderID && !$0.trashed }
+            .map { $0.name.lowercased() })
+        var reserved: Set<String> = []
         for id in ids {
-            moveObject(id: id, to: folderID)
+            let base = files.first(where: { $0.id == id })?.name ?? ""
+            let newName = ShareEngine.uniqueName(base, taken: siblingNames.union(reserved))
+            reserved.insert(newName.lowercased())
+            moveObject(id: id, to: folderID, overrideName: newName)
         }
         guard let album = target, album.isFolder, album.coverObjectID == nil else { return }
         Task {
@@ -1969,7 +2018,10 @@ final class AppState {
         guard !trimmed.isEmpty else { return }
         let oldName = file.name
         Task {
-            try? await DatabaseManager.shared.updateObject(file.id) { $0.name = trimmed }
+            // Finder behavior: renaming onto a taken sibling name becomes
+            // "Name 2.ext" (self excluded — case-only renames stay exact).
+            let finalName = (try? await DatabaseManager.shared.uniqueObjectName(base: trimmed, parentID: file.parentID, excluding: file.id)) ?? trimmed
+            try? await DatabaseManager.shared.updateObject(file.id) { $0.name = finalName }
             if let updated = try? await DatabaseManager.shared.object(file.id) {
                 syncObjectMetadataToTelegram(updated)
             }
@@ -1978,7 +2030,7 @@ final class AppState {
                 try? await DatabaseManager.shared.updateObject(file.id) { $0.name = oldName }
                 await self.loadFiles()
             } redo: {
-                try? await DatabaseManager.shared.updateObject(file.id) { $0.name = trimmed }
+                try? await DatabaseManager.shared.updateObject(file.id) { $0.name = finalName }
                 await self.loadFiles()
             }
         }

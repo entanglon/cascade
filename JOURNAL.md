@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-08-18 — Finder-style name dedupe for moves (no more same-name conflicts)
+
+- **User asked** to prevent same-name conflicts on MOVE ("we should totally do
+  that so we don't face the same name conflict... make sure this doesn't happen
+  anywhere"). Audited every path that writes parentID:
+  - moveObject (single move: context menu + drag-drop), moveObjects (album/
+    playlist batch), bulkMove (multi-selection Move), addToPlaylist (single
+    add), moveToFolder (dead helper, now delegates to moveObject), rename
+    (Finder auto-"Name 2" parity), uploads (already deduped,
+    UploadEngine.swift:108-126), share imports (already deduped at root via
+    uniqueImportName).
+- **Fix**: new `DatabaseManager.uniqueObjectName(base:parentID:reserved:excluding:)`
+  (Finder-style "file 2.mp4", case-insensitive, root = nil) built on the
+  existing pure `ShareEngine.uniqueName`. moveObject/bulkMove/addToPlaylist/
+  rename use it with undo/redo capturing old+new names; moveObjects pre-computes
+  names with a shared reserved set so two same-named files moving together land
+  as "file.mp4" + "file 2.mp4" without racing each other's DB writes (the
+  in-memory sibling set avoids an actor call in a sync MainActor context).
+- Gotchas hit: `??` RHS is a non-async autoclosure — `try? await` inside it is
+  a compile error; DatabaseManager is an actor, its read/write helpers need
+  await from Task contexts.
+- Build green, 67 tests green (59 unit + 4 UI + 4 launch), Debug app
+  relaunched. No Release per user policy.
+
 ## 2026-08-18 — Agent instruction file (AGENTS.md), HDR/Dolby verification, move-conflict semantics
 
 - **User asked** for a durable anti-loss setup after the freebuff crash: an

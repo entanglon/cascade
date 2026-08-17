@@ -1757,6 +1757,27 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
        is a feature, not a bug fix.
      - Committed as part of the AGENTS.md commit (2026-08-18). Tests green
        (67). **No Release build** — user policy.
+ 73. **Finder-style name dedupe for moves (2026-08-18 — IMPLEMENTED)**
+     - A moved file never collides with a same-named sibling: moving
+       `file.mp4` next to an existing `file.mp4` (anywhere — root, folders,
+       albums/playlists, drag-drop, context menu, multi-select, batch adds)
+       renames the mover to "file 2.mp4" / "file 3.mp4" like the Finder,
+       case-insensitive.
+     - New `DatabaseManager.uniqueObjectName(base:parentID:reserved:excluding:)`
+       (nil parent = root; `reserved` = batch reservations; `excluding` = the
+       item itself for in-place renames) on the existing pure
+       `ShareEngine.uniqueName` ("Name 2.ext"). Wired into `moveObject` (all
+       single moves), `moveObjects` (batch: pre-computed names + shared
+       reserved set — no write race), `bulkMove`, `addToPlaylist`,
+       `moveToFolder` (now delegates to moveObject), and `rename` (Finder
+       parity, self-excluded). Undo/redo restore both name and parent.
+       Uploads and share imports already deduped (UploadEngine.swift:108-126,
+       uniqueImportName).
+     - Gotchas: `??` RHS is a non-async autoclosure — `try? await` inside it
+       does not compile; DatabaseManager is an actor (await required from
+       Task contexts; batch pre-compute uses the in-memory catalog instead).
+     - Committed as part of this round (2026-08-18). Tests green (67).
+       **No Release build** — user policy.
 
 ## 5. Pending / next steps
 

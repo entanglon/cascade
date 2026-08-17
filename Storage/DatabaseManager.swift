@@ -822,6 +822,24 @@ actor DatabaseManager {
         }
     }
 
+    /// Finder-style unique name within a parent folder (nil = root): if a
+    /// non-trashed sibling already uses the name, append " 2", " 3", … before
+    /// the extension ("file.mp4" → "file 2.mp4"), case-insensitively, like
+    /// Apple. `reserved` lets a batch reserve names other items will take
+    /// (two same-named files moved together land as "file.mp4" and
+    /// "file 2.mp4"); `excluding` skips one object id — the item itself when
+    /// renaming in place. Returns `base` unchanged when the name is free.
+    func uniqueObjectName(base: String, parentID: String?, reserved: Set<String> = [], excluding objectID: String? = nil) throws -> String {
+        try read { db in
+            let taken = Set(
+                try ObjectRecord.fetchAll(db)
+                    .filter { $0.parentID == parentID && !$0.trashed && $0.id != objectID }
+                    .map { $0.name.lowercased() }
+            )
+            return ShareEngine.uniqueName(base, taken: taken.union(reserved))
+        }
+    }
+
     func updateChunk(_ id: String, _ mutate: (inout ChunkRecord) -> Void) throws {
         try write { db in
             guard var chunk = try ChunkRecord.fetchOne(db, id: id) else { return }
