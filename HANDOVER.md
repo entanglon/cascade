@@ -1667,7 +1667,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       grid: single click selects (accent highlight, one card at a time),
       double-click reveals the shared file (All Files / Private Vault, selects
       + flashes; group shares reveal the first member). Committed as
-      `e6f4a9d` (2026-08-17). **No Release build** — user policy: Debug only
+      `7efdfc8` (2026-08-17). **No Release build** — user policy: Debug only
       until the user approves a release build.
 
 ## 5. Pending / next steps
