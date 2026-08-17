@@ -1117,10 +1117,12 @@ enum ShareEngine {
     // MARK: - Expiry cleanup (sender side)
 
     /// Revokes outgoing shares whose expiry has passed. Public shares never
-    /// expire (skipped). Expired PRIVATE shares delete their whole dedicated
-    /// channel (slot freed) when no other active share uses it, or just their
-    /// own messages when the channel is shared (legacy data). Runs alongside
-    /// the transfer cleanup loop; idempotent.
+    /// expire (skipped). Expired PRIVATE shares in pool slots follow the same
+    /// join/leave semantics as cancelShare — their messages are deleted and the
+    /// slot channel is left (row kept, so the next private share rejoins it via
+    /// its permanent invite). Legacy v1 disposable channels (no forwarded
+    /// copies) are forgotten outright. Runs alongside the transfer cleanup
+    /// loop; idempotent.
     static func cleanupExpiredShares() async {
         guard TelegramClient.shared.isAuthorized else { return }
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
@@ -1141,6 +1143,9 @@ enum ShareEngine {
     /// not shared with another active share, else just their own messages.
     private static func revokeExpired(_ share: ShareRecord) async throws {
         if share.messageIDs.isEmpty {
+            // Legacy v1 disposable channel: no forwarded copies to revoke and
+            // no pool row to reuse — remove the account from it (deleteChat
+            // leaves owned channels; it never destroys them) and forget the row.
             try await TelegramClient.shared.deleteChat(chatId: share.channelID)
             if let state = try? await DatabaseManager.shared.shareChannelState(channelID: share.channelID) {
                 try? await DatabaseManager.shared.deleteShareChannel(id: state.id)
@@ -1149,16 +1154,15 @@ enum ShareEngine {
         }
         let others = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
             .filter { $0.id != share.id && $0.state == "active" && $0.channelID == share.channelID }
+        let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
+        if !mids.isEmpty {
+            try await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
+        }
         if others.isEmpty {
-            try await TelegramClient.shared.deleteChat(chatId: share.channelID)
-            if let state = try? await DatabaseManager.shared.shareChannelState(channelID: share.channelID) {
-                try? await DatabaseManager.shared.deleteShareChannel(id: state.id)
-            }
-        } else {
-            let ids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
-            if !ids.isEmpty {
-                try await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: ids)
-            }
+            // Pool slot: join/leave, same as cancelShare — leave the channel
+            // and KEEP the row so the next private share rejoins the slot via
+            // its recorded permanent invite instead of creating a new channel.
+            try? await TelegramClient.shared.leaveChat(chatId: share.channelID)
         }
         var updated = share
         updated.state = "revoked"
