@@ -77,6 +77,12 @@ final class AppState {
     var isSharingFile = false
     /// True when the "Import Shared Link…" dialog should appear (File menu).
     var importShareLinkPrompt = false
+    /// A share file staged in the vault channel (pendingImport) awaiting the
+    /// user's Import/Cancel decision — drives the review sheet. The forwarded
+    /// copy is streamable/previewable before any decision is made.
+    var pendingImportID: String? = nil
+    /// The staged file backing the review sheet (loaded from the DB by id).
+    var pendingImportObject: ObjectRecord? = nil
 
     // Computed property to keep the Inspector working (only shows if exactly 1 is selected)
     var selectedFile: ObjectRecord? {
@@ -718,6 +724,7 @@ final class AppState {
         }
 
         await cleanupExpiredTransfers()
+        await ShareEngine.cleanupExpiredShares()
         await restoreTransferCards()
         await loadShares()
         await resumeInterruptedUploads()
@@ -725,6 +732,16 @@ final class AppState {
         // scene / Telegram were ready) are drained now that everything is up.
         drainPendingShareLinks()
         startTransferCleanupLoop()
+        await self.loadFiles()
+
+        // Re-surface a share file that was staged (pending import) in an
+        // earlier session: the forwarded copy is in the vault channel, and the
+        // Import/Cancel decision is still owed.
+        if pendingImportID == nil,
+           let pending = (try? await DatabaseManager.shared.pendingImports())?.first {
+            pendingImportID = pending.id
+            pendingImportObject = pending
+        }
         await self.loadFiles()
 
         // Background thumbnail warm-up: guarantee every media file in the cloud
@@ -1070,7 +1087,8 @@ final class AppState {
     /// (links I handed out, for the Shared management page).
     @MainActor
     func loadShares() async {
-        incomingShares = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
+        incomingShares = ((try? await DatabaseManager.shared.shares(role: "incoming")) ?? [])
+            .filter { $0.state != "pending" }   // pending rows await the import decision
         outgoingShares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
     }
 
@@ -1178,6 +1196,11 @@ final class AppState {
         Task {
             do {
                 switch try await ShareEngine.importLink(trimmed) {
+                case .pending(let objectID):
+                    print("xCloud URL: staged for import decision (object \(objectID))")
+                    pendingImportID = objectID
+                    pendingImportObject = try? await DatabaseManager.shared.object(objectID)
+                    await self.loadFiles()
                 case .imported:
                     print("xCloud URL: imported via link")
                     let isGroup = ShareEngine.ShareLink.parse(trimmed)?.isGroup ?? false
@@ -1233,6 +1256,46 @@ final class AppState {
                 print("xCloud URL: import failed: \(error)")
                 alertMessage = ShareEngine.describe(error)
             }
+        }
+    }
+
+    /// The user accepted a staged share file: catalog it (unique name, backup
+    /// mirror, incoming record) and show it like any import.
+    @MainActor
+    func confirmPendingImport() {
+        guard let pendingImportID else { return }
+        Task {
+            do {
+                let name = try await ShareEngine.confirmImport(objectID: pendingImportID)
+                self.pendingImportID = nil
+                self.pendingImportObject = nil
+                TransferCenter.shared.begin(
+                    .inbound,
+                    objectID: pendingImportID,
+                    name: name,
+                    statusText: "Imported",
+                    state: .complete
+                )
+                alertMessage = "Shared file imported — find it in Transfers."
+                await self.loadFiles()
+                await self.loadShares()
+            } catch {
+                alertMessage = ShareEngine.describe(error)
+            }
+        }
+    }
+
+    /// The user rejected a staged share file: its forwarded copies are deleted
+    /// from the vault channel and the file never appears in the catalog.
+    @MainActor
+    func discardPendingImport() {
+        guard let pendingImportID else { return }
+        let id = pendingImportID
+        self.pendingImportID = nil
+        self.pendingImportObject = nil
+        Task {
+            await ShareEngine.discardImport(objectID: id)
+            await self.loadFiles()
         }
     }
 

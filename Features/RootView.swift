@@ -94,6 +94,15 @@ struct RootView: View {
             SettingsView()
                 .environment(appState)
         }
+        .sheet(isPresented: Binding(
+            get: { appState.pendingImportID != nil },
+            set: { if !$0 { appState.pendingImportID = nil; appState.pendingImportObject = nil } }
+        )) {
+            if let object = appState.pendingImportObject {
+                PendingImportView(object: object)
+                    .environment(appState)
+            }
+        }
         .background(WindowChromeFixer())
         .onReceive(NotificationCenter.default.publisher(for: .xCloudUploadFinished)) { _ in
             // Refresh the file list the moment an upload completes so files appear

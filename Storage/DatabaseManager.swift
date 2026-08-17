@@ -619,9 +619,22 @@ actor DatabaseManager {
         }
     }
 
-    func allObjects() throws -> [ObjectRecord] {
-        try read { db in try ObjectRecord.fetchAll(db) }
-    }
+    /// Every cataloged object — EXCLUDING `pendingImport` rows, which are
+        /// staged share files awaiting the user's Import/Cancel decision: they
+        /// are streamable by id but invisible to the catalog, snapshot, sync,
+        /// repair and name-collision paths.
+        func allObjects() throws -> [ObjectRecord] {
+            try read { db in
+                try ObjectRecord.fetchAll(db).filter { $0.state != "pendingImport" }
+            }
+        }
+
+        /// Staged share files awaiting the user's Import/Cancel decision.
+        func pendingImports() throws -> [ObjectRecord] {
+            try read { db in
+                try ObjectRecord.fetchAll(db).filter { $0.state == "pendingImport" }
+            }
+        }
 
     func chunks(for objectID: String) throws -> [ChunkRecord] {
         try read { db in
@@ -715,9 +728,20 @@ actor DatabaseManager {
         }
     }
 
-    func allChunks() throws -> [ChunkRecord] {
-        try read { db in try ChunkRecord.fetchAll(db) }
-    }
+    /// All chunk records EXCLUDING those of `pendingImport` objects — the
+        /// catalog signature, snapshot checkpoints and repair scans must not
+        /// see staged-share chunks (their object is not part of the catalog).
+        func allChunks() throws -> [ChunkRecord] {
+            try read { db in
+                let pendingObjectIDs = Set(
+                    try ObjectRecord.fetchAll(db)
+                        .filter { $0.state == "pendingImport" }
+                        .map(\.id)
+                )
+                return try ChunkRecord.fetchAll(db)
+                    .filter { !pendingObjectIDs.contains($0.objectID) }
+            }
+        }
 
     /// Removes duplicate chunk records — the catalog corruption that made some
     /// downloads assemble files twice the real size. Older snapshot merges could

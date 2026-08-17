@@ -1835,6 +1835,39 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         lifetime (recipient has 7 days to open it; unopened shares are
         revoked and their channel copies deleted by cleanupExpiredShares
         running on the transfer cleanup loop).
+  76. **1-day shares, channel TTL, cancel-on-use, staged import UX
+      (2026-08-18 — IMPLEMENTED)**
+      - Expiry: `ShareEngine.defaultLifetime` 7d → 1d (86400). 24h server-side
+        message auto-delete (TTL) enabled on PRIVATE pool channels at
+        creation/reuse/rejoin (`setMessageAutoDelete` → TDLib
+        `setChatMessageAutoDeleteTime` 86400 — allowed, server-enforced, so
+        share messages vanish from Telegram a day after posting even if the
+        app never runs again). NEVER on the vault or public channel.
+        `cleanupExpiredShares()` now also runs at launch (was 6h-loop only).
+      - Cancel-on-use: `updateChatMember` handler → private slot + joiner ≠
+        own account → share self-cancels after `cancelOnUseGrace` (300s;
+        enough for the recipient's app to forward — a server-side copy into
+        their own vault channel, unaffected by the later cancel).
+      - Staged import UX: opening a link now forwards every chunk into the
+        recipient's vault channel and returns `.pending` — the file is
+        streamable/previewable (theater/MPV/audio all read the DB by
+        objectID) but NOT cataloged. `pendingImport` objects are excluded
+        centrally in `allObjects()`/`allChunks()` (catalog, snapshot, sync,
+        VaultRepair promotion, heal, existingObject, uniqueName). Decision:
+        Import (`confirmImport`: unique name, ready, BackupSync.enqueue per
+        chunk — mirroring deferred so cancelled files never reach the backup
+        channel, incoming row → imported) or Cancel (`discardImport`: deletes
+        the vault-channel copies + rows). `PendingImportView` sheet with file
+        card + Preview + Import/Cancel; pending decisions re-surface at
+        launch; re-opening the same link re-presents instead of double-
+        forwarding. New file added to the pbxproj (explicit Features group).
+      - Security model confirmed in code: links are AES-GCM-obfuscated with a
+        RANDOM per-link key riding in the blob (`xcloud://share#key‖cipher`),
+        no hardcoded key; private links embed a one-use invite (memberLimit 1)
+        — the 7-day→1-day expiry is the share lifetime (recipient window +
+        cleanup trigger), orthogonal to one-time use.
+      - Committed (2026-08-18). Build green, tests green (67). **No Release
+        build** — user policy.
 
 ## 5. Pending / next steps
 

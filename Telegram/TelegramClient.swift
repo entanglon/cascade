@@ -243,6 +243,22 @@ final class TelegramClient {
                 }
             }
 
+        case "updateChatMember":
+            // A member joined (or changed status in) a chat. Only user members
+            // count — channel/group memberships of chats joining don't. Used for
+            // cancel-on-use: when someone joins one of our private pool channels,
+            // that share was used, and it cancels itself after a grace period.
+            if let chatId = parseInt64(json["chat_id"]),
+               let member = json["member_id"] as? [String: Any],
+               let memberUserId = parseInt64(member["user_id"]),
+               let newStatus = json["new_status"] as? [String: Any],
+               let statusType = newStatus["@type"] as? String,
+               statusType == "chatMemberStatusMember"
+                || statusType == "chatMemberStatusCreator"
+                || statusType == "chatMemberStatusAdministrator" {
+                Task { await ShareEngine.handleShareChannelMemberJoined(chatId: chatId, userId: memberUserId) }
+            }
+
         default:
             break
         }
@@ -1208,6 +1224,19 @@ final class TelegramClient {
     func checkShareInviteLink(_ inviteLink: String) async throws -> ChatInviteLinkInfo {
         guard let client else { throw TelegramError.notInitialized }
         return try await client.checkChatInviteLink(inviteLink: inviteLink)
+    }
+
+    /// Enables 24h server-side message auto-delete (TTL) on a share channel:
+    /// Telegram itself removes every message a day after it was posted, so
+    /// used/expired shares clean up even if this app never runs again. Only
+    /// ever applied to PRIVATE pool channels — never the vault or the public
+    /// channel, whose messages must persist.
+    func setMessageAutoDelete(chatId: Int64, ttlSeconds: Int = 86400) async {
+        guard let client else { return }
+        try? await client.setChatMessageAutoDeleteTime(
+            chatId: chatId,
+            messageAutoDeleteTime: ttlSeconds
+        )
     }
 
     func joinShareChannel(inviteLink: String) async throws -> Int64 {

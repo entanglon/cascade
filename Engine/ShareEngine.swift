@@ -23,7 +23,10 @@ import os
 enum ShareEngine {
     /// Legacy share-channel caption prefix (pre-v22 disposable channels).
     static let captionPrefix = "xcloud:share:v1:"
-    static let defaultLifetime: TimeInterval = 7 * 24 * 3600
+    /// How long a private share lives (link expiry + server-side message TTL).
+    /// Recipient has this window to open the link; after it, the share revokes
+    /// itself and the channel copies are removed.
+    static let defaultLifetime: TimeInterval = 24 * 3600
     /// v24: how many private links can be live at once — each takes a dedicated
     /// channel from the pool (ids 1…privatePoolSize). A pool-full share request
     /// is blocked with a clear error (never silently evicts an older share).
@@ -626,11 +629,13 @@ enum ShareEngine {
         for slot in 1...Int64(privatePoolSize) where !busySlots.contains(slot) {
             if let state = try? await DatabaseManager.shared.shareChannelState(id: slot),
                await TelegramClient.shared.chatExists(chatId: state.channelID) {
-                // Legacy channels (pre-naming) are renamed to their slot title.
+                // Legacy channels (pre-naming) are renamed to their slot title;
+                // legacy channels (pre-TTL) get the 24h auto-delete enabled.
                 await TelegramClient.shared.renameChatIfNeeded(
                     chatId: state.channelID,
                     title: poolChannelTitle(id: state.id, kind: .private)
                 )
+                await TelegramClient.shared.setMessageAutoDelete(chatId: state.channelID)
                 return state
             }
         }
@@ -648,6 +653,7 @@ enum ShareEngine {
                         chatId: existing.channelID,
                         title: poolChannelTitle(id: existing.id, kind: .private)
                     )
+                    await TelegramClient.shared.setMessageAutoDelete(chatId: existing.channelID)
                     return existing
                 }
                 // The invite resolved to a different channel — adopt it so the
@@ -659,6 +665,7 @@ enum ShareEngine {
                     chatId: joined,
                     title: poolChannelTitle(id: existing.id, kind: .private)
                 )
+                await TelegramClient.shared.setMessageAutoDelete(chatId: joined)
                 return adopted
             }
         }
@@ -698,6 +705,12 @@ enum ShareEngine {
             throw ShareError.createFailed("Telegram unavailable under test")
         }
         let channelID = try await TelegramClient.shared.createShareChannel(title: poolChannelTitle(id: id, kind: kind))
+        // 24h server-side auto-delete on PRIVATE slots only: share messages
+        // vanish from Telegram a day after posting, even if this app never
+        // runs again. The public channel's messages must persist forever.
+        if kind == .private {
+            await TelegramClient.shared.setMessageAutoDelete(chatId: channelID)
+        }
         await TelegramClient.shared.archiveVaultChannel(chatId: channelID)
         let invite = (try? await TelegramClient.shared.createPermanentShareInvite(chatId: channelID)) ?? ""
         var state = ShareChannelState(
@@ -743,6 +756,32 @@ enum ShareEngine {
         }
     }
 
+    /// Grace period between a recipient joining a private pool channel and the
+    /// share cancelling itself: long enough for their app to open the link and
+    /// forward the file into their own vault (a pure server-side copy).
+    static let cancelOnUseGrace: TimeInterval = 300
+
+    /// Cancel-on-use: fired from the TDLib update handler when a member joins a
+    /// chat. If the chat is one of our PRIVATE pool slots and the joiner is not
+    /// our own account, that share was used — after `cancelOnUseGrace` seconds
+    /// it revokes itself (messages deleted, channel left), exactly like a
+    /// manual cancel. The recipient's forwarded copy lives in THEIR vault
+    /// channel, so the grace-protected forward is unaffected.
+    static func handleShareChannelMemberJoined(chatId: Int64, userId: Int64) async {
+        guard let state = try? await DatabaseManager.shared.shareChannelState(channelID: chatId),
+              state.kind == "private" else { return }
+        // Our own account rejoining its slot (after a cancel/leave) is not a use.
+        if let me = try? await TelegramClient.shared.myUserID(), me == userId { return }
+        let share = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
+            .first { $0.state == "active" && !$0.isPublic && $0.channelID == chatId }
+        guard let share else { return }
+        logger.info("Share \(share.id): recipient joined slot \(state.id) — cancelling after \(cancelOnUseGrace)s grace")
+        try? await Task.sleep(nanoseconds: UInt64(cancelOnUseGrace * 1_000_000_000))
+        guard let latest = try? await DatabaseManager.shared.share(id: share.id),
+              latest.state == "active" else { return }
+        await cancelShare(latest)
+    }
+
     // MARK: - Recipient
 
     /// What opening a share link produced.
@@ -757,12 +796,20 @@ enum ShareEngine {
         /// from an earlier import of the same share — nothing was imported;
         /// surfaced so the UI can reveal the existing copy instead of duplicating.
         case alreadyImported(objectID: String)
+        /// The file's chunks were forwarded into the recipient's vault channel
+        /// and staged as a `pendingImport` — streamable/previewable but NOT
+        /// cataloged. The UI shows a detail screen where the user decides:
+        /// Import (catalog it) or Cancel (delete the forwarded copies).
+        case pending(objectID: String)
     }
 
     /// Opens a share link: joins the channel, forwards every chunk into the
-    /// recipient's own vault channel, catalogs the file, and leaves. When the
-    /// sharer opens their own link, it short-circuits to `.selfOpen` — the file
-    /// is already in their cloud, so nothing is imported.
+    /// recipient's own vault channel, leaves, and returns `.pending` — the file
+    /// is staged (streamable/previewable) but NOT cataloged until the user
+    /// decides on the detail screen (Import = catalog + backup mirror,
+    /// Cancel = delete the forwarded copies). When the sharer opens their own
+    /// link, it short-circuits to `.selfOpen` — the file is already in their
+    /// cloud, so nothing is imported.
     @discardableResult
     static func importLink(_ rawLink: String) async throws -> ImportOutcome {
         guard TelegramClient.shared.isAuthorized else {
@@ -817,17 +864,19 @@ enum ShareEngine {
         defer { Task { try? await TelegramClient.shared.leaveChat(chatId: channelID) } }
 
         if link.isForwardBased {
-            return try await importForwarded(link: link, channelID: channelID, vault: vault)
+            return try await stageImport(link: link, channelID: channelID, vault: vault)
         }
-        return try await importLegacy(link: link, channelID: channelID, vault: vault)
+        return try await stageLegacyImport(link: link, channelID: channelID, vault: vault)
     }
 
-    /// v2 import: the link names the file's forwarded messages (the reusable
-    /// channel holds many files at once, so only those are touched). Captions are
-    /// the vault's own unified/legacy chunk captions — parsed with the shared
-    /// codec. Chunks are plaintext (since the encryption drop), so the import is
-    /// a pure forward with no key handling.
-    private static func importForwarded(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
+    /// v2 import staging: reads the link's messages in the share channel and
+    /// forwards every chunk into the recipient's vault channel IMMEDIATELY —
+    /// the file becomes streamable/previewable without being cataloged. The
+    /// object is saved as `pendingImport` (invisible to the catalog, snapshot,
+    /// sync and heal) and the UI offers Import (catalog + backup mirror) or
+    /// Cancel (delete the forwarded copies). Backup mirroring is deferred to
+    /// the Import decision so cancelled files never reach the backup channel.
+    private static func stageImport(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
         do {
             // The link names one or more files. Single-file links parse into a
             // one-entry manifest; group links carry one entry per shared file —
@@ -837,9 +886,10 @@ enum ShareEngine {
                 : link.files
             guard files.allSatisfy({ !$0.messageIDs.isEmpty }) else { throw ShareError.invalidPayload }
 
-            var importedCount = 0
+            var stagedCount = 0
             var alreadyImportedID: String?
-            var firstImportedName: String?
+            var firstStagedID: String?
+            var firstStagedName: String?
             for file in files {
                 let messages = try await TelegramClient.shared.messagesByIds(chatId: channelID, messageIds: file.messageIDs)
                 guard messages.count == file.messageIDs.count else { throw ShareError.invalidPayload }
@@ -857,6 +907,15 @@ enum ShareEngine {
                     alreadyImportedID = alreadyImportedID ?? existing.id
                     continue
                 }
+                // Already staged from an earlier open of this link: re-present the
+                // existing pending decision instead of forwarding a second copy.
+                if let staged = ((try? await DatabaseManager.shared.pendingImports()) ?? [])
+                    .first(where: { $0.rootHash == first.rootHash }) {
+                    firstStagedID = firstStagedID ?? staged.id
+                    firstStagedName = firstStagedName ?? staged.name
+                    stagedCount += 1
+                    continue
+                }
 
                 // No key layer: shared chunks are plaintext, so the import is a pure
                 // forward — the vault records the file as plaintext (isPrivate: false).
@@ -871,10 +930,6 @@ enum ShareEngine {
                         fromChatId: channelID,
                         messageId: message.messageId
                     )
-                    // Mirror the vault copy into the backup channel, exactly like
-                    // uploads do — otherwise imported files would exist only in
-                    // the vault channel and a restore-from-backup would lose them.
-                    BackupSync.enqueue(messageID: newMessageId, objectID: objectID)
                     // Legacy captions predate chunkSize; derive per-chunk sizes from
                     // the effective chunk size, capped by the file remainder.
                     let offset = Int64(meta.index) * chunkSize
@@ -895,18 +950,17 @@ enum ShareEngine {
                 }
                 guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
 
-                let wrappedForVault: Data? = nil
-                let finalName = try await Self.uniqueImportName(first.name)
-
+                // pendingImport: streamable via the existing stack (reads the DB by
+                // object id) but invisible to every catalog view/sync/heal path.
                 let object = ObjectRecord(
                     id: objectID,
                     vaultID: vault.id,
-                    name: finalName,
+                    name: first.name,
                     size: first.size,
                     mime: first.mime,
-                    state: "ready",
+                    state: "pendingImport",
                     rootHash: first.rootHash,
-                    wrappedKey: wrappedForVault,
+                    wrappedKey: nil,
                     createdAt: .now,
                     modifiedAt: .now,
                     isFavorite: false,
@@ -922,9 +976,9 @@ enum ShareEngine {
                     try await DatabaseManager.shared.save(chunk)
                 }
 
-                // One incoming record per imported file so the Shared page lists
-                // (and can remove) each file individually.
-                let record = ShareRecord(
+                // Incoming record starts as `pending` and flips to `imported` when
+                // the user decides — the Shared page hides pending rows.
+                try await DatabaseManager.shared.saveShare(ShareRecord(
                     id: UUID().uuidString,
                     objectID: objectID,
                     channelID: channelID,
@@ -932,17 +986,17 @@ enum ShareEngine {
                     shareKey: link.shareKey,
                     expiry: link.expiry,
                     role: "incoming",
-                    state: "imported",
-                    fileName: finalName,
+                    state: "pending",
+                    fileName: first.name,
                     createdAt: .now,
                     messageIDs: file.messageIDs.map(String.init).joined(separator: ","),
                     wrappedKeyB64: link.wrappedKeyB64
-                )
-                try await DatabaseManager.shared.saveShare(record)
+                ))
 
-                importedCount += 1
-                firstImportedName = firstImportedName ?? finalName
-                logger.info("Share \(link.id): imported \(finalName) (\(chunkRecords.count) chunks)")
+                stagedCount += 1
+                firstStagedID = firstStagedID ?? objectID
+                firstStagedName = firstStagedName ?? first.name
+                logger.info("Share \(link.id): staged \(first.name) (\(chunkRecords.count) chunks) — awaiting import decision")
             }
 
             // The files' chunks are now copied into our vault — leave the share
@@ -951,14 +1005,14 @@ enum ShareEngine {
             // may need to retry, and rejoining requires membership.
             try? await TelegramClient.shared.leaveChat(chatId: channelID)
 
-            NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
-            if importedCount == 0, let alreadyImportedID {
+            if stagedCount == 0, let alreadyImportedID {
                 // Every file in the link was already in this vault — reveal the
                 // existing copy instead of claiming a fresh import.
                 return .alreadyImported(objectID: alreadyImportedID)
             }
-            logger.info("Share \(link.id): imported \(importedCount) of \(files.count) file(s)")
-            return .imported
+            guard let firstStagedID else { throw ShareError.invalidPayload }
+            logger.info("Share \(link.id): staged \(stagedCount) of \(files.count) file(s)")
+            return .pending(objectID: firstStagedID)
         } catch let error as ShareError {
             throw error
         } catch {
@@ -966,10 +1020,61 @@ enum ShareEngine {
         }
     }
 
-    /// v1 (legacy) import: the share channel is a per-share disposable channel
-    /// whose messages carry `xcloud:share:v1:` captions with a per-chunk manifest.
-    /// Kept forever — old links and channels must keep working.
-    private static func importLegacy(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
+    /// Import decision: catalog a staged (`pendingImport`) file — Finder-style
+    /// unique name, state → ready, mirror the vault copies into the backup
+    /// channel, incoming record pending → imported. Returns the final name.
+    static func confirmImport(objectID: String) async throws -> String {
+        guard var object = try await DatabaseManager.shared.object(objectID),
+              object.state == "pendingImport" else {
+            throw ShareError.invalidPayload
+        }
+        let finalName = try await Self.uniqueImportName(object.name)
+        object.name = finalName
+        object.state = "ready"
+        try await DatabaseManager.shared.save(object)
+        let chunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
+        for chunk in chunks {
+            if let mid = chunk.messageID {
+                BackupSync.enqueue(messageID: mid, objectID: objectID)
+            }
+        }
+        // One incoming record per imported file so the Shared page lists (and
+        // can remove) each file individually.
+        if let record = (try? await DatabaseManager.shared.shares(role: "incoming"))?
+            .first(where: { $0.objectID == objectID && $0.state == "pending" }) {
+            var updated = record
+            updated.state = "imported"
+            updated.fileName = finalName
+            try? await DatabaseManager.shared.saveShare(updated)
+        }
+        NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
+        logger.info("Pending import \(objectID): imported as \(finalName) (\(chunks.count) chunks)")
+        return finalName
+    }
+
+    /// Import decision: discard a staged file — its forwarded copies are
+    /// deleted from the vault channel and every record is dropped. The file
+    /// never appears in the catalog.
+    static func discardImport(objectID: String) async {
+        guard let object = try? await DatabaseManager.shared.object(objectID),
+              object.state == "pendingImport" else { return }
+        let mids = ((try? await DatabaseManager.shared.chunks(for: objectID)) ?? []).compactMap(\.messageID)
+        if !mids.isEmpty, let vault = try? await VaultManager.ensureVault() {
+            try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: mids)
+        }
+        if let record = (try? await DatabaseManager.shared.shares(role: "incoming"))?
+            .first(where: { $0.objectID == objectID && $0.state == "pending" }) {
+            try? await DatabaseManager.shared.deleteShare(id: record.id)
+        }
+        try? await DatabaseManager.shared.deleteObjectWithChunks(id: objectID)
+        logger.info("Pending import \(objectID): discarded")
+    }
+
+    /// v1 (legacy) import staging: the share channel is a per-share disposable
+    /// channel whose messages carry `xcloud:share:v1:` captions with a
+    /// per-chunk manifest. Kept forever — old links and channels must keep
+    /// working. Same stage-then-decide semantics as the v2 path.
+    private static func stageLegacyImport(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
         do {
             let messages = try await TelegramClient.shared.shareChannelMessages(chatId: channelID, prefix: captionPrefix)
             let metas = messages.compactMap { ShareEngine.parseChunkMeta($0.caption) }
@@ -1001,8 +1106,6 @@ enum ShareEngine {
                     fromChatId: channelID,
                     messageId: message.messageId
                 )
-                // Mirror into the backup channel like uploads and v2 imports.
-                BackupSync.enqueue(messageID: newMessageId, objectID: objectID)
                 let item = plan.items.first { $0.index == meta.index }
                 chunkRecords.append(ChunkRecord(
                     id: UUID().uuidString,
@@ -1020,15 +1123,15 @@ enum ShareEngine {
             }
             guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
 
-            let finalName = try await Self.uniqueImportName(first.name)
-
+            // Staged, not cataloged: the user decides (Import/Cancel) on the
+            // detail screen; backup mirroring happens only on Import.
             let object = ObjectRecord(
                 id: objectID,
                 vaultID: vault.id,
-                name: finalName,
+                name: first.name,
                 size: first.size,
                 mime: first.mime,
-                state: "ready",
+                state: "pendingImport",
                 rootHash: first.rootHash.isEmpty ? nil : first.rootHash,
                 wrappedKey: nil,
                 createdAt: .now,
@@ -1054,8 +1157,8 @@ enum ShareEngine {
                 shareKey: link.shareKey,
                 expiry: link.expiry,
                 role: "incoming",
-                state: "imported",
-                fileName: finalName,
+                state: "pending",
+                fileName: first.name,
                 createdAt: .now
             )
             try await DatabaseManager.shared.saveShare(record)
@@ -1064,9 +1167,8 @@ enum ShareEngine {
             // no longer need membership in the disposable share channel.
             try? await TelegramClient.shared.leaveChat(chatId: channelID)
 
-            logger.info("Share \(link.id): imported \(first.name) (\(chunkRecords.count) chunks)")
-            NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
-            return .imported
+            logger.info("Share \(link.id): staged \(first.name) (\(chunkRecords.count) chunks) — awaiting import decision")
+            return .pending(objectID: objectID)
         } catch let error as ShareError {
             throw error
         } catch {

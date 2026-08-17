@@ -2,9 +2,52 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — Expiry cleanup aligned with join/leave (commit 50b2b2f).
+> 2026-08-18 — 1-day shares + TTL + cancel-on-use + staged import UX.
 
 ---
+
+## 2026-08-18 — Share lifecycle round: 1-day expiry, channel TTL, cancel-on-use, staged import UX
+
+- **User asked**: expiry 7d → 1d; "auto delete message after a day in the
+  channel" — is that an option?; cancel-on-use when the recipient joins (with
+  a grace so their app can forward first); and a NEW import UX: opening a link
+  should NOT auto-import — instead show a detail screen with a file card +
+  Import/Cancel, with the messages ALREADY forwarded to the user's cloud
+  channel so files can be streamed/previewed WITHOUT importing.
+- **TTL answer: YES** — `setChatMessageAutoDeleteTime` (TDLibKit), 86400s
+  allowed (divisible by 86400, ≤ 365d), server-enforced: Telegram deletes
+  every message 24h after posting even if the app never runs again. Applied to
+  PRIVATE pool channels only (creation + reuse + rejoin paths) — NEVER the
+  vault or public channel.
+- **Changes** (commit pending):
+  - `ShareEngine.defaultLifetime` 7d → 1d (86400).
+  - `AppState.completePostAuthSetup`: `cleanupExpiredShares()` now also runs
+    at launch (previously only in the 6h in-app loop).
+  - Cancel-on-use: `TelegramClient.handleUpdate` case `updateChatMember` →
+    `ShareEngine.handleShareChannelMemberJoined` — private slot + joiner ≠ me
+    → after `cancelOnUseGrace` (300s) the share self-cancels (messages
+    deleted + channel left) if still active. The recipient's forward is a
+    server-side copy into THEIR vault, so the grace is safe; TTL+expiry cover
+    the app-not-running case.
+  - **Staged import UX**: `importLink` now forwards chunks into the
+    recipient's vault channel and returns `.pending(objectID:)` instead of
+    cataloging. The object is saved as `state = "pendingImport"` (incoming
+    share row `state = "pending"`): streamable/previewable via the existing
+    DB-driven stack (theater/MPV/audio/thumbnail) but INVISIBLE to
+    `DatabaseManager.allObjects()`/`allChunks()` (catalog, snapshot, sync,
+    VaultRepair step-2 promotion, heal dedupe, existingObject, uniqueName —
+    all central-filtered). `confirmImport(objectID:)` = unique name, state →
+    ready, `BackupSync.enqueue` per chunk (mirroring deferred so cancelled
+    files never reach the backup channel), incoming row → imported.
+    `discardImport(objectID:)` = delete vault-channel copies + drop rows.
+    `PendingImportView` sheet (RootView): file card (kind icon, name, size,
+    type), Preview (media), Import to My Cloud (primary), Cancel (destructive).
+    Pending imports re-surface at launch via `pendingImports()`. Re-opening
+    the same link re-presents the existing pending instead of double-forwarding.
+  - New file `Features/PendingImportView.swift` added to the pbxproj
+    (explicit Features group).
+- Build green; tests green (67: 59 unit + 4 UI + 4 launch). **No Release
+  build** — user policy. Debug app relaunch pending after docs commit.
 
 ## 2026-08-18 — Expiry cleanup aligned with join/leave (commit 50b2b2f)
 
