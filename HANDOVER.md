@@ -1506,8 +1506,118 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       duplicate jpg) via the `--repair-catalog` hook + clean checkpoint; verified
       stable across relaunches (3 objects / 9 chunks, no resurrection). The
       chunk message itself stays — the real object (D8A2E24A) owns it.
+66. **Shared page semantics: imports only + Remove from Shared + stale-link reuse guard (2026-08-17, COMPLETED)**
+    - **Shared page shows only IMPORTED files now** (incoming share records).
+      Previously it showed both directions (incoming ∪ outgoing-active) — the
+      sender's own outgoing shares appeared there too, which the user decided is
+      wrong: Shared is a history of imports, like Transfers. `AppState.sharedObjectIDs`
+      is now `incomingShares` only; the dead `outgoingShares` property was
+      removed; browser grid + TheaterView `mediaBase` follow automatically (both
+      read `sharedObjectIDs`). Sidebar badge already counted incoming only.
+    - **Remove from Shared** (context menu, Shared page, files only): deletes the
+      incoming share record(s) for the object WITHOUT deleting the file — it
+      stays in All Files/root. `AppState.removeFromShared(_:)` (multi-select
+      aware). The shared copy in the share channel remains the sender's to
+      manage; the record is local.
+    - **Re-sharing after manual channel-message deletion mints a fresh link**: a
+      share record could outlive its forwarded messages (user deletes them
+      manually in Telegram — distinct from the 7-day expiry cleanup, which
+      already revokes + re-forwards). `reusableShareLink` now verifies the
+      stored message IDs still exist via `messagesByIds` (cheap, cache-served;
+      runs only on an explicit share action) and revokes the record if any are
+      gone, so the next share of that file re-forwards fresh copies and returns a
+      NEW working link instead of the dead one.
+    - Builds green (Debug + Release), full test suite passes, worktree synced,
+      release app reinstalled + relaunched (verified healthy: 3 objects, 5 share
+      records). Changes NOT committed — user has a follow-up idea and said to
+      finish these first.
+67. **Group shares — multiple files under ONE link (2026-08-17, COMPLETED)**
+    - User: selecting multiple files → right-click → Share only shared a single
+      file; it should be a grouped share. `ShareEngine.share(objects:)` is now the
+      real entry (the old single-object `share(object:)` is a wrapper): 2+ files
+      forward into the SAME reusable channel under one one-use invite, one expiry,
+      one link. Recipient imports them all together from that single link.
+    - **Link format**: v2 links gain `f` = base64url JSON manifest
+      `[{"n":name,"m":"id,id,…"}]` naming each file with its own chunk message
+      IDs; `m` stays the flat list so self-open detection + expiry cleanup are
+      unchanged. Single-file links emit NO `f` (old links keep parsing). A group
+      link with a malformed/empty manifest is rejected whole — it never degrades
+      into a partial single-file import. `ShareFile` codec is unit-tested.
+    - **Reuse**: `reusableShareLink(for:)` excludes group records (sharing a
+      member file alone mints its own link); new `reusableGroupShareLink(for:)`
+      returns the identical link when the EXACT same object set is re-shared.
+      Both share the extracted `isLiveShare` verification.
+    - **DB**: migration `v23-group-shares` adds `shares.groupObjectIDs`
+      (comma-separated object IDs on outgoing group records).
+    - **Import**: `importForwarded` loops the link's files; each imported file
+      gets its own object + incoming ShareRecord (Shared page lists/removes them
+      individually); all-already-imported returns `.alreadyImported`.
+    - **UI**: context menu shares the whole selection with a count-aware label
+      ("Share 3 Items via Link…"); folders/private files filtered out
+      (private keeps its dedicated `notShareablePrivate` error); ShareLinkSheet
+      + import alert are count-aware.
+    - Debug build green; 46 unit tests green (3 new group-share tests). Synced
+      worktree → main. Not committed.
 
 ---
+68. **Share channel pool + public/private shares (2026-08-17, v3 — IMPLEMENTED, NOT VERIFIED IN-APP)**
+    - **Architecture** (user-approved design): PRIVATE shares each take a
+      DEDICATED pool channel (share_state ids 1…5, one active private share per
+      slot — a private link's holder can never read other files' messages),
+      expiring one-use invite, revoked by deleting the whole channel (instant
+      death, slot freed). PUBLIC shares never expire and live TOGETHER in the
+      persistent public channel (share_state id 100); its stored permanent
+      invite (no expiry, no member limit) embeds in EVERY public link, so any
+      holder can join any time. The app never leaves or retires owned channels;
+      a missing channel (deleted out-of-band) is recreated in place. Pool full
+      (5 active private) → `ShareError.privatePoolFull` — blocked with a clear
+      alert, NEVER silently evicting an older share (decision (a): block, not
+      evict-oldest).
+    - **DB**: migration `v24-channel-pool` — `shares.isPublic` (boolean, default
+      false), `share_state.kind` ('private'/'public', default 'private') +
+      `share_state.inviteLink` (permanent reclaim/public invite). The legacy
+      single reusable channel row (id 1) becomes private pool slot 1. New
+      `ShareChannelState` model; `shareChannelID/setShareChannelID` replaced by
+      per-slot CRUD (`shareChannelState(id:)`, `(channelID:)`,
+      `saveShareChannel`, `deleteShareChannel`, `allShareChannels`).
+    - **Engine**: `ShareEngine.allocatePrivateChannel()` (busy-slot tracking via
+      active shares' channels, live-reuse pass then create pass, count guard
+      first), `publicChannel()`, `createPoolChannel(id:kind:)` (archives +
+      stores permanent invite; refuses under XCTest so the app-hosted suite
+      never creates real Telegram channels); `share(objects:lifetime:isPublic:)`
+      + `forwardShare` pick channel/invite/expiry by kind (public: stored invite,
+      `expiry = .distantFuture`); reuse is kind-aware (`reusableShareLink(for:
+      isPublic:)` + `reusableGroupShareLink(for:isPublic:)`). Codec: `exp = 0`
+      encodes "never", parses back to `.distantFuture`. `cancelShare(_:)` /
+      `cancelAllShares()`: private + sole user of channel → deleteChat + drop
+      state row; channel still used by another active share (legacy data) or
+      public → delete just that file's messages. `cleanupExpiredShares` is now
+      pool-aware, skips public, and is finally WIRED into
+      `startTransferCleanupLoop` (was defined but never called). `deleteForever`
+      revoke + `resetVault` (kills every pool channel) rewritten on top.
+    - **UI**: Shared page = `Features/ShareManagerView.swift` (new, added to
+      pbxproj — the Features group is NOT a synchronized root group!) — active
+      outgoing shares only, "Public — never expires" / "Private — expires,
+      revocable" sections, per-card Copy Link + Cancel (confirm alert) +
+      "Cancel All Shares" (confirm alert). File context menu gains "Share via
+      Public Link…"; "Remove from Shared" removed (no more import grid);
+      sidebar Shared badge = active outgoing count; `mainContent` destination
+      switch extracted to `destinationContent` (type-checker limit). Imports now
+      land as `.inbound` TransferCenter cards under a new "Imports" section on
+      the Transfers page (alert text updated); Transfers cards show real
+      thumbnails for completed downloads/imports via ThumbnailService
+      (`TransferIcon`).
+    - **Tests**: 4 new — public codec exp=0↔distantFuture round-trip, kind-aware
+      reuse, pool-full guard (relative to the REAL DB's pre-existing active
+      private shares — the suite runs against the real app database and real
+      shares from earlier testing exist! never assume an empty pool), cancel →
+      revoked. Full suite green (46 unit + 4 UI + 4 launch). Debug build green,
+      app launched, migration verified on the real DB (isPublic column, slot 1
+      private). **NOT committed. NOT yet verified in-app: create a private
+      share (expires, cancelable), a public share (never expires), fill the
+      pool to 5 → block alert, import from a second account, check imports
+      show under Transfers.**
+
 ## 5. Pending / next steps
 
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`

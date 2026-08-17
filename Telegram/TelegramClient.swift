@@ -1181,6 +1181,21 @@ final class TelegramClient {
         return link.inviteLink
     }
 
+    /// Permanent invite for the public share channel: no expiry, no member limit,
+    /// so every public share link can embed it forever and any number of holders
+    /// can join (the app leaves after importing).
+    func createPermanentShareInvite(chatId: Int64) async throws -> String {
+        guard let client else { throw TelegramError.notInitialized }
+        let link = try await client.createChatInviteLink(
+            chatId: chatId,
+            createsJoinRequest: false,
+            expirationDate: 0,
+            memberLimit: 0,
+            name: "xCloud public share"
+        )
+        return link.inviteLink
+    }
+
     func checkShareInviteLink(_ inviteLink: String) async throws -> ChatInviteLinkInfo {
         guard let client else { throw TelegramError.notInitialized }
         return try await client.checkChatInviteLink(inviteLink: inviteLink)

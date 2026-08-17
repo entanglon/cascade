@@ -129,10 +129,9 @@ struct FileBrowserView: View {
             case .transfers:
                 return []
             case .shared:
-                // Both directions: files shared with me (incoming) and files I've
-                // shared out (outgoing live links) — like Drive/iCloud.
-                let sharedIDs = appState.sharedObjectIDs
-                return files.filter { sharedIDs.contains($0.id) && !$0.trashed }
+                // The Shared page is the outgoing-share manager (ShareManagerView),
+                // not a file grid — no objects show here.
+                return []
             case .archive:
                 return files.filter { $0.isArchived }
             case .trash:
@@ -265,9 +264,39 @@ struct FileBrowserView: View {
                 if appState.isSharingFile {
                     ShareProgressSheet()
                 } else if let link = appState.shareResultLink {
-                    ShareLinkSheet(link: link)
+                    ShareLinkSheet(link: link, fileCount: appState.shareResultFileCount)
                 }
             }
+    }
+
+    /// The destination's content area: Transfers and Shared have their own pages;
+    /// everything else shows the file grid/list (or loading/empty states).
+    /// Extracted so mainContent stays under the type-checker's expression limit.
+    @ViewBuilder
+    private var destinationContent: some View {
+        if appState.selectedDestination == .transfers {
+            TransfersView()
+        } else if appState.selectedDestination == .shared {
+            ShareManagerView()
+        } else if visibleFiles.isEmpty && !appState.isUploading {
+            if appState.isInitialLoading {
+                loadingStateView
+            } else {
+                emptyStateView
+            }
+        } else {
+            VStack(spacing: 16) {
+                if !visibleFiles.isEmpty {
+                    if viewModeRaw == "list" { listView } else { gridView }
+                }
+                // While an upload is in progress the folder may still be
+                // empty. Keep the content area filled so the VStack can't
+                // collapse to just the top bar — the outer ZStack aligns
+                // .bottomTrailing, so a collapsed stack pins the bar to
+                // the bottom of the window.
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private var mainContent: some View {
@@ -281,35 +310,12 @@ struct FileBrowserView: View {
                 } else {
                     topBar
 
-                    if appState.selectedDestination == .transfers {
-                        TransfersView()
-                            .transition(.opacity)
-                    } else if visibleFiles.isEmpty && !appState.isUploading {
-                        if appState.isInitialLoading {
-                            loadingStateView
-                                .transition(.opacity)
-                        } else {
-                            emptyStateView
-                                .transition(.opacity)
-                        }
-                    } else {
-                        VStack(spacing: 16) {
-                            if !visibleFiles.isEmpty {
-                                if viewModeRaw == "list" { listView } else { gridView }
-                            }
-                            // While an upload is in progress the folder may still be
-                            // empty. Keep the content area filled so the VStack can't
-                            // collapse to just the top bar — the outer ZStack aligns
-                            // .bottomTrailing, so a collapsed stack pins the bar to
-                            // the bottom of the window.
-                            Spacer(minLength: 0)
-                        }
+                    destinationContent
                         .transition(.opacity)
                         // Recreate the content on folder/destination change so the
                         // crossfade transition actually fires (same-structure swaps
                         // don't animate without an identity change).
                         .id("browser-\(appState.selectedDestination.rawValue)-\(appState.currentFolderID ?? "root")")
-                    }
                 }
             }
             .contentShape(Rectangle())
@@ -1631,7 +1637,7 @@ struct FileBrowserView: View {
             return "Files you archive are hidden from your other views and collected here."
         }
         if appState.selectedDestination == .shared {
-            return "Open a share link, or ask a friend to share a file with you."
+            return "Files you import via share links appear here — the file itself stays in All Files."
         }
         if appState.selectedDestination == .allFiles {
             return "Drop files here or tap + to get started"
@@ -1703,6 +1709,8 @@ struct FileItemContextMenu: View {
     }
 
     var body: some View {
+        // (The Shared page no longer lists files — it manages outgoing share
+        // links, so there's no page-specific file action here.)
         if file.isBook {
             Button {
                 appState.readerFile = file
@@ -1743,10 +1751,20 @@ struct FileItemContextMenu: View {
                 Label("Download", systemImage: "arrow.down.circle")
             }
             if !file.trashed {
+                // The whole shareable selection shares as ONE group link — a
+                // multi-selection produces a single grouped share the recipient
+                // imports together. Private: expiring, dedicated channel, max 5.
+                // Public: never expires, persistent public channel.
+                let shareTargets = actionTargets.filter { !$0.isFolder && !$0.isPrivate }
                 Button {
-                    appState.shareFile(file)
+                    appState.shareFiles(shareTargets)
                 } label: {
-                    Label("Share via Link…", systemImage: "arrow.triangle.swap")
+                    Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items via Link…" : "Share via Link…", systemImage: "arrow.triangle.swap")
+                }
+                Button {
+                    appState.shareFiles(shareTargets, isPublic: true)
+                } label: {
+                    Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items via Public Link…" : "Share via Public Link…", systemImage: "globe")
                 }
             }
             Divider()
@@ -3022,6 +3040,7 @@ final class FileBrowserKeyView: NSView {
 struct ShareLinkSheet: View {
     @Environment(\.dismiss) private var dismiss
     let link: String
+    var fileCount: Int = 1
     @State private var copied = false
 
     var body: some View {
@@ -3035,7 +3054,9 @@ struct ShareLinkSheet: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Anyone with this link can import the file into their own cloud.\nThe link carries no visible invite or key material.")
+            Text(fileCount > 1
+                ? "Anyone with this link can import all \(fileCount) files into their own cloud.\nThe link carries no visible invite or key material."
+                : "Anyone with this link can import the file into their own cloud.\nThe link carries no visible invite or key material.")
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -3071,7 +3092,9 @@ struct ShareLinkSheet: View {
                 .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
 
-            Text("This link expires in 7 days — after the share channel is deleted, the file can no longer be imported.")
+            Text(fileCount > 1
+                ? "This link expires in 7 days — after the share channel is deleted, the shared files can no longer be imported."
+                : "This link expires in 7 days — after the share channel is deleted, the file can no longer be imported.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(XTheme.textTertiary)
                 .multilineTextAlignment(.center)
@@ -3142,7 +3165,7 @@ struct ShareProgressSheet: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Setting up the share link.\nThis can take a moment for larger files.")
+            Text("Setting up the share link.\nThis can take a moment for larger files or selections.")
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textSecondary)
                 .multilineTextAlignment(.center)

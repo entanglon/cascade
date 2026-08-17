@@ -64,6 +64,10 @@ struct TransfersView: View {
         center.items.filter { $0.direction == .download }
     }
 
+    private var imports: [TransferCenter.Item] {
+        center.items.filter { $0.direction == .inbound }
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         HStack {
             Text(title)
@@ -108,6 +112,20 @@ struct TransfersView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 8)
                     }
+
+                    if !imports.isEmpty {
+                        sectionHeader("Imports")
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
+                            spacing: 12
+                        ) {
+                            ForEach(imports) { item in
+                                TransferGridCard(item: item)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
+                    }
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 80)
@@ -139,6 +157,17 @@ struct TransfersView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 8)
                 }
+
+                if !imports.isEmpty {
+                    sectionHeader("Imports")
+                    LazyVStack(spacing: 10) {
+                        ForEach(imports) { item in
+                            TransferRow(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                }
             }
             .padding(.top, 8)
             .padding(.bottom, 80)
@@ -155,7 +184,7 @@ struct TransfersView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Active and completed file uploads or downloads will appear here.")
+            Text("Active and completed file uploads, downloads, or imports will appear here.")
                 .font(.system(size: 14))
                 .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -178,14 +207,7 @@ struct TransferGridCard: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                ZStack {
-                    Circle()
-                        .fill(item.iconBackground)
-                        .frame(width: 36, height: 36)
-                    Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(item.accentColor)
-                }
+                TransferIcon(item: item)
 
                 Spacer()
 
@@ -239,14 +261,7 @@ struct TransferRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(item.iconBackground)
-                    .frame(width: 38, height: 38)
-                Image(systemName: item.direction == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(item.accentColor)
-            }
+            TransferIcon(item: item)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -294,6 +309,62 @@ struct TransferRow: View {
 }
 
 // MARK: - Transfer card actions + colors
+
+/// The card's leading icon: a real thumbnail for completed downloads/imports
+/// (media only), the direction circle otherwise.
+struct TransferIcon: View {
+    let item: TransferCenter.Item
+    @State private var thumbURL: URL? = nil
+
+    var body: some View {
+        ZStack {
+            if let thumbURL {
+                AsyncImage(url: thumbURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 38, height: 38)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .task(id: item.id) {
+            await loadThumbnail()
+        }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Circle()
+                .fill(item.iconBackground)
+                .frame(width: 38, height: 38)
+            Image(systemName: iconName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(item.accentColor)
+        }
+    }
+
+    private var iconName: String {
+        switch item.direction {
+        case .upload: return "arrow.up.circle.fill"
+        case .download: return "arrow.down.circle.fill"
+        case .inbound: return "tray.and.arrow.down.fill"
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard item.state == .complete, item.direction != .upload,
+              let object = try? await DatabaseManager.shared.object(item.objectID) else { return }
+        thumbURL = await ThumbnailService.shared.thumbnailURL(for: object)
+    }
+}
 
 extension TransferCenter.Item {
     var accentColor: Color {

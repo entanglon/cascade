@@ -347,6 +347,32 @@ actor DatabaseManager {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+
+        // Group shares (2026-08-17): ONE link can carry multiple files, all
+        // forwarded into the reusable channel together. Outgoing records list
+        // every shared object ID (comma-separated) so single-file reuse never
+        // returns a group link and group reuse can match the exact same selection.
+        migrator.registerMigration("v23-group-shares") { db in
+            try db.alter(table: "shares") { t in
+                t.add(column: "groupObjectIDs", .text).defaults(to: "")
+            }
+        }
+
+        // Channel pool + public/private shares (2026-08-17): share_state grows
+        // a kind and a stored permanent invite; the pre-existing single reusable
+        // channel (row id 1) becomes private pool slot 1. Shares grow a public
+        // flag: public links never expire and live in the persistent public
+        // channel; private links each take a dedicated pool slot.
+        migrator.registerMigration("v24-channel-pool") { db in
+            try db.alter(table: "shares") { t in
+                t.add(column: "isPublic", .boolean).notNull().defaults(to: false)
+            }
+            try db.alter(table: "share_state") { t in
+                t.add(column: "kind", .text).notNull().defaults(to: "private")
+                t.add(column: "inviteLink", .text).notNull().defaults(to: "")
+            }
+            try db.execute(sql: "UPDATE share_state SET kind = 'private' WHERE id = 1")
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
@@ -440,28 +466,33 @@ actor DatabaseManager {
         }
     }
 
-    // MARK: - Reusable share channel (v22)
+    // MARK: - Share channel pool (v24)
 
-    /// The single reusable outgoing-share channel (one row, id = 1), or nil.
-    func shareChannelID() throws -> Int64? {
+    /// A pool channel by its row id (1…5 = private slots, 100 = public), or nil.
+    func shareChannelState(id: Int64) throws -> ShareChannelState? {
+        try read { db in try ShareChannelState.fetchOne(db, id: id) }
+    }
+
+    /// Every recorded pool channel (private slots and the public channel).
+    func allShareChannels() throws -> [ShareChannelState] {
+        try read { db in try ShareChannelState.order(Column("id")).fetchAll(db) }
+    }
+
+    /// Records a pool channel (insert or update by row id).
+    func saveShareChannel(_ state: ShareChannelState) throws {
+        try write { db in try state.save(db) }
+    }
+
+    /// The pool slot whose channel carries the given chat, or nil.
+    func shareChannelState(channelID: Int64) throws -> ShareChannelState? {
         try read { db in
-            try Row.fetchOne(db, sql: "SELECT channelID FROM share_state WHERE id = 1")?["channelID"]
+            try ShareChannelState.filter(Column("channelID") == channelID).fetchOne(db)
         }
     }
 
-    /// Records the reusable share channel, or clears it (nil deletes the row).
-    func setShareChannelID(_ channelID: Int64?) throws {
-        try write { db in
-            if let channelID {
-                try db.execute(
-                    sql: "INSERT INTO share_state (id, channelID, createdAt) VALUES (1, ?, ?) "
-                       + "ON CONFLICT(id) DO UPDATE SET channelID = excluded.channelID",
-                    arguments: [channelID, Date()]
-                )
-            } else {
-                try db.execute(sql: "DELETE FROM share_state WHERE id = 1")
-            }
-        }
+    /// Deletes a pool channel row (its Telegram channel is already gone).
+    func deleteShareChannel(id: Int64) throws {
+        try write { db in _ = try ShareChannelState.deleteOne(db, id: id) }
     }
 
     // MARK: - People & Faces

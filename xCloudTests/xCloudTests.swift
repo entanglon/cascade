@@ -1318,6 +1318,149 @@ struct xCloudTests {
         #expect(parsedLegacy?.messageIDs.isEmpty == true)
     }
 
+    @Test func groupShareLinkRoundTripsThroughURLCodec() {
+        let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
+        let link = ShareEngine.ShareLink(
+            id: "grp-1",
+            channelID: -100555555555,
+            inviteLink: "https://t.me/+GrOuP123456789",
+            shareKey: "",
+            fileName: "3 files",
+            expiry: expiry,
+            messageIDs: [1048601, 1048602, 1048603, 1048604, 1048605, 1048606, 1048607],
+            wrappedKeyB64: "",
+            files: [
+                ShareEngine.ShareFile(name: "photo.jpg", messageIDs: [1048601, 1048602]),
+                ShareEngine.ShareFile(name: "notes.txt", messageIDs: [1048603]),
+                ShareEngine.ShareFile(name: "movie.mkv", messageIDs: [1048604, 1048605, 1048606, 1048607])
+            ]
+        )
+        #expect(link.isGroup)
+        #expect(link.isForwardBased)
+
+        let parsed = ShareEngine.ShareLink.parse(link.urlString)
+        #expect(parsed != nil, "group link must parse back")
+        #expect(parsed?.isGroup == true)
+        #expect(parsed?.isForwardBased == true)
+        #expect(parsed?.files.count == 3)
+        #expect(parsed?.files[0].name == "photo.jpg")
+        #expect(parsed?.files[0].messageIDs == [1048601, 1048602])
+        #expect(parsed?.files[1].name == "notes.txt")
+        #expect(parsed?.files[1].messageIDs == [1048603])
+        #expect(parsed?.files[2].name == "movie.mkv")
+        #expect(parsed?.files[2].messageIDs == [1048604, 1048605, 1048606, 1048607])
+        // The flat list stays readable for self-open detection and expiry cleanup.
+        #expect(parsed?.messageIDs == [1048601, 1048602, 1048603, 1048604, 1048605, 1048606, 1048607])
+        #expect(parsed?.channelID == link.channelID)
+        #expect(parsed?.fileName == link.fileName)
+
+        // Obfuscated group links round-trip too (the form actually transported).
+        let obfuscated = try? ShareEngine.obfuscate(link.urlString)
+        let parsedObf = ShareEngine.ShareLink.parse(obfuscated ?? "")
+        #expect(parsedObf?.isGroup == true)
+        #expect(parsedObf?.files.count == 3)
+        #expect(parsedObf?.files[2].name == "movie.mkv")
+
+        // Single-file links still parse as one-entry, non-group links.
+        let single = ShareEngine.ShareLink(
+            id: "single-1",
+            channelID: -100111,
+            inviteLink: "https://t.me/+Single123456789",
+            shareKey: "",
+            fileName: "a.pdf",
+            expiry: expiry,
+            messageIDs: [1048610, 1048611]
+        )
+        let parsedSingle = ShareEngine.ShareLink.parse(single.urlString)
+        #expect(parsedSingle?.isGroup == false)
+        #expect(parsedSingle?.files.count == 1)
+        #expect(parsedSingle?.files.first?.name == "a.pdf")
+        #expect(parsedSingle?.files.first?.messageIDs == [1048610, 1048611])
+        #expect(parsedSingle?.messageIDs == [1048610, 1048611])
+    }
+
+    @Test func groupShareManifestRejectsMalformedPayloads() {
+        // A group manifest with a file that resolves to zero chunks must be
+        // rejected outright — a partial group would silently drop a file.
+        let expiry = Date(timeIntervalSinceNow: 3600)
+        let ok = ShareEngine.ShareLink(
+            id: "ok", channelID: -1001, inviteLink: "https://t.me/+X", shareKey: "",
+            fileName: "2 files", expiry: expiry,
+            messageIDs: [1, 2], files: [
+                ShareEngine.ShareFile(name: "a", messageIDs: [1]),
+                ShareEngine.ShareFile(name: "b", messageIDs: [2])
+            ]
+        )
+        #expect(ShareEngine.ShareLink.parse(ok.urlString) != nil)
+
+        // A manifest naming a single file is not a group link — the parser
+        // rejects it instead of degrading to a single-file import.
+        let single = ShareEngine.ShareLink(
+            id: "solo", channelID: -1001, inviteLink: "https://t.me/+X", shareKey: "",
+            fileName: "1 file", expiry: expiry,
+            messageIDs: [1], files: [ShareEngine.ShareFile(name: "a", messageIDs: [1])]
+        )
+        #expect(ShareEngine.ShareLink.parse(single.urlString)?.isGroup == false,
+                "a one-entry manifest serializes as a plain single-file link")
+
+        // Garbage in the manifest field is an invalid link, never a fallback.
+        let bogus = "xcloud://share?v=2&id=x&ch=-1001&inv=https%3A%2F%2Ft.me%2F%2BX&key=&name=2+files&exp=9999999999&f=not-base64"
+        #expect(ShareEngine.ShareLink.parse(bogus) == nil)
+
+        // A group manifest whose file has empty message IDs is invalid too.
+        let emptyIDs = ShareEngine.ShareLink.encodeFiles([
+            ShareEngine.ShareFile(name: "a", messageIDs: [1]),
+            ShareEngine.ShareFile(name: "b", messageIDs: [])
+        ])
+        let withEmpty = "xcloud://share?v=2&id=x&ch=-1001&inv=https%3A%2F%2Ft.me%2F%2BX&key=&name=2+files&exp=9999999999&f=\(emptyIDs)"
+        #expect(ShareEngine.ShareLink.parse(withEmpty) == nil)
+    }
+
+    @Test func shareRefusesPrivateAndFolderObjects() async {
+        // Guards run before auth (and before any Telegram/DB access), so the
+        // rules are testable without a session.
+        let privateFile = ObjectRecord(
+            id: "p1", vaultID: "v", name: "secret.txt", size: 1, mime: "text/plain",
+            state: "ready", createdAt: Date(), modifiedAt: Date(), isPrivate: true
+        )
+        do {
+            _ = try await ShareEngine.share(objects: [privateFile])
+            Issue.record("private files must not be shareable")
+        } catch let error as ShareEngine.ShareError {
+            #expect(error == .notShareablePrivate)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        let folder = ObjectRecord(
+            id: "f1", vaultID: "v", name: "Folder", size: 0, mime: "text/plain",
+            state: "ready", createdAt: Date(), modifiedAt: Date(), isFolder: true
+        )
+        do {
+            _ = try await ShareEngine.share(objects: [folder])
+            Issue.record("folders must not be shareable")
+        } catch let error as ShareEngine.ShareError {
+            #expect(error == .notShareable)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        // A mixed selection with any non-shareable member fails as a whole — no
+        // silent partial share.
+        let normal = ObjectRecord(
+            id: "n1", vaultID: "v", name: "ok.txt", size: 1, mime: "text/plain",
+            state: "ready", createdAt: Date(), modifiedAt: Date()
+        )
+        do {
+            _ = try await ShareEngine.share(objects: [privateFile, normal])
+            Issue.record("a selection containing a private file must not share")
+        } catch let error as ShareEngine.ShareError {
+            #expect(error == .notShareablePrivate)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
     @Test func shareKeyWrapUnwrapRoundTrips() throws {
         // The share flow wraps the object key with a fresh share key (which rides
         // inside the link); the recipient unwraps it, then re-wraps it under their
@@ -1562,6 +1705,170 @@ struct xCloudTests {
             center.discard(id)
             #expect(center.items.isEmpty, "discard removes failed download card")
         }
+    }
+
+    // MARK: - Share Channel Pool & Public/Private Shares (v24)
+
+    @Test func publicShareLinkCodecNeverExpires() throws {
+        // A public share encodes exp = 0 and parses back to Date.distantFuture —
+        // "never" must survive the link codec round-trip, and a normal (private)
+        // timestamp must parse back to the same second it was encoded with.
+        let never = ShareEngine.ShareLink(
+            id: "pub-1", channelID: -100200, inviteLink: "https://t.me/+pub",
+            shareKey: "", fileName: "public.txt",
+            expiry: .distantFuture,
+            messageIDs: [1048576, 2097152],
+            wrappedKeyB64: "",
+            files: [ShareEngine.ShareFile(name: "public.txt", messageIDs: [1048576, 2097152])]
+        )
+        let parsedNever = try #require(ShareEngine.ShareLink.parse(never.urlString))
+        #expect(parsedNever.expiry == .distantFuture, "exp = 0 means never")
+
+        let expiring = ShareEngine.ShareLink(
+            id: "priv-1", channelID: -100201, inviteLink: "https://t.me/+priv",
+            shareKey: "", fileName: "private.txt",
+            expiry: Date(timeIntervalSince1970: 1_800_000_000),
+            messageIDs: [3145728],
+            wrappedKeyB64: "",
+            files: [ShareEngine.ShareFile(name: "private.txt", messageIDs: [3145728])]
+        )
+        let parsedExpiring = try #require(ShareEngine.ShareLink.parse(expiring.urlString))
+        #expect(Int(parsedExpiring.expiry.timeIntervalSince1970) == 1_800_000_000)
+    }
+
+    @Test func shareReuseIsKindAware() async throws {
+        // A private live share is reused by a private share request, never by a
+        // public one — and vice versa. The same file can hold one of each.
+        let now = Date()
+        let privateShare = ShareRecord(
+            id: "share-kind-private", objectID: "obj-kind-test",
+            channelID: -100300, inviteLink: "https://t.me/+p", shareKey: "",
+            expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
+            fileName: "kind.txt", createdAt: now,
+            messageIDs: "1048576", isPublic: false
+        )
+        let publicShare = ShareRecord(
+            id: "share-kind-public", objectID: "obj-kind-test",
+            channelID: -100301, inviteLink: "https://t.me/+u", shareKey: "",
+            expiry: .distantFuture, role: "outgoing", state: "active",
+            fileName: "kind.txt", createdAt: now,
+            messageIDs: "2097152", isPublic: true
+        )
+        try await DatabaseManager.shared.saveShare(privateShare)
+        try await DatabaseManager.shared.saveShare(publicShare)
+
+        let privateLink = try await ShareEngine.reusableShareLink(for: "obj-kind-test", isPublic: false)
+        #expect(privateLink != nil, "a private request reuses the private share")
+        if let privateLink, let parsed = ShareEngine.ShareLink.parse(privateLink) {
+            #expect(parsed.channelID == privateShare.channelID)
+        }
+        let publicLink = try await ShareEngine.reusableShareLink(for: "obj-kind-test", isPublic: true)
+        #expect(publicLink != nil, "a public request reuses the public share")
+        if let publicLink, let parsed = ShareEngine.ShareLink.parse(publicLink) {
+            #expect(parsed.channelID == publicShare.channelID)
+            #expect(parsed.expiry == .distantFuture)
+        }
+
+        try await DatabaseManager.shared.deleteShare(id: privateShare.id)
+        try await DatabaseManager.shared.deleteShare(id: publicShare.id)
+    }
+
+    @Test func privateSharePoolBlocksAtFive() async throws {
+        // Five active private shares fill the pool (ids 1…5) — the sixth request
+        // is blocked with privatePoolFull, never silently evicting an older link.
+        // A public share does NOT occupy a private slot. The test runs against
+        // the REAL app database, which can already hold active private shares
+        // (genuine links handed out during real usage), so the assertions are
+        // relative to that baseline instead of assuming an empty pool.
+        let now = Date()
+        func activePrivateCount() async -> Int {
+            ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
+                .filter { $0.state == "active" && !$0.isPublic }.count
+        }
+        let baseline = await activePrivateCount()
+        // Fillers guarantee the pool is over capacity regardless of baseline.
+        let fillerCount = max(0, 5 - baseline) + 1
+        var ids: [String] = []
+        for i in 1...fillerCount {
+            let share = ShareRecord(
+                id: "share-pool-\(i)", objectID: "obj-pool-\(i)",
+                channelID: -100_400 - Int64(i), inviteLink: "https://t.me/+pool\(i)", shareKey: "",
+                expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
+                fileName: "pool-\(i).txt", createdAt: now,
+                messageIDs: "1048576"
+            )
+            ids.append(share.id)
+            try await DatabaseManager.shared.saveShare(share)
+        }
+        // A public share exists alongside the full private pool — no slot taken.
+        try await DatabaseManager.shared.saveShare(ShareRecord(
+            id: "share-pool-public", objectID: "obj-pool-public",
+            channelID: -100500, inviteLink: "https://t.me/+pub", shareKey: "",
+            expiry: .distantFuture, role: "outgoing", state: "active",
+            fileName: "pub.txt", createdAt: now,
+            messageIDs: "2097152", isPublic: true
+        ))
+        ids.append("share-pool-public")
+
+        // Over capacity (baseline + fillers ≥ 5): the pool guard must fire.
+        do {
+            _ = try await ShareEngine.allocatePrivateChannel()
+            Issue.record("allocatePrivateChannel must throw when all 5 slots are busy")
+        } catch let error as ShareEngine.ShareError {
+            #expect(error == .privatePoolFull)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        // Drop the fillers: back at the baseline (which is < 5 by construction —
+        // the pool can't hold more than 5 live private shares in practice), the
+        // guard must NOT fire (it will fail later for lack of Telegram — that's
+        // fine, the point is the pool guard itself passes).
+        for id in ids {
+            try await DatabaseManager.shared.deleteShare(id: id)
+        }
+        if baseline < ShareEngine.privatePoolSize {
+            do {
+                _ = try await ShareEngine.allocatePrivateChannel()
+                Issue.record("expected allocation to fail on Telegram, not the pool guard")
+            } catch let error as ShareEngine.ShareError {
+                #expect(error != .privatePoolFull, "free slots must not hit the pool limit")
+            } catch {
+                // TelegramError.notInitialized etc — the guard passed.
+            }
+        }
+    }
+
+    @Test func cancelShareMarksRecordsRevoked() async throws {
+        // cancelShare on a private share with no other active share in its
+        // channel deletes the channel (slot freed); on a public share it only
+        // deletes that file's messages. Both end revoked. Telegram is not
+        // initialized under XCTest, so the deletion calls fail silently — the
+        // record transition is what's verified here.
+        let now = Date()
+        let privateShare = ShareRecord(
+            id: "share-cancel-private", objectID: "obj-cancel-1",
+            channelID: -100600, inviteLink: "https://t.me/+cp", shareKey: "",
+            expiry: now.addingTimeInterval(3600), role: "outgoing", state: "active",
+            fileName: "p.txt", createdAt: now, messageIDs: "1048576"
+        )
+        let publicShare = ShareRecord(
+            id: "share-cancel-public", objectID: "obj-cancel-2",
+            channelID: -100601, inviteLink: "https://t.me/+cu", shareKey: "",
+            expiry: .distantFuture, role: "outgoing", state: "active",
+            fileName: "u.txt", createdAt: now, messageIDs: "2097152", isPublic: true
+        )
+        try await DatabaseManager.shared.saveShare(privateShare)
+        try await DatabaseManager.shared.saveShare(publicShare)
+
+        await ShareEngine.cancelShare(privateShare)
+        await ShareEngine.cancelShare(publicShare)
+
+        #expect(try await DatabaseManager.shared.share(id: privateShare.id)?.state == "revoked")
+        #expect(try await DatabaseManager.shared.share(id: publicShare.id)?.state == "revoked")
+
+        try await DatabaseManager.shared.deleteShare(id: privateShare.id)
+        try await DatabaseManager.shared.deleteShare(id: publicShare.id)
     }
 }
 

@@ -149,7 +149,8 @@ struct SidebarRow: View {
         case .transfers:
             return TransferCenter.shared.items.filter { $0.state == .active }.count
         case .shared:
-            return appState.incomingShares.count
+            // The Shared page manages outgoing share links — badge the live ones.
+            return appState.activeOutgoingShares.count
         case .archive:
             return appState.files.filter { $0.isArchived }.count
         case .trash:

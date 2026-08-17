@@ -37,6 +37,7 @@
 		F7A1B00100000000000000A1 /* BookReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00100000000000000B1 /* BookReaderView.swift */; };
 		F7A1B00200000000000000A1 /* PhotosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00200000000000000B1 /* PhotosGridView.swift */; };
 		F7A1B00300000000000000A1 /* VideosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00300000000000000B1 /* VideosGridView.swift */; };
+		F7D1B00100000000000000C1 /* ShareManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D1B00100000000000000D1 /* ShareManagerView.swift */; };
 		F7A1B00400000000000000A1 /* MediaGridShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00400000000000000B1 /* MediaGridShared.swift */; };
 /* End PBXBuildFile section */
 
@@ -75,6 +76,7 @@
 		F7A1B00100000000000000B1 /* BookReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookReaderView.swift; sourceTree = "<group>"; };
 		F7A1B00200000000000000B1 /* PhotosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosGridView.swift; sourceTree = "<group>"; };
 		F7A1B00300000000000000B1 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
+		F7D1B00100000000000000D1 /* ShareManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareManagerView.swift; sourceTree = "<group>"; };
 		F7A1B00400000000000000B1 /* MediaGridShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGridShared.swift; sourceTree = "<group>"; };
 		F783B67730236D5C00326355 /* TerminationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationHandler.swift; sourceTree = "<group>"; };
 		F7A1B00600000000000000A5 /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
@@ -227,6 +229,7 @@
 				F7A1B00100000000000000B1 /* BookReaderView.swift */,
 				F7A1B00200000000000000B1 /* PhotosGridView.swift */,
 				F7A1B00300000000000000B1 /* VideosGridView.swift */,
+				F7D1B00100000000000000D1 /* ShareManagerView.swift */,
 				F7A1B00400000000000000B1 /* MediaGridShared.swift */,
 				F7C0FF00000000000000A010 /* MPVVideoView.swift */,
 			);
@@ -403,6 +406,7 @@
 				F7A1B00100000000000000A1 /* BookReaderView.swift in Sources */,
 				F7A1B00200000000000000A1 /* PhotosGridView.swift in Sources */,
 				F7A1B00300000000000000A1 /* VideosGridView.swift in Sources */,
+				F7D1B00100000000000000C1 /* ShareManagerView.swift in Sources */,
 				F7A1B00400000000000000A1 /* MediaGridShared.swift in Sources */,
 				F71DD58C3023306500135A65 /* GlassButtonStyle.swift in Sources */,
 				F783B672302364AF00326355 /* FileBrowserView.swift in Sources */,

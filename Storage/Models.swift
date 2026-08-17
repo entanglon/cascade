@@ -291,6 +291,35 @@ struct ShareRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, S
     /// private files; the forwarded chunks stay encrypted under the vault object
     /// key, so the link must carry it. Empty for non-private files.
     var wrappedKeyB64: String = ""
+    /// v23+: comma-separated object IDs of a GROUP share (2+ files shared under
+    /// ONE link). Empty for single-file shares, and empty on incoming records
+    /// (each imported file gets its own record). Lets single-file reuse never
+    /// hand out a group link and lets group reuse match the exact same selection.
+    var groupObjectIDs: String = ""
+    /// v24+: true for PUBLIC shares — the link never expires and lives in the
+    /// persistent public channel; false for private shares (dedicated pool
+    /// channel, expiring one-use invite). Always false on incoming records.
+    var isPublic: Bool = false
+}
+
+// MARK: - Share channel pool (v24)
+
+/// One channel from the share-channel pool. PRIVATE shares each take a dedicated
+/// slot (ids 1…5): a channel per share so a holder of one private link can never
+/// see other files' messages. PUBLIC shares all share the single persistent
+/// channel (id 100); its permanent invite is stored here and every public link
+/// embeds it. The app never leaves or retires owned channels — a missing channel
+/// (deleted out-of-band) is recreated in the same slot.
+struct ShareChannelState: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    var id: Int64           // 1…5 = private pool slots; 100 = the public channel
+    var channelID: Int64
+    var kind: String        // "private" | "public"
+    /// Permanent reclaim invite — for the public channel this is also the invite
+    /// every public share link embeds; never handed out directly.
+    var inviteLink: String = ""
+    var createdAt: Date = .now
+
+    static let databaseTableName = "share_state"
 }
 
 extension ShareRecord {

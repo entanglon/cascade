@@ -66,11 +66,14 @@ final class AppState {
     /// Files shared WITH me — incoming share records, each keyed to the vault
     /// object its import created. Loaded at launch; shown under "Shared".
     var incomingShares: [ShareRecord] = []
-    /// Files I shared with others (live outgoing links). Shown under "Shared"
-    /// alongside incoming ones — a link that's been revoked/expired is filtered out.
+    /// Links I handed out — outgoing share records, loaded at launch and after
+    /// every share/cancel. Drives the Shared management page.
     var outgoingShares: [ShareRecord] = []
     /// Share link waiting to be shown (drives the "Share Link Ready" sheet).
     var shareResultLink: String? = nil
+    /// How many files the pending share link carries (1 = single file; >1 = a
+    /// group share) — lets the "Share Link Ready" sheet word itself correctly.
+    var shareResultFileCount = 1
     var isSharingFile = false
     /// True when the "Import Shared Link…" dialog should appear (File menu).
     var importShareLinkPrompt = false
@@ -986,6 +989,8 @@ final class AppState {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 6 * 60 * 60 * 1_000_000_000)
                 await cleanupExpiredTransfers()
+                await ShareEngine.cleanupExpiredShares()
+                await loadShares()
             }
         }
     }
@@ -1060,36 +1065,104 @@ final class AppState {
 
     // MARK: - Cloud sharing
 
-    /// Loads share records — files other xCloud users shared with me (incoming)
-    /// and files I shared out (outgoing, live links only).
+    /// Loads share records: incoming (files others shared with me) and outgoing
+    /// (links I handed out, for the Shared management page).
     @MainActor
     func loadShares() async {
         incomingShares = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
-        outgoingShares = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
-            .filter { $0.state == "active" }
+        outgoingShares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
     }
 
-    /// Object IDs shown under "Shared": files shared with me plus files I've
-    /// shared out — both directions, like Drive/iCloud.
-    var sharedObjectIDs: Set<String> {
-        Set((incomingShares + outgoingShares).map(\.objectID))
-    }
-
-    /// Sender side: creates the share link by forwarding the file's chunks into
-    /// the share channel. Only someone holding the link can import the file.
+    /// Active outgoing shares (state == "active"), private and public, newest
+    /// first — what the Shared page manages.
     @MainActor
-    func shareFile(_ object: ObjectRecord) {
+    var activeOutgoingShares: [ShareRecord] {
+        outgoingShares.filter { $0.state == "active" }
+    }
+
+    /// Object IDs shown under "Shared": only files I imported through share
+    /// links (incoming). Files I've shared OUT live on the sender side in the
+    /// share channel and are deliberately NOT shown here — the Shared page is a
+    /// history of imports, like the Transfers page.
+    var sharedObjectIDs: Set<String> {
+        Set(incomingShares.map(\.objectID))
+    }
+
+    /// Removes the incoming share record(s) for an object — the file itself
+    /// stays in the vault and in All Files; only the Shared page entry goes
+    /// away. The shared copy in the share channel is the sender's to manage.
+    @MainActor
+    func removeFromShared(_ object: ObjectRecord) {
+        Task {
+            let incoming = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
+            for share in incoming where share.objectID == object.id {
+                try? await DatabaseManager.shared.deleteShare(id: share.id)
+            }
+            await loadShares()
+        }
+    }
+
+    /// Sender side: creates ONE share link for the whole selection by forwarding
+    /// the files' chunks into the pool channel. A single file produces a normal
+    /// link; two or more produce a GROUP share — one link, one expiry, and the
+    /// recipient imports them all together. Only someone holding the link can
+    /// import the files. `isPublic` mints a never-expiring public link in the
+    /// persistent public channel (default: private, expiring, dedicated channel).
+    @MainActor
+    func shareFiles(_ objects: [ObjectRecord], isPublic: Bool = false) {
         guard !isSharingFile else { return }
+        // Folders and private files can't be shared — drop them from the request
+        // (the context menu already hides the action for folder-only selections).
+        let shareable = objects.filter { !$0.isFolder && !$0.isPrivate }
+        guard !shareable.isEmpty else {
+            // Name the actual blocker — private files and folders have different
+            // remedies (move out of Private Vault vs. share the files inside).
+            alertMessage = ShareEngine.describe(
+                objects.contains(where: { $0.isPrivate })
+                    ? ShareEngine.ShareError.notShareablePrivate
+                    : ShareEngine.ShareError.notShareable
+            )
+            return
+        }
+        shareResultFileCount = shareable.count
         isSharingFile = true
         Task {
             defer { isSharingFile = false }
             do {
-                shareResultLink = try await ShareEngine.share(object: object)
+                shareResultLink = try await ShareEngine.share(objects: shareable, isPublic: isPublic)
+                await loadShares()
             } catch {
                 // describe() pulls the real reason out of TDLibKit errors instead of
                 // the useless "TDLibKit.Error error 1" localizedDescription.
                 alertMessage = ShareEngine.describe(error)
             }
+        }
+    }
+
+    /// Sender side: creates the share link for a single file (single selection,
+    /// player). Convenience wrapper over `shareFiles`.
+    @MainActor
+    func shareFile(_ object: ObjectRecord, isPublic: Bool = false) {
+        shareFiles([object], isPublic: isPublic)
+    }
+
+    /// Revokes ONE active outgoing share (private: dedicated channel dies;
+    /// public: that file's messages are deleted from the public channel).
+    @MainActor
+    func cancelShare(_ share: ShareRecord) {
+        Task {
+            await ShareEngine.cancelShare(share)
+            await loadShares()
+        }
+    }
+
+    /// Revokes every active outgoing share — private channels die, public
+    /// messages are deleted — after the user confirms in the UI.
+    @MainActor
+    func cancelAllShares() {
+        Task {
+            await ShareEngine.cancelAllShares()
+            await loadShares()
         }
     }
 
@@ -1106,9 +1179,28 @@ final class AppState {
                 switch try await ShareEngine.importLink(trimmed) {
                 case .imported:
                     print("xCloud URL: imported via link")
-                    alertMessage = "Shared file imported — find it under Shared."
-                    await self.loadFiles()
+                    let isGroup = ShareEngine.ShareLink.parse(trimmed)?.isGroup ?? false
+                    // An import is a transfer: the card shows in Transfers
+                    // (history like uploads/downloads), not on the Shared page —
+                    // Shared now manages the links I handed OUT.
+                    let before = Set(incomingShares.map(\.objectID))
                     await self.loadShares()
+                    let fresh = incomingShares.filter { !before.contains($0.objectID) }
+                    let freshObjects = fresh.isEmpty ? nil : ((try? await DatabaseManager.shared.allObjects()) ?? [])
+                        .first { $0.id == fresh.first?.objectID }
+                    TransferCenter.shared.begin(
+                        .inbound,
+                        objectID: fresh.first?.objectID ?? "",
+                        name: isGroup
+                            ? "\(fresh.count) files"
+                            : (freshObjects?.name ?? "Shared file"),
+                        statusText: "Imported",
+                        state: .complete
+                    )
+                    alertMessage = isGroup
+                        ? "Shared files imported — find them in Transfers."
+                        : "Shared file imported — find it in Transfers."
+                    await self.loadFiles()
                 case .selfOpen(let objectID):
                     print("xCloud URL: self-open, revealing object \(objectID)")
                     // Quiet, Drive-style behavior: reveal + select the original.
@@ -1975,23 +2067,9 @@ final class AppState {
     private func revokeShares(for ids: [String]) async {
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         for share in shares where share.state == "active" && ids.contains(share.objectID) {
-            if share.messageIDs.isEmpty {
-                // Legacy: the share owns a whole disposable channel.
-                try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
-            } else {
-                // v22: delete just this file's forwarded messages from the
-                // reusable channel; the channel lives on for other shares.
-                let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
-                if !mids.isEmpty {
-                    try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
-                }
-            }
-            var updated = share
-            updated.state = "revoked"
-            try? await DatabaseManager.shared.saveShare(updated)
+            await ShareEngine.cancelShare(share)
         }
-        // No active outgoing shares left — retire the reusable channel too.
-        await ShareEngine.retireShareChannelIfEmpty()
+        await loadShares()
     }
 
     @MainActor
@@ -2006,24 +2084,12 @@ final class AppState {
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
 
         // A reset kills every share link too: the objects they point at are gone.
-        let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
-        for share in shares where share.state == "active" {
-            if share.messageIDs.isEmpty {
-                try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
-            } else {
-                let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
-                if !mids.isEmpty {
-                    try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
-                }
-            }
-            var updated = share
-            updated.state = "revoked"
-            try? await DatabaseManager.shared.saveShare(updated)
-        }
-        // The reusable share channel dies with the reset.
-        if let shareChannel = try? await DatabaseManager.shared.shareChannelID() {
-            try? await TelegramClient.shared.deleteChat(chatId: shareChannel)
-            try? await DatabaseManager.shared.setShareChannelID(nil)
+        // Private channels die with their shares; the public channel dies too —
+        // its forwarded copies reference the wiped vault.
+        await ShareEngine.cancelAllShares()
+        for state in (try? await DatabaseManager.shared.allShareChannels()) ?? [] {
+            try? await TelegramClient.shared.deleteChat(chatId: state.channelID)
+            try? await DatabaseManager.shared.deleteShareChannel(id: state.id)
         }
 
         let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: vault.channelID)

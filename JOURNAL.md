@@ -827,3 +827,31 @@ Debug + Release rebuilt, /Applications refreshed, session preserved, release app
   casing; added/kept the unit test (6 cases). Full test suite green.
 - Everything committed to main; HANDOVER items 64-65 updated with the gotcha;
   JOURNAL updated.
+
+## 2026-08-17 — v3 share upgrade: channel pool + public/private shares
+
+- **Pool architecture**: private shares each get a DEDICATED pool channel
+  (share_state ids 1–5, one active private share per slot — isolation), expiring
+  one-use invite, revoke = delete whole channel (instant death, slot freed).
+  Public shares never expire and share the persistent public channel (id 100)
+  with its stored permanent invite embedded in every public link. App never
+  leaves/retires owned channels; missing channel → recreated in place. Pool full
+  (5 active private) → clear block alert (privatePoolFull), never evict-oldest.
+- **DB v24**: shares.isPublic; share_state.kind + inviteLink; legacy reusable
+  channel row becomes private slot 1; ShareChannelState model + per-slot CRUD.
+- **Engine**: allocatePrivateChannel/publicChannel/createPoolChannel; kind-aware
+  share() + reuse; codec exp=0 = "never"; cancelShare/cancelAllShares (channel
+  death vs per-file message delete); cleanupExpiredShares pool-aware + finally
+  wired into the 6h cleanup loop; deleteForever/resetVault rewritten on top.
+- **UI**: Shared page = new ShareManagerView (active outgoing shares, public/
+  private sections, Copy Link, Cancel, Cancel All with confirms); "Share via
+  Public Link…" in the context menu; imports → "Imports" section on Transfers
+  (.inbound cards); Transfers cards get real thumbnails (TransferIcon);
+  Shared badge = active outgoing count.
+- **Gotchas**: Features is an EXPLICIT pbxproj group (new file added manually);
+  `import` is a Swift keyword (direction case is `inbound`); the type-checker
+  limit on FileBrowserView.mainContent forced extracting destinationContent;
+  the test suite runs against the REAL app DB which holds real active shares —
+  the pool test is baseline-relative; createPoolChannel refuses under XCTest.
+- Tests green (46 unit incl. 4 new v3 tests + 4 UI + 4 launch); build green;
+  app launched; migration verified on the real DB. NOT committed.

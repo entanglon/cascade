@@ -29,7 +29,7 @@ final class TransferCenter {
         /// aggregate collective progress across concurrent transfers.
         var totalWork: Double = 1
 
-        enum Direction { case upload, download }
+        enum Direction { case upload, download, inbound }
         enum State { case active, paused, complete, failed }
     }
 
@@ -319,7 +319,9 @@ extension TransferCenter.Item {
     init(record: TransferRecord) {
         self.init(
             id: record.id,
-            direction: record.direction == "download" ? .download : .upload,
+            direction: record.direction == "download" ? .download
+                : record.direction == "import" ? .inbound
+                : .upload,
             objectID: record.objectID,
             name: record.name,
             progress: record.progress,
@@ -337,7 +339,9 @@ extension TransferCenter.Item {
             id: id,
             objectID: objectID,
             name: name,
-            direction: direction == .download ? "download" : "upload",
+            direction: direction == .download ? "download"
+                : direction == .inbound ? "import"
+                : "upload",
             state: state == .failed ? "failed" : "complete",
             progress: progress,
             statusText: statusText,
