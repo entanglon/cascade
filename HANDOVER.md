@@ -1670,8 +1670,32 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       technique as FileBrowserKeyView); FileBrowserView's monitor now defers on
       `.shared` so the two never fight. Lock icon is now the proper padlock —
       orange `lock.fill` (private) / green `lock.open.fill` (public). Committed
-      as `0463e54` (2026-08-17). **No Release build** — user policy: Debug only
-      until the user approves a release build.
+      as `0463e54` (2026-08-17).
+70. **Volume slider fixed for Bluetooth devices + Shared page key/UX polish
+    (2026-08-17 — IMPLEMENTED)**
+    - **Volume root cause (diagnosed with a standalone CoreAudio probe on this
+      Mac)**: the default output is a Bluetooth device (OnePlus Buds 3). On
+      Bluetooth devices `kAudioDevicePropertyVolumeScalar` is supported only on
+      the STREAM elements (1, 2) — the master element (0) and 'virm' return
+      unsupported; the app pinned `kAudioObjectPropertyElementMain` (1), which
+      apparently also failed (device-state dependent), so every read returned
+      the 1.0 fallback and every write silently failed → dead slider while
+      keyboard keys kept working.
+    - **Fix** (`Engine/AudioPlayerEngine.swift`): `SystemVolumeManager` now
+      resolves the volume element by PROBING candidates
+      [Main (1), Master (0), 2, 3, 4] for a readable scalar on start AND on
+      every default-output-device change; read/write use the resolved element,
+      re-resolving on demand. Verified on this Mac: element 1 reads 0.4375 and
+      writes+reads back correctly (test tool wrote 0.7 → 0.7, restored).
+    - **Shared page**: section headers are now just "Public" / "Private"
+      (no "— never expires"/"— expires, revocable"). Space bar opens the
+      selected share like double-click (Return too) — `ShareKeyView` now
+      handles keyCode 49.
+    - **Progress/seek sliders checked** (VideoPlaybackView + TheaterView):
+      both drag → `mpv.seek(to:)` / `audioEngine.seek(to:)` correctly
+      (value × duration), optimistic scrub while dragging — no change needed.
+    - Committed as `c1e7c21` (2026-08-17). Debug app running. **No Release
+      build** — user policy.
 
 ## 5. Pending / next steps
 

@@ -61,7 +61,7 @@ struct ShareManagerView: View {
                             }
 
                             if !publicShares.isEmpty {
-                                sectionHeader("Public — never expires")
+                                sectionHeader("Public")
                                 LazyVGrid(
                                     columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
                                     spacing: 12
@@ -80,7 +80,7 @@ struct ShareManagerView: View {
                             }
 
                             if !privateShares.isEmpty {
-                                sectionHeader("Private — expires, revocable")
+                                sectionHeader("Private")
                                 LazyVGrid(
                                     columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
                                     spacing: 12
@@ -113,14 +113,14 @@ struct ShareManagerView: View {
                     }
                 }
                 .background {
-                    // Arrow keys + Return drive the grid selection exactly like
-                    // the file browser's grid (see FileBrowserKeyView).
+                    // Arrow keys + Return/Space drive the grid selection exactly
+                    // like the file browser's grid (see FileBrowserKeyView).
                     ShareKeyMonitorView(
                         onArrow: { delta, isVertical in
                             navShare(delta, isVertical: isVertical)
                             return true
                         },
-                        onReturn: {
+                        onOpen: {
                             openSelected()
                             return true
                         }
@@ -435,7 +435,7 @@ struct ShareGridCard: View {
 /// typing in a text field, and defers to other windows.
 private struct ShareKeyMonitorView: NSViewRepresentable {
     var onArrow: (Int, Bool) -> Bool
-    var onReturn: () -> Bool
+    var onOpen: () -> Bool
 
     func makeNSView(context: Context) -> ShareKeyView {
         let view = ShareKeyView()
@@ -449,13 +449,13 @@ private struct ShareKeyMonitorView: NSViewRepresentable {
 
     private func apply(_ view: ShareKeyView) {
         view.onArrow = onArrow
-        view.onReturn = onReturn
+        view.onOpen = onOpen
     }
 }
 
 final class ShareKeyView: NSView {
     var onArrow: ((Int, Bool) -> Bool)?
-    var onReturn: (() -> Bool)?
+    var onOpen: (() -> Bool)?
     private var monitor: Any?
 
     override func viewDidMoveToWindow() {
@@ -481,8 +481,8 @@ final class ShareKeyView: NSView {
                     if self.onArrow?(1, true) == true { return nil }
                 case 126: // up
                     if self.onArrow?(-1, true) == true { return nil }
-                case 36: // return
-                    if self.onReturn?() == true { return nil }
+                case 36, 49: // return, space — open like double-click
+                    if self.onOpen?() == true { return nil }
                 default:
                     break
                 }

@@ -70,6 +70,16 @@
   technique as the file browser's monitor; FileBrowserView now defers on
   `.shared`). Lock icon fixed to the proper padlock: orange `lock.fill`
   (private) / green `lock.open.fill` (public) — the shield-lock was rejected.
+- **Round 5**: volume slider was DEAD — diagnosed with a standalone CoreAudio
+  probe: the default output (OnePlus Buds 3, Bluetooth) exposes volume scalar
+  only on stream elements (1, 2); master (0) and 'virm' return unsupported.
+  The app pinned the main element so reads fell back to 1.0 and writes failed
+  silently. `SystemVolumeManager` now probes candidate elements
+  [Main, Master, 2, 3, 4] for a readable scalar at start and on every
+  default-device change, and reads/writes the resolved element. Seek sliders
+  checked (correct value×duration math in both players). Shared page: section
+  headers simplified to "Public"/"Private"; Space bar now opens the selected
+  share like double-click (Return too).
 
 ## 2026-08-14 — Foundation work
 

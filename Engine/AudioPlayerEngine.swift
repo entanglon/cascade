@@ -18,6 +18,15 @@ final class SystemVolumeManager {
     /// (which fires for our own writes too) never echoes a write back.
     private var lastWritten: Double = 1.0
 
+    /// The output element whose volume scalar actually reads/writes on the
+    /// CURRENT default output device. Bluetooth devices (earbuds, speakers)
+    /// expose their volume on the stream elements (1, 2) while the master
+    /// element (0) is unsupported — pinning `kAudioObjectPropertyElementMain`
+    /// alone made every read/write fail silently on them (dead slider). The
+    /// element is resolved by probing on start and whenever the default device
+    /// changes; nil means no element works (nothing to control).
+    private var volumeElement: AudioObjectPropertyElement?
+
     var volume: Double = 1.0 {
         didSet {
             let clamped = min(1.0, max(0.0, volume))
@@ -38,6 +47,7 @@ final class SystemVolumeManager {
         guard !deviceListenerRegistered else { return }
         deviceListenerRegistered = true
         registerDeviceListener()
+        resolveVolumeElement()
         let current = readScalar()
         volume = current
         lastWritten = current
@@ -60,17 +70,51 @@ final class SystemVolumeManager {
         return deviceID
     }
 
-    private func volumeScalarAddress() -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(
+    /// Finds the output element whose volume scalar can actually be READ on the
+    /// current default device: Main (1) first — the stream element that works
+    /// on Bluetooth — then Master (0, built-in/USB), then remaining stream
+    /// elements. An element that can't even be read can't be written either.
+    private func resolveVolumeElement() {
+        guard let deviceID = defaultOutputDeviceID() else {
+            volumeElement = nil
+            return
+        }
+        var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioObjectPropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: 0
+        )
+        let candidates: [AudioObjectPropertyElement] = [
+            kAudioObjectPropertyElementMain, // 1 — stream element (Bluetooth)
+            0,                                // master — built-in/USB speakers
+            2, 3, 4                            // further stream elements
+        ]
+        for element in candidates {
+            addr.mElement = element
+            var value: Float32 = 0
+            var size = UInt32(MemoryLayout<Float32>.size)
+            let status = AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &value)
+            if status == noErr, value.isFinite {
+                volumeElement = element
+                return
+            }
+        }
+        volumeElement = nil
+    }
+
+    private func volumeScalarAddress() -> AudioObjectPropertyAddress? {
+        guard let element = volumeElement else { return nil }
+        return AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: element
         )
     }
 
     private func readScalar() -> Double {
         guard let deviceID = defaultOutputDeviceID() else { return 1.0 }
-        var addr = volumeScalarAddress()
+        if volumeElement == nil { resolveVolumeElement() }
+        guard var addr = volumeScalarAddress() else { return 1.0 }
         var value: Float32 = 1.0
         var size = UInt32(MemoryLayout<Float32>.size)
         let status = AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &value)
@@ -80,7 +124,8 @@ final class SystemVolumeManager {
 
     private func writeScalar(_ value: Double) {
         guard let deviceID = defaultOutputDeviceID() else { return }
-        var addr = volumeScalarAddress()
+        if volumeElement == nil { resolveVolumeElement() }
+        guard var addr = volumeScalarAddress() else { return }
         var value = Float32(value)
         AudioObjectSetPropertyData(
             deviceID, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &value
@@ -92,6 +137,7 @@ final class SystemVolumeManager {
         guard let deviceID = defaultOutputDeviceID() else { return }
 
         var deviceAddr = volumeScalarAddress()
+        guard var deviceAddr else { return }
         AudioObjectAddPropertyListenerBlock(deviceID, &deviceAddr, .main) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -103,7 +149,8 @@ final class SystemVolumeManager {
         }
 
         // The default output device can change (headphones plugged in, etc.) —
-        // re-attach the listener so the new device's volume is the one tracked.
+        // re-resolve the volume element and re-attach the listener so the new
+        // device's volume is the one tracked.
         var defaultAddr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -111,6 +158,7 @@ final class SystemVolumeManager {
         )
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &defaultAddr, .main) { [weak self] _, _ in
             Task { @MainActor in
+                self?.resolveVolumeElement()
                 self?.registerDeviceListener()
             }
         }
