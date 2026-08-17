@@ -7,6 +7,34 @@
 
 ---
 
+## 2026-08-18 — Private channel REUSE (disposed channels never deleted) + imports backed up
+
+- **User tested again and found a regression vs expectations**: shared several
+  private links, cancelled, shared again — brand-new Telegram channels kept
+  being created; the disposed channels were never reused.
+- **Root cause** (`Engine/ShareEngine.swift:cancelShare`): cancel on a private
+  share called `deleteChat` (killed the Telegram channel) AND dropped the
+  share_state row. `allocatePrivateChannel`'s reuse pass needs a live recorded
+  channel, so the next share always fell through to `createPoolChannel` →
+  new channel every time. (Round 3 had "verified" this as intended; the user
+  now explicitly wants reuse: channels are disposed, not destroyed.)
+- **Fix**: `cancelShare` now deletes ONLY that file's messages — the channel
+  (private pool or public) survives as a disposed slot and the row stays;
+  allocation reuses it on the next share and creates a channel only when the
+  recorded one is lost (`chatExists` false). Slot freeing needs no row
+  deletion — allocation counts only channels with ACTIVE shares as busy.
+  `cancelAllShares` and the cancel test comment updated to match.
+- **Imports not backed up (second finding)**: `UploadEngine.swift:303` mirrors
+  every uploaded chunk into the backup channel via `BackupSync.enqueue`, but
+  `ShareEngine.importForwarded` (v2 links) and `importLegacy` (v1 links)
+  forwarded chunks into the vault channel WITHOUT enqueueing — imported files
+  existed only in the vault channel, so a restore-from-backup would lose
+  them. Fix: `BackupSync.enqueue(messageID:newMessageId, objectID:)` right
+  after each import forward (both paths). Catalog checkpoints were already
+  mirrored; now the chunk DATA is too.
+- Build green, 67 tests green, committed, Debug app relaunched for re-test.
+  No Release per user policy.
+
 ## 2026-08-18 — Finder-style name dedupe for moves (no more same-name conflicts)
 
 - **User asked** to prevent same-name conflicts on MOVE ("we should totally do

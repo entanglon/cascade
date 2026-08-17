@@ -1778,6 +1778,26 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
        Task contexts; batch pre-compute uses the in-memory catalog instead).
      - Committed as part of this round (2026-08-18). Tests green (67).
        **No Release build** — user policy.
+ 74. **Private pool channels REUSED, not destroyed + imports mirrored to
+     backup (2026-08-18 — IMPLEMENTED)**
+     - User re-tested and found new Telegram channels were created on every
+       private share after cancelling — the disposed channels were never
+       reused. Root cause: `cancelShare` called `deleteChat` + dropped the
+       share_state row, so `allocatePrivateChannel`'s reuse pass (needs a
+       live recorded channel) always fell through to creating a new channel.
+     - Fix: cancel now deletes ONLY that file's messages from its channel.
+       The channel survives as a disposed pool slot (row kept); the next
+       private share reuses it, and a channel is created only when the
+       recorded one is actually lost (`chatExists` false). Slots free
+       themselves — allocation counts only channels with ACTIVE shares as
+       busy. Public channel unchanged (never retired).
+     - Also fixed: imported files were NOT mirrored into the backup channel
+       (uploads were — UploadEngine.swift:303 — but neither
+       `importForwarded` nor `importLegacy` enqueued their forwards), so a
+       restore-from-backup would have lost every imported file. Both import
+       paths now `BackupSync.enqueue` after each vault forward.
+     - Committed (2026-08-18). Tests green (67). Debug app relaunched for
+       user re-test. **No Release build** — user policy.
 
 ## 5. Pending / next steps
 

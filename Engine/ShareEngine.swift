@@ -680,34 +680,25 @@ enum ShareEngine {
         return state
     }
 
-    /// Revokes ONE active outgoing share. Private: the whole dedicated channel
-    /// is deleted (instant death, slot freed) unless another active share still
-    /// uses it (legacy data shared one channel) — then just that file's messages
-    /// go. Public: only that file's messages are deleted from the persistent
-    /// channel; the channel lives on for other public shares.
+    /// Revokes ONE active outgoing share: that file's messages are deleted from
+    /// its channel. The channel itself is NEVER deleted — private pool channels
+    /// stay alive as disposed slots and are reused by the next private share
+    /// (allocation only creates a channel when the recorded one is lost), and
+    /// the public channel persists for other shares. The slot frees itself:
+    /// allocation counts only channels with ACTIVE shares as busy.
     static func cancelShare(_ share: ShareRecord) async {
         guard share.state == "active" else { return }
-        let others = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
-            .filter { $0.id != share.id && $0.state == "active" && $0.channelID == share.channelID }
-        if !share.isPublic, others.isEmpty {
-            try? await TelegramClient.shared.deleteChat(chatId: share.channelID)
-            // The slot is free again; drop its row so allocation recreates cleanly.
-            if let state = try? await DatabaseManager.shared.shareChannelState(channelID: share.channelID) {
-                try? await DatabaseManager.shared.deleteShareChannel(id: state.id)
-            }
-        } else {
-            let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
-            if !mids.isEmpty {
-                try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
-            }
+        let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
+        if !mids.isEmpty {
+            try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
         }
         var updated = share
         updated.state = "revoked"
         try? await DatabaseManager.shared.saveShare(updated)
     }
 
-    /// Revokes every active outgoing share (private and public). The public
-    /// channel itself persists; each private channel dies with its share.
+    /// Revokes every active outgoing share (private and public). Channels are
+    /// never deleted — each one stays alive as a disposed slot to reuse.
     static func cancelAllShares() async {
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         for share in shares where share.state == "active" {
@@ -843,6 +834,10 @@ enum ShareEngine {
                         fromChatId: channelID,
                         messageId: message.messageId
                     )
+                    // Mirror the vault copy into the backup channel, exactly like
+                    // uploads do — otherwise imported files would exist only in
+                    // the vault channel and a restore-from-backup would lose them.
+                    BackupSync.enqueue(messageID: newMessageId, objectID: objectID)
                     // Legacy captions predate chunkSize; derive per-chunk sizes from
                     // the effective chunk size, capped by the file remainder.
                     let offset = Int64(meta.index) * chunkSize
@@ -969,6 +964,8 @@ enum ShareEngine {
                     fromChatId: channelID,
                     messageId: message.messageId
                 )
+                // Mirror into the backup channel like uploads and v2 imports.
+                BackupSync.enqueue(messageID: newMessageId, objectID: objectID)
                 let item = plan.items.first { $0.index == meta.index }
                 chunkRecords.append(ChunkRecord(
                     id: UUID().uuidString,
