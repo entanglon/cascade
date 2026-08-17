@@ -1725,9 +1725,38 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
        grid's `.onKeyPress("a"/"c"/"v")` handlers now return `.ignored`
        while `renameTarget != nil`, so Cmd+A/Cmd+C/Cmd+V reach the rename
        field instead of select-all/copy/paste on the file grid.
-     - Committed as `4ecb5e1` (2026-08-18). Tests green (67: 59 unit +
+     - Committed as `27d0799` (2026-08-18). Tests green (67: 59 unit +
        4 UI + 4 launch). Debug app relaunched; heal verified live on the real
        DB. **No Release build** — user policy.
+ 72. **AGENTS.md + HDR/Dolby verification + move-conflict semantics
+     (2026-08-18 — IMPLEMENTED/VERIFIED)**
+     - **AGENTS.md created** (repo root): mandatory workflow for any coding
+       agent — update JOURNAL.md + HANDOVER.md in the same session as the
+       code, commit after every complete task, Debug-only builds, never
+       `git clean`/`reset --hard` on a dirty tree, never touch
+       `batch2-mystery-changes-2026-08-17`, build/test/run commands, doc and
+       commit conventions, project gotchas, session-end checklist. Read it
+       first.
+     - **HDR/Dolby playback confirmed intact** (nothing was removed by the
+       freebuff incidents): `MPVVideoView.swift` still carries the full
+       HDR/EDR pipeline (`applyColorPipeline` line 859: PQ/HLG on BT.2020/P3 →
+       EDR layer + PQ colorspace + target-peak hard clip, sRGB fallback,
+       churn guard) + gamma/primaries observation (1023-1026) + RGBA16F
+       backbuffer (573) + `edrPeakNits` (833); Dolby Atmos/DTS passthrough
+       (`audio-spdif` ac3,eac3,truehd,dts + `audio-exclusive`, 974-981) behind
+       the Settings toggle (`SettingsView.swift:239`). Prior live verification:
+       item 1 (PQ/BT.2020 HDR via EDR pipeline).
+     - **Move-conflict behavior (intended, documented)**: moves
+       (`moveObject`/`moveToFolder`/`moveObjects`,
+       `App/AppState.swift:1545-1622`) only rewrite `parentID` — a moved
+       `file.mp4` next to an existing `file.mp4` keeps its name; both coexist
+       with the exact same name. No rename ("file 2.mp4"), no replace, no
+       dedupe. Finder-style uniquing (`uniqueName`,
+       `Engine/ShareEngine.swift:1071`) applies ONLY to share imports at the
+       root. If the user later wants Finder-like "Name 2.ext" on moves, that
+       is a feature, not a bug fix.
+     - Committed as part of the AGENTS.md commit (2026-08-18). Tests green
+       (67). **No Release build** — user policy.
 
 ## 5. Pending / next steps
 

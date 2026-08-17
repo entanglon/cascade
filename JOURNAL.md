@@ -2,10 +2,63 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-17 (evening) — Post-v3 polish: Shared page redesign, Library covers,
-> transfer clarity, Release reinstall to /Applications.
+> 2026-08-18 — Agent instruction file (AGENTS.md), HDR/Dolby verification,
+> move-conflict semantics.
 
 ---
+
+## 2026-08-18 — Agent instruction file (AGENTS.md), HDR/Dolby verification, move-conflict semantics
+
+- **User asked** for a durable anti-loss setup after the freebuff crash: an
+  instruction file any coding agent must follow to save work, commit, and keep
+  HANDOVER.md + JOURNAL.md current after every task. Created `AGENTS.md` at the
+  repo root (non-negotiable session rules, build/test/run commands, commit
+  conventions, doc conventions, gotchas, session-end checklist). Future
+  sessions read it first.
+- **HDR/Dolby verified intact** (user wanted confirmation the work survived the
+  freebuff problems): the full HDR/EDR pipeline is present in
+  `Features/MPVVideoView.swift` — `applyColorPipeline()` (line 859, PQ/HLG on
+  BT.2020/P3 → EDR layer + PQ colorspace + target-peak hard clip; SDR fallback;
+  churn guard via `lastPipelineKey`), gamma/primaries observation (lines
+  1023-1026), RGBA16F backbuffer + extendedSRGB window colorspace (line 573),
+  `edrPeakNits()` (line 833); Dolby Atmos/DTS passthrough (`audio-spdif`
+  ac3,eac3,truehd,dts + `audio-exclusive` on `xc.audioPassthrough`, lines
+  974-981) with the Settings toggle (`SettingsView.swift:239`). History of live
+  verification: HANDOVER item 1 (HDR file PQ/BT.2020 verified playing via the
+  EDR pipeline), JOURNAL lines 100-136. Nothing was removed by the freebuff
+  incidents.
+- **Move-conflict semantics (asked and answered, no code change)**: moving a
+  file into a folder (or root) where a same-named file already exists does NOT
+  rename, replace, or dedupe — `moveObject`/`moveToFolder`/`moveObjects`
+  (`App/AppState.swift:1545-1622`) only write `parentID`. Both records keep the
+  exact same name and coexist (current intended behavior — two `file.mp4` in
+  one folder). The Finder-style unique-name logic
+  (`uniqueName`/`uniqueImportName`, `Engine/ShareEngine.swift:1060-1080`,
+  "Name 2.ext") applies ONLY to share imports at the root.
+- Committed with AGENTS.md + journal rework as part of this commit; round 6
+  hash corrected to `27d0799`. Tests green (67: 59 unit + 4 UI + 4 launch).
+
+## 2026-08-18 — Round 6: Share menu split, channel naming, duplicate heal, rename field
+
+- FileBrowserView: "Share via Public Link…" replaced by expandable Share menu
+  (Private lock.fill / Public globe), N items → "Share N Items".
+- ShareEngine.poolChannelTitle(id:kind:) — public "xCloud OC", private
+  "xCloud PC1"–"xCloud PC5"; TelegramClient.renameChatIfNeeded renames legacy
+  "xCloud Shares" channels at reuse.
+- Cancel semantics re-verified against live behavior: private = deleteChat +
+  row drop + slot freed (re-share recreates channel); public = message delete
+  only; pool 5 max; same-file re-share reuses the live link.
+- Duplicate file found in the real DB: two root objects, same name/size, same
+  vault message 355467264; record B (36BE56EC, no rootHash, 15:40) vs record A
+  (1DE982EC, has rootHash, 12:33). Root cause class: object-level dupes
+  invisible to chunk dedupe. Fix: DatabaseManager.dedupeDuplicateObjects()
+  (keep hash-bearing or older record, delete the loser + chunks), wired into
+  the post-auth heal block so a corrected checkpoint republishes.
+- Rename field: .id(renameTarget) on the alert TextField (fresh field per
+  presentation — stale cleared text was being reused); onKeyPress "a"/"c"/"v"
+  ignore while renaming so Cmd+A/C/C+V reach the text field.
+- Build green, 67 tests green, committed 27d0799, Debug app relaunched (heal
+  confirmed: duplicate gone). No Release per user policy.
 
 ## 2026-08-17 (evening) — Post-v3 polish: Shared page redesign, Library covers, transfer clarity
 
@@ -931,24 +984,3 @@ Debug + Release rebuilt, /Applications refreshed, session preserved, release app
 - Tests green (46 unit incl. 4 new v3 tests + 4 UI + 4 launch); build green;
   app launched; migration verified on the real DB. NOT committed.
 
-## 2026-08-18 — Round 6: Share menu split, channel naming, duplicate heal, rename field
-
-- FileBrowserView: "Share via Public Link…" replaced by expandable Share menu
-  (Private lock.fill / Public globe), N items → "Share N Items".
-- ShareEngine.poolChannelTitle(id:kind:) — public "xCloud OC", private
-  "xCloud PC1"–"xCloud PC5"; TelegramClient.renameChatIfNeeded renames legacy
-  "xCloud Shares" channels at reuse.
-- Cancel semantics re-verified against live behavior: private = deleteChat +
-  row drop + slot freed (re-share recreates channel); public = message delete
-  only; pool 5 max; same-file re-share reuses the live link.
-- Duplicate file found in the real DB: two root objects, same name/size, same
-  vault message 355467264; record B (36BE56EC, no rootHash, 15:40) vs record A
-  (1DE982EC, has rootHash, 12:33). Root cause class: object-level dupes
-  invisible to chunk dedupe. Fix: DatabaseManager.dedupeDuplicateObjects()
-  (keep hash-bearing or older record, delete the loser + chunks), wired into
-  the post-auth heal block so a corrected checkpoint republishes.
-- Rename field: .id(renameTarget) on the alert TextField (fresh field per
-  presentation — stale cleared text was being reused); onKeyPress "a"/"c"/"v"
-  ignore while renaming so Cmd+A/C/C+V reach the text field.
-- Build green, 67 tests green, committed 4ecb5e1, Debug app relaunched (heal
-  confirmed: duplicate gone). No Release per user policy.
