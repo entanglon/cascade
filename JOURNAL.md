@@ -39,7 +39,22 @@
   side by side with separate data — the basis for the user's two-account share
   test.
 - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Commits: `d9a3e4d`
-  (v3 share upgrade) + `95d7579` (this polish).
+  (v3 share upgrade) + `95d7579` (polish round 1: cover fetch, semantic
+  statuses) + `71e8c21` (polish round 2: Shared page = All Files-style GRID
+  cards with lock badge / green unlocked-lock badge, fixed-size transfer grid
+  cards, "Cancel All" label).
+- **Round 2 (user correction)**: the user did NOT want row cards on the Shared
+  page — "just create the same cards which are in all files, with that small
+  lock for private shares and green unlocked lock for public shares". Redone:
+  Shared page is now a LazyVGrid of cards structurally identical to the file
+  browser's (thumbnail 115pt + name/status, rounded 12, hover scale), kind badge
+  top-trailing corner (orange lock.fill / green lock.open.fill), Copy Link +
+  Cancel Share in the ellipsis menu AND right-click menu; "Cancel All Shares"
+  button → short "Cancel All". Transfers grid cards were text-sized (name
+  wrapping 2 lines made cards unequal) — now fixed-shape like file cards (92pt
+  icon area, 1-line name/status with fixed heights) so every card is
+  pixel-identical. Debug app relaunched; DB confirms 3 real active private
+  shares render as grid cards.
 
 ## 2026-08-14 — Foundation work
 

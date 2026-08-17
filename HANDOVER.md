@@ -1625,14 +1625,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       placeholders while All Files thumbs load); Transfers "Downloads" cards were
       confusing ("are those even real?" — YES: real persisted history incl.
       phantom-era junk names; nothing fake was deleted).
-    - **Shared page (`Features/ShareManagerView.swift`, redesigned)**: full-width
-      cards like the transfer rows — glassEffect, leading kind icon circle (lock
-      orange / globe green), name + expiry line ("Expires in 3 days" /
-      "Never expires"), a small kind badge on the card's top-trailing corner
-      (above the ellipsis menu), and Copy Link / Cancel Share inside the trailing
-      ellipsis menu (same circle-menu styling as transfer cards). "Cancel All
-      Shares" button appears in the page header only when >1 active. Cancel
-      confirm alerts kept.
+    - **Shared page (`Features/ShareManagerView.swift`, redesigned as GRID
+      cards)**: cards are now the EXACT All Files card (115pt thumbnail area +
+      name/status row, rounded 12, hover scale) in a `LazyVGrid` sized by
+      `xc.cardWidth` like the file browser. The shared file's real thumbnail
+      shows (ThumbnailService), or its type icon; group shares show a folder
+      icon + "N files". Kind is a small badge on the card's top-trailing corner
+      — orange `lock.fill` for private, green `lock.open.fill` (unlocked) for
+      public — beside the ellipsis menu (Copy Link / Cancel Share); the
+      right-click context menu offers the same two actions. Status row: "Expires
+      in 3 days" (private) / "Never expires" in green (public). Header button is
+      just "Cancel All" (short label, no icon) and appears only when >1 active.
+      Cancel confirm alerts kept (short button labels: "Cancel Share"/"Keep").
     - **Library covers** (`Engine/ThumbnailService.swift`): `bookCoverURL` was
       cache-only by design (storm-avoidance); now when the cover is missing AND
       the book isn't cached it starts a background fetch via new private actor
@@ -1647,11 +1651,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       "Downloaded" / "Imported" (was "Complete") — and cards append the finished
       time ("Uploaded · 4:12 PM", "MMM d, h:mm a" for older rows), so restored
       history reads as history.
+    - **Transfers grid cards fixed-size** (`Features/TransfersView.swift`):
+      `TransferGridCard` no longer sizes itself to its text (it did — name
+      wrapping to 2 lines / long status made cards taller/shorter). Now a fixed
+      file-card shape: 92pt icon area with the thumbnail centered, name 1 line
+      (fixed 16pt), status 1 line (fixed 13pt), progress bar — every grid card
+      is pixel-identical. List rows already uniform (1-line name/status).
     - **Shared page can't upload/create** (`Features/FileBrowserView.swift`):
       `.shared` excluded from `canUploadOnThisPage` and `createMenuItems` (New
       Folder / New Private Folder) — the page lists handed-out links, not files.
     - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Committed as
-      `95d7579` (2026-08-17). Debug app running with the new UI. Release rebuilt
+      `95d7579` (2026-08-17); grid-card + fixed-transfer-card follow-up as
+      `71e8c21` (2026-08-17). Debug app running with the new UI. Release rebuilt
       and re-installed over `/Applications/xCloud.app` (1.2.0, bundle id
       `.prod`, session/data preserved — backed up to
       `~/Library/Application Support/xCloud-Prod.bak-2026-08-17` first).

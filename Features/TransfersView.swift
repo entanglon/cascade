@@ -203,34 +203,50 @@ struct TransfersView: View {
 struct TransferGridCard: View {
     let item: TransferCenter.Item
     @Environment(AppState.self) private var appState
+    @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
+        // Fixed-shape card, same as the file cards: icon/thumbnail area on top,
+        // then a fixed-height name/status block, then the progress bar. No part
+        // of the card sizes itself to its text, so every card in the grid has
+        // EXACTLY the same dimensions regardless of name length or status text.
+        VStack(spacing: 0) {
+            ZStack(alignment: .topTrailing) {
+                Color.white.opacity(0.03)
+
                 TransferIcon(item: item)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                Spacer()
+                HStack(spacing: 6) {
+                    Text("\(Int(item.progress * 100))%")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(item.accentColor)
 
-                TransferItemActions(item: item)
-
-                Text("\(Int(item.progress * 100))%")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(item.accentColor)
+                    TransferItemActions(item: item)
+                }
+                .padding(8)
             }
+            .frame(height: 92)
+            .clipped()
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(XTheme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(height: 16)
 
                 Text(item.statusLine)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(item.statusColor)
                     .lineLimit(1)
+                    .frame(height: 13)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .background(Color.white.opacity(0.04))
 
             ProgressView(value: item.progress)
                 .progressViewStyle(.linear)
@@ -239,18 +255,27 @@ struct TransferGridCard: View {
                 // Display-only — let clicks pass through so the card's double-click
                 // reveal works anywhere on the card, not just on the text.
                 .allowsHitTesting(false)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
         }
-        .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
         .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
         // contentShape makes the whole card (including padding, spacers, and the
         // icon) hit-testable for the double-click, matching the file cards.
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { revealTransferItem(item, in: appState) }
+        .onHover { hovering = $0 }
+        .scaleEffect(hovering ? 1.02 : 1.0)
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .help(item.state == .complete ? "Double-click to show in folder" : "")
     }
 }
