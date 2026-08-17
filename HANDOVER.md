@@ -1694,7 +1694,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Progress/seek sliders checked** (VideoPlaybackView + TheaterView):
       both drag → `mpv.seek(to:)` / `audioEngine.seek(to:)` correctly
       (value × duration), optimistic scrub while dragging — no change needed.
-    - Committed as `c1e7c21` (2026-08-17). Debug app running. **No Release
+    - Committed as `cf91383` (2026-08-17). Debug app running. **No Release
       build** — user policy.
 
 ## 5. Pending / next steps
