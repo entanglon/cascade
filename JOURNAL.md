@@ -2,10 +2,31 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — Join/leave share semantics restored (cancel leaves, allocate
-> rejoins via permanent invite), deleteChat verified live.
+> 2026-08-18 — Expiry cleanup aligned with join/leave (commit 50b2b2f).
 
 ---
+
+## 2026-08-18 — Expiry cleanup aligned with join/leave (commit 50b2b2f)
+
+- User asked whether one-time-use private links make the 7-day link expiry
+  pointless. Answer (from code): no — the two mechanisms are orthogonal. The
+  one-use invite (memberLimit 1) is the SECURITY property (only the intended
+  recipient ever gets in); the 7-day expiry is the share LIFETIME — the
+  recipient has 7 days to open the link, and `cleanupExpiredShares()`
+  (ShareEngine.swift:1124, runs on the transfer cleanup loop) revokes shares
+  nobody opened, deleting the file's copies from the channel so unopened
+  shares don't sit on Telegram forever.
+- Found while answering: `revokeExpired` (1142) still used the OLD behavior —
+  `deleteChat` + DROP the share_state row on expiry — so an expired (not
+  cancelled) share left its channel AND lost its row, and the next private
+  share created a NEW channel: the exact "new channels again and again" bug,
+  still lurking on the expiry path.
+- Fixed: expired pool-slot shares now follow join/leave exactly like
+  cancelShare — delete this share's messages, `leaveChat` the slot (when no
+  other active share uses it), KEEP the row so the next share rejoins via the
+  recorded permanent invite. Legacy v1 disposable channels (messageIDs empty)
+  still forget their row outright.
+- Build green, tests green (67). **No Release build** — user policy.
 
 ## 2026-08-18 — Join/leave share semantics implemented (commit 8bbc928)
 

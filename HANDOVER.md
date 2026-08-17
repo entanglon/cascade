@@ -1823,6 +1823,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         nil → calls fail silently as before).
       - Committed as `8bbc928` (2026-08-18). Build green, tests green (67).
         **No Release build** — user policy.
+      - **Follow-up (`50b2b2f`, same day)**: `revokeExpired` (the 7-day expiry
+        cleanup path) still used the old delete+drop-row behavior — an expired
+        (not cancelled) share left its channel AND lost its row, so the next
+        private share created a NEW channel (the same bug via the expiry
+        path). Now expired pool-slot shares follow join/leave exactly like
+        cancelShare (delete messages + leaveChat + keep the row); legacy v1
+        disposable channels still forget their row. The one-use invite
+        (memberLimit 1) and the link expiry are orthogonal: invite =
+        security (only the intended recipient gets in), expiry = share
+        lifetime (recipient has 7 days to open it; unopened shares are
+        revoked and their channel copies deleted by cleanupExpiredShares
+        running on the transfer cleanup loop).
 
 ## 5. Pending / next steps
 
