@@ -2,10 +2,47 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — Agent instruction file (AGENTS.md), HDR/Dolby verification,
-> move-conflict semantics.
+> 2026-08-18 — Join/leave share semantics restored (cancel leaves, allocate
+> rejoins via permanent invite), deleteChat verified live.
 
 ---
+
+## 2026-08-18 — Join/leave share semantics implemented (commit 8bbc928)
+
+- **User asked for**: cancel = delete the messages AND leave the channel;
+  create = reuse the 5-slot pool via join/leave; also explained the intended
+  security model (see link-encryption answer below).
+- **Live probes (tdtest harness, real account session copy)**:
+  - Slots 1-5 were no longer "Chat not found" — the account had become
+    creator/member again (user's own manual rejoin test; memberCount 0 → 1),
+    so rejoin-via-invite now returns USER_ALREADY_PARTICIPANT.
+  - Full cycle on slot 5 (-1004145642528): `leaveChat` on an OWNED channel
+    succeeds → channel stays alive, myStatus left; `joinChatByInviteLink`
+    (+A6GEaqjkB3lmYTBl) → chatId -1004145642528 == stored row, status back to
+    creator. Slot 5 restored to pre-test state afterwards.
+- **Changes** (`Engine/ShareEngine.swift`):
+  - `cancelShare`: deletes the share's messages + `leaveChat` on the channel
+    for PRIVATE shares (public channel is permanent, never left — public
+    cancel still deletes only its messages).
+  - `allocatePrivateChannel` pass 2: a slot whose channel we LEFT is REJOINED
+    via its recorded permanent invite (chatExists false → join → same chatId →
+    row stays valid; adopt the returned chatId if it ever differs; rename
+    legacy titles). Pass 3 (create new channel) only when no recorded invite
+    resolves.
+  - Doc comments updated (allocatePrivateChannel, cancelShare,
+    cancelAllShares) + test comment (xCloudTests.swift cancelShareMarksRecordsRevoked).
+- **Security answer (user question)**: the share link is NOT protected by a
+  hardcoded key. `obfuscate` (ShareEngine.swift:1140) wraps the plaintext
+  link in AES-256-GCM under a RANDOM per-link 256-bit key that rides inside
+  the blob (`xcloud://share#base64url(key || ciphertext)`); the recipient
+  unwraps it with the embedded key. It is obfuscation, not secrecy — the link
+  IS the credential. Defense in depth: private links embed a ONE-USE invite
+  (memberLimit 1, expires with the share) so only the first joiner gets in and
+  the channel is otherwise closed (no public access, one share's messages at a
+  time); public links embed the channel's permanent invite by design (any
+  holder can join any time).
+- Build green; tests green (67: 59 unit + 4 UI + 4 launch). **No Release
+  build** — user policy. Debug app relaunch pending after docs commit.
 
 ## 2026-08-18 — Manual TDLib probe: deleteChat does NOT delete pool channels (join/leave confirmed)
 

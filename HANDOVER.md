@@ -1796,8 +1796,33 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
        `importForwarded` nor `importLegacy` enqueued their forwards), so a
        restore-from-backup would have lost every imported file. Both import
        paths now `BackupSync.enqueue` after each vault forward.
-     - Committed (2026-08-18). Tests green (67). Debug app relaunched for
-       user re-test. **No Release build** — user policy.
+- Committed (2026-08-18). Tests green (67). Debug app relaunched for
+        user re-test. **No Release build** — user policy.
+  75. **Join/leave share semantics restored + deleteChat verified live
+      (2026-08-18 — IMPLEMENTED)**
+      - User's claim, verified with a standalone TDLib probe (SwiftPM exe
+        against a COPY of the app's real TDLib session): TDLib `deleteChat` on
+        the owned pool channels did NOT delete them — the account was LEFT from
+        them (getChat → "Chat not found", but the channels persist:
+        memberCount=0, permanent invites still VALID and resolving to the same
+        chatId; rejoining as the creator regains admin instantly). So the old
+        "5 channels, join/leave on share create/cancel" mechanism was leaving
+        channels, and the reuse pass (getChat-based `chatExists`) saw left
+        channels as lost → created new channels every cycle ("new channels
+        again and again").
+      - Full cycle proven live on slot 5: `leaveChat` on an owned channel
+        succeeds, channel stays alive (status → left); `joinChatByInviteLink`
+        via the stored permanent invite returns the SAME chatId and restores
+        creator status.
+      - Implemented: `cancelShare` deletes the share's messages and LEAVES the
+        pool channel (private only — the public channel is permanent, never
+        left); `allocatePrivateChannel` pass 2 now REJOINS a left slot via its
+        recorded permanent invite (adopts the returned chatId if it ever
+        differs; renames legacy titles) and only pass 3 creates a new channel
+        when no recorded invite resolves. Under XCTest nothing changes (client
+        nil → calls fail silently as before).
+      - Committed as `8bbc928` (2026-08-18). Build green, tests green (67).
+        **No Release build** — user policy.
 
 ## 5. Pending / next steps
 
