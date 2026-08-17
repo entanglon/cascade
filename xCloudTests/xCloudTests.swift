@@ -1840,11 +1840,11 @@ struct xCloudTests {
     }
 
     @Test func cancelShareMarksRecordsRevoked() async throws {
-        // cancelShare deletes that file's messages from its channel; the
-        // channel itself survives (private pool slots are disposed, not
-        // destroyed — the next share reuses them; the public channel persists
-        // for other shares). Telegram is not initialized under XCTest, so the
-        // deletion calls fail silently — the record transition is what's
+        // cancelShare deletes that file's messages from its channel and leaves
+        // PRIVATE pool channels (join/leave: the next private share rejoins the
+        // same slot via its stored permanent invite); the public channel is
+        // permanent and never left. Telegram is not initialized under XCTest,
+        // so the Telegram calls fail silently — the record transition is what's
         // verified here.
         let now = Date()
         let privateShare = ShareRecord(

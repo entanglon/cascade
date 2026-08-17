@@ -602,10 +602,13 @@ enum ShareEngine {
 
     /// A private share's dedicated pool channel. One active private share per
     /// slot (channel), so a private link's holder can never read other files'
-    /// messages. Live recorded channels are reused; a slot whose channel is gone
-    /// (deleted out-of-band) is recreated in place — the app never leaves or
-    /// retires owned channels. When all `privatePoolSize` slots are taken by
-    /// active shares, throws `privatePoolFull` — never silently evicts.
+    /// messages. Join/leave semantics: a free recorded channel is reused live;
+    /// a slot whose channel we LEFT (cancel) is REJOINED via its recorded
+    /// permanent invite (the invite resolves to the same channel and the
+    /// creator regains admin instantly); a new channel is created only when no
+    /// recorded invite resolves (deleted out-of-band). When all
+    /// `privatePoolSize` slots are taken by active shares, throws
+    /// `privatePoolFull` — never silently evicts.
     static func allocatePrivateChannel() async throws -> ShareChannelState {
         let active = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
             .filter { $0.state == "active" && !$0.isPublic }
@@ -631,8 +634,36 @@ enum ShareEngine {
                 return state
             }
         }
-        // Second pass: create a channel in the first slot with no live channel
-        // (no recorded row, or a recorded row whose channel is gone).
+        // Second pass: reuse a slot whose channel we LEFT (join/leave) by
+        // rejoining through its recorded permanent invite. The invite resolves
+        // to the SAME channel (verified live: creator rejoining regains admin
+        // instantly), so the row stays valid — no new channel is created.
+        for slot in 1...Int64(privatePoolSize) where !busySlots.contains(slot) {
+            guard let existing = try? await DatabaseManager.shared.shareChannelState(id: slot),
+                  !existing.inviteLink.isEmpty,
+                  !(await TelegramClient.shared.chatExists(chatId: existing.channelID)) else { continue }
+            if let joined = try? await TelegramClient.shared.joinShareChannel(inviteLink: existing.inviteLink) {
+                if joined == existing.channelID {
+                    await TelegramClient.shared.renameChatIfNeeded(
+                        chatId: existing.channelID,
+                        title: poolChannelTitle(id: existing.id, kind: .private)
+                    )
+                    return existing
+                }
+                // The invite resolved to a different channel — adopt it so the
+                // row never points at a stale channel.
+                var adopted = existing
+                adopted.channelID = joined
+                try? await DatabaseManager.shared.saveShareChannel(adopted)
+                await TelegramClient.shared.renameChatIfNeeded(
+                    chatId: joined,
+                    title: poolChannelTitle(id: existing.id, kind: .private)
+                )
+                return adopted
+            }
+        }
+        // Third pass: create a channel in the first slot with no reusable row
+        // (no recorded row, or a recorded row whose channel AND invite are gone).
         for slot in 1...Int64(privatePoolSize) where !busySlots.contains(slot) {
             if let existing = try? await DatabaseManager.shared.shareChannelState(id: slot) {
                 if await TelegramClient.shared.chatExists(chatId: existing.channelID) {
@@ -681,24 +712,30 @@ enum ShareEngine {
     }
 
     /// Revokes ONE active outgoing share: that file's messages are deleted from
-    /// its channel. The channel itself is NEVER deleted — private pool channels
-    /// stay alive as disposed slots and are reused by the next private share
-    /// (allocation only creates a channel when the recorded one is lost), and
-    /// the public channel persists for other shares. The slot frees itself:
-    /// allocation counts only channels with ACTIVE shares as busy.
+    /// its channel and, for PRIVATE shares, the pool channel is LEFT. Channels
+    /// are never destroyed — leaveChat just removes the account from the chat
+    /// (the channel persists server-side, its permanent invite stays valid), so
+    /// the next private share REJOINS the same slot via the invite recorded in
+    /// share_state; allocation only creates a channel when the recorded invite
+    /// itself is gone. The public channel is permanent and is never left —
+    /// cancelling a public share only deletes that share's messages.
     static func cancelShare(_ share: ShareRecord) async {
         guard share.state == "active" else { return }
         let mids = share.messageIDs.split(separator: ",").compactMap { Int64($0) }
         if !mids.isEmpty {
             try? await TelegramClient.shared.deleteMessages(chatId: share.channelID, messageIds: mids)
         }
+        if !share.isPublic {
+            try? await TelegramClient.shared.leaveChat(chatId: share.channelID)
+        }
         var updated = share
         updated.state = "revoked"
         try? await DatabaseManager.shared.saveShare(updated)
     }
 
-    /// Revokes every active outgoing share (private and public). Channels are
-    /// never deleted — each one stays alive as a disposed slot to reuse.
+    /// Revokes every active outgoing share (private and public). Private slots
+    /// are left and rejoined by the next private share; the public channel is
+    /// never left — only its share messages are deleted.
     static func cancelAllShares() async {
         let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
         for share in shares where share.state == "active" {
