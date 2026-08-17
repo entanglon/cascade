@@ -1662,7 +1662,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       Folder / New Private Folder) — the page lists handed-out links, not files.
     - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Committed as
       `95d7579` (2026-08-17); grid-card + fixed-transfer-card follow-up as
-      `71e8c21` (2026-08-17). Debug app running with the new UI. Release rebuilt
+      `cf3a1ce` (2026-08-17). Debug app running with the new UI. Release rebuilt
       and re-installed over `/Applications/xCloud.app` (1.2.0, bundle id
       `.prod`, session/data preserved — backed up to
       `~/Library/Application Support/xCloud-Prod.bak-2026-08-17` first).

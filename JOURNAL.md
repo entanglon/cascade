@@ -40,7 +40,7 @@
   test.
 - **Tests**: full suite green (46 unit + 4 UI + 4 launch). Commits: `d9a3e4d`
   (v3 share upgrade) + `95d7579` (polish round 1: cover fetch, semantic
-  statuses) + `71e8c21` (polish round 2: Shared page = All Files-style GRID
+  statuses) + `cf3a1ce` (polish round 2: Shared page = All Files-style GRID
   cards with lock badge / green unlocked-lock badge, fixed-size transfer grid
   cards, "Cancel All" label).
 - **Round 2 (user correction)**: the user did NOT want row cards on the Shared
