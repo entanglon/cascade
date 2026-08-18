@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-18 (freebuff fixes). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (fullscreen player tiny-window fix). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2025,6 +2025,32 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       - Committed as `eae32f1`. Build green (Debug). Full test suite green:
         **TEST SUCCEEDED** (59 unit + UI/launch, 0 failures). User to verify
         both fixes. **No Release build** — user policy.
+
+83. **Fullscreen player tiny-window FIXED — contentViewController Auto Layout
+      collapse (2026-08-19 — COMMITTED)** (`Features/MPVVideoView.swift`)
+      - **Symptom** (from `docs/PROBLEMS.md`, freebuff handoff): after the
+        fake-borderless rewrite (c425e14) the fullscreen player window opened
+        tiny (~200×100 px) at the top-left and never entered native fullscreen.
+      - **Root cause (proven in a standalone harness)**: `win.contentViewController
+        = host` (NSHostingController) lets Auto Layout collapse the window to
+        the hosting view's SwiftUI fitting size — reproduced as a **1×1 px**
+        window at the screen's top-left. The pre-rewrite code attached plain
+        subviews with explicit frames + autoresizing masks and never had this
+        bug.
+      - **Fix**: same SwiftUI tree (`FullscreenPlayerRoot`: MPVLayerHost +
+        controls in ONE tree → `.glassEffect()` still renders), but hosted in a
+        plain `NSHostingView` subview of a plain `NSView` contentView
+        (`hosting.frame = content.bounds`, `autoresizingMask = [.width, .height]`).
+      - **Verified end-to-end in a minimal .app bundle**: window created at
+        screen.frame → clamped to visible frame on orderFront (normal macOS) →
+        `didBecomeKey` → `toggleFullScreen` → native Spaces fullscreen entered
+        (frame = full screen) and exit restored the window. The ~200×100
+        collapse is gone; the visible-frame clamp (menu bar/Dock) is expected.
+      - Committed (2026-08-19). Build green (Debug). Test suite green:
+        **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch, 0 failures). Debug app
+        relaunched — user to verify fullscreen by eye. `docs/PROBLEMS.md`
+        moved into the main repo and rewritten as resolved. **No Release
+        build** — user policy.
 
 ## 5. Pending / next steps
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`

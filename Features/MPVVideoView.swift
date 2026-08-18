@@ -1529,11 +1529,20 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, .dark)
 
-        let host = NSHostingController(rootView: AnyView(root.environment(appState)))
-        host.view.wantsLayer = true
-        host.view.layer?.isOpaque = false
-        host.view.layer?.backgroundColor = NSColor.clear.cgColor
-        win.contentViewController = host
+        // Host the tree in a plain content view + NSHostingView subview with an
+        // explicit frame and autoresizing mask. `contentViewController` lets
+        // Auto Layout collapse the window to the hosting view's fitting size —
+        // the window would open tiny (1x1 px in reproduction) at the screen's
+        // top-left. The subview pattern keeps the screen-sized frame.
+        let hosting = NSHostingView(rootView: AnyView(root.environment(appState)))
+        let content = NSView()
+        content.wantsLayer = true
+        content.layer?.isOpaque = false
+        content.layer?.backgroundColor = NSColor.clear.cgColor
+        win.contentView = content
+        hosting.frame = content.bounds
+        hosting.autoresizingMask = [.width, .height]
+        content.addSubview(hosting)
 
         window = win
         win.makeKeyAndOrderFront(nil)

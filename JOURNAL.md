@@ -2,9 +2,37 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — Freebuff fixes: fullscreen liquid-glass restoration, stamp↔bar vertical alignment.
+> 2026-08-19 — Fullscreen player tiny-window root cause found + fixed.
 
 ---
+
+## 2026-08-19 — Fullscreen player tiny-window FIXED (root cause: contentViewController Auto Layout collapse)
+
+- **User asked** to look at `docs/PROBLEMS.md` — the fullscreen player still
+  opened tiny/broken despite the fake-borderless rewrite (c425e14).
+- **Root cause found + proven empirically** (`Features/MPVVideoView.swift`):
+  `win.contentViewController = host` (NSHostingController) lets Auto Layout
+  collapse the window to the hosting view's fitting size. Reproduced in a
+  standalone harness: window created at `screen.frame` (1440×900) collapsed to
+  **1×1 px** at top-left the moment the controller was attached. The old
+  working code never used contentViewController — it attached plain subviews
+  with explicit frames + autoresizing masks.
+- **Fix**: host the SwiftUI tree (`FullscreenPlayerRoot` = MPVLayerHost + 
+  controls in one tree, so `.glassEffect()` keeps working) in a plain
+  `NSHostingView` subview of a plain `NSView` contentView, with
+  `hosting.frame = content.bounds` + `autoresizingMask = [.width, .height]`.
+  Same render tree, same glass; window keeps its screen-sized frame.
+- **Verified end-to-end in a minimal .app bundle** (same titled fake-borderless
+  window + plain contentView + NSHostingView): window created at
+  (0,0,1440,900), ordered front → clamped to visible frame (normal macOS),
+  `didBecomeKey` → `toggleFullScreen` → **native fullscreen entered**
+  (frame = full screen, `styleMask.contains(.fullScreen)` = true), exit
+  restored the window. The window collapsing to ~200×100 was the bug; the
+  visible-frame clamp (menu bar + Dock) is normal.
+- Build green (Debug). Test suite green: **TEST SUCCEEDED** (55 unit + 4 UI +
+  4 launch, 0 failures). Debug app relaunched with the fix — user to verify
+  fullscreen by eye. **No Release build** — user policy.
+- `docs/PROBLEMS.md` brought into the main repo and rewritten as resolved.
 
 ## 2026-08-19 — Fullscreen player architectural rewrite (IN PROGRESS)
 
