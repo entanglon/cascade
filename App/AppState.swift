@@ -178,6 +178,7 @@ final class AppState {
     /// Book currently open in the reader (epub / pdf / text / comic).
     var readerFile: ObjectRecord? = nil
     var isTheaterFullScreen: Bool = false
+
     /// Object whose card should flash its border after a "reveal in folder"
     /// (double-click on a completed transfer card). Cleared automatically once the
     /// flash finishes.

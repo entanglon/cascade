@@ -784,7 +784,7 @@ final class MPVLayerView: NSView {
         isCleaningUp = true
         // If this view is currently presented in the player full-screen window, close
         // it first so we never tear down mpv while its layer is being displayed there.
-        PlayerFullScreenWindow.shared.dismissIfPresented(for: self)
+        PlayerFullScreenWindow.shared.dismiss()
 
         if let link = displayLink {
             CVDisplayLinkStop(link)
@@ -1437,6 +1437,22 @@ func mpvWakeUp(_ ctx: UnsafeMutableRawPointer?) {
 /// SwiftUI controls overlay (the same PlayerControlsView the windowed player uses)
 /// is hosted on top, and Escape is two-step: first press shows "Press Esc again to
 /// exit", the second exits full screen back to the windowed player.
+/// Coordinates the separate-window fullscreen player.  Instead of creating a
+/// manual borderless NSWindow (which breaks `.glassEffect()` materials), this
+/// stores the MPV state and opens a proper SwiftUI `Window` scene
+/// (`"fullscreenPlayer"`) that gets the same scene-level rendering environment
+/// as the main app window.
+/// Coordinates the separate-window fullscreen player.  Creates a manual
+/// NSWindow with the "fake borderless" style (`.titled + .resizable +
+/// .fullSizeContentView` with transparent titlebar) so macOS treats it as a
+/// standard window that can enter native Spaces fullscreen via
+/// `toggleFullScreen`.  The video and controls share one SwiftUI render tree
+/// inside an NSHostingController, so `.glassEffect()` materials work.
+/// Coordinates the separate-window fullscreen player.  Creates a manual
+/// "fake borderless" NSWindow (`.titled + .resizable + .fullSizeContentView`
+/// with hidden titlebar) so macOS treats it as a standard window that can
+/// enter native Spaces fullscreen.  Video + controls share one SwiftUI render
+/// tree via NSHostingController, so `.glassEffect()` materials work.
 final class PlayerFullScreenWindow: NSObject, ObservableObject {
     static let shared = PlayerFullScreenWindow()
 
@@ -1447,9 +1463,8 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     private var window: NSWindow?
     private weak var playerView: MPVLayerView?
     private weak var hostView: NSView?
-    private var keyMonitor: Any?
     private var exitWarningTimer: Timer?
-    private var controlsHost: NSHostingView<AnyView>?
+    private var keyMonitor: Any?
     private var onDismiss: (() -> Void)?
 
     private override init() {
@@ -1467,63 +1482,88 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     ) {
         guard !isActive, window == nil else { return }
         isActive = true
-        playerView = player
-        hostView = player.superview
         self.onClose = onClose
         self.onDismiss = onDismiss
 
-        let screen = player.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        hostView = player.superview
+        playerView = player
+        player.removeFromSuperview()
+
+        // --- Window: "fake borderless" for native Spaces support ---
+        let screen = NSScreen.main ?? NSScreen.screens[0]
         let win = NSWindow(
-            contentRect: screen?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080),
-            styleMask: [.borderless],
+            contentRect: screen.frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        win.level = .mainMenu
-        win.backgroundColor = .black
-        // Force dark appearance so liquid-glass materials render correctly.
-        // The main window uses .preferredColorScheme(.dark), but this manual
-        // NSWindow has no SwiftUI scene — without an explicit appearance the
-        // glass materials fall back to light mode over the black background and
-        // look flat/plain (no blur, no glass).
-        win.appearance = NSAppearance(named: .darkAqua)
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.isMovableByWindowBackground = false
+        win.hasShadow = true
         win.isReleasedWhenClosed = false
-        win.collectionBehavior = [.fullScreenAuxiliary, .stationary]
-        // Full-screen player window must also opt into the extended-range color
-        // space on HDR displays, otherwise HDR content is clipped there. On SDR
-        // screens leave it alone (extended-range compositing costs performance).
-        if (screen?.maximumExtendedDynamicRangeColorComponentValue ?? 0) > 1.0 {
+        win.appearance = NSAppearance(named: .darkAqua)
+        win.collectionBehavior = [.fullScreenPrimary]
+        // Hide traffic lights — makes it look completely borderless.
+        win.standardWindowButton(.closeButton)?.isHidden = true
+        win.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        win.standardWindowButton(.zoomButton)?.isHidden = true
+        if (screen.maximumExtendedDynamicRangeColorComponentValue) > 1.0 {
             win.colorSpace = .extendedSRGB
         }
 
-        player.removeFromSuperview()
-        win.contentView = player
-        player.frame = win.contentView?.bounds ?? .zero
-        player.autoresizingMask = [.width, .height]
-
-        // Controls overlay — the same PlayerControlsView chrome, hosted on top of
-        // the re-parented layer. Transparent root, so the video shows through.
-        // The window is NOT part of the SwiftUI scene, so the environment must
-        // be injected manually — PlayerControlsView reads @Environment(AppState.self),
-        // and a missing environment value asserts (EXC_BREAKPOINT on layout).
-        let controls = PlayerFullScreenControls(
-            mpv: mpv,
-            title: title,
-            subtitle: subtitle,
-            window: self
+        // --- SwiftUI content: video + controls in one render tree ---
+        // .frame(maxWidth:maxHeight:) prevents SwiftUI from collapsing to
+        // intrinsic content size (which would make the window tiny).
+        let root = FullscreenPlayerRoot(
+            mpvView: player,
+            controls: {
+                PlayerFullScreenControls(
+                    mpv: mpv,
+                    title: title,
+                    subtitle: subtitle,
+                    window: self
+                )
+            }
         )
-        let hosting = NSHostingView(rootView: AnyView(controls.environment(appState)))
-        hosting.frame = win.contentView?.bounds ?? .zero
-        hosting.autoresizingMask = [.width, .height]
-        win.contentView?.addSubview(hosting)
-        controlsHost = hosting
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.colorScheme, .dark)
+
+        let host = NSHostingController(rootView: AnyView(root.environment(appState)))
+        host.view.wantsLayer = true
+        host.view.layer?.isOpaque = false
+        host.view.layer?.backgroundColor = NSColor.clear.cgColor
+        win.contentViewController = host
 
         window = win
         win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
 
-        // ESC is two-step: first press shows the exit hint, second exits full
-        // screen; swallow the key so nothing else reacts.
+        // Enter fullscreen reliably: wait for the window to become key,
+        // which guarantees it's fully registered with the Window Server.
+        var observer: NSObjectProtocol?
+        observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: win,
+            queue: .main
+        ) { [weak self] _ in
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            guard self?.window != nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                guard !win.styleMask.contains(.fullScreen) else { return }
+                win.toggleFullScreen(nil)
+            }
+        }
+        // Fallback: if the window is already key, toggle immediately.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard self?.window != nil else { return }
+            if win.isKeyWindow && !win.styleMask.contains(.fullScreen) {
+                win.toggleFullScreen(nil)
+            }
+        }
+
+        // ESC: first press shows hint, second exits full screen.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == 53 {
@@ -1533,9 +1573,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                 } else {
                     self.showExitWarning = true
                     self.exitWarningTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-                        Task { @MainActor in
-                            self?.showExitWarning = false
-                        }
+                        Task { @MainActor in self?.showExitWarning = false }
                     }
                 }
                 return nil
@@ -1545,33 +1583,31 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     }
 
     func dismiss() {
-        dismissIfPresented(for: nil)
-    }
-
-    /// Closes the full-screen window and puts the player view back into its original
-    /// host view. `player` may be passed to match the current view (teardown path).
-    func dismissIfPresented(for player: MPVLayerView?) {
         guard isActive, let win = window else { return }
         isActive = false
         window = nil
         clearExitWarning()
-        if let monitor = keyMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyMonitor = nil
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
         }
-        controlsHost?.removeFromSuperview()
-        controlsHost = nil
-        if let playerView, let hostView, player == nil || player === playerView {
+        // Return the layer view to its original host.
+        if let playerView, let hostView {
             playerView.removeFromSuperview()
             hostView.addSubview(playerView)
             playerView.frame = hostView.bounds
             playerView.autoresizingMask = [.width, .height]
         }
-        win.close()
+        // Exit fullscreen before closing to avoid ghost windows.
+        if win.styleMask.contains(.fullScreen) {
+            win.toggleFullScreen(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { win.close() }
+        } else {
+            win.close()
+        }
         let dismissAction = onDismiss
         onDismiss = nil
         onClose = nil
-        NSApp.activate(ignoringOtherApps: true)
         dismissAction?()
     }
 
@@ -1582,10 +1618,46 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     }
 }
 
-/// SwiftUI overlay hosted in the full-screen player window. Reuses the same
-/// PlayerControlsView chrome as the windowed player, wired to full-screen actions:
-/// minimize / full-screen toggle exit full screen, close stops playback and closes
-/// the theater.
+// MARK: - SwiftUI Views
+
+/// NSViewRepresentable that embeds an existing MPVLayerView inside a SwiftUI
+/// hierarchy.  Both video and controls share one SwiftUI render tree, so
+/// `.glassEffect()` materials can sample the video as a backdrop.
+private struct MPVLayerHost: NSViewRepresentable {
+    let playerView: MPVLayerView
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.isOpaque = false
+        container.layer?.backgroundColor = NSColor.clear.cgColor
+        playerView.frame = container.bounds
+        playerView.autoresizingMask = [.width, .height]
+        container.addSubview(playerView)
+        return container
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        playerView.frame = nsView.bounds
+    }
+}
+
+/// Root SwiftUI view for the fullscreen player.
+private struct FullscreenPlayerRoot<Controls: View>: View {
+    let mpvView: MPVLayerView
+    @ViewBuilder let controls: () -> Controls
+
+    var body: some View {
+        ZStack {
+            MPVLayerHost(playerView: mpvView)
+                .ignoresSafeArea()
+            controls()
+        }
+        .background(Color.black)
+    }
+}
+
+/// Controls overlay wired to full-screen actions.
 private struct PlayerFullScreenControls: View {
     @ObservedObject var mpv: MPVController
     let title: String
@@ -1607,8 +1679,6 @@ private struct PlayerFullScreenControls: View {
             }
         )
         .overlay {
-            // Buffer loader — the windowed theater shows it over the video; the
-            // full-screen window must too (its layer is re-parented here).
             PlayerStatusOverlay(mpv: mpv)
         }
     }

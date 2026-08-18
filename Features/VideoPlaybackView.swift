@@ -341,7 +341,7 @@ struct PlayerControlsView: View {
         .padding(.horizontal, 24)
         .padding(.top, 24)
         .background(
-            LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [isFullScreen ? .black.opacity(0.15) : .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
     }
@@ -610,7 +610,7 @@ struct PlayerControlsView: View {
         .padding(.horizontal, 60)
         .padding(.bottom, 40)
         .background(
-            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.clear, isFullScreen ? .black.opacity(0.25) : .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
     }

@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-08-19 — Fullscreen player architectural rewrite (IN PROGRESS)
+
+- **Fullscreen player rewritten** (`Features/MPVVideoView.swift`): replaced the old
+  `.borderless` manual NSWindow (which broke `.glassEffect()`) with a "fake
+  borderless" approach (`.titled + .resizable + .fullSizeContentView` with hidden
+  titlebar/traffic lights). Video + controls embedded in one SwiftUI render tree
+  via `NSHostingController` + `MPVLayerHost` (NSViewRepresentable) — glass works
+  in this configuration.
+- **Native fullscreen NOT YET WORKING**: the window opens tiny/broken despite
+  all fixes (see `docs/PROBLEMS.md` for full analysis and next steps).
+- **TheaterView placeholder**: main window now shows "Playing in full-screen"
+  message when the fullscreen player is active, instead of a broken video view.
+- **Stamp/bar alignment finalized**: `.frame(width: 76, height: 28)` in both
+  `VideoPlaybackView.swift` and `TheaterView.swift` — pixel-perfect centerline
+  alignment.
+- Committed as part of this changeset. Debug build. **No Release build** — user
+  policy.
+
+
 ## 2026-08-18 (late night) — Freebuff fixes: fullscreen glass restoration + stamp↔bar vertical alignment
 
 - **Fix #1 — Fullscreen liquid glass restored** (`Features/MPVVideoView.swift`):

@@ -5,6 +5,7 @@ import WebKit
 
 struct TheaterView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
     let file: ObjectRecord
 
     @FocusState private var isFocused: Bool
@@ -63,6 +64,11 @@ struct TheaterView: View {
     }
 
     var body: some View {
+        // When the fullscreen player window is active, show a minimal placeholder
+        // so the main window doesn't display a broken/duplicated player.
+        if PlayerFullScreenWindow.shared.isActive, previewKind == .video {
+            fullscreenPlaceholder
+        } else {
         ZStack {
             // Adaptable canvas background (Dark / Slate / Light)
             canvasBackground.color.ignoresSafeArea()
@@ -269,6 +275,7 @@ struct TheaterView: View {
             appState.theaterFile = track
             appState.selectedFiles = [track.id]
         }
+        } // else (not fullscreen active)
     }
 
     /// Player-only full screen: presents the video in a separate borderless window
@@ -297,6 +304,49 @@ struct TheaterView: View {
                 }
             )
             appState.isTheaterFullScreen = true
+        }
+    }
+
+    // MARK: - Fullscreen Placeholder
+
+    /// Shown in the main window when the video is playing in the separate
+    /// fullscreen player window.  Keeps the theater open so the user can
+    /// return, but hides the broken/duplicated video layer.
+    private var fullscreenPlaceholder: some View {
+        ZStack {
+            canvasBackground.color.ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Spacer()
+
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(.white.opacity(0.4))
+
+                Text("Playing in full-screen")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+
+                Text(file.name)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+
+                Button {
+                    // Return to the fullscreen player window.
+                    NSApp.activate(ignoringOtherApps: true)
+                } label: {
+                    Text("Switch to Player")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
         }
     }
 

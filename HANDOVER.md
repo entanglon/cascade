@@ -2197,3 +2197,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Security tradeoff (user-approved)**: non-private shares carry no key; a
       leaked link + vault access decrypts the vault file (the old per-share
       re-encrypt design was dropped for zero-upload).
+
+83. **Fullscreen player architectural rewrite (2026-08-19 — IN PROGRESS)** (`Features/MPVVideoView.swift`, `Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`)
+   - **What was done**: Replaced the old `.borderless` manual NSWindow (which broke
+     `.glassEffect()` materials) with a "fake borderless" approach (`.titled +
+     .resizable + .fullSizeContentView` with hidden titlebar/traffic lights).
+     Video + controls embedded in one SwiftUI render tree via `NSHostingController`
+     + `MPVLayerHost` (NSViewRepresentable) — glass renders correctly in this config.
+   - **What's broken**: The window opens tiny/broken (~200×100px, top-left corner)
+     despite `contentRect: screen.frame`. `toggleFullScreen` doesn't fire reliably.
+     See `docs/PROBLEMS.md` for full analysis and recommended next steps.
+   - **TheaterView placeholder**: Main window now shows "Playing in full-screen"
+     placeholder when fullscreen is active (`PlayerFullScreenWindow.shared.isActive`).
+   - **Stamp/bar alignment finalized**: `.frame(width: 76, height: 28)` — pixel-perfect.
+   - **Debug build only**. Tests NOT rerun. **No Release build** — user policy.
+
