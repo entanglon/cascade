@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Combine
 import CoreAudio
+import os
 
 /// Single source of truth for the app's volume: the macOS SYSTEM output volume
 /// — the same control the keyboard volume keys and the Control Center slider
@@ -178,6 +179,24 @@ final class AudioPlayerEngine {
     var isFullScreen = false
     var playbackError: String?
 
+    /// Auto-advance to the next track when the current one ends naturally
+    /// (EOF). One setting for audio AND video; off → playback stops at the
+    /// end and Space/Play replays the track.
+    var autoplayNextEnabled = UserDefaults.standard.object(forKey: "autoplayNextEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoplayNextEnabled, forKey: "autoplayNextEnabled") }
+    }
+
+    /// True after natural EOF when nothing advanced (autoplay off, last track,
+    /// or empty playlist). The next toggle/play replays the finished track.
+    private(set) var ended = false
+
+    /// EOF dedupe: eof-reached and MPV_EVENT_END_FILE can both fire for one
+    /// natural end — only the first signal per track acts (within 5s).
+    private var lastEOFAt: Date?
+    private var lastEOFTrackID: String?
+
+    private static let playbackLogger = Logger(subsystem: "com.xcloud.app", category: "playback")
+
     private(set) var mpvController: MPVController?
     private var mpvCancellables: Set<AnyCancellable> = []
 
@@ -189,6 +208,7 @@ final class AudioPlayerEngine {
     @MainActor
     func play(file: ObjectRecord, in trackList: [ObjectRecord] = []) {
         playbackError = nil
+        ended = false
         // The track we're leaving — its streaming state must be torn down (see
         // stopMPVIfNeeded) so the next play starts with a clean TDLib download
         // queue. Captured BEFORE currentTrack is overwritten below.
@@ -204,7 +224,7 @@ final class AudioPlayerEngine {
         // setup is still resolving: re-entering play() mid-setup would call
         // setupMPVPlayer again, which stops the controller it just created and
         // replaces it — churning mpv (and the MPVVideoView) mid-playback.
-        if currentTrack?.id == file.id {
+        if currentTrack?.id == file.id, !ended {
             if isLoading { return }
             if let mpv = mpvController {
                 if !mpv.isHeadless {
@@ -294,10 +314,29 @@ final class AudioPlayerEngine {
             }
         }
         controller.onEndOfFile = { [weak self] in
-            // Natural end of track — advance the playlist (replaces the old
-            // AVPlayer periodic-time-observer auto-advance; mpv reports EOF).
+            // Natural end of track — advance the playlist when autoplay-next is
+            // on (replaces the old AVPlayer periodic-time-observer auto-advance;
+            // mpv reports EOF via eof-reached AND MPV_EVENT_END_FILE — deduped
+            // per track, the first signal wins, the second within 5s is a
+            // duplicate). If nothing advances (autoplay off / last track / no
+            // playlist), mark the track ended so the next Space/Play replays it.
             Task { @MainActor in
-                self?.skipNext()
+                guard let self else { return }
+                let now = Date()
+                if self.currentTrack?.id == self.lastEOFTrackID,
+                   let last = self.lastEOFAt, now.timeIntervalSince(last) < 5 {
+                    return // duplicate EOF signal for the same track
+                }
+                self.lastEOFAt = now
+                self.lastEOFTrackID = self.currentTrack?.id
+                let beforeID = self.currentTrack?.id
+                if self.autoplayNextEnabled {
+                    self.skipNext()
+                }
+                if self.currentTrack?.id == beforeID, beforeID != nil {
+                    self.ended = true
+                }
+                Self.playbackLogger.info("EOF track=\(beforeID ?? "nil", privacy: .public) autoplay=\(self.autoplayNextEnabled, privacy: .public) ended=\(self.ended, privacy: .public)")
             }
         }
         mpvController = controller
@@ -341,7 +380,18 @@ final class AudioPlayerEngine {
 
     func togglePlayPause() {
         if let mpv = mpvController {
-            mpv.togglePlayPause()
+            if ended {
+                // Natural EOF with nothing to advance: the core keeps the file
+                // loaded at the end (keep-open=yes), so replay synchronously
+                // from 0 — no teardown, no async race, works for audio and
+                // video alike.
+                ended = false
+                Self.playbackLogger.info("replay seek0+play track=\(self.currentTrack?.id ?? "nil", privacy: .public)")
+                mpv.seek(absolute: 0)
+                mpv.play()
+            } else {
+                mpv.togglePlayPause()
+            }
         }
     }
 
@@ -381,10 +431,9 @@ final class AudioPlayerEngine {
 
     func skipPrevious() {
         guard let currentTrack, !playlist.isEmpty else { return }
-        if currentTime > 3 {
-            seek(to: 0)
-            return
-        }
+        // Always the previous track — no "restart if >3s in" heuristic (the
+        // transport buttons and the artist view treat Back as track
+        // navigation). Only seek to 0 when already at the first track.
         if let idx = playlist.firstIndex(where: { $0.id == currentTrack.id }), idx > 0 {
             play(file: playlist[idx - 1], in: playlist)
         } else {
@@ -399,5 +448,6 @@ final class AudioPlayerEngine {
         isLoading = false
         isFullScreen = false
         playbackError = nil
+        ended = false
     }
 }

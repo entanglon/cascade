@@ -113,14 +113,17 @@ struct TheaterView: View {
             KeyMonitorView(
                 onEscape: { handleEscapeKey() },
                 onLeftArrow: {
-                    if previewKind == .video {
+                    // Video in FULLSCREEN: arrows seek ±10s (player standard).
+                    // Everywhere else (preview player, audio): arrows move
+                    // between files.
+                    if previewKind == .video, PlayerFullScreenWindow.shared.isActive {
                         AudioPlayerEngine.shared.seekVideo(relative: -10)
                     } else {
                         navigateMedia(delta: -1)
                     }
                 },
                 onRightArrow: {
-                    if previewKind == .video {
+                    if previewKind == .video, PlayerFullScreenWindow.shared.isActive {
                         AudioPlayerEngine.shared.seekVideo(relative: 10)
                     } else {
                         navigateMedia(delta: 1)
@@ -203,7 +206,7 @@ struct TheaterView: View {
             handleEscapeKey()
         }
         .onKeyPress(.leftArrow) {
-            if previewKind == .video {
+            if previewKind == .video, PlayerFullScreenWindow.shared.isActive {
                 AudioPlayerEngine.shared.seekVideo(relative: -10)
             } else {
                 navigateMedia(delta: -1)
@@ -211,7 +214,7 @@ struct TheaterView: View {
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            if previewKind == .video {
+            if previewKind == .video, PlayerFullScreenWindow.shared.isActive {
                 AudioPlayerEngine.shared.seekVideo(relative: 10)
             } else {
                 navigateMedia(delta: 1)
@@ -1270,6 +1273,20 @@ struct TheaterAudioPlayerView: View {
 
     private var isCurrent: Bool { audioEngine.currentTrack?.id == file.id }
     private var isPlaying: Bool { isCurrent && audioEngine.isPlaying }
+
+    /// Previous/next in the playing playlist (row navigation of media files).
+    private var canGoPrevious: Bool {
+        guard let track = audioEngine.currentTrack, !audioEngine.playlist.isEmpty else { return false }
+        guard let idx = audioEngine.playlist.firstIndex(where: { $0.id == track.id }) else { return false }
+        return idx > 0
+    }
+
+    private var canGoNext: Bool {
+        guard let track = audioEngine.currentTrack, !audioEngine.playlist.isEmpty else { return false }
+        guard let idx = audioEngine.playlist.firstIndex(where: { $0.id == track.id }) else { return false }
+        return idx + 1 < audioEngine.playlist.count
+    }
+
     private var indexText: String? {
         let idx = mediaFiles.firstIndex(where: { $0.id == file.id })
         return idx.map { "\($0 + 1) of \(mediaFiles.count)" }
@@ -1376,55 +1393,112 @@ struct TheaterAudioPlayerView: View {
                 scrubberRow
                     .padding(.top, 26)
 
-                // Transport
-                HStack(spacing: 36) {
-                    Button { audioEngine.skipPrevious() } label: {
-                        Image(systemName: "backward.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white.opacity(0.85))
-                            .frame(width: 48, height: 48)
+                // Transport — same as the video player: center play cluster with
+                // previous/next pinned to the left and right edges, shown only
+                // when a file exists on that side of the row navigation.
+                ZStack {
+                    HStack(spacing: 36) {
+                        Button { audioEngine.skipPrevious() } label: {
+                            Image(systemName: "backward.fill")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.white.opacity(0.85))
+                                .frame(width: 48, height: 48)
+                                .contentShape(Circle())
+                                .glassEffect(.regular.interactive(), in: .circle)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            if isCurrent {
+                                audioEngine.togglePlayPause()
+                            } else {
+                                audioEngine.play(file: file, in: mediaFiles)
+                            }
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.black.opacity(0.001)) // glass renders over the backdrop
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 26, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .offset(x: isPlaying ? 0 : 2)
+                            }
+                            .frame(width: 68, height: 68)
                             .contentShape(Circle())
                             .glassEffect(.regular.interactive(), in: .circle)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        if isCurrent {
-                            audioEngine.togglePlayPause()
-                        } else {
-                            audioEngine.play(file: file, in: mediaFiles)
                         }
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.001)) // glass renders over the backdrop
-                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 26, weight: .bold))
-                                .foregroundStyle(.white)
-                                .offset(x: isPlaying ? 0 : 2)
-                        }
-                        .frame(width: 68, height: 68)
-                        .contentShape(Circle())
-                        .glassEffect(.regular.interactive(), in: .circle)
-                    }
-                    .buttonStyle(.plain)
+                        .buttonStyle(.plain)
 
-                    Button { audioEngine.skipNext() } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white.opacity(0.85))
-                            .frame(width: 48, height: 48)
-                            .contentShape(Circle())
-                            .glassEffect(.regular.interactive(), in: .circle)
+                        Button { audioEngine.skipNext() } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.white.opacity(0.85))
+                                .frame(width: 48, height: 48)
+                                .contentShape(Circle())
+                                .glassEffect(.regular.interactive(), in: .circle)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+
+                    HStack {
+                        if canGoPrevious {
+                            Button { audioEngine.skipPrevious() } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.92))
+                                    .frame(width: 46, height: 46)
+                                    .contentShape(Circle())
+                                    .glassEffect(.regular.interactive(), in: .circle)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Previous track")
+                        }
+                        Spacer()
+                        if canGoNext {
+                            Button { audioEngine.skipNext() } label: {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(.white.opacity(0.92))
+                                    .frame(width: 46, height: 46)
+                                    .contentShape(Circle())
+                                    .glassEffect(.regular.interactive(), in: .circle)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Next track")
+                        }
+                    }
+                    .frame(maxWidth: .infinity) // pin the chevrons to the real edges
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 40)
                 .padding(.top, 30)
 
                 // Volume pill — the app's volume IS the system output volume
                 // (SystemVolumeManager), so keyboard keys and this slider are
-                // the same control.
+                // the same control. The repeat pill toggles autoplay-next
+                // (shared with video).
                 HStack(spacing: 10) {
+                    Button {
+                        audioEngine.autoplayNextEnabled.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "infinity")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Auto")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(audioEngine.autoplayNextEnabled ? XTheme.accent : .white.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 54, height: 30)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .help(audioEngine.autoplayNextEnabled ? "Autoplay next: ON — the next track plays when this one ends" : "Autoplay next: OFF — Space replays the current track when it ends")
+
+                    Divider()
+                        .frame(height: 16)
+                        .background(Color.white.opacity(0.25))
+
                     Image(systemName: SystemVolumeManager.shared.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.8))
@@ -1491,19 +1565,27 @@ struct TheaterAudioPlayerView: View {
                         .offset(x: geo.size.width * displayedProgress - 9)
                         .shadow(radius: 4)
                 }
+                .contentShape(Rectangle()) // whole 28pt band hit-tests, not just the 5pt track
                 .gesture(
-                    DragGesture()
+                    // minimumDistance 0 → the gesture fires on press, so a
+                    // plain CLICK seeks too (onChanged fires with the click
+                    // location) and dragging responds immediately. Visual-only
+                    // while dragging — one seek on release, no live seeks
+                    // (mpv fast-forward artifacts).
+                    DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
                             dragProgress = newProgress
-                            audioEngine.seek(to: newProgress * max(1, audioEngine.duration))
                         }
-                        .onEnded { _ in
+                        .onEnded { value in
+                            let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
                             dragProgress = nil
+                            audioEngine.seek(to: newProgress * max(1, audioEngine.duration))
                         }
                 )
             }
-            .frame(height: 18)
+            .frame(height: 28)
+            .contentShape(Rectangle())
 
             Text("-\(timeString(max(0, audioEngine.duration - displayedTime)))")
                 .font(.system(size: 13, weight: .medium, design: .monospaced))

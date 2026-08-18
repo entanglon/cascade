@@ -388,6 +388,14 @@ class MPVController: ObservableObject {
                         self.isUserPaused = paused
                     }
                 }
+            case "eof-reached":
+                // Reliable natural-end signal with keep-open=yes (the file
+                // stays loaded at the last frame, so MPV_EVENT_END_FILE alone
+                // cannot be trusted to fire). The engine dedupes against the
+                // END_FILE event.
+                if let reached = value as? Bool, reached {
+                    DispatchQueue.main.async { self.onEndOfFile?() }
+                }
             case "paused-for-cache":
                 if let buff = value as? Bool {
                     self.isBuffering = buff
@@ -957,6 +965,11 @@ final class MPVLayerView: NSView {
         mpv_set_property_string(mpv, "hwdec", "auto")
         mpv_set_property_string(mpv, "gpu-hwdec-interop", "auto")
         mpv_set_property_string(mpv, "video-sync", "audio")
+        // After natural EOF keep the file loaded (paused at the last frame)
+        // instead of unloading the core. MPV_EVENT_END_FILE still fires; the
+        // player layer uses this for the ended-state replay (Space → seek 0 +
+        // play on the SAME core — no teardown/reload race).
+        mpv_set_property_string(mpv, "keep-open", "yes")
 
         mpv_set_property_string(mpv, "sub-cache", "yes")
         mpv_set_property_string(mpv, "sub-ass-override", "no")
@@ -1016,6 +1029,7 @@ final class MPVLayerView: NSView {
         mpv_observe_property(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 0, "pause", MPV_FORMAT_FLAG)
+        mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "volume", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 0, "cache-buffering-state", MPV_FORMAT_INT64)
         mpv_observe_property(mpv, 0, "paused-for-cache", MPV_FORMAT_FLAG)

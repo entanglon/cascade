@@ -383,7 +383,9 @@ struct PlayerControlsView: View {
                 .help("Back 10 seconds")
 
                 Button {
-                    mpv.togglePlayPause()
+                    // Through the engine so an ended (EOF) video replays from
+                    // the start instead of toggling a dead core.
+                    AudioPlayerEngine.shared.togglePlayPause()
                 } label: {
                     Image(systemName: mpv.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 30, weight: .bold))
@@ -475,6 +477,26 @@ struct PlayerControlsView: View {
                 // Subtitles & Audio Pills
                 HStack(spacing: 0) {
                     Button {
+                        AudioPlayerEngine.shared.autoplayNextEnabled.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "infinity")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Auto")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(AudioPlayerEngine.shared.autoplayNextEnabled ? XTheme.accent : .white.opacity(0.9))
+                        .frame(width: 56, height: 36)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(AudioPlayerEngine.shared.autoplayNextEnabled ? "Autoplay next: ON — the next file plays when this one ends" : "Autoplay next: OFF — Space/Play replays the current file when it ends")
+
+                    Divider()
+                        .frame(height: 20)
+                        .background(Color.white.opacity(0.2))
+
+                    Button {
                         showSubtitlePopover.toggle()
                     } label: {
                         Image(systemName: "captions.bubble.fill")
@@ -524,7 +546,9 @@ struct PlayerControlsView: View {
                     .foregroundColor(.white.opacity(0.8))
                     .shadow(radius: 2)
 
-                // Custom Slider
+                // Custom Slider — the whole 28pt band is the hit area
+                // (contentShape on the ZStack that owns the gesture, NOT the
+                // thin 5pt track: SwiftUI hit-tests the gesture view's shape).
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -542,19 +566,27 @@ struct PlayerControlsView: View {
                             .offset(x: geo.size.width * displayedProgress - 9)
                             .shadow(radius: 4)
                     }
+                    .contentShape(Rectangle())
                     .gesture(
-                        DragGesture()
+                        // minimumDistance 0 → the gesture fires on press, so a
+                        // plain CLICK seeks too (onChanged fires with the click
+                        // location) and dragging responds immediately. Visual-only
+                        // while dragging — one seek on release, no live seeks
+                        // (mpv fast-forward artifacts).
+                        DragGesture(minimumDistance: 0)
                             .onChanged { value in
                                 let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
                                 dragProgress = newProgress
-                                mpv.seek(to: newProgress)
                             }
-                            .onEnded { _ in
+                            .onEnded { value in
+                                let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
                                 dragProgress = nil
+                                mpv.seek(to: newProgress)
                             }
                     )
                 }
-                .frame(height: 18)
+                .frame(height: 28)
+                .contentShape(Rectangle())
 
                 Text("-\(formatTime(max(0, mpv.duration - displayedTime)))")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
