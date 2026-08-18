@@ -1868,6 +1868,26 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         cleanup trigger), orthogonal to one-time use.
       - Committed (2026-08-18). Build green, tests green (67). **No Release
         build** — user policy.
+  77. **Channel profile pictures: branded avatars (2026-08-18 — IMPLEMENTED)**
+      - Every xCloud channel now carries a locally-generated branded profile
+        photo: 640×640 JPEG (TDLib static photos must be JPEG) with a
+        per-family gradient + bold label — "Vault" (blue), "Backup" (green),
+        "OC" (public, purple — shows on t.me link previews), "PC1"–"PC5"
+        (each slot its own hue so they're distinguishable in the chat list).
+      - `Engine/ChannelAvatar.swift` (new; Engine/ is a synchronized pbxproj
+        group, no project edit needed) → `TelegramClient.setChannelPhoto`
+        (`setChatPhoto` + inputChatPhotoStatic + inputFileLocal, best-effort)
+        and `hasChannelPhoto` (getChat().photo). Set at vault/backup creation
+        (only if photo == nil, so adopted vaults keep theirs), at pool channel
+        creation, and on legacy reuse/rejoin when photo == nil (TDLib
+        throttles photo changes).
+      - `ShareEngine.healChannelPhotos()`: idempotent backfill at every launch
+        (AppState post-auth) for channels that predate this feature —
+        `ensureVault` early-returns for existing rows, so the backfill is the
+        only path that brands them. Verified live: first launch set all 8;
+        second launch skipped all 8 (photos present server-side).
+      - Committed (2026-08-18). Build green, tests green (67). **No Release
+        build** — user policy. Debug app relaunched and running.
 
 ## 5. Pending / next steps
 

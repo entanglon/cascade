@@ -41,6 +41,20 @@ enum ShareEngine {
         if kind == .public { return "xCloud OC" }
         return "xCloud PC\(id)"
     }
+
+    /// Short label drawn on the channel's profile photo (matches
+    /// `poolChannelTitle`'s convention).
+    static func poolAvatarLabel(id: Int64, kind: ShareKind) -> String {
+        if kind == .public { return "OC" }
+        return "PC\(id)"
+    }
+
+    /// Per-slot gradient hue so pool channels are distinguishable at a glance;
+    /// the public channel gets its own family color.
+    static func poolAvatarHue(id: Int64, kind: ShareKind) -> Double {
+        if kind == .public { return 0.75 }
+        return 0.02 + Double(id - 1) * 0.055
+    }
     /// Row id of the persistent public channel in share_state.
     static let publicChannelRowID: Int64 = 100
 
@@ -636,6 +650,14 @@ enum ShareEngine {
                     title: poolChannelTitle(id: state.id, kind: .private)
                 )
                 await TelegramClient.shared.setMessageAutoDelete(chatId: state.channelID)
+                // Legacy channels get branded once, when they have no photo yet.
+                if !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
+                    await TelegramClient.shared.setChannelPhoto(
+                        chatId: state.channelID,
+                        label: poolAvatarLabel(id: state.id, kind: .private),
+                        hue: poolAvatarHue(id: state.id, kind: .private)
+                    )
+                }
                 return state
             }
         }
@@ -654,6 +676,13 @@ enum ShareEngine {
                         title: poolChannelTitle(id: existing.id, kind: .private)
                     )
                     await TelegramClient.shared.setMessageAutoDelete(chatId: existing.channelID)
+                    if !(await TelegramClient.shared.hasChannelPhoto(chatId: existing.channelID)) {
+                        await TelegramClient.shared.setChannelPhoto(
+                            chatId: existing.channelID,
+                            label: poolAvatarLabel(id: existing.id, kind: .private),
+                            hue: poolAvatarHue(id: existing.id, kind: .private)
+                        )
+                    }
                     return existing
                 }
                 // The invite resolved to a different channel — adopt it so the
@@ -666,6 +695,13 @@ enum ShareEngine {
                     title: poolChannelTitle(id: existing.id, kind: .private)
                 )
                 await TelegramClient.shared.setMessageAutoDelete(chatId: joined)
+                if !(await TelegramClient.shared.hasChannelPhoto(chatId: joined)) {
+                    await TelegramClient.shared.setChannelPhoto(
+                        chatId: joined,
+                        label: poolAvatarLabel(id: existing.id, kind: .private),
+                        hue: poolAvatarHue(id: existing.id, kind: .private)
+                    )
+                }
                 return adopted
             }
         }
@@ -712,6 +748,14 @@ enum ShareEngine {
             await TelegramClient.shared.setMessageAutoDelete(chatId: channelID)
         }
         await TelegramClient.shared.archiveVaultChannel(chatId: channelID)
+        // Brand the channel: pool slots carry their slot label (PC1…PC5, each
+        // with its own hue) so they're distinguishable in the chat list; the
+        // public channel is "OC" (and its photo shows on t.me link previews).
+        await TelegramClient.shared.setChannelPhoto(
+            chatId: channelID,
+            label: poolAvatarLabel(id: id, kind: kind),
+            hue: poolAvatarHue(id: id, kind: kind)
+        )
         let invite = (try? await TelegramClient.shared.createPermanentShareInvite(chatId: channelID)) ?? ""
         var state = ShareChannelState(
             id: id,
@@ -722,6 +766,43 @@ enum ShareEngine {
         )
         try await DatabaseManager.shared.saveShareChannel(state)
         return state
+    }
+
+    /// One-time branding pass for channels created before profile pictures
+    /// existed (legacy vault/backup/pool channels): sets a branded photo on
+    /// every recorded channel that has none. Idempotent — channels that
+    /// already carry a photo are never touched, and channels with no DB row
+    /// get branded when they're next created. Runs at every launch after auth.
+    static func healChannelPhotos() async {
+        guard !underXCTest else { return }
+        if let vault = try? await DatabaseManager.shared.firstVault() {
+            if !(await TelegramClient.shared.hasChannelPhoto(chatId: vault.channelID)) {
+                await TelegramClient.shared.setChannelPhoto(chatId: vault.channelID, label: "Vault", hue: 0.58)
+            }
+            if let backupID = vault.backupChannelID,
+               !(await TelegramClient.shared.hasChannelPhoto(chatId: backupID)) {
+                await TelegramClient.shared.setChannelPhoto(chatId: backupID, label: "Backup", hue: 0.35)
+            }
+        }
+        for slot in 1...Int64(privatePoolSize) {
+            guard let state = try? await DatabaseManager.shared.shareChannelState(id: slot),
+                  await TelegramClient.shared.chatExists(chatId: state.channelID),
+                  !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) else { continue }
+            await TelegramClient.shared.setChannelPhoto(
+                chatId: state.channelID,
+                label: poolAvatarLabel(id: state.id, kind: .private),
+                hue: poolAvatarHue(id: state.id, kind: .private)
+            )
+        }
+        if let state = try? await DatabaseManager.shared.shareChannelState(id: publicChannelRowID),
+           await TelegramClient.shared.chatExists(chatId: state.channelID),
+           !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
+            await TelegramClient.shared.setChannelPhoto(
+                chatId: state.channelID,
+                label: poolAvatarLabel(id: state.id, kind: .public),
+                hue: poolAvatarHue(id: state.id, kind: .public)
+            )
+        }
     }
 
     /// Revokes ONE active outgoing share: that file's messages are deleted from

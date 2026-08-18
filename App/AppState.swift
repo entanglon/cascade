@@ -725,6 +725,7 @@ final class AppState {
 
         await cleanupExpiredTransfers()
         await ShareEngine.cleanupExpiredShares()
+        await ShareEngine.healChannelPhotos()
         await restoreTransferCards()
         await loadShares()
         await resumeInterruptedUploads()

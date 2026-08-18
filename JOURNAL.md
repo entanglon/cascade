@@ -2,9 +2,44 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — 1-day shares + TTL + cancel-on-use + staged import UX.
+> 2026-08-18 — channel profile pictures (branded avatars).
 
 ---
+
+## 2026-08-18 — Channel profile pictures: branded avatars on every xCloud channel
+
+- **User asked**: "What do you think?" about giving the Telegram channels
+  (vault, share pool slots, public channel) profile pictures. I said yes —
+  cheap and makes the channels recognizable; public channel photo also shows
+  on t.me link previews. User approved.
+- **Implementation**:
+  - New `Engine/ChannelAvatar.swift`: draws 640×640 JPEG (TDLib static chat
+    photos must be JPEG) — diagonal gradient in a per-family hue + the label
+    centered in bold white with a soft shadow. Written to
+    `<tmp>/xcloud-avatars/<label>.jpg`. Pure CoreGraphics + CoreText, no
+    assets. (Engine/ is a file-system-synchronized pbxproj group — no pbxproj
+    edit needed, unlike Features/.)
+  - `TelegramClient.setChannelPhoto(chatId:label:hue:)` (best-effort, logged)
+    via TDLib `setChatPhoto` + `.inputChatPhotoStatic` +
+    `.inputFileLocal`; `hasChannelPhoto(chatId:)` via `getChat().photo`.
+  - Wiring: `VaultManager.ensureVault` (label "Vault", hue 0.58) and
+    `ensureBackupChannel` ("Backup", 0.35) — only when the channel has no
+    photo yet; `ShareEngine.createPoolChannel` always (private slots
+    "PC1"…"PC5" with per-slot hue, public "OC" hue 0.75); legacy pool
+    channels get branded on reuse/rejoin only when photo == nil.
+  - `ShareEngine.healChannelPhotos()`: idempotent backfill at launch
+    (AppState post-auth, after `cleanupExpiredShares`) — sets a photo on
+    every recorded channel (vault, backup, slots 1–5, OC) that has none.
+    This matters because `ensureVault` early-returns for existing rows, so
+    pre-existing channels would otherwise never be branded.
+- **Verification (live)**: first launch generated all 8 avatars (all distinct
+  md5s, valid 640×640 JPEGs) and set them; second launch regenerated NONE —
+  `hasChannelPhoto` was true on every channel, proving the photos landed
+  server-side and the backfill is idempotent. (os.Logger lines not persisted
+  to `log show`; verified via avatar-file timestamps + the photo guard.)
+- Build green; tests green (67: 59 unit + 4 UI + 4 launch). **No Release
+  build** — user policy. Debug app relaunched and running.
+
 
 ## 2026-08-18 — Share lifecycle round: 1-day expiry, channel TTL, cancel-on-use, staged import UX
 

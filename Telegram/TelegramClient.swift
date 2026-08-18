@@ -768,6 +768,33 @@ final class TelegramClient {
         }
     }
 
+    /// Sets a branded profile photo on a channel (creator-only, needs
+    /// can_change_info). The avatar is generated locally and uploaded by TDLib.
+    /// Best-effort — failures are logged, never fatal.
+    func setChannelPhoto(chatId: Int64, label: String, hue: Double) async {
+        guard let client else { return }
+        guard let url = ChannelAvatar.makeJPEG(label: label, hue: hue) else { return }
+        do {
+            try await client.setChatPhoto(
+                chatId: chatId,
+                photo: .inputChatPhotoStatic(
+                    InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: url.path)))
+                )
+            )
+            logger.info("Channel photo set for \(chatId) (\(label))")
+        } catch {
+            logger.info("Channel photo failed for \(chatId): \(error.localizedDescription)")
+        }
+    }
+
+    /// True when the chat already has a profile photo (used to avoid re-setting
+    /// photos on legacy channels — TDLib throttles photo changes).
+    func hasChannelPhoto(chatId: Int64) async -> Bool {
+        guard let client else { return false }
+        guard let chat = try? await client.getChat(chatId: chatId) else { return false }
+        return chat.photo != nil
+    }
+
     /// Looks for an existing "xCloud Vault" channel owned by this account so that
     /// logging in on a new device adopts the real vault instead of silently creating a
     /// brand-new empty channel (which is why files "disappear" after a fresh install).
