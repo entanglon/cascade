@@ -1224,6 +1224,10 @@ struct FileBrowserView: View {
         } else if file.isBook {
             // Books open in the dedicated reader (Library page or anywhere else).
             appState.readerFile = file
+        } else if isPDF(file) {
+            // PDFs open in the reader too: it streams from the vault (byte
+            // ranges) instead of the Theater's metadata panel + manual Preview.
+            appState.readerFile = file
         } else if appState.selectedDestination == .audio {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
@@ -1238,11 +1242,18 @@ struct FileBrowserView: View {
     private func quickLook(_ file: ObjectRecord) {
         if file.isBook {
             appState.readerFile = file
+        } else if isPDF(file) {
+            appState.readerFile = file
         } else if appState.selectedDestination == .audio, !file.isFolder {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
         } else {
             appState.theaterFile = file
         }
+    }
+
+    private func isPDF(_ file: ObjectRecord) -> Bool {
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        return file.mime.contains("pdf") || ext == "pdf"
     }
 
     private func isAudioFile(_ file: ObjectRecord) -> Bool {

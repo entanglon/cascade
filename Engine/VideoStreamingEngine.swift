@@ -50,6 +50,17 @@ final class VideoStreamingEngine {
         return await VaultStreamServer.shared.streamURL(for: object.id)
     }
 
+    /// PDF variant of `mpvStreamURL`: same byte-range server, `application/pdf`
+    /// content type. Returns nil for cached files (the caller renders the local
+    /// file) or unloadable layouts.
+    func pdfStreamURL(for object: ObjectRecord) async -> URL? {
+        if DownloadEngine.isCached(object) { return nil }
+        guard let layout = try? await loadLayout(objectID: object.id), layout.fileSize > 0 else {
+            return nil
+        }
+        return await VaultStreamServer.shared.streamURL(for: object.id)
+    }
+
     // MARK: - Slice serving
 
     /// How many 1 MB slices a single TDLib range fetch pulls at once. Streaming is
@@ -248,6 +259,7 @@ final class VideoStreamingEngine {
         case "m4a": contentType = UTType.mpeg4Audio.identifier
         case "wav": contentType = UTType.wav.identifier
         case "aac": contentType = UTType(filenameExtension: "aac")?.identifier ?? "public.aac-audio"
+        case "pdf": contentType = "application/pdf"
         default: contentType = "application/octet-stream"
         }
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }

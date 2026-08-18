@@ -1868,6 +1868,34 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         cleanup trigger), orthogonal to one-time use.
       - Committed (2026-08-18). Build green, tests green (67). **No Release
         build** — user policy.
+  78. **PDF streaming: byte-range preview, no full download (2026-08-18 —
+      IMPLEMENTED)**
+      - PDFs previously required a full chunk-by-chunk download before
+        viewing (books via `DownloadEngine.download` → WKWebView loadFileURL;
+        Theater PDFs were metadata-only). Now: `VideoStreamingEngine`
+        serves PDFs as `application/pdf` from the existing byte-range
+        VaultStreamServer (206/Content-Range, 1 MB slices, in-memory SliceCache
+        — plaintext never touches disk), `pdfStreamURL(for:)` added.
+      - `BookReaderView.loadPDF()`: uncached → WKWebView loads the stream URL
+        (`BookWebView.isRemote`; WebKit's PDF renderer range-fetches pages
+        progressively); on navigation failure → one-shot fallback to the full
+        download (`onLoadError` → `handlePDFStreamFailure`). Cached → local
+        file as before. Theater PDF details gained a "Preview" button (reader);
+        double-click / Space on any PDF now opens the reader directly
+        (FileBrowserView.open/quickLook) instead of the metadata panel.
+      - **Linearization is NOT required** (user asked): range-capable loaders
+        (WebKit/PDFKit/PDF.js) fetch head + tail (xref) + objects on demand;
+        sequential-only loaders are the only case needing linearized PDFs.
+        No local linearization (qpdf/CoreGraphics) shipped — unnecessary.
+      - Verified live with an 86.7 MB non-linearized test PDF (120 pages,
+        xref at tail): stream layout canStream=true, pages rendered, **no
+        cache file created** (streamed, not downloaded). Gotcha: fresh
+        imports ARE cached by UploadEngine (UploadEngine.swift:380-389,
+        instant-preview copy), so streaming only engages once that copy is
+        evicted — the first render "test" silently used the local copy.
+      - Test PDF `xc-stream-test.pdf` left in the vault for manual testing
+        (delete via UI when done). Committed (2026-08-18). Build green, tests
+        green (67). **No Release build** — user policy. Debug app running.
   77. **Channel profile pictures: branded avatars (2026-08-18 — IMPLEMENTED)**
       - Every xCloud channel now carries a locally-generated branded profile
         photo: 640×640 JPEG (TDLib static photos must be JPEG) with a

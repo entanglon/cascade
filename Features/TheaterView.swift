@@ -579,6 +579,25 @@ struct TheaterView: View {
                         .glassEffect(.regular.interactive(), in: .capsule)
                 }
                 .buttonStyle(.plain)
+
+                if previewKind == .pdf {
+                    Button {
+                        // In-app streaming preview: the reader streams the PDF
+                        // from the vault (byte ranges) instead of downloading.
+                        let book = file
+                        appState.theaterFile = nil
+                        appState.readerFile = book
+                    } label: {
+                        Label("Preview", systemImage: "book")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .contentShape(Capsule())
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(40)

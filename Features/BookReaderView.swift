@@ -44,6 +44,10 @@ struct BookReaderView: View {
 
     // PDF
     @State private var pdfURL: URL?
+    /// True while the PDF is served from the stream server (byte ranges, no
+    /// full download); false once a load failure falls back to a download.
+    @State private var pdfStreaming = false
+    @State private var pdfFallbackScheduled = false
 
     @AppStorage("xc.reader.fontSize") private var fontSize = 18.0
     @AppStorage("xc.reader.theme") private var themeRaw = "sepia"
@@ -149,8 +153,14 @@ struct BookReaderView: View {
             }
         case .pdf:
             if let pdfURL {
-                BookWebView(url: pdfURL, readAccessURL: pdfURL.deletingLastPathComponent(), css: "")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                BookWebView(
+                    url: pdfURL,
+                    readAccessURL: pdfURL.deletingLastPathComponent(),
+                    css: "",
+                    isRemote: pdfStreaming,
+                    onLoadError: handlePDFStreamFailure
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .comic:
             comicContent
@@ -597,6 +607,44 @@ struct BookReaderView: View {
         let ext = (file.name as NSString).pathExtension.lowercased()
         format = Self.format(forExtension: ext)
 
+        if format == .pdf {
+            loadPDF()
+            return
+        }
+        downloadAndLoad()
+    }
+
+    /// PDFs open instantly from the stream server when possible: WebKit's PDF
+    /// renderer fetches progressive byte ranges, so the first page paints
+    /// without a full download (same privacy model as video — slices stay in
+    /// memory). Falls back to a full download when the layout isn't streamable
+    /// (or the stream load fails — see `handlePDFStreamFailure`).
+    private func loadPDF() {
+        Task {
+            if let streamURL = await VideoStreamingEngine.shared.pdfStreamURL(for: file) {
+                await MainActor.run {
+                    pdfURL = streamURL
+                    pdfStreaming = true
+                    pdfFallbackScheduled = false
+                    isLoading = false
+                }
+                return
+            }
+            await MainActor.run { downloadAndLoad() }
+        }
+    }
+
+    private func handlePDFStreamFailure() {
+        guard !pdfFallbackScheduled, pdfStreaming, pdfURL != nil else { return }
+        pdfFallbackScheduled = true
+        Task { @MainActor in
+            pdfURL = nil
+            pdfStreaming = false
+            downloadAndLoad()
+        }
+    }
+
+    private func downloadAndLoad() {
         Task {
             do {
                 let url = try await DownloadEngine.download(object: file, quiet: true) { _, progress in
@@ -779,8 +827,15 @@ struct BookWebView: NSViewRepresentable {
     let url: URL
     let readAccessURL: URL
     let css: String
+    /// Remote (streamed) sources load via HTTP instead of loadFileURL — used by
+    /// the PDF streaming path, where WebKit's PDF renderer pulls progressive
+    /// byte ranges from the local stream server.
+    var isRemote: Bool = false
     var scrollTarget: Int? = nil
     var onScroll: ((Double, Int) -> Void)? = nil
+    /// Fired when the navigation fails (stream unreadable → caller falls back
+    /// to a full download).
+    var onLoadError: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -798,10 +853,15 @@ struct BookWebView: NSViewRepresentable {
 
     func updateNSView(_ web: WKWebView, context: Context) {
         context.coordinator.onScroll = onScroll
+        context.coordinator.onLoadError = onLoadError
         context.coordinator.pendingCSS = css
         if context.coordinator.loadedURL != url {
             context.coordinator.loadedURL = url
-            web.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+            if isRemote {
+                web.load(URLRequest(url: url))
+            } else {
+                web.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+            }
         } else {
             context.coordinator.inject(web)
         }
@@ -821,6 +881,7 @@ struct BookWebView: NSViewRepresentable {
         var pendingCSS = ""
         var lastScrollTarget: Int? = nil
         var onScroll: ((Double, Int) -> Void)? = nil
+        var onLoadError: (() -> Void)? = nil
 
         private static let scrollReporterJS = """
         (function(){
@@ -870,6 +931,14 @@ struct BookWebView: NSViewRepresentable {
             if let target = lastScrollTarget {
                 scroll(to: target, in: webView)
             }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onLoadError?()
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            onLoadError?()
         }
 
         func scroll(to chapterIndex: Int, in webView: WKWebView) {

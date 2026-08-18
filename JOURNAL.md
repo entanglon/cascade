@@ -2,9 +2,63 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — channel profile pictures (branded avatars).
+> 2026-08-18 — PDF streaming (byte-range, no full download).
 
 ---
+
+## 2026-08-18 — PDF streaming: byte-range preview without a full download
+
+- **User asked**: add PDF streaming; first check whether it's supported; also
+  asked whether only linearized PDFs stream (he'd heard that claim) and
+  whether locally linearizing non-linear PDFs is the way, "or is there a
+  better way".
+- **Was it supported?** No — PDFs were fully downloaded before viewing (books:
+  `DownloadEngine.download` → `loadFileURL` in BookReaderView; Theater: PDFs
+  were metadata-only). But the byte-range plumbing (VaultStreamServer: 206/
+  Content-Range/Accept-Ranges, `plaintextSliceStream`, 1 MB slices,
+  `fetchRangeData`, 48 MB SliceCache) was 90% there — verified live with curl
+  before any code changed.
+- **Linearization answer (from the user's question)**: the "only linearized
+  PDFs stream" claim applies to SEQUENTIAL loaders. Every modern PDF renderer
+  (WebKit, PDFKit, PDF.js) is range-capable: it fetches the head, fetches the
+  tail (xref/trailer), then page objects on demand — non-linearized PDFs
+  stream fine, one extra round-trip. Linearizing locally (qpdf — Apache-2.0,
+  or CoreGraphics' `kCGPDFContextCreateLinearizedPDF`, or a CGContext
+  regenerate) would only be needed for a sequential-only data provider or as a
+  robustness fix for sloppy generators — rejected as unnecessary.
+- **Changes**:
+  - `VideoStreamingEngine.loadLayoutUncached`: `pdf` → `application/pdf`
+    content type; new `pdfStreamURL(for:)` (same layout machinery as
+    `mpvStreamURL`).
+  - `BookReaderView`: PDFs now load via `loadPDF()` — `pdfStreamURL` when
+    uncached (WKWebView loads the stream URL with `isRemote`, WebKit's PDF
+    renderer range-fetches), else full download. `BookWebView` gained
+    `isRemote` (load URLRequest vs loadFileURL) + `onLoadError`
+    (didFail/didFailProvisional → `handlePDFStreamFailure` → falls back to
+    download, once — `pdfFallbackScheduled`).
+  - `TheaterView` PDF details panel: added "Preview" button (opens the
+    reader, which streams).
+  - `FileBrowserView.open`/`quickLook`: PDFs (mime or ext) now open directly
+    in the reader (double-click / Space) instead of the Theater metadata
+    panel (user feedback from the spike: "double clicking or pressing space
+    bar doesn't open the file").
+- **Spike verification (live, real object)**: generated a 86.7 MB,
+  120-page, deliberately NON-linearized PDF (no Linearized dict, xref at
+  tail — verified with python) and uploaded it via a TEMPORARY
+  `--import-file` debug hook (removed after the test). Server: HEAD → 200,
+  exact Content-Length, `application/pdf`; range → 206; trailer-first probe
+  (`startxref` reachable from the last 1024 bytes) + head probe (`%PDF-1.3`).
+  Client: removed the upload's cache copy (UploadEngine copies imports to the
+  cache — the first render test silently used the local copy!), relaunched;
+  user confirmed pages render; log shows `Stream layout … canStream=true`;
+  **no cache file was created** — the PDF rendered entirely from byte ranges.
+  First false positive is a good gotcha: `UploadEngine.upload` populates the
+  cache for instant previews (UploadEngine.swift:380-389), so a fresh import
+  is ALWAYS cached — streaming only kicks in once that copy is evicted.
+- The 86.7 MB test PDF (`xc-stream-test.pdf`) is still in the vault (user can
+  test/delete via the UI).
+- Build green; tests green (67: 59 unit + 4 UI + 4 launch). **No Release
+  build** — user policy. Debug app relaunched and running.
 
 ## 2026-08-18 — Channel profile pictures: branded avatars on every xCloud channel
 
