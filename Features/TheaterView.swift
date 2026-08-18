@@ -1551,8 +1551,7 @@ struct TheaterAudioPlayerView: View {
             Text(timeString(displayedTime))
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(.white.opacity(0.8))
-                .frame(width: 76, alignment: .trailing)
-                .offset(y: -1.5)
+                .frame(width: 76, height: 28, alignment: .trailing)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -1597,8 +1596,7 @@ struct TheaterAudioPlayerView: View {
             Text("-\(timeString(max(0, audioEngine.duration - displayedTime)))")
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(.white.opacity(0.8))
-                .frame(width: 76, alignment: .leading)
-                .offset(y: -1.5)
+                .frame(width: 76, height: 28, alignment: .leading)
         }
         .padding(.horizontal, 60)
         .frame(maxWidth: 720)

@@ -1481,6 +1481,12 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         )
         win.level = .mainMenu
         win.backgroundColor = .black
+        // Force dark appearance so liquid-glass materials render correctly.
+        // The main window uses .preferredColorScheme(.dark), but this manual
+        // NSWindow has no SwiftUI scene — without an explicit appearance the
+        // glass materials fall back to light mode over the black background and
+        // look flat/plain (no blur, no glass).
+        win.appearance = NSAppearance(named: .darkAqua)
         win.isReleasedWhenClosed = false
         win.collectionBehavior = [.fullScreenAuxiliary, .stationary]
         // Full-screen player window must also opt into the extended-range color

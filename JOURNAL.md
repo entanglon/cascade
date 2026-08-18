@@ -2,9 +2,40 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — Player controls: seek-hold, bar/stamp alignment, fullscreen env crash fix.
+> 2026-08-18 — Freebuff fixes: fullscreen liquid-glass restoration, stamp↔bar vertical alignment.
 
 ---
+
+## 2026-08-18 (late night) — Freebuff fixes: fullscreen glass restoration + stamp↔bar vertical alignment
+
+- **Fix #1 — Fullscreen liquid glass restored** (`Features/MPVVideoView.swift`):
+  `PlayerFullScreenWindow.present(...)` creates a manual borderless `NSWindow`
+  (level `.mainMenu`, black background) outside the SwiftUI scene. The main
+  window forces `.preferredColorScheme(.dark)`, but this window had no
+  appearance → liquid-glass materials (`glassEffect(.regular.interactive(),
+  ...)`) rendered in light mode over the black background and looked flat/plain
+  (no blur, no glass). Fix: `win.appearance = NSAppearance(named: .darkAqua)`
+  right after `win.backgroundColor = .black`. Now the fullscreen player's
+  volume slider, minimize/close/transport buttons all render with proper liquid
+  glass, matching the windowed player.
+
+- **Fix #2 — Time stamps sit exactly on the bar centerline** (`Features/VideoPlaybackView.swift`
+  + `Features/TheaterView.swift`):
+  The previous `.offset(y: -1.5)` on both time labels nudged them up but
+  wasn't enough (~3 px remaining gap: bar centerline y≈591, stamp centers
+  y≈594). Root cause: the text labels had no explicit height — their natural
+  line height (~16 pt for 13 pt monospaced) didn't match the bar's 28 pt frame,
+  so SwiftUI's center alignment placed them at a slightly different vertical
+  position than the 5 pt capsule inside the 28 pt ZStack. Fix: replaced
+  `.frame(width: 76, alignment: ...).offset(y: -1.5)` with
+  `.frame(width: 76, height: 28, alignment: ...)` — the text containers now
+  have the exact same height as the bar frame, so their vertical centers align
+  pixel-perfectly with the bar's capsule centerline. Applied in all 4 places
+  (left/right labels in both the video player and the audio scrubber).
+
+- Build green (Debug). Full test suite green: **TEST SUCCEEDED** (59 unit +
+  UI/launch tests, 0 failures). Debug app NOT launched (user verifies both
+  fixes). **No Release build** — user policy.
 
 ## 2026-08-18 (night) — Player controls: seek-target hold, bar↔stamp alignment, fullscreen environment fix; fullscreen glass regression + stamp vertical alignment handed to freebuff
 

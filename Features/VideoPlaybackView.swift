@@ -555,8 +555,7 @@ struct PlayerControlsView: View {
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
                     .shadow(radius: 2)
-                    .frame(width: 76, alignment: .trailing)
-                    .offset(y: -1.5)
+                    .frame(width: 76, height: 28, alignment: .trailing)
 
                 // Custom Slider — the whole 28pt band is the hit area
                 // (contentShape on the ZStack that owns the gesture, NOT the
@@ -605,8 +604,7 @@ struct PlayerControlsView: View {
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
                     .shadow(radius: 2)
-                    .frame(width: 76, alignment: .leading)
-                    .offset(y: -1.5)
+                    .frame(width: 76, height: 28, alignment: .leading)
             }
         }
         .padding(.horizontal, 60)

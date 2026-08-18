@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-18 (player round). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-18 (freebuff fixes). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2003,14 +2003,30 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       - Committed (2026-08-18). Build green, tests green (67). **No Release
         build** — user policy. Debug app relaunched and running.
 
-## 5. Pending / next steps
+  82. **Freebuff fixes: fullscreen liquid-glass + stamp↔bar alignment (2026-08-18
+      — COMMITTED)** (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`,
+      `Features/TheaterView.swift`)
+      - **Fullscreen liquid glass restored**: `PlayerFullScreenWindow.present(...)`
+        creates a manual borderless NSWindow outside the SwiftUI scene; the main
+        window forces `.preferredColorScheme(.dark)` but this window had no
+        appearance → `glassEffect(.regular.interactive(), ...)` fell back to light
+        mode over the black background (flat, no blur, no glass). Fix:
+        `win.appearance = NSAppearance(named: .darkAqua)` right after
+        `win.backgroundColor = .black`. Volume slider, minimize/close/transport
+        buttons all render proper liquid glass in fullscreen now.
+      - **Stamp↔bar vertical alignment**: previous `.offset(y: -1.5)` on both time
+        labels wasn't enough (~3 px remaining gap). Root cause: text labels had no
+        explicit height — natural line height didn't match the bar's 28 pt frame,
+        so SwiftUI's center alignment placed them at a slightly different vertical
+        position. Fix: replaced `.frame(width: 76, alignment: ...).offset(y: -1.5)`
+        with `.frame(width: 76, height: 28, alignment: ...)` — text containers now
+        have the same height as the bar frame, centers align pixel-perfectly.
+        Applied in all 4 places (left/right labels in video player + audio scrubber).
+      - Build green (Debug). Full test suite green: **TEST SUCCEEDED** (59 unit +
+        UI/launch, 0 failures). User to verify both fixes. **No Release build** —
+        user policy.
 
-- **freebuff handoff (2026-08-18, user-driven — see item 81):** fix (1) the
-  fullscreen player losing all liquid-glass UI when maximized (windowed = fine;
-  candidate: `.darkAqua` appearance on the borderless `PlayerFullScreenWindow`),
-  and (2) the time stamps' vertical axis vs the progress bar (stamps are now
-  closer to the bar — good — but still not vertically aligned). Then rerun the
-  full test suite (last green: 67 at `330f46e`) and commit.
+## 5. Pending / next steps
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
   (production build, isolated data; fresh-install gate fix confirmed live — the
   API credentials form appears immediately, no splash deadlock), log in with a
