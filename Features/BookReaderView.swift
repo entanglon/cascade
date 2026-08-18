@@ -72,18 +72,29 @@ struct BookReaderView: View {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Floating top/bottom controls — auto-hide while reading
-                VStack {
-                    topControls
-                    Spacer()
-                    bottomControls
+                // Floating top/bottom controls — auto-hide while reading. PDFs
+                // use a single always-visible slim toolbar (Preview-style: the
+                // WebKit PDF view brings its own page UI, so the book chrome
+                // stays out of the way).
+                if format == .pdf {
+                    VStack {
+                        pdfToolbar
+                        Spacer()
+                    }
+                    .padding(.top, 12)
+                } else {
+                    VStack {
+                        topControls
+                        Spacer()
+                        bottomControls
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+                    .opacity(chromeVisible ? 1 : 0)
+                    .allowsHitTesting(chromeVisible)
+                    .animation(.easeOut(duration: 0.25), value: chromeVisible)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-                .opacity(chromeVisible ? 1 : 0)
-                .allowsHitTesting(chromeVisible)
-                .animation(.easeOut(duration: 0.25), value: chromeVisible)
             }
             .onContinuousHover { phase in
                 handleHover(phase, height: geo.size.height)
@@ -266,13 +277,108 @@ struct BookReaderView: View {
         .padding(.top, 12)
     }
 
+    // MARK: - PDF toolbar
+
+    /// Slim always-visible toolbar for PDFs — the WebKit PDF view provides the
+    /// Preview-style page UI, so the book chrome (chapter nav, progress) is
+    /// replaced by just the essentials: close, title, open externally, share.
+    private var pdfToolbar: some View {
+        HStack(spacing: 8) {
+            Button {
+                onClose?() ?? (appState.readerFile = nil)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help("Close (Esc)")
+
+            Text(bookTitle)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.leading, 4)
+
+            Spacer()
+
+            Button {
+                openExternally()
+            } label: {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help("Open with Default App")
+
+            Button {
+                sharePDF()
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help("Share…")
+
+            fullscreenButton(foreground: .white)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
+        .glassEffect(.regular, in: .capsule)
+        .overlay {
+            Capsule()
+                .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 5)
+        .padding(.horizontal, 18)
+    }
+
+    /// macOS share sheet for the PDF (AirDrop, Messages, Mail, …). The file is
+    /// downloaded first — sharing needs real bytes, the stream stays on the
+    /// preview path.
+    private func sharePDF() {
+        Task {
+            let url = try? await DownloadEngine.download(object: file, quiet: true) { _, _ in }
+            guard let url else { return }
+            let picker = NSSharingServicePicker(items: [url])
+            await MainActor.run {
+                guard let window = NSApp.keyWindow, let contentView = window.contentView else { return }
+                // Anchor the popover at the top-right of the window — the share
+                // button lives in the top-right corner of the PDF toolbar.
+                let anchor = NSRect(
+                    x: contentView.bounds.width - 40,
+                    y: contentView.bounds.height - 40,
+                    width: 20,
+                    height: 20
+                )
+                picker.show(relativeTo: anchor, of: contentView, preferredEdge: .maxY)
+            }
+        }
+    }
+
     private var fullscreenButton: some View {
+        fullscreenButton(foreground: theme.foreground)
+    }
+
+    private func fullscreenButton(foreground: Color) -> some View {
         Button {
             ReaderFullScreenWindow.shared.present(file: file, appState: appState)
         } label: {
             Image(systemName: "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(theme.foreground)
+                .foregroundStyle(foreground)
                 .frame(width: 30, height: 30)
                 .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)

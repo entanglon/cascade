@@ -2,7 +2,45 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — PDF streaming (byte-range, no full download).
+> 2026-08-18 — PDF reader: single Preview-style UI (toolbar).
+
+---
+
+## 2026-08-18 — PDF reader: single Preview-style UI (drop the book chrome)
+
+- **User asked**: PDFs showed TWO preview overlays — the Apple Books-style
+  reader chrome AND WebKit's PDF viewer bar. Wants ONLY the Preview-app-like
+  UI for PDFs, with extra buttons (close, share, etc.). Confirmed via
+  question: "one is like how books are previewed in Apple Books (controls),
+  and a bar like the macOS Preview app — keep the preview only for pdf and
+  add more buttons for closing sharing etc".
+- **Changes** (`Features/BookReaderView.swift`):
+  - `body`: for `format == .pdf` the book chrome (topControls/bottomControls
+    with hover auto-hide) is replaced by a slim always-visible `pdfToolbar`;
+    the WebKit PDF view (which range-fetches from the stream server) provides
+    the Preview-style page UI. Book chrome unchanged for epub/text/comic.
+  - `pdfToolbar`: glass capsule with Close (Esc), file title, Open with
+    Default App, Share (macOS share sheet), Full Screen. Title + icons are
+    fixed `.white` over the light glass bar per user feedback (first used
+    `theme.foreground` — grey-on-white in dark theme; then adaptive
+    `.primary` — black; user wants white text, bar as is).
+  - `sharePDF()`: quiet download (`DownloadEngine.download`) then
+    `NSSharingServicePicker` anchored top-right of the window (share needs
+    real bytes; streaming stays on the preview path).
+  - `fullscreenButton` now takes a `foreground:` color (book chrome passes
+    `theme.foreground`, PDF toolbar passes `.white`).
+  - Position bug fixed: the toolbar was CENTERED at first (the `if format ==
+    .pdf` branch replaced the full-height VStack, so the ZStack centered the
+    bar) → wrapped in `VStack { pdfToolbar; Spacer() }` + top padding; added
+    a stroke border + shadow for visibility.
+- **Storage cleanup (user asked "why is DerivedData so big")**: 23 GB →
+  6.8 GB. Cause: FIVE xCloud derived-data folders from different sessions;
+  four stale ones (xCloud-wt 4.3G, xCloud-tests 4.1G, xCloud-release 4.0G,
+  xCloud-main 4.0G) were pure regenerable build output — deleted. The active
+  pinned folder (xCloud-cdpcjcegyfsbheeztqhmjnnukgcv, AGENTS.md) kept: 3.8G
+  Build + 1.9G SourcePackages + caches.
+- Build green; tests green (67: 59 unit + 4 UI + 4 launch). Debug app
+  relaunched. **No Release build** — user policy.
 
 ---
 

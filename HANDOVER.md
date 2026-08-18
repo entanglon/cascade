@@ -1868,6 +1868,28 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         cleanup trigger), orthogonal to one-time use.
       - Committed (2026-08-18). Build green, tests green (67). **No Release
         build** — user policy.
+  79. **PDF reader: single Preview-style UI (2026-08-18 — IMPLEMENTED)**
+      - User report: PDFs showed two preview UIs — the Apple Books-style
+        reader chrome (top bar, progress) AND the WebKit PDF viewer bar.
+        Wanted only the Preview-like UI plus close/share controls.
+      - `BookReaderView.body`: `format == .pdf` now renders a slim
+        always-visible `pdfToolbar` (glass capsule, top-aligned) instead of
+        the book top/bottom controls; WebKit's PDF view supplies the
+        Preview-style page UI. Toolbar: Close (Esc), title, Open with Default
+        App, Share (NSSharingServicePicker — downloads the file first; the
+        stream stays on the preview path), Full Screen.
+      - Toolbar icons/title are fixed `.white` (book theme's foreground was
+        grey-on-white in dark theme; adaptive `.primary` was black — user
+        wants white text, light bar as is). Stroke border + shadow added for
+        visibility; fullscreenButton takes a `foreground:` parameter (book
+        chrome passes `theme.foreground`).
+      - Gotcha: the first version was centered mid-screen (the `if .pdf`
+        branch dropped the full-height VStack, so the ZStack centered the
+        bar) — fixed with `VStack { pdfToolbar; Spacer() }`.
+      - DerivedData cleanup on request: 23G → 6.8G — four stale xCloud
+        derived-data folders (wt/tests/release/main, ~16.4G) deleted; the
+        AGENTS.md-pinned active folder kept. Committed (2026-08-18). Build
+        green, tests green (67). Debug app running.
   78. **PDF streaming: byte-range preview, no full download (2026-08-18 —
       IMPLEMENTED)**
       - PDFs previously required a full chunk-by-chunk download before
