@@ -1,8 +1,7 @@
 # Current Unresolved Problems
 
-> Status: no open items. The one item tracked here (fullscreen player
-> tiny-window) was fixed 2026-08-19 — see the resolution below. New problems
-> get added to the top of this file.
+> Status: no open items. The fullscreen-player item tracked here was resolved
+> 2026-08-19 (see below). New problems get added to the top of this file.
 
 ## Fullscreen Player — Liquid Glass + True Fullscreen (2026-08-19 — RESOLVED)
 
@@ -13,104 +12,55 @@ The video player's fullscreen mode needs two things that were in tension:
 1. **Liquid glass on ALL controls** — volume slider, minimize, close, fullscreen toggle, transport buttons all need `.glassEffect(.regular.interactive())` to render properly
 2. **True native macOS fullscreen** — the player window must open in its own macOS Space (like Apple TV / Netflix), not as a floating overlay on the main window
 
-### Resolution — root cause + fix
+### History of attempts (what DIDN'T work)
 
-**Root cause of the tiny window** (`Features/MPVVideoView.swift`,
-`PlayerFullScreenWindow.present()`): `win.contentViewController = host`
-(NSHostingController) lets Auto Layout collapse the window to the hosting
-view's SwiftUI fitting size. Reproduced in a standalone harness: a window
-created at `screen.frame` (1440×900) collapsed to **1×1 px** at the screen's
-top-left the moment the controller was attached. The pre-rewrite code never
-used `contentViewController` — it attached plain subviews with explicit frames
-+ autoresizing masks and never had this bug.
+| Attempt | Result |
+|---|---|
+| Manual `.borderless` NSWindow (pre-2026-08-19) | Window full-screen-sized but glass flat (no blur); no native Spaces fullscreen |
+| Manual "fake borderless" NSWindow (`.titled + .resizable + .fullSizeContentView`, c425e14) | Window collapsed to ~200×100 px at top-left — **root cause: `contentViewController` Auto Layout collapse** (reproduced as 1×1 px in a harness) |
+| That + plain contentView + NSHostingView subview (84236ff) | Window sized correctly, but the fullscreen window still died instantly — **root cause #2: the TheaterView placeholder SWAPPED the player out; unmounting dismantled the mpv NSViewController → teardown() → `PlayerFullScreenWindow.shared.dismiss()` (MPVVideoView.swift:787) → the fullscreen window killed itself the moment it appeared, and the mpv teardown/rebuild blacked out the main window** |
+| **SwiftUI `Window` scene (2026-08-19, current)** | **WORKS.** System-managed window: correct sizing, native Spaces fullscreen, glass in the scene environment |
 
-**Fix**: keep the single SwiftUI render tree (video via `MPVLayerHost` +
-controls in one `FullscreenPlayerRoot` — this is what makes `.glassEffect()`
-work), but host it in a plain `NSHostingView` subview of a plain `NSView`
-contentView instead of via `contentViewController`:
+### Current Architecture (what works)
 
-```swift
-let hosting = NSHostingView(rootView: AnyView(root.environment(appState)))
-let content = NSView()
-win.contentView = content
-hosting.frame = content.bounds
-hosting.autoresizingMask = [.width, .height]
-content.addSubview(hosting)
-```
-
-**Verified end-to-end** in a minimal .app bundle with the exact same window
-setup (titled fake-borderless, hidden traffic lights, `[.fullScreenPrimary]`):
-window created at `screen.frame` → clamped to the visible frame on orderFront
-(menu bar + Dock — normal macOS behavior, not the bug) → `didBecomeKey` →
-`toggleFullScreen` → **native Spaces fullscreen entered** (frame = full
-screen, `styleMask.contains(.fullScreen)` true) → exit restored the window.
-
-### What Works (unchanged)
-
-- **Liquid glass works** with video + controls in one SwiftUI render tree
-  (NSHostingView + `MPVLayerHost` + `PlayerControlsView` in a ZStack).
-- **Native fullscreen works** with the titled fake-borderless NSWindow +
-  `toggleFullScreen` on `didBecomeKey` (window is a standard titled window, so
-  macOS allows the Space transition).
-
-### Architecture (Current State in Code)
-
-```swift
-// Features/MPVVideoView.swift — PlayerFullScreenWindow.present()
-
-let win = NSWindow(
-    contentRect: screen.frame,
-    styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-    backing: .buffered, defer: false
-)
-win.titleVisibility = .hidden
-win.titlebarAppearsTransparent = true
-win.collectionBehavior = [.fullScreenPrimary]
-win.standardWindowButton(.closeButton)?.isHidden = true
-// ... traffic lights hidden, dark appearance, EDR color space on HDR screens
-
-// Video + controls in ONE SwiftUI tree, hosted as a plain subview
-// (NOT contentViewController — that collapses the window to 1x1).
-let root = FullscreenPlayerRoot(mpvView: player) { controls }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .environment(\.colorScheme, .dark)
-let hosting = NSHostingView(rootView: AnyView(root.environment(appState)))
-let content = NSView()
-win.contentView = content
-hosting.frame = content.bounds
-hosting.autoresizingMask = [.width, .height]
-content.addSubview(hosting)
-
-win.makeKeyAndOrderFront(nil)
-// toggleFullScreen via NSWindow.didBecomeKeyNotification (+ 0.2s fallback)
-```
+- `App/xCloudApp.swift`: `Window("Fullscreen Player", id: "fullscreenPlayer")`
+  scene, `.windowStyle(.hiddenTitleBar)`, `.defaultSize(1280×800)` — the same
+  pattern the flux app uses for its player window. `FullscreenWindowLink` (an
+  invisible view in the MAIN window) binds `openWindow`/`dismissWindow` into
+  `PlayerFullScreenWindow` so plain AppKit code can open/close the scene.
+- `Features/MPVVideoView.swift`: `PlayerFullScreenWindow` is session-based
+  (Session: player/mpv/title/subtitle/appState). `present()` re-parents the
+  live `MPVLayerView` into the scene (playback continues uninterrupted; the
+  SAME layer is used, never recreated) and opens the window.
+  `FullscreenPlayerSceneView` renders video + controls in ONE SwiftUI tree
+  (`.glassEffect()` works). `FullscreenWindowConfigurator`
+  (NSViewRepresentable) sets dark appearance, `.fullScreenPrimary`, the EDR
+  color space, and auto-enters native fullscreen on `didBecomeKey` (guarded —
+  toggles once; the controls' fullscreen button is the manual fallback).
+  `dismiss()` closes the scene; `sceneDidDisappear` (the scene content's
+  onDisappear) also covers out-of-band closes (Cmd+W) and `completeDismissal`
+  re-parents the mpv layer back to the theater.
+- `Features/TheaterView.swift`: the "Playing in full-screen" placeholder is an
+  OPAQUE OVERLAY on top of the still-mounted player (ZStack), never a swap —
+  unmounting the player tears down mpv and kills the fullscreen window.
 
 ### Notes for the Future
 
-- **Never use `contentViewController` on a manual NSWindow for SwiftUI content
-  that must fill a specific frame** — Auto Layout collapses the window to the
-  SwiftUI fitting size. Plain contentView + NSHostingView subview with
-  autoresizingMask is the proven pattern in this codebase.
+- **Never hand-roll an NSWindow for the player.** Scene windows get sizing,
+  fullscreen, and rendering environment from the system. This codebase burned
+  three rounds on manual windows (flat glass, tiny window, self-kill).
+- **Never swap out the theater's player view while the fullscreen window is
+  up** — dismantling it triggers mpv teardown, which calls
+  `PlayerFullScreenWindow.shared.dismiss()`.
 - The window is clamped to the visible frame (menu bar + Dock) before entering
-  fullscreen — that is normal macOS behavior for titled windows, not a bug.
-- ESC two-step exit, re-parenting of the mpv layer view, and the TheaterView
-  "Playing in full-screen" placeholder are all unchanged and verified.
+  fullscreen — normal macOS behavior for titled windows, not a bug.
+- ESC two-step exit and the controls overlay are unchanged and verified.
 
-### Other Changes in the Same Changeset (2026-08-19)
-
-- **TheaterView placeholder**: when fullscreen is active, the main window
-  shows a "Playing in full-screen" placeholder instead of the broken video
-  view. Uses `PlayerFullScreenWindow.shared.isActive`.
-- **Stamp/bar vertical alignment fix**: `.frame(width: 76, height: 28,
-  alignment: ...)` replaces `.frame(width: 76, alignment: ...).offset(y: -1.5)`
-  in both `VideoPlaybackView.swift` and `TheaterView.swift`.
-- **VideoPlaybackView gradient revert**: top/bottom gradient opacities
-  restored to original values (0.6/0.8).
-
-### Files Modified
+### Files Modified (resolution)
 
 | File | Change |
 |---|---|
-| `Features/MPVVideoView.swift` | `PlayerFullScreenWindow.present()`: hosting via plain contentView + NSHostingView subview (was `contentViewController`), which collapses the window to 1×1 |
-| `Features/TheaterView.swift` | Fullscreen placeholder (unchanged this round) |
-| `Features/VideoPlaybackView.swift` | Gradient opacity revert, stamp/bar alignment (unchanged this round) |
+| `App/xCloudApp.swift` | `"fullscreenPlayer"` Window scene + `FullscreenWindowLink` binding |
+| `Features/MPVVideoView.swift` | `PlayerFullScreenWindow` session-based scene driver; `FullscreenPlayerSceneView`, `FullscreenWindowConfigurator`, `FullscreenWindowLink` |
+| `Features/TheaterView.swift` | Placeholder = opaque overlay, player stays mounted |
+| `Features/VideoPlaybackView.swift` | Unchanged this round |

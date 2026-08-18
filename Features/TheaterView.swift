@@ -64,14 +64,17 @@ struct TheaterView: View {
     }
 
     var body: some View {
-        // When the fullscreen player window is active, show a minimal placeholder
-        // so the main window doesn't display a broken/duplicated player.
-        if PlayerFullScreenWindow.shared.isActive, previewKind == .video {
-            fullscreenPlaceholder
-        } else {
         ZStack {
-            // Adaptable canvas background (Dark / Slate / Light)
-            canvasBackground.color.ignoresSafeArea()
+            // The player stays MOUNTED here at all times. Swapping it for the
+            // placeholder when fullscreen activates would dismantle the mpv
+            // NSViewController, whose teardown destroys the core AND auto-closes
+            // the fullscreen window (PlayerFullScreenWindow.dismiss in teardown)
+            // — the window flashed up and died instantly. The placeholder is an
+            // opaque overlay on top instead; underneath, the (now empty) player
+            // view just sits idle while the mpv layer is in the fullscreen window.
+            ZStack {
+                // Adaptable canvas background (Dark / Slate / Light)
+                canvasBackground.color.ignoresSafeArea()
 
             // Content
             Group {
@@ -275,7 +278,16 @@ struct TheaterView: View {
             appState.theaterFile = track
             appState.selectedFiles = [track.id]
         }
-        } // else (not fullscreen active)
+
+            // Opaque placeholder on top while the fullscreen player window is
+            // active — the mpv layer is re-parented into that window, so the
+            // theater would otherwise show an empty video area. Overlay (not
+            // replacement): dismantling the player here tears down mpv and
+            // closes the fullscreen window.
+            if PlayerFullScreenWindow.shared.isActive, previewKind == .video {
+                fullscreenPlaceholder
+            }
+        }
     }
 
     /// Player-only full screen: presents the video in a separate borderless window

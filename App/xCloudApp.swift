@@ -18,6 +18,7 @@ struct xCloudApp: App {
                 .environment(appState)
                 .frame(minWidth: 1024, minHeight: 640)
                 .preferredColorScheme(.dark)
+                .background(FullscreenWindowLink())
                 .task { await appState.bootstrap() }
                 .onReceive(NotificationCenter.default.publisher(for: TerminationHandler.recreateMainWindow)) { _ in
                     openWindow(id: "main")
@@ -95,5 +96,18 @@ struct xCloudApp: App {
                 }
         }
         .windowResizability(.contentSize)
+
+        // Player-only full screen: a system-managed SwiftUI window (like the
+        // flux player window) that the theater's full-screen toggle opens.
+        // The scene window is a normal titled window — correct sizing and
+        // native Spaces fullscreen come from the system, not from hand-rolled
+        // NSWindow work. FullscreenPlayerSceneView renders the transferred mpv
+        // layer + controls and enters native fullscreen once the window is key.
+        Window("Fullscreen Player", id: "fullscreenPlayer") {
+            FullscreenPlayerSceneView()
+                .environment(appState)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1280, height: 800)
     }
 }

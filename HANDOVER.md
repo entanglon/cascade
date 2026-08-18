@@ -2052,6 +2052,45 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         moved into the main repo and rewritten as resolved. **No Release
         build** — user policy.
 
+84. **Fullscreen player REBUILT on a SwiftUI Window scene (flux pattern);
+      placeholder dismantle loop found + fixed (2026-08-19 — COMMITTED)**
+      (`App/xCloudApp.swift`, `Features/MPVVideoView.swift`,
+      `Features/TheaterView.swift`)
+      - **User report**: after the contentViewController fix, fullscreen showed a
+        non-fullscreen window and the main window "closed or disappeared". User
+        pointed at `~/Projects/flux` (a separate player window that "just
+        works") as the model.
+      - **Second real bug (the reason it never worked)**: the TheaterView
+        placeholder was an if/else SWAP. When fullscreen activated, the main
+        window swapped `VideoPlaybackView` → placeholder, which unmounted the
+        view → SwiftUI dismantled the mpv NSViewController →
+        `MPVVideoView.dismantleNSViewController` → `cleanup()` → `teardown()` →
+        `PlayerFullScreenWindow.shared.dismiss()` (MPVVideoView.swift:787) →
+        the fullscreen window died the instant it appeared, and the mpv
+        teardown/rebuild blacked out the main window. The manual-window fixes
+        were real but the window was being killed by its own placeholder.
+      - **Fix, flux-style**: the fullscreen player is now a system-managed
+        SwiftUI `Window` scene (`"fullscreenPlayer"`, `.hiddenTitleBar`,
+        1280×800) — no manual NSWindow, no style masks, no intrinsic-size
+        collapse, no toggleFullScreen races. `PlayerFullScreenWindow` is
+        session-based: `present()` stores a Session (player/mpv/title/subtitle/
+        appState), re-parents the live MPVLayerView, and calls
+        `openWindow(id: "fullscreenPlayer")` (bound via `FullscreenWindowLink`
+        in the main window). `FullscreenPlayerSceneView` renders the transferred
+        layer + controls in ONE SwiftUI tree (`.glassEffect()` works);
+        `FullscreenWindowConfigurator` sets dark appearance/`.fullScreenPrimary`/
+        EDR and auto-enters native fullscreen on `didBecomeKey` (guarded).
+        `dismiss()` closes the scene; `sceneDidDisappear` (onDisappear) also
+        handles out-of-band closes (Cmd+W) and `completeDismissal` re-parents
+        the mpv layer back to the theater.
+      - **TheaterView placeholder is now an OPAQUE OVERLAY** over the
+        still-mounted player (never unmount it while fullscreen is up — that is
+        the dismantle → teardown → dismiss loop).
+      - Committed (2026-08-19). Build green (Debug). Test suite green:
+        **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch, 0 failures). Debug app
+        relaunched — user to verify. `docs/PROBLEMS.md` rewritten. **No Release
+        build** — user policy.
+
 ## 5. Pending / next steps
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
   (production build, isolated data; fresh-install gate fix confirmed live — the

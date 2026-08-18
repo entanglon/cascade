@@ -2,9 +2,52 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 — Fullscreen player tiny-window root cause found + fixed.
+> 2026-08-19 — Fullscreen player: rebuilt on a SwiftUI Window scene (flux pattern); second real bug found (placeholder dismantle loop).
 
 ---
+
+## 2026-08-19 — Fullscreen player REBUILT on a system-managed SwiftUI Window scene; placeholder dismantle loop found + fixed
+
+- **User reported** (after the previous fix): fullscreen shows a non-fullscreen
+  window and the main window "closes or disappears". User asked to do it the
+  simple way like their OTHER app — `~/Projects/flux` opens video in a separate
+  window that just works.
+- **Second real bug found** (`Features/TheaterView.swift`): the placeholder was
+  an if/else SWAP — when fullscreen activated, `VideoPlaybackView` unmounted →
+  SwiftUI dismantled the mpv NSViewController (`MPVVideoView.swift:29-31`) →
+  `cleanup()` → `teardown()` → `PlayerFullScreenWindow.shared.dismiss()`
+  (`MPVVideoView.swift:787`) → the fullscreen window flashed up and died
+  instantly; the mpv teardown/rebuild made the main window go black/restart.
+  This is why "it's not going away" — the manual-window fixes were real but the
+  window was being KILLED by the placeholder swap the moment it appeared.
+- **Flux's pattern** (verified in its source): a separate SwiftUI
+  `WindowGroup(id: "player")` scene + `.windowStyle(.hiddenTitleBar)`; the
+  system manages the window (correct sizing, native fullscreen), zero manual
+  NSWindow code.
+- **Rebuilt the same way**:
+  - `App/xCloudApp.swift`: new `Window("Fullscreen Player", id:
+    "fullscreenPlayer")` scene (hiddenTitleBar, 1280×800) + `FullscreenWindowLink`
+    (invisible view in the main window) that binds `openWindow`/`dismissWindow`
+    into `PlayerFullScreenWindow` so plain AppKit code can open/close the scene.
+  - `Features/MPVVideoView.swift`: `PlayerFullScreenWindow` is now session-based
+    (Session: player/mpv/title/subtitle/appState) and opens the scene instead of
+    hand-rolling an NSWindow — no style masks, no intrinsic-size collapse, no
+    timing races. `FullscreenPlayerSceneView` renders the transferred mpv layer
+    + controls (one SwiftUI tree → `.glassEffect()` works) and
+    `FullscreenWindowConfigurator` (NSViewRepresentable) sets dark appearance,
+    `.fullScreenPrimary`, EDR color space and auto-enters native fullscreen once
+    the window becomes key (guarded, toggles once). Dismiss closes the scene;
+    `sceneDidDisappear` (onDisappear) handles out-of-band closes (Cmd+W) and
+    re-parents the mpv layer back to the theater in `completeDismissal`.
+  - `Features/TheaterView.swift`: the placeholder is now an OPAQUE OVERLAY on
+    top of the still-mounted player (ZStack) — the player stays mounted, so mpv
+    is never dismantled while fullscreen is up.
+- **Playback transfer** unchanged: the SAME MPVLayerView is re-parented into the
+  scene (removed from the theater, embedded via MPVLayerHost), so playback
+  continues uninterrupted across the transition; dismiss hands it back.
+- Build green (Debug). Test suite green: **TEST SUCCEEDED** (55 unit + 4 UI +
+  4 launch, 0 failures). Debug app relaunched — user to verify. **No Release
+  build** — user policy.
 
 ## 2026-08-19 — Fullscreen player tiny-window FIXED (root cause: contentViewController Auto Layout collapse)
 
