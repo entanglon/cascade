@@ -2,9 +2,54 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 — Fullscreen player: rebuilt on a SwiftUI Window scene (flux pattern); second real bug found (placeholder dismantle loop).
+> 2026-08-19 — Fullscreen player: auto-fullscreen now owned by present()/ensureFullscreen (works with the app in native fullscreen); controls button toggles instead of dismissing.
 
 ---
+
+## 2026-08-19 — Fullscreen player: auto-fullscreen moved to present()/ensureFullscreen (fixes "opens non-fullscreen when the app is fullscreen")
+
+- **User reported** (after the scene rebuild `96f6a20`): when the APP's main
+  window is in native fullscreen and the user clicks the player's fullscreen
+  button, the player opens in a separate window that is NOT fullscreen and
+  "doesn't support full screen". When the app is windowed, everything works.
+- **Reproduced in the two-scene harness**
+  (`/var/folders/.../opencode/fstest2`, real .app bundle + log file):
+  - Run 1: with the main window in native fullscreen, the scene window opened
+    key/visible but `toggleFullScreen` was silently IGNORED — both at attach
+    (+0.1s) and as a late manual call (+2.5s). `collectionBehavior` was NOT set.
+  - Run 2: setting `window.collectionBehavior = [.fullScreenPrimary]` FIRST made
+    the toggle work even while the main window was fullscreen (player fs=true,
+    main fs=true simultaneously).
+  - Run 3: the app's EXACT previous configurator code (collectionBehavior +
+    didBecomeKey observer + attach check, toggle +0.1s) PASSED with the main
+    window fullscreen — proving the configurator logic itself is fine, and that
+    the real-app failure comes from lifecycle deltas: (a) the configurator is a
+    one-shot NSViewRepresentable — `guard let window = view.window` silently
+    no-ops if the window is nil at attach (no retry), and (b) if a scene window
+    survives from an earlier session, SwiftUI REUSES it on `openWindow(id:)`
+    WITHOUT re-creating the content — no configurator run, no toggle, black
+    non-fullscreen window with no way to fullscreen it (hiddenTitleBar = no
+    traffic lights; the controls' fullscreen button only dismissed).
+- **Fix** (`Features/MPVVideoView.swift`):
+  - `PlayerFullScreenWindow.present()` now OWNS the toggle: after `openWindow`
+    it runs `ensureFullscreen(attempt:)` — retries at 0.1/0.3/0.6/1.0s, finds
+    the window by a new identifier tag (`windowTag` = "xCloudFullscreenPlayer"),
+    re-asserts `.fullScreenPrimary`, and toggles only while not already
+    fullscreen (idempotent; stops once fullscreen or inactive). Works whether
+    the window is fresh, reused, or never became key.
+  - `present()` first closes a leftover scene window (dismissWindow + 0.5s
+    re-present) so a stuck window can never be reused; `completeDismissal()`
+    force-closes the tagged window if the close didn't land.
+  - `FullscreenWindowConfigurator` keeps only appearance/EDR/collectionBehavior
+    + sets the identifier tag — the didBecomeKey observer/toggle is GONE
+    (single owner of the toggle → no double-toggle race with the retry loop).
+  - `PlayerFullScreenControls.onToggleFullScreen` now calls
+    `window.toggleFullScreen()` (real native fullscreen toggle, green-button
+    semantics) instead of dismissing — the manual fallback the user was missing.
+- Build green (Debug). Test suite green: **TEST SUCCEEDED** (55 unit + 4 UI +
+  4 launch, 0 failures). Debug app relaunched — user to verify both cases
+  (windowed app → player fullscreen; app fullscreen → player fullscreen).
+  **No Release build** — user policy.
 
 ## 2026-08-19 — Fullscreen player REBUILT on a system-managed SwiftUI Window scene; placeholder dismantle loop found + fixed
 

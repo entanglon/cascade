@@ -34,9 +34,14 @@ The video player's fullscreen mode needs two things that were in tension:
   SAME layer is used, never recreated) and opens the window.
   `FullscreenPlayerSceneView` renders video + controls in ONE SwiftUI tree
   (`.glassEffect()` works). `FullscreenWindowConfigurator`
-  (NSViewRepresentable) sets dark appearance, `.fullScreenPrimary`, the EDR
-  color space, and auto-enters native fullscreen on `didBecomeKey` (guarded —
-  toggles once; the controls' fullscreen button is the manual fallback).
+  (NSViewRepresentable) sets the identifier tag, dark appearance,
+  `.fullScreenPrimary`, and the EDR color space. Entering native fullscreen is
+  OWNED by `PlayerFullScreenWindow.present()` → `ensureFullscreen()` (retries
+  at 0.1/0.3/0.6/1.0s, idempotent, works whether the window is fresh, reused,
+  or never became key — the configurator is one-shot per window lifetime and
+  can no-op, so it must not own the toggle). The controls' fullscreen button
+  calls `PlayerFullScreenWindow.toggleFullScreen()` — a real native toggle
+  (green-button semantics), not a dismiss.
   `dismiss()` closes the scene; `sceneDidDisappear` (the scene content's
   onDisappear) also covers out-of-band closes (Cmd+W) and `completeDismissal`
   re-parents the mpv layer back to the theater.
@@ -55,6 +60,9 @@ The video player's fullscreen mode needs two things that were in tension:
 - The window is clamped to the visible frame (menu bar + Dock) before entering
   fullscreen — normal macOS behavior for titled windows, not a bug.
 - ESC two-step exit and the controls overlay are unchanged and verified.
+- `toggleFullScreen` on a scene window is silently ignored unless
+  `collectionBehavior` includes `.fullScreenPrimary` — re-assert it wherever
+  the toggle is driven (present/ensureFullscreen, controls button).
 
 ### Files Modified (resolution)
 

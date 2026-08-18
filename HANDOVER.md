@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (fullscreen player tiny-window fix). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (fullscreen player auto-fullscreen ownership). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2090,6 +2090,41 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch, 0 failures). Debug app
         relaunched — user to verify. `docs/PROBLEMS.md` rewritten. **No Release
         build** — user policy.
+
+85. **Fullscreen player: auto-fullscreen owned by present()/ensureFullscreen
+      (2026-08-19 — COMMITTED)** (`Features/MPVVideoView.swift`)
+      - **User report**: with the APP's main window in native fullscreen, the
+        player fullscreen button opens a separate window that is NOT fullscreen
+        and "doesn't support full screen"; works fine when the app is windowed.
+      - **Harness evidence** (two-scene SwiftUI .app bundle, logged): (1) without
+        `collectionBehavior = [.fullScreenPrimary]`, `toggleFullScreen` is
+        silently ignored on a scene window while the main window is fullscreen;
+        (2) WITH it set, the toggle works even with the main window fullscreen
+        (both can be fullscreen simultaneously); (3) the app's exact previous
+        configurator (observer + attach check) passes in the harness — so the
+        real-app failure is lifecycle: the configurator is a ONE-SHOT
+        NSViewRepresentable (`guard let window = view.window` silently no-ops if
+        the window is nil at attach), and a scene window REUSED by `openWindow`
+        does not re-create its content → no configurator run, no toggle, and no
+        manual way in (hiddenTitleBar = no traffic lights; controls' button only
+        dismissed).
+      - **Fix**: `present()` owns the toggle — after `openWindow` it runs
+        `ensureFullscreen(attempt:)` (retries 0.1/0.3/0.6/1.0s, finds the window
+        by identifier tag `xCloudFullscreenPlayer`, re-asserts
+        `.fullScreenPrimary`, toggles only while not already fullscreen;
+        idempotent). `present()` closes a leftover scene window first (0.5s
+        re-present) and `completeDismissal()` force-closes the tagged window if
+        the close didn't land — a stuck window can never be reused.
+        `FullscreenWindowConfigurator` keeps only appearance/EDR/
+        collectionBehavior + the tag (observer/toggle REMOVED — single owner,
+        no double-toggle race). Controls' fullscreen button now calls
+        `window.toggleFullScreen()` (real green-button toggle) instead of
+        dismissing.
+      - Committed (2026-08-19). Build green (Debug). Test suite green:
+        **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch, 0 failures). Debug app
+        relaunched — user to verify both cases (windowed app → player
+        fullscreen; app fullscreen → player fullscreen). **No Release build** —
+        user policy.
 
 ## 5. Pending / next steps
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`

@@ -1440,8 +1440,10 @@ func mpvWakeUp(_ ctx: UnsafeMutableRawPointer?) {
 /// Presents the video in a SEPARATE, system-managed SwiftUI `Window` scene
 /// ("fullscreenPlayer") instead of a hand-rolled NSWindow. The scene window is
 /// a normal titled window, so it sizes itself correctly and can enter native
-/// Spaces fullscreen — no manual style masks, no intrinsic-size collapse, no
-/// toggleFullScreen timing races (the same pattern the flux app uses).
+/// Spaces fullscreen — no manual style masks, no intrinsic-size collapse (the
+/// same pattern the flux app uses). Entering fullscreen is owned by
+/// `present`/`ensureFullscreen` so it works even if the scene window was
+/// created earlier or the configurator no-ops.
 /// Playback transfers by re-parenting the SAME `MPVLayerView` (never recreated,
 /// mpv keeps running); the window hosts video + controls in one SwiftUI render
 /// tree so `.glassEffect()` materials work. The main window stays open; the
@@ -1450,6 +1452,8 @@ func mpvWakeUp(_ ctx: UnsafeMutableRawPointer?) {
 /// fullscreen window via teardown → dismiss).
 final class PlayerFullScreenWindow: NSObject, ObservableObject {
     static let shared = PlayerFullScreenWindow()
+    /// NSWindow identifier used to locate the scene window from AppKit code.
+    static let windowTag = "xCloudFullscreenPlayer"
 
     struct Session {
         let player: MPVLayerView
@@ -1494,6 +1498,30 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onDismiss: @escaping () -> Void
     ) {
         guard !isActive, !isDismissing else { return }
+        // If a scene window from a previous session is still open (e.g. a
+        // close that never landed), SwiftUI would REUSE it without re-creating
+        // its content — the mpv layer would never re-mount and no fullscreen
+        // would happen. Close it first and re-present fresh.
+        if Self.sceneWindow != nil {
+            dismissWindow?(id: "fullscreenPlayer")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss)
+            }
+        } else {
+            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss)
+        }
+    }
+
+    private func presentNow(
+        _ player: MPVLayerView,
+        mpv: MPVController,
+        title: String,
+        subtitle: String,
+        appState: AppState,
+        onClose: @escaping () -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        guard !isActive, !isDismissing else { return }
         isActive = true
         session = Session(player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState)
         self.onClose = onClose
@@ -1505,6 +1533,12 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         player.removeFromSuperview()
 
         openWindow?(id: "fullscreenPlayer")
+
+        // Ensure the scene window actually enters native fullscreen. The
+        // scene's configurator runs at most once per window lifetime and may
+        // silently no-op (window not yet present when it probes), so the
+        // toggle is owned here and retried until the window is fullscreen.
+        ensureFullscreen(attempt: 1)
 
         // ESC is two-step: first press shows the exit hint, second exits full
         // screen; swallow the key so nothing else reacts.
@@ -1524,6 +1558,40 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             }
             return event
         }
+    }
+
+    /// The scene window (by identifier), if currently open.
+    static var sceneWindow: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue == windowTag }
+    }
+
+    /// Enters native fullscreen on the scene window, retrying a few times in
+    /// case the window has not been created yet. Idempotent: skips once the
+    /// window is already fullscreen.
+    private func ensureFullscreen(attempt: Int) {
+        guard isActive else { return }
+        if let window = Self.sceneWindow {
+            window.collectionBehavior = [.fullScreenPrimary]
+            if !window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            }
+            return
+        }
+        let delays = [0.1, 0.3, 0.6, 1.0]
+        guard attempt < delays.count else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+            guard let self else { return }
+            self.ensureFullscreen(attempt: attempt + 1)
+        }
+    }
+
+    /// Toggles the scene window's native fullscreen from the player controls.
+    /// This is the manual fallback for the "fullscreen" button when the
+    /// window is not fullscreen yet.
+    func toggleFullScreen() {
+        guard let window = Self.sceneWindow else { return }
+        window.collectionBehavior = [.fullScreenPrimary]
+        window.toggleFullScreen(nil)
     }
 
     /// Closes the full-screen window; the player view returns to the theater
@@ -1558,6 +1626,11 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         isActive = false
         session = nil
         clearExitWarning()
+        // Close the scene window if it is still around (the dismissWindow
+        // close may not have landed) so the next present() gets a fresh one.
+        if let window = Self.sceneWindow {
+            window.close()
+        }
         // Return the layer view to its original host.
         if let playerView, let hostView {
             playerView.removeFromSuperview()
@@ -1632,7 +1705,7 @@ private struct PlayerFullScreenControls: View {
             isFullScreen: true,
             showExitWarning: window.showExitWarning,
             onMinimize: { window.dismiss() },
-            onToggleFullScreen: { window.dismiss() },
+            onToggleFullScreen: { window.toggleFullScreen() },
             onClose: {
                 window.onClose?()
                 window.dismiss()
@@ -1677,8 +1750,11 @@ struct FullscreenPlayerSceneView: View {
 }
 
 /// One-time configuration of the scene's NSWindow (dark appearance,
-/// fullscreen-primary, EDR color space) plus the auto-enter of native
-/// fullscreen once the window becomes key. Guarded so it toggles at most once.
+/// fullscreen-primary, EDR color space, identifier tag). Entering native
+/// fullscreen is NOT done here — it is owned by `PlayerFullScreenWindow`
+/// (present → ensureFullscreen), because this view is created at most once
+/// per window lifetime and a reuse/no-op here would leave the window
+/// non-fullscreen with no way to enter it.
 private struct FullscreenWindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -1694,39 +1770,13 @@ private struct FullscreenWindowConfigurator: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject {
-        private var didToggle = false
-        private var observer: NSObjectProtocol?
-
         func configure(_ window: NSWindow) {
+            window.identifier = NSUserInterfaceItemIdentifier(PlayerFullScreenWindow.windowTag)
             window.appearance = NSAppearance(named: .darkAqua)
             window.collectionBehavior = [.fullScreenPrimary]
             let screen = window.screen ?? NSScreen.main
             if let screen, screen.maximumExtendedDynamicRangeColorComponentValue > 1.0 {
                 window.colorSpace = .extendedSRGB
-            }
-            observer = NotificationCenter.default.addObserver(
-                forName: NSWindow.didBecomeKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self, weak window] _ in
-                guard let self, let window else { return }
-                self.enterFullScreen(window)
-            }
-            if window.isKeyWindow {
-                enterFullScreen(window)
-            }
-        }
-
-        private func enterFullScreen(_ window: NSWindow) {
-            guard !didToggle else { return }
-            didToggle = true
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-                self.observer = nil
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak window] in
-                guard let window, !window.styleMask.contains(.fullScreen) else { return }
-                window.toggleFullScreen(nil)
             }
         }
     }
