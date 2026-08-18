@@ -287,6 +287,7 @@ struct TheaterView: View {
                 mpv: mpv,
                 title: file.name,
                 subtitle: sizeText,
+                appState: appState,
                 onClose: {
                     AudioPlayerEngine.shared.stop()
                     appState.theaterFile = nil
@@ -1270,6 +1271,9 @@ struct TheaterAudioPlayerView: View {
     @Bindable var audioEngine = AudioPlayerEngine.shared
     @State private var thumbURL: URL?
     @State private var dragProgress: Double?
+    // Holds the clicked/dragged position after release until mpv's telemetry
+    // lands there (the bar used to snap back for a split second after seeks).
+    @State private var seekTarget: Double?
 
     private var isCurrent: Bool { audioEngine.currentTrack?.id == file.id }
     private var isPlaying: Bool { isCurrent && audioEngine.isPlaying }
@@ -1547,6 +1551,8 @@ struct TheaterAudioPlayerView: View {
             Text(timeString(displayedTime))
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(.white.opacity(0.8))
+                .frame(width: 76, alignment: .trailing)
+                .offset(y: -1.5)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -1581,6 +1587,7 @@ struct TheaterAudioPlayerView: View {
                             let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
                             dragProgress = nil
                             audioEngine.seek(to: newProgress * max(1, audioEngine.duration))
+                            holdProgressUntilSeekLands(newProgress)
                         }
                 )
             }
@@ -1590,6 +1597,8 @@ struct TheaterAudioPlayerView: View {
             Text("-\(timeString(max(0, audioEngine.duration - displayedTime)))")
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(.white.opacity(0.8))
+                .frame(width: 76, alignment: .leading)
+                .offset(y: -1.5)
         }
         .padding(.horizontal, 60)
         .frame(maxWidth: 720)
@@ -1598,7 +1607,26 @@ struct TheaterAudioPlayerView: View {
     private var displayedProgress: Double {
         guard audioEngine.duration > 0 else { return 0 }
         if let dragProgress { return dragProgress }
-        return min(max(audioEngine.currentTime / audioEngine.duration, 0), 1)
+        if let seekTarget, abs(progressFraction - seekTarget) > 0.01 {
+            return seekTarget
+        }
+        return progressFraction
+    }
+
+    private var progressFraction: Double {
+        min(max(audioEngine.currentTime / audioEngine.duration, 0), 1)
+    }
+
+    /// Pins the bar to the requested position until mpv reports it; gives up
+    /// after 1.5s so a failed seek can never freeze the bar.
+    private func holdProgressUntilSeekLands(_ target: Double) {
+        seekTarget = target
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if self.seekTarget == target {
+                self.seekTarget = nil
+            }
+        }
     }
 
     private var displayedTime: Double {

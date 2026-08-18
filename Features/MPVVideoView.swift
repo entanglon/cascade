@@ -1449,7 +1449,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     private weak var hostView: NSView?
     private var keyMonitor: Any?
     private var exitWarningTimer: Timer?
-    private var controlsHost: NSHostingView<PlayerFullScreenControls>?
+    private var controlsHost: NSHostingView<AnyView>?
     private var onDismiss: (() -> Void)?
 
     private override init() {
@@ -1461,6 +1461,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         mpv: MPVController,
         title: String,
         subtitle: String,
+        appState: AppState,
         onClose: @escaping () -> Void,
         onDismiss: @escaping () -> Void
     ) {
@@ -1496,13 +1497,16 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
 
         // Controls overlay — the same PlayerControlsView chrome, hosted on top of
         // the re-parented layer. Transparent root, so the video shows through.
+        // The window is NOT part of the SwiftUI scene, so the environment must
+        // be injected manually — PlayerControlsView reads @Environment(AppState.self),
+        // and a missing environment value asserts (EXC_BREAKPOINT on layout).
         let controls = PlayerFullScreenControls(
             mpv: mpv,
             title: title,
             subtitle: subtitle,
             window: self
         )
-        let hosting = NSHostingView(rootView: controls)
+        let hosting = NSHostingView(rootView: AnyView(controls.environment(appState)))
         hosting.frame = win.contentView?.bounds ?? .zero
         hosting.autoresizingMask = [.width, .height]
         win.contentView?.addSubview(hosting)

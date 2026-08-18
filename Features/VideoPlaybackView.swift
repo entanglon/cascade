@@ -176,6 +176,10 @@ struct PlayerControlsView: View {
     @State private var showSubtitlePopover = false
     @State private var showAudioPopover = false
     @State private var dragProgress: Double?
+    // Holds the clicked/dragged position after release until mpv's time-pos
+    // telemetry actually lands there — without it the bar snaps back to the
+    // OLD position for a split second after every seek.
+    @State private var seekTarget: Double?
     @State private var isSharing = false
     @State private var showShareFeedback = false
 
@@ -541,10 +545,18 @@ struct PlayerControlsView: View {
 
             // Progress Bar Row (Full Width)
             HStack(spacing: 20) {
+                // Equal-width time labels so the bar is centered between them —
+                // a wide "-1:23:45" right label would otherwise push the bar's
+                // visual center off to the left. Text hugs the BAR side of its
+                // frame (left label trailing, right label leading) so the gap
+                // from each stamp to the bar is the same 20pt — the bar reads
+                // as centered between the two stamps (Apple TV / flux look).
                 Text(formatTime(displayedTime))
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
                     .shadow(radius: 2)
+                    .frame(width: 76, alignment: .trailing)
+                    .offset(y: -1.5)
 
                 // Custom Slider — the whole 28pt band is the hit area
                 // (contentShape on the ZStack that owns the gesture, NOT the
@@ -582,6 +594,7 @@ struct PlayerControlsView: View {
                                 let newProgress = min(max(value.location.x / geo.size.width, 0), 1)
                                 dragProgress = nil
                                 mpv.seek(to: newProgress)
+                                holdProgressUntilSeekLands(newProgress)
                             }
                     )
                 }
@@ -592,6 +605,8 @@ struct PlayerControlsView: View {
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
                     .shadow(radius: 2)
+                    .frame(width: 76, alignment: .leading)
+                    .offset(y: -1.5)
             }
         }
         .padding(.horizontal, 60)
@@ -646,7 +661,26 @@ struct PlayerControlsView: View {
     }
 
     private var displayedProgress: Double {
-        dragProgress ?? mpv.progress
+        if let dragProgress {
+            return dragProgress
+        }
+        if let seekTarget, abs(mpv.progress - seekTarget) > 0.01 {
+            return seekTarget
+        }
+        return mpv.progress
+    }
+
+    /// Pins the bar to the requested position until mpv reports it (seeks to
+    /// keyframes land a few frames later); gives up after 1.5s so a failed
+    /// seek can never leave the bar frozen at a stale position.
+    private func holdProgressUntilSeekLands(_ target: Double) {
+        seekTarget = target
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if self.seekTarget == target {
+                self.seekTarget = nil
+            }
+        }
     }
 
     private var displayedTime: Double {
