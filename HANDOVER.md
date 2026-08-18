@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-18. Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-18 (player round). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -1868,7 +1868,40 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         cleanup trigger), orthogonal to one-time use.
       - Committed (2026-08-18). Build green, tests green (67). **No Release
         build** — user policy.
-  79. **PDF reader: single Preview-style UI (2026-08-18 — IMPLEMENTED)**
+  80. **Player polish: EOF replay, autoplay-next, transport/slider UX; hover
+     scrub preview removed (2026-08-18 — IMPLEMENTED)**
+     - **Replay after EOF (user verified)**: mpv `keep-open=yes` +
+       `eof-reached` observation (`Features/MPVVideoView.swift`) → engine
+       `onEndOfFile` with `ended` flag + 5s dedupe (`lastEOFAt`/
+       `lastEOFTrackID` — END_FILE can also fire). `togglePlayPause()` with
+       `ended` = `seek(absolute: 0)` + `play()` on the SAME core — the old
+       async teardown/reload raced with rapid Space presses ("10-20 presses
+       to restart" flake). Logs: `EOF track=… ended=true` → `replay seek0+play`.
+     - **Autoplay-next toggle**: `autoplayNextEnabled` (UserDefaults
+       `autoplayNextEnabled`, default true); `infinity`+"Auto" pill in the
+       video bottom bar and the audio volume row (accent when ON).
+     - **Transport**: `skipPrevious()` always previous track (>3s rewind
+       heuristic removed); video play/pause button routes through the engine;
+       audio artist view edge chevrons gated by `canGoPrevious`/`canGoNext`
+       on a `.frame(maxWidth: .infinity)` ZStack (pins to the real edges).
+     - **Keyboard arrows**: fullscreen video (`PlayerFullScreenWindow.shared
+       .isActive`) → ±10s seek; otherwise file navigation. Both the
+       KeyMonitorView closures and `.onKeyPress` handlers.
+     - **Sliders**: click-to-seek via `DragGesture(minimumDistance: 0)` +
+       `contentShape(Rectangle())` on the gesture view (28pt band hit area);
+       visual-only drag, one seek on release (no mpv fast-forward artifacts).
+     - **Hover scrub preview — added, then REMOVED (user decision, "we don't
+       need it")**: AVAssetImageGenerator frame + time bubble above the bar.
+       Real bugs found+fixed first: bubble moved to an overlay (never shifts
+       the slider), stream-URL resolution de-raced (per-track independent
+       task — hover movement during multi-second Telegram layout downloads
+       was starving the source cache). User opted out of the feature; all
+       preview code + the temporary `import AVFoundation` removed, audio
+       hover time bubble removed too. **The no-AVFoundation mandate
+       (item 28) is restored: zero `import AVFoundation` in the codebase.**
+     - Committed as `330f46e` (2026-08-18). Build green, tests green (67).
+       Debug app relaunched. **No Release build** — user policy.
+ 79. **PDF reader: single Preview-style UI (2026-08-18 — IMPLEMENTED)**
       - User report: PDFs showed two preview UIs — the Apple Books-style
         reader chrome (top bar, progress) AND the WebKit PDF viewer bar.
         Wanted only the Preview-like UI plus close/share controls.

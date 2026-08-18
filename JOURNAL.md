@@ -2,9 +2,60 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — PDF reader: single Preview-style UI (toolbar).
+> 2026-08-18 — Player polish: EOF replay, autoplay-next, transport/slider UX; scrub preview removed.
 
 ---
+
+## 2026-08-18 (evening) — Player polish: EOF replay, autoplay-next toggle, transport/slider UX; hover scrub preview added then removed
+
+- **User asked**: audio/video players should behave like a normal media player —
+  Space replays a finished file instead of doing nothing, an autoplay-next toggle
+  should exist, transport buttons + keyboard arrows should be intuitive, the slider
+  should seek on click, and (initially) a YouTube-style hover scrub preview.
+- **Replay after EOF (verified live via logs)**: mpv now uses `keep-open=yes`
+  (`Features/MPVVideoView.swift`, after `video-sync`), `eof-reached` is observed
+  (new `handlePropertyChange` case) and routed to `onEndOfFile`. The engine
+  (`Engine/AudioPlayerEngine.swift`) tracks `ended` + dedupes the EOF signal
+  (`lastEOFAt`/`lastEOFTrackID`, 5s window — END_FILE can also fire);
+  `togglePlayPause()` with `ended` does `seek(absolute: 0)` + `play()` on the SAME
+  core (the old async teardown/reload raced with rapid Space presses — the
+  "10-20 presses to restart" flake). Log evidence: `EOF track=… autoplay=true
+  ended=true` → `replay seek0+play track=…`.
+- **Autoplay-next toggle**: `autoplayNextEnabled` (@Observable stored property,
+  UserDefaults `autoplayNextEnabled`, default true; honored by `onEndOfFile`).
+  UI: `infinity` + "Auto" pill, `XTheme.accent` when ON — video bottom bar
+  (56×36) and audio volume row (54×30 capsule). User verified: "works as
+  expected".
+- **Transport**: `skipPrevious()` always goes to the previous track (the >3s
+  rewind heuristic removed; else `seek(to: 0)`); the video transport play/pause
+  button routes through `AudioPlayerEngine.shared.togglePlayPause()` (was a
+  second toggle path); audio artist view gained edge prev/next chevrons
+  (`canGoPrevious`/`canGoNext`, gated on the playlist like the video player) —
+  the transport ZStack is `.frame(maxWidth: .infinity)` so the chevrons pin to
+  the real edges and center vertically with the cluster.
+- **Keyboard arrows**: in fullscreen video (`PlayerFullScreenWindow.shared.isActive`)
+  Left/Right seek ±10s; otherwise they navigate files (`navigateMedia(±1)`) —
+  wired in both the `KeyMonitorView` closures and the `.onKeyPress` handlers.
+- **Sliders (video + audio)**: click-to-seek and instant drag response via
+  `DragGesture(minimumDistance: 0)`; visual-only during drag (`dragProgress`),
+  ONE seek on release (live seeks caused mpv fast-forward artifacts); the whole
+  28pt band is the hit area — `contentShape(Rectangle())` must be on the view
+  that owns the gesture (SwiftUI hit-tests the gesture view's shape; the 5pt
+  track was the click-precision bug).
+- **Hover scrub preview — ADDED, THEN REMOVED (user decision)**: a YouTube-style
+  bubble (AVAssetImageGenerator frame + time, or time-only) above the bar,
+  driven by `.onContinuousHover`; overlay-based so it never shifted the slider.
+  Two real bugs were found and fixed (the preview moved out of the layout ZStack;
+  stream-URL resolution starved by the request-ID guard during multi-second
+  Telegram layout downloads — resolution is now a per-track independent task).
+  The user then asked to remove the feature entirely ("we don't need it"). All
+  preview code, state, and the temporary `import AVFoundation` are gone from
+  `Features/VideoPlaybackView.swift`; the audio scrubber's hover time bubble
+  (`scrubHoverFraction`) was removed too. **The no-AVFoundation mandate
+  (HANDOVER item 28) was briefly violated during development and is restored:
+  zero `import AVFoundation` in the codebase.**
+- Verified: `** TEST SUCCEEDED **` (67: 59 unit + 4 UI + 4 launch), debug app
+  relaunched (PID 17502), committed as `330f46e`. No Release build (policy).
 
 ## 2026-08-18 — PDF reader: single Preview-style UI (drop the book chrome)
 
