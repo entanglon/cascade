@@ -1,7 +1,31 @@
 # Current Unresolved Problems
 
-> Status: no open items. The fullscreen-player item tracked here was resolved
-> 2026-08-19 (see below). New problems get added to the top of this file.
+> Status: one open item (below), deferred to 2026-08-20. The fullscreen-player
+> item tracked here was resolved 2026-08-19 (see below). New problems get
+> added to the top of this file.
+
+## Fullscreen player: transition not smooth (2026-08-19 — OPEN, deferred to 2026-08-20)
+
+### Problem
+
+The player's fullscreen transition is abrupt: the scene window first POPS UP
+OVERLAID in the normal Space, then animates into native fullscreen, then lands
+in its own Space. Wanted: a single seamless swipe motion like flux / Apple's
+player — the window should feel like it slides into its own Space in one move,
+no overlay flash.
+
+### Mechanism (for the fix session)
+
+- `openWindow(id: "fullscreenPlayer")` makes the scene window visible
+  immediately; `ensureFullscreen`'s `toggleFullScreen` runs +0.1s later and
+  starts the Space transition — the flash is the window showing in the normal
+  Space before the transition begins.
+- Candidates to try: hide/alpha-0/off-screen the window until the toggle
+  starts; `window.animationBehavior`; entering fullscreen before the window is
+  shown; or (flux comparison) drop the auto-toggle and just open the window,
+  since flux's player does NOT auto-fullscreen.
+- Harness from the previous round (`/var/folders/.../opencode/fstest2/`) can
+  be extended to validate the transition visuals.
 
 ## Fullscreen Player — Liquid Glass + True Fullscreen (2026-08-19 — RESOLVED)
 

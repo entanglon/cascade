@@ -2,9 +2,30 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 — Fullscreen player: auto-fullscreen now owned by present()/ensureFullscreen (works with the app in native fullscreen); controls button toggles instead of dismissing.
+> 2026-08-19 — User confirmed fullscreen fix; NEW deferred item: smooth fullscreen transition (window pops up overlaid, then fullscreen — want flux/Apple-style swipe).
 
 ---
+
+## 2026-08-19 — User confirmed the fullscreen fix; new item: smooth fullscreen transition (deferred to tomorrow)
+
+- **User confirmed** the `ensureFullscreen` fix (`256f2e7`): the player now
+  opens in native fullscreen even when the app's main window is in fullscreen.
+- **New item (deferred by user to 2026-08-20)**: the transition is NOT smooth —
+  the player scene window first POPS UP OVERLAID (visible in the normal Space),
+  then animates into fullscreen, then lands in its own Space. Wanted: a single
+  seamless swipe motion like flux / Apple's player (Apple TV style) — no
+  overlay flash before the fullscreen animation.
+- **Mechanism to explore tomorrow**: `openWindow(id:)` makes the scene window
+  visible immediately (in the normal Space); `ensureFullscreen`'s toggle
+  (+0.1s) then starts the Space transition — hence the flash. Candidate
+  approaches: suppress the window's initial display until the fullscreen
+  transition starts (alpha 0 / off-screen positioning / hidden until
+  `toggleFullScreen`), `window.animationBehavior`, or ordering the fullscreen
+  enter before the window becomes visible. Also compare with how flux's player
+  window behaves (flux does NOT auto-fullscreen at all — the user may want the
+  window to just open fullscreen-looking or animate like Apple TV).
+- Session closed for the day: build green, tests green (55 unit + 4 UI +
+  4 launch), debug app running, tree clean, commit `256f2e7`.
 
 ## 2026-08-19 — Fullscreen player: auto-fullscreen moved to present()/ensureFullscreen (fixes "opens non-fullscreen when the app is fullscreen")
 

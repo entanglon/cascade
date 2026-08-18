@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (fullscreen player auto-fullscreen ownership). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (fullscreen fix confirmed by user; transition smoothness deferred to 2026-08-20). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2125,8 +2125,33 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         relaunched — user to verify both cases (windowed app → player
         fullscreen; app fullscreen → player fullscreen). **No Release build** —
         user policy.
+      - **USER CONFIRMED WORKING** (same session). The player now opens in
+        native fullscreen even when the app's main window is in fullscreen.
+
+86. **Fullscreen player transition smoothness (2026-08-19 — DEFERRED to
+      2026-08-20 by user)** (`Features/MPVVideoView.swift` + `App/xCloudApp.swift`)
+      - **User report (after 256f2e7 confirmed)**: the transition is not smooth
+        — the player scene window first POPS UP OVERLAID in the normal Space,
+        then animates into fullscreen, then lands in its own Space. Wanted: a
+        single seamless swipe motion like flux / Apple's player — no overlay
+        flash before the fullscreen animation.
+      - **Mechanism to explore**: `openWindow(id:)` makes the scene window
+        visible immediately; `ensureFullscreen`'s toggle (+0.1s) starts the
+        Space transition afterwards — hence the flash. Candidates: suppress the
+        window's initial display until the transition starts (alpha 0 /
+        off-screen / not visible until toggle), `window.animationBehavior`,
+        or entering fullscreen before the window becomes visible. Note: flux
+        does NOT auto-fullscreen its player — check what flux's transition
+        actually feels like and whether a plain open (no auto-toggle) plus the
+        windowed controls' toggle is what the user wants.
+      - NOT started — deferred by user. Tree clean, committed state `256f2e7`.
 
 ## 5. Pending / next steps
+- **Fullscreen player transition smoothness (NEW 2026-08-19, deferred to
+  2026-08-20 by user):** the player scene window pops up overlaid, then
+  animates into fullscreen, then lands in its own Space — want a single
+  seamless swipe (flux/Apple style). See HANDOVER item 86 for the mechanism
+  and candidate approaches.
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
   (production build, isolated data; fresh-install gate fix confirmed live — the
   API credentials form appears immediately, no splash deadlock), log in with a
