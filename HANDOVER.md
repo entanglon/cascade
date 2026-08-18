@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-16. Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-18. Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
