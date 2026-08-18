@@ -2,9 +2,57 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-18 — Player polish: EOF replay, autoplay-next, transport/slider UX; scrub preview removed.
+> 2026-08-18 — Player controls: seek-hold, bar/stamp alignment, fullscreen env crash fix.
 
 ---
+
+## 2026-08-18 (night) — Player controls: seek-target hold, bar↔stamp alignment, fullscreen environment fix; fullscreen glass regression + stamp vertical alignment handed to freebuff
+
+- **User reports**: (1) after clicking/dragging the progress bar it snapped back
+  to the old position for a split second; (2) the time stamps and the progress
+  bar are not on one straight line / the bar is not centered between the stamps;
+  (3) NEW — in the fullscreen (maximized) player ALL liquid-glass UI is gone
+  (volume slider, minimize, close, transport buttons), while the windowed player
+  has proper glass — "it's like two different player UIs".
+- **Diagnostics (live screenshots + macOS Vision OCR + Gemini on a 1024×640
+  crop)**: a phone-screen UI inside the MOVIE ("Farah / @thefarahmir / 01:15")
+  sits exactly where the left time stamp renders — pixel analysis alone was
+  misleading until OCR separated app UI from video content. Gemini measured the
+  real row: bar x 294–905 (611px), left stamp "00:47" x 226–255, right stamp
+  "-01:52" x 939–975, gaps 39px / 34px (bar shifted toward the right stamp),
+  bar centerline y≈591 vs stamp centers y≈594 (~3px — the bar sits HIGHER than
+  the stamp optical center).
+- **Fixed (commit `ce8c6fc`, `Features/VideoPlaybackView.swift` +
+  `Features/TheaterView.swift` + `Features/MPVVideoView.swift`)**:
+  - **Seek no snap-back**: `@State seekTarget` + `holdProgressUntilSeekLands(_:)`
+    (1.5s MainActor watchdog) — `displayedProgress` pins to the target until
+    `abs(mpv.progress − target) ≤ 0.01`, so the bar never jumps back after a
+    click/drag seek. Same in the audio scrubber (`progressFraction` helper).
+    User verified: "the seek is fixed".
+  - **Alignment (horizontal)**: both time labels get equal 76pt frames AND now
+    hug the BAR side of their frame (left label `.trailing`, right label
+    `.leading`) — the stamp→bar gap is exactly 20pt on both sides (Apple TV /
+    flux look) instead of 39/34px asymmetric. User: "you have moved the time
+    stamps closer to the progress bar and that's actually good".
+  - **Alignment (vertical)**: labels nudged `.offset(y: -1.5)` to sit on the
+    bar's optical centerline — user says the vertical axis is STILL not
+    aligned with the bar → **handed to freebuff**.
+  - **Fullscreen crash (earlier, now committed)**: `PlayerFullScreenWindow
+    .present(...)` hosts `PlayerControlsView` in an `NSHostingView` OUTSIDE the
+    SwiftUI scene; `@Environment(AppState.self)` was missing → EXC_BREAKPOINT
+    on first layout. Fixed by `appState:` param +
+    `NSHostingView(rootView: AnyView(controls.environment(appState)))`; user
+    verified fullscreen works.
+  - **Fullscreen liquid glass regression → handed to freebuff (NOT fixed)**:
+    windowed player glass OK, fullscreen borderless window loses every
+    glassEffect material. Working hypothesis: the manual NSWindow has no
+    appearance while the main window forces `.preferredColorScheme(.dark)` —
+    glass materials render in light mode over the black borderless window
+    (candidate fix: `win.appearance = NSAppearance(named: .darkAqua)` in
+    `PlayerFullScreenWindow.present`, `Features/MPVVideoView.swift` ~line 1480).
+- Verified: build green (Debug). Full test suite NOT rerun after `ce8c6fc`
+  (last green: 67 at `330f46e`) — freebuff should run it. Debug app relaunched
+  (9:22PM). **No Release build** — user policy.
 
 ## 2026-08-18 (evening) — Player polish: EOF replay, autoplay-next toggle, transport/slider UX; hover scrub preview added then removed
 

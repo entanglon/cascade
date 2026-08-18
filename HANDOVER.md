@@ -1868,6 +1868,37 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         cleanup trigger), orthogonal to one-time use.
       - Committed (2026-08-18). Build green, tests green (67). **No Release
         build** — user policy.
+  81. **Player controls: seek-hold, bar↔stamp alignment, fullscreen env crash
+     fix (2026-08-18 — IMPLEMENTED, PARTIALLY VERIFIED; two items OPEN →
+     freebuff)**
+     - **Seek no snap-back (user verified)**: `@State seekTarget` +
+       `holdProgressUntilSeekLands(_:)` (1.5s MainActor watchdog) pins the bar
+       to the clicked/dragged position until `abs(mpv.progress − target)
+       ≤ 0.01`. Video (`Features/VideoPlaybackView.swift`) + audio
+       (`Features/TheaterView.swift` scrubber, via `progressFraction`).
+     - **Horizontal alignment (user: "stamps closer to the bar is good")**:
+       equal 76pt label frames; text now hugs the BAR side (left `.trailing`,
+       right `.leading`) → stamp→bar gap exactly 20pt both sides (was
+       39/34px — Gemini analysis of a 1024×640 crop: bar 294–905, stamps
+       "00:47"/"-01:52").
+     - **Vertical alignment — OPEN (handed to freebuff)**: stamps nudged
+       `.offset(y: -1.5)` but the user reports the stamps and the bar still
+       don't share the same vertical axis.
+     - **Fullscreen crash fixed + committed (user verified)**: the borderless
+       `PlayerFullScreenWindow` hosts `PlayerControlsView` in an `NSHostingView`
+       OUTSIDE the SwiftUI scene → `@Environment(AppState.self)` asserted
+       (EXC_BREAKPOINT on layout). Fixed: `appState:` param +
+       `NSHostingView(rootView: AnyView(controls.environment(appState)))`.
+     - **Fullscreen liquid glass regression — OPEN (handed to freebuff)**:
+       windowed player = proper glass everywhere; maximized player loses ALL
+       glassEffect materials ("two different player UIs"). Hypothesis: the
+       manual NSWindow has no appearance (main window forces
+       `.preferredColorScheme(.dark)`); candidate fix
+       `win.appearance = NSAppearance(named: .darkAqua)` in
+       `PlayerFullScreenWindow.present` (`Features/MPVVideoView.swift` ~1480).
+     - Committed as `ce8c6fc` (2026-08-18). Build green; full suite NOT rerun
+       (last green: 67 at `330f46e`). Debug app relaunched. **No Release
+       build** — user policy.
   80. **Player polish: EOF replay, autoplay-next, transport/slider UX; hover
      scrub preview removed (2026-08-18 — IMPLEMENTED)**
      - **Replay after EOF (user verified)**: mpv `keep-open=yes` +
@@ -1974,6 +2005,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps
 
+- **freebuff handoff (2026-08-18, user-driven — see item 81):** fix (1) the
+  fullscreen player losing all liquid-glass UI when maximized (windowed = fine;
+  candidate: `.darkAqua` appearance on the borderless `PlayerFullScreenWindow`),
+  and (2) the time stamps' vertical axis vs the progress bar (stamps are now
+  closer to the bar — good — but still not vertically aligned). Then rerun the
+  full test suite (last green: 67 at `330f46e`) and commit.
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
   (production build, isolated data; fresh-install gate fix confirmed live — the
   API credentials form appears immediately, no splash deadlock), log in with a
