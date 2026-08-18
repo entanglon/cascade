@@ -33,9 +33,9 @@
   pixel-perfectly with the bar's capsule centerline. Applied in all 4 places
   (left/right labels in both the video player and the audio scrubber).
 
-- Build green (Debug). Full test suite green: **TEST SUCCEEDED** (59 unit +
-  UI/launch tests, 0 failures). Debug app NOT launched (user verifies both
-  fixes). **No Release build** — user policy.
+- Committed as `eae32f1`. Build green (Debug). Full test suite green:
+  **TEST SUCCEEDED** (59 unit + UI/launch tests, 0 failures). Debug app NOT
+  launched (user verifies both fixes). **No Release build** — user policy.
 
 ## 2026-08-18 (night) — Player controls: seek-target hold, bar↔stamp alignment, fullscreen environment fix; fullscreen glass regression + stamp vertical alignment handed to freebuff
 

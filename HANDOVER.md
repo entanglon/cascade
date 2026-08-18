@@ -2022,9 +2022,9 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         with `.frame(width: 76, height: 28, alignment: ...)` — text containers now
         have the same height as the bar frame, centers align pixel-perfectly.
         Applied in all 4 places (left/right labels in video player + audio scrubber).
-      - Build green (Debug). Full test suite green: **TEST SUCCEEDED** (59 unit +
-        UI/launch, 0 failures). User to verify both fixes. **No Release build** —
-        user policy.
+      - Committed as `eae32f1`. Build green (Debug). Full test suite green:
+        **TEST SUCCEEDED** (59 unit + UI/launch, 0 failures). User to verify
+        both fixes. **No Release build** — user policy.
 
 ## 5. Pending / next steps
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
