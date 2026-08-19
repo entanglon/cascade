@@ -23,6 +23,8 @@ The user supplied a cropped 1238×1238 `Public/icon.png` (eliminating the 8 px b
 - Full test suite **TEST SUCCEEDED** (64 tests: 56 unit + 4 UI + 4 launch, 0 failures).
 - App running as `Cascade.app`. **No Release build** — user policy.
 
+Commit: `fb5484f` — `Optimize Public/icon.png and update macOS AppIcon renditions`.
+
 ---
 
 ## 2026-08-20 — Revised Cascade icon adopted

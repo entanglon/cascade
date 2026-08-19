@@ -2419,6 +2419,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       resampling and maximum compression.
     - Debug build **SUCCEEDED**, full test suite **TEST SUCCEEDED** (64: 56 unit +
       4 UI + 4 launch), Debug app relaunched. **No Release build** — user policy.
+      Commit: `fb5484f`.
 
 ## 5. Pending / next steps
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
