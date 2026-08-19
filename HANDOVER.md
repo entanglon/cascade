@@ -2236,7 +2236,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 89. **ESC routing fixed (theater passes through to fullscreen player); single-ESC
       exits small player for everything; fullscreen entry scaling animation
       killed; legacy empty Video/Audio folders purged permanently (2026-08-19 —
-      COMMITTED)** (`Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`,
+      COMMITTED `5e12d3d`)** (`Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`,
       `Features/MPVVideoView.swift`, `App/AppState.swift`, `Storage/VaultRepair.swift`)
       - **ESC dead in fullscreen** — root cause: `KeyView`'s local keyDown
         monitor swallowed ESC unconditionally; monitors fire in REVERSE

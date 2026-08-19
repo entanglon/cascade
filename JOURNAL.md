@@ -34,7 +34,7 @@ The fullscreen scene opens at `.defaultSize(width: 1280, height: 800)` (App/xClo
 
 ### Verification & commits
 
-Build green; full suite **TEST SUCCEEDED** (4 UI + 4 launch, 0 failures — tally as before). Debug app relaunched. **No Release build** — user policy. Docs for this round: see below (commit hashes next to the work).
+Build green; full suite **TEST SUCCEEDED** (4 UI + 4 launch, 0 failures — tally as before). Debug app relaunched. **No Release build** — user policy. Commit: `5e12d3d`.
 
 ## 2026-08-19 (evening) — Flashless fullscreen entry (transition gate + alpha-0), ESC-like minimize/exit buttons, folders recovered from the channel delta log
 
