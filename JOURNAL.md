@@ -1,8 +1,28 @@
-# xCloud — Development Journal
+# Cascade — Development Journal
 
->> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
+>> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (night) — share archiving (hide without revoking, filter toggle).
+> 2026-08-19 (late) — Cascade rename (product + bundle ID), login simplification, icon crop.
+
+---
+
+## 2026-08-19 (late) — Cascade rename (product + bundle ID), login simplification, icon crop
+
+Renamed the app from xCloud to Cascade. This was a follow-up to commit `6226354` ("Rename xCloud → Cascade across the entire project").
+
+### Changes
+
+- `xCloud.xcodeproj/project.pbxproj`: `PRODUCT_NAME = Cascade` on app targets (Debug + Release), `PRODUCT_MODULE_NAME = xCloud` to keep the Swift module stable (existing `@testable import xCloud` in tests still works), `PBXFileReference` + `TEST_HOST` updated from `xCloud.app` → `Cascade.app`, test/UI test targets kept `$(TARGET_NAME)` to avoid swiftmodule collisions.
+- `Features/TelegramSetupView.swift`: removed the "API Credentials" heading from the login form (kept the instruction text "Get your API ID and API Hash from my.telegram.org").
+- `xCloud/Assets.xcassets/AppIcon.appiconset/`: regenerated all 10 icon sizes from the 1254×1254 source (`icon.png`) after cropping ~7-15px dark padding via content-bounds detection. Icon border gap remains slightly imperfect — user to finalize manually.
+
+### Build / test
+
+Build green (Debug). Full test suite **TEST SUCCEEDED** (0 failures). App launches as `Cascade.app` with bundle id `com.cascade.app` (dev) / `com.cascade.app.prod` (release).
+
+### Known: the folder is still `xCloud`
+
+The project folder on disk is still `~/Projects/xCloud`. The user plans to rename it manually in a fresh session after committing this work.
 
 ---
 

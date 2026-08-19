@@ -1,14 +1,12 @@
-# xCloud — Session Handover
+# Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (night): reverted TTL removal, 24h auto-delete restored + launch heal added (item 92). Read this first in any new chat before touching
-> the code. It captures the repo state, the uncommitted work in flight, how to
-> build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-19 (late): Cascade rename + login simplification committed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
 ## 1. What this project is
 
-**xCloud** — a native macOS SwiftUI app (the "Freebuff desktop" project) that turns a
+**Cascade** — a native macOS SwiftUI app (the "Freebuff desktop" project) that turns a
 Telegram account into a private cloud drive:
 
 - Files are chunked and uploaded to a private Telegram channel ("vault"). Chunks

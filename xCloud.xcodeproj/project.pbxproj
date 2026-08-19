@@ -64,7 +64,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		F71DD5493023297400135A65 /* xCloud.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = xCloud.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F71DD5493023297400135A65 /* Cascade.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cascade.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F71DD54C3023297400135A65 /* xCloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = xCloudApp.swift; sourceTree = "<group>"; };
 		F71DD5563023297500135A65 /* xCloudTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xCloudTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F71DD5603023297500135A65 /* xCloudUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xCloudUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -189,7 +189,7 @@
 		F71DD54A3023297400135A65 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F71DD5493023297400135A65 /* xCloud.app */,
+				F71DD5493023297400135A65 /* Cascade.app */,
 				F71DD5563023297500135A65 /* xCloudTests.xctest */,
 				F71DD5603023297500135A65 /* xCloudUITests.xctest */,
 			);
@@ -276,7 +276,7 @@
 				F7C0FF00000000000000A001 /* MPVKit */,
 			);
 			productName = xCloud;
-			productReference = F71DD5493023297400135A65 /* xCloud.app */;
+			productReference = F71DD5493023297400135A65 /* Cascade.app */;
 			productType = "com.apple.product-type.application";
 		};
 		F71DD5553023297500135A65 /* xCloudTests */ = {
@@ -623,7 +623,8 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cascade.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = xCloud;
+				PRODUCT_NAME = Cascade;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -667,7 +668,8 @@
 				);
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cascade.app.prod;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = xCloud;
+				PRODUCT_NAME = Cascade;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -695,7 +697,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/xCloud.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/xCloud";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cascade.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cascade";
 			};
 			name = Debug;
 		};
@@ -716,7 +718,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/xCloud.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/xCloud";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cascade.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cascade";
 			};
 			name = Release;
 		};

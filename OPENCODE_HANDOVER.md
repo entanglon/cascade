@@ -1,4 +1,4 @@
-# xCloud — Handover for opencode (2026-08-17)
+# Cascade — Handover for opencode (2026-08-17, updated 2026-08-19)
 
 > Read this first. This document is written for a fresh agent (opencode) to pick up
 > the work without any prior conversation context. It explains the project, the
@@ -9,7 +9,7 @@
 
 ## 0. TL;DR — the task opencode should carry on
 
-The user is building **xCloud** (a macOS app that turns a Telegram account into a
+The user is building **Cascade** (a macOS app that turns a Telegram account into a
 private cloud drive) and had just designed — and approved — a major upgrade to the
 **share-link system** (they call it the **v3 share upgrade**). The previous agent
 session died mid-implementation after building only two of the pieces. **opencode's

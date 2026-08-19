@@ -97,15 +97,9 @@ struct TelegramSetupForm: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            VStack(spacing: 5) {
-                Text("API Credentials")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Text("Get your API ID and API Hash from my.telegram.org")
-                    .font(.system(size: 12))
-                    .foregroundStyle(XTheme.textSecondary)
-            }
+            Text("Get your API ID and API Hash from my.telegram.org")
+                .font(.system(size: 12))
+                .foregroundStyle(XTheme.textSecondary)
 
             VStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
