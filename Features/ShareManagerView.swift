@@ -32,54 +32,56 @@ struct ShareManagerView: View {
     private var publicShares: [ShareRecord] { active.filter { $0.isPublic } }
 
     var body: some View {
-        ZStack {
+        VStack(spacing: 0) {
+            // Toggle + Cancel All header — always visible regardless of share count
+            HStack {
+                Spacer()
+
+                if !showArchived && appState.activeOutgoingShares.count > 1 {
+                    Button {
+                        showCancelAll = true
+                    } label: {
+                        Label("Cancel All", systemImage: "xmark.circle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .frame(width: XTheme.topBarControlsWidth, height: 34)
+                            .contentShape(Capsule())
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Revoke every share link")
+                }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showArchived.toggle()
+                    }
+                } label: {
+                    Label(showArchived ? "Active" : "Archived", systemImage: showArchived ? "arrow.left" : "tray")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: XTheme.topBarControlsWidth, height: 34)
+                        .contentShape(Capsule())
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help(showArchived ? "Show active shares" : "Show archived shares")
+            }
+            .padding(.top, 16)
+            .padding(.leading, 24)
+            .padding(.trailing, 20)
+
             if active.isEmpty {
                 emptyStateView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geo in
                     let cols = max(2, Int(geo.size.width / cardWidth))
                     ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            HStack {
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        showArchived.toggle()
-                                    }
-                                } label: {
-                                    Text(showArchived ? "Active" : "Archived")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(.white.opacity(0.85))
-                                        .frame(width: XTheme.topBarControlsWidth, height: 34)
-                                        .contentShape(Capsule())
-                                        .glassEffect(.regular.interactive(), in: .capsule)
-                                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
-                                }
-                                .buttonStyle(.plain)
-                                .help(showArchived ? "Show active shares" : "Show archived shares")
-
-                                Spacer()
-
-                                if !showArchived && appState.activeOutgoingShares.count > 1 {
-                                    Button {
-                                        showCancelAll = true
-                                    } label: {
-                                        Text("Cancel All")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(.white.opacity(0.85))
-                                            .frame(width: XTheme.topBarControlsWidth, height: 34)
-                                            .contentShape(Capsule())
-                                            .glassEffect(.regular.interactive(), in: .capsule)
-                                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Revoke every share link")
-                                }
-                            }
-                            .padding(.top, 16)
-                            .padding(.leading, 24)
-                            .padding(.trailing, 20)
-
                             if !publicShares.isEmpty {
                                 sectionHeader("Public")
                                 LazyVGrid(

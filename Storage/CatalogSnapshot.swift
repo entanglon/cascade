@@ -73,7 +73,7 @@ enum CatalogSnapshot {
             //    immediately and future merges stay idempotent.
             // Safety: never replace a populated catalog with an empty merged result.
             if merged.objects.isEmpty && !local.objects.isEmpty {
-                print("xCloud snapshot: merge produced 0 objects from \(local.objects.count) local — refusing replaceCatalog (data safety)")
+                print("Cascade snapshot: merge produced 0 objects from \(local.objects.count) local — refusing replaceCatalog (data safety)")
                 return nil
             }
             try await DatabaseManager.shared.replaceCatalog(objects: merged.objects, chunks: merged.chunks)
@@ -88,7 +88,7 @@ enum CatalogSnapshot {
             )
             let changes = changedRecords(local: dedupedLocal, remote: remote)
             guard !(changes.objects.isEmpty && changes.chunks.isEmpty) else {
-                print("xCloud snapshot: reconciled, nothing new to publish")
+                print("Cascade snapshot: reconciled, nothing new to publish")
                 return Foundation.Date()
             }
 
@@ -111,7 +111,7 @@ enum CatalogSnapshot {
                     backupObjectID: BackupSync.checkpointObjectID
                 )
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: checkpointDateKey(vault.channelID))
-                print("xCloud checkpoint uploaded: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
+                print("Cascade checkpoint uploaded: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
                 // Only checkpoints are pruned (keep the newest) — deltas are never touched.
                 await pruneOldSnapshots(chatId: vault.channelID, keepingNewerThan: newID)
             } else {
@@ -122,11 +122,11 @@ enum CatalogSnapshot {
                     caption: deltaCaptionPrefix,
                     backupObjectID: BackupSync.deltaObjectID
                 )
-                print("xCloud delta uploaded: \(changes.objects.count) objects, \(changes.chunks.count) chunks")
+                print("Cascade delta uploaded: \(changes.objects.count) objects, \(changes.chunks.count) chunks")
             }
             return Foundation.Date()
         } catch {
-            print("xCloud snapshot upload failed: \(error.localizedDescription)")
+            print("Cascade snapshot upload failed: \(error.localizedDescription)")
             return nil
         }
     }
@@ -329,7 +329,7 @@ enum CatalogSnapshot {
             try? FileManager.default.removeItem(at: tempURL)
             return try JSONDecoder().decode(Payload.self, from: data)
         } catch {
-            print("xCloud snapshot decode failed (msg \(message.id)): \(error.localizedDescription)")
+            print("Cascade snapshot decode failed (msg \(message.id)): \(error.localizedDescription)")
             try? FileManager.default.removeItem(at: tempURL)
             return nil
         }
@@ -373,7 +373,7 @@ enum CatalogSnapshot {
             // explicitly says this is intentional (e.g. deleteForever on the last file).
             let fileCount = local.objects.filter { !$0.isFolder }.count
             if fileCount == 0 && !force {
-                print("xCloud snapshot: refusing to publish empty checkpoint from local (collapse guard)")
+                print("Cascade snapshot: refusing to publish empty checkpoint from local (collapse guard)")
                 return nil
             }
             let channel = await fetchChannelState(chatId: vault.channelID)
@@ -389,11 +389,11 @@ enum CatalogSnapshot {
                 backupObjectID: BackupSync.checkpointObjectID
             )
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: checkpointDateKey(vault.channelID))
-            print("xCloud checkpoint published from local catalog: \(local.objects.count) objects, \(local.chunks.count) chunks")
+            print("Cascade checkpoint published from local catalog: \(local.objects.count) objects, \(local.chunks.count) chunks")
             await pruneOldSnapshots(chatId: vault.channelID, keepingNewerThan: newID)
             return Foundation.Date()
         } catch {
-            print("xCloud checkpoint-from-local failed: \(error.localizedDescription)")
+            print("Cascade checkpoint-from-local failed: \(error.localizedDescription)")
             return nil
         }
     }
@@ -427,9 +427,9 @@ enum CatalogSnapshot {
             // backup copies go too (the newest checkpoint's copy is forwarded last,
             // leaving it as the single checkpoint in the backup channel).
             await BackupSync.deleteFromVaultAndBackup(messageIDs: toDelete)
-            print("xCloud snapshot pruned \(toDelete.count) old checkpoint message(s)")
+            print("Cascade snapshot pruned \(toDelete.count) old checkpoint message(s)")
         } catch {
-            print("xCloud snapshot prune failed: \(error.localizedDescription)")
+            print("Cascade snapshot prune failed: \(error.localizedDescription)")
         }
     }
 
@@ -448,7 +448,7 @@ enum CatalogSnapshot {
         guard channel.checkpoint != nil || !channel.deltas.isEmpty else { return false }
         let merged = mergedChannelState(channel, vaultID: vault.id)
         try? await DatabaseManager.shared.replaceCatalog(objects: merged.objects, chunks: merged.chunks)
-        print("xCloud snapshot restored: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
+        print("Cascade snapshot restored: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
         return true
     }
 }

@@ -484,7 +484,7 @@ struct SettingsView: View {
 
     private var footer: some View {
         VStack(spacing: 2) {
-            Text("xCloud")
+            Text("Cascade")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.35))
             Text(versionString)

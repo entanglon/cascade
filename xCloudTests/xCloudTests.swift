@@ -146,7 +146,7 @@ struct xCloudTests {
 
         var posted = false
         let token = NotificationCenter.default.addObserver(
-            forName: .xCloudUploadFinished,
+            forName: .cascadeUploadFinished,
             object: nil,
             queue: nil
         ) { _ in posted = true }
@@ -1163,7 +1163,7 @@ struct xCloudTests {
 
         // The transported form must not leak the invite, the key, or anything that
         // looks like a link — it's an opaque blob.
-        #expect(obfuscated.hasPrefix("xcloud://share#"))
+        #expect(obfuscated.hasPrefix("cascade://share#"))
         #expect(!obfuscated.contains("t.me"))
         #expect(!obfuscated.contains("https"))
         #expect(!obfuscated.contains("inv="))
@@ -1404,7 +1404,7 @@ struct xCloudTests {
                 "a one-entry manifest serializes as a plain single-file link")
 
         // Garbage in the manifest field is an invalid link, never a fallback.
-        let bogus = "xcloud://share?v=2&id=x&ch=-1001&inv=https%3A%2F%2Ft.me%2F%2BX&key=&name=2+files&exp=9999999999&f=not-base64"
+        let bogus = "cascade://share?v=2&id=x&ch=-1001&inv=https%3A%2F%2Ft.me%2F%2BX&key=&name=2+files&exp=9999999999&f=not-base64"
         #expect(ShareEngine.ShareLink.parse(bogus) == nil)
 
         // A group manifest whose file has empty message IDs is invalid too.
@@ -1412,7 +1412,7 @@ struct xCloudTests {
             ShareEngine.ShareFile(name: "a", messageIDs: [1]),
             ShareEngine.ShareFile(name: "b", messageIDs: [])
         ])
-        let withEmpty = "xcloud://share?v=2&id=x&ch=-1001&inv=https%3A%2F%2Ft.me%2F%2BX&key=&name=2+files&exp=9999999999&f=\(emptyIDs)"
+        let withEmpty = "cascade://share?v=2&id=x&ch=-1001&inv=https%3A%2F%2Ft.me%2F%2BX&key=&name=2+files&exp=9999999999&f=\(emptyIDs)"
         #expect(ShareEngine.ShareLink.parse(withEmpty) == nil)
     }
 
@@ -1527,11 +1527,11 @@ struct xCloudTests {
         // a LATER expiry so it sorts as the newest share and wins the lookup.
         var withBlob = live
         withBlob.id = "share-test-blob"
-        withBlob.linkBlob = "xcloud://share#stored-blob-example"
+        withBlob.linkBlob = "cascade://share#stored-blob-example"
         withBlob.expiry = now.addingTimeInterval(7200)
         try await DatabaseManager.shared.saveShare(withBlob)
         let blobby = try await ShareEngine.reusableShareLink(for: "obj-share-reuse")
-        #expect(blobby == "xcloud://share#stored-blob-example", "stored blob returned verbatim")
+        #expect(blobby == "cascade://share#stored-blob-example", "stored blob returned verbatim")
 
         // 3) Revoking the live share makes it non-reusable (expired is already
         // skipped). Drop the other active record first so the only candidate left

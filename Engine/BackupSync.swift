@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// Mirrors every message the app posts to the vault channel into a second private
-/// channel ("xCloud Backup", archived + muted) via cheap reference forwards
+/// channel ("Cascade Backup", archived + muted) via cheap reference forwards
 /// (`sendCopy: false` — no re-upload, captions and encryption preserved). If the
 /// main vault channel is ever deleted — by the user or by a malfunctioning app —
 /// the backup channel still holds the complete storage + catalog, and a future
@@ -144,7 +144,7 @@ actor BackupDrainer {
                 // withFloodWait — a return here means a real error.
                 try? await DatabaseManager.shared.bumpBackupAttempts(messageID: pending.messageID)
                 BackupSync.mirrorLog("forward FAILED for \(pending.messageID): \(error.localizedDescription)")
-                print("xCloud backup forward failed for \(pending.messageID): \(error.localizedDescription)")
+                print("Cascade backup forward failed for \(pending.messageID): \(error.localizedDescription)")
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 return
             }

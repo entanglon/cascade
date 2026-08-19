@@ -4,7 +4,7 @@ import os
 
 enum VaultRepair {
     private static let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "repair"
     )
 
@@ -31,7 +31,7 @@ enum VaultRepair {
             case .messageAudio: contentKind = "audio"
             default: break
             }
-            logger.info("xCloud diag: id=\(message.id, privacy: .public) kind=\(contentKind, privacy: .public) cap=\(prefix, privacy: .public) file=\(fileName, privacy: .public)")
+            logger.info("Cascade diag: id=\(message.id, privacy: .public) kind=\(contentKind, privacy: .public) cap=\(prefix, privacy: .public) file=\(fileName, privacy: .public)")
         }
         let chunks = (try? await DatabaseManager.shared.allChunks()) ?? []
         let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
@@ -84,7 +84,7 @@ enum VaultRepair {
 
                 // A. Reconstruct from a chunk/object metadata caption (unified
                 // xcloud:{...} or legacy xcloud:v1:...). Uses the unified codec so
-                // every xCloud caption variant parses through one path.
+                // Cascade caption variant parses through one path.
                 if let caption = captionText, let meta = ChunkCaption.parse(caption) {
                     let objectID = meta.id
                     let name = meta.name
@@ -422,7 +422,7 @@ enum VaultRepair {
     }
 
     /// Scans the channel and deletes ONLY messages that are provably orphaned chunk
-    /// documents: xCloud chunk messages whose owning object no longer exists in the
+    // Cascade chunk messages whose owning object no longer exists in the
     /// local catalog at all. Everything else — text messages (folder metadata, vault
     /// key records, welcome messages), catalog checkpoints/deltas, and any chunk
     /// whose object still exists (even with a wrong/old message ID — the scan fixes
@@ -484,7 +484,7 @@ enum VaultRepair {
 
         let orphanedIDs = allMessages.filter { msg in
             let text = caption(of: msg) ?? ""
-            // Never purge xCloud's own metadata (key records, the delta log,
+            // Cascade's own metadata (key records, the delta log,
             // checkpoints) — protected regardless of what the local DB contains.
             if text.hasPrefix("xcloud:vaultkey:") || text.hasPrefix("xcloud:dbdelta:") || text.hasPrefix("xcloud:dbsnapshot:") {
                 return false

@@ -1,6 +1,6 @@
 //
 //  TransferDropContent.swift
-//  xCloud
+// Cascade
 //
 //  The icon + percentage + liquid-fill content drawn inside the Transfers
 //  blob once it's fully separated. Shared by both the native Liquid Glass

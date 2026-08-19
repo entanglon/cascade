@@ -1,6 +1,6 @@
 //
 //  LiquidFABStack.swift
-//  xCloud
+// Cascade
 //
 //  Primary renderer: native Liquid Glass, macOS 26 (Tahoe)+. Two circular
 //  glass views share a namespace via .glassEffectID inside one

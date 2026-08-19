@@ -104,7 +104,7 @@ struct RootView: View {
             }
         }
         .background(WindowChromeFixer())
-        .onReceive(NotificationCenter.default.publisher(for: .xCloudUploadFinished)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .cascadeUploadFinished)) { _ in
             // Refresh the file list the moment an upload completes so files appear
             // in the browser in real time (also covers resume/retry completions).
             Task { await appState.loadFiles() }
@@ -119,7 +119,7 @@ struct RootView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: TerminationHandler.didOpenURL)) { _ in
-            // Share links (`xcloud://share…`) delivered while the app is running —
+            // Share links (`cascade://share…`) delivered while the app is running —
             // the AppDelegate activates the app and focuses the existing window,
             // then pings here so the queued URL is processed exactly once.
             appState.drainPendingShareLinks()
@@ -128,7 +128,7 @@ struct RootView: View {
             get: { appState.importShareLinkPrompt },
             set: { if !$0 { appState.importShareLinkPrompt = false } }
         )) {
-            TextField("xcloud://share…", text: $importLinkText)
+            TextField("cascade://share…", text: $importLinkText)
             Button("Cancel", role: .cancel) { importLinkText = "" }
             Button("Import") {
                 let raw = importLinkText
@@ -136,7 +136,7 @@ struct RootView: View {
                 appState.importShareLink(raw)
             }
         } message: {
-            Text("Paste a share link you received from another xCloud user.")
+            Text("Paste a share link you received from another Cascade user.")
         }
     }
 }
@@ -148,7 +148,7 @@ struct AuthSplashView: View {
         ZStack {
             AppBackground()
             VStack(spacing: 14) {
-                Text("xCloud")
+                Text("Cascade")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                 ProgressView()

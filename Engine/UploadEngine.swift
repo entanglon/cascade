@@ -30,7 +30,7 @@ enum UploadEngine {
     static let maxConcurrentChunkUploads = 3
 
     private static let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "upload"
     )
 

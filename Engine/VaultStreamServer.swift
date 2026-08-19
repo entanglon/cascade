@@ -41,7 +41,7 @@ final class VaultStreamServer {
         await startIfNeeded()
         lock.lock(); defer { lock.unlock() }
         if isReady, port > 0 {
-            print("xCloud debug: stream server listening on 127.0.0.1:\(port)")
+            print("Cascade debug: stream server listening on 127.0.0.1:\(port)")
         }
     }
 

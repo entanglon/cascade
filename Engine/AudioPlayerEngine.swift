@@ -195,7 +195,7 @@ final class AudioPlayerEngine {
     private var lastEOFAt: Date?
     private var lastEOFTrackID: String?
 
-    private static let playbackLogger = Logger(subsystem: "com.xcloud.app", category: "playback")
+    private static let playbackLogger = Logger(subsystem: "com.cascade.app", category: "playback")
 
     private(set) var mpvController: MPVController?
     private var mpvCancellables: Set<AnyCancellable> = []

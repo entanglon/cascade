@@ -1,7 +1,7 @@
 import AppKit
 
 final class TerminationHandler: NSObject, NSApplicationDelegate {
-    /// Share links (`xcloud://share…`) delivered by the OS while the app was
+    /// Share links (`cascade://share…`) delivered by the OS while the app was
     /// running OR while it was still launching. AppState drains this list, so
     /// every link is processed exactly once (warm delivery via the notification
     /// below; cold-launch delivery drained once post-auth setup completes).
@@ -10,28 +10,28 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
     /// drain `pendingOpenURLs` immediately. The list — not the notification's
     /// payload — is the source of truth (it also covers URLs that arrived
     /// before any observer was attached).
-    static let didOpenURL = Notification.Name("xCloudDidOpenURL")
+    static let didOpenURL = Notification.Name("cascadeDidOpenURL")
 
     /// Posted when a URL arrived but the main window could not be found (the
     /// SwiftUI scene was torn down — e.g. the window was closed while another
-    /// window existed, or the scene failed to restore). `xCloudApp` observes
+    /// window existed, or the scene failed to restore). `CascadeApp` observes
     /// this and calls `openWindow(id: "main")` to recreate the scene.
-    static let recreateMainWindow = Notification.Name("xCloudRecreateMainWindow")
+    static let recreateMainWindow = Notification.Name("cascadeRecreateMainWindow")
 
     /// Distributed notification used by a duplicate instance to tell the running
     /// one that share links are waiting in the handoff file. Scoped to the bundle
     /// id so the dev and production builds never hand links to each other.
     private static var handoffNotificationName: Notification.Name {
-        Notification.Name((Bundle.main.bundleIdentifier ?? "com.nemesys.xcloud.xCloud") + ".handoffURLs")
+        Notification.Name((Bundle.main.bundleIdentifier ?? "com.cascade.app") + ".handoffURLs")
     }
     private static let handoffFileName = "handoff-urls.json"
 
     // MARK: - Single-instance guard
 
-    /// Another xCloud process already running (same bundle id, different pid)?
+    /// Another Cascade process already running (same bundle id, different pid)?
     /// Stale URL-scheme registrations can make LaunchServices START a second copy
     /// of the app when a share link is opened (e.g. an older build's app bundle
-    /// is still registered as the `xcloud://` handler). Two instances then fight
+    /// is still registered as the `cascade://` handler). Two instances then fight
     /// over the window: one window vanishes, the app looks stuck and won't quit.
     private static func otherRunningInstance() -> NSRunningApplication? {
         let bundleID = Bundle.main.bundleIdentifier ?? ""
@@ -113,7 +113,7 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
             name: Self.handoffNotificationName,
             object: nil
         )
-        // Re-assert ownership of the xcloud:// scheme on EVERY launch. Stale
+        // Re-assert ownership of the cascade:// scheme on EVERY launch. Stale
         // copies of the app (old DerivedData builds, DMG test installs) keep
         // their LaunchServices registration and make the browser START a second
         // instance instead of delivering the link to this one — the running
@@ -122,12 +122,12 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
         // even if a stale bundle is ever re-registered.
         NSWorkspace.shared.setDefaultApplication(
             at: Bundle.main.bundleURL,
-            toOpenURLsWithScheme: "xcloud"
+            toOpenURLsWithScheme: "cascade"
         ) { error in
             if let error {
-                print("xCloud URL: self-registration failed: \(error)")
+                print("Cascade URL: self-registration failed: \(error)")
             } else {
-                print("xCloud URL: registered \(Bundle.main.bundleURL.lastPathComponent) as xcloud:// handler")
+                print("Cascade URL: registered \(Bundle.main.bundleURL.lastPathComponent) as cascade:// handler")
             }
         }
         // A duplicate instance may have left links behind before we registered.
@@ -141,7 +141,7 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        print("xCloud URL: received \(urls.count) url(s): \(urls.map { $0.absoluteString.prefix(80) })")
+        print("Cascade URL: received \(urls.count) url(s): \(urls.map { $0.absoluteString.prefix(80) })")
         // Arm the full-screen re-entry net FIRST, while the window's full-screen
         // state still reflects pre-delivery reality.
         FullScreenReentryGuard.shared.armIfNeeded(NSApp.mainWindow
@@ -149,7 +149,7 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
         // Duplicate instance? Hand the links to the running one and quit this
         // copy instead of fighting over the window.
         if let other = Self.otherRunningInstance() {
-            print("xCloud URL: duplicate instance \(other.processIdentifier) — handing off")
+            print("Cascade URL: duplicate instance \(other.processIdentifier) — handing off")
             Self.handOff(urls: urls, to: other)
             return
         }
@@ -194,7 +194,7 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
                 // switched to its Space.
                 let hadFlag = window.collectionBehavior.contains(.moveToActiveSpace)
                 window.collectionBehavior.remove(.moveToActiveSpace)
-                print("xCloud URL: full-screen window — leaving untouched (had moveToActiveSpace: \(hadFlag))")
+                print("Cascade URL: full-screen window — leaving untouched (had moveToActiveSpace: \(hadFlag))")
                 return
             }
 
@@ -221,7 +221,7 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
                 //    (any live scene observes this — main or About);
                 //  - simulate the Dock-icon reopen, which SwiftUI Window scenes
                 //    answer natively by restoring the scene window.
-                print("xCloud URL: no window found — asking scene to recreate")
+                print("Cascade URL: no window found — asking scene to recreate")
                 NotificationCenter.default.post(name: TerminationHandler.recreateMainWindow, object: nil)
                 for delay in [0.4, 1.2] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
@@ -333,7 +333,7 @@ private final class FullScreenReentryGuard {
             return
         }
         disarm()
-        print("xCloud URL: window exited full screen \(String(format: "%.2f", Date().timeIntervalSince(ts)))s after delivery — re-entering")
+        print("Cascade URL: window exited full screen \(String(format: "%.2f", Date().timeIntervalSince(ts)))s after delivery — re-entering")
         DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) {
             window.toggleFullScreen(nil)
         }

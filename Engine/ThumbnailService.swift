@@ -184,7 +184,7 @@ actor ThumbnailService {
     private var cache: [String: URL] = [:]
 
     private let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "thumbnail"
     )
 
@@ -331,7 +331,7 @@ actor ThumbnailService {
                 return lhs.createdAt < rhs.createdAt
             }
         guard !missing.isEmpty else { return }
-        logger.info("xCloud thumbs: warming up \(missing.count) missing thumbnails")
+        logger.info("Cascade thumbs: warming up \(missing.count) missing thumbnails")
         for object in missing {
             if Task.isCancelled { return }
             _ = await thumbnailURL(for: object)

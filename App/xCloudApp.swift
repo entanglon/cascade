@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct xCloudApp: App {
+struct CascadeApp: App {
     @NSApplicationDelegateAdaptor(TerminationHandler.self) private var terminationHandler
     @Environment(\.openWindow) private var openWindow
     @State private var appState = AppState()
@@ -15,12 +15,12 @@ struct xCloudApp: App {
 
     var body: some Scene {
         // Single-instance `Window` (not `WindowGroup`): when macOS delivers an
-        // `xcloud://` link while the app is running, a WindowGroup answers the
+        // `cascade://` link while the app is running, a WindowGroup answers the
         // open-URL event by opening a NEW scene window — so every link click
         // spawned a second, third… window. A `Window` scene physically cannot
         // duplicate; the OS reuses the one main window (which the AppDelegate
         // also activates and brings to the front on URL delivery).
-        Window("xCloud", id: "main") {
+        Window("Cascade", id: "main") {
             RootView()
                 .environment(appState)
                 .frame(minWidth: 1024, minHeight: 640)
@@ -34,7 +34,7 @@ struct xCloudApp: App {
         .defaultSize(width: 1280, height: 780)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About xCloud") {
+                Button("About Cascade") {
                     NSApp.setActivationPolicy(.regular)
                     NSApp.activate(ignoringOtherApps: true)
                     openWindow(id: "about")

@@ -21,7 +21,7 @@ import os
 /// (a black card scores ~0), keep the richest frame, convert it to RGBA with
 /// swscale (colorspace-aware), rotate per display matrix, and let AppKit encode.
 enum VideoFrameExtractor {
-    private static let logger = Logger(subsystem: "com.xcloud.app", category: "thumbnail")
+    private static let logger = Logger(subsystem: "com.cascade.app", category: "thumbnail")
 
     /// Candidate positions as fractions of duration. The first few percent of
     /// most videos are credits or bumpers, so sampling starts at 8% and spreads.

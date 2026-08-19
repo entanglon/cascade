@@ -271,7 +271,7 @@ final class AppState {
         let fileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
             .filter { !$0.isFolder }.count
         if fileCount == 0 {
-            print("xCloud: refusing to force-publish empty snapshot (collapse guard)")
+            print("Cascade: refusing to force-publish empty snapshot (collapse guard)")
             return
         }
         snapshotTask?.cancel()
@@ -392,9 +392,9 @@ final class AppState {
                    CommandLine.arguments.indices.contains(idx + 1) {
                     let objectID = CommandLine.arguments[idx + 1]
                     if let obj = try? await DatabaseManager.shared.object(objectID) {
-                        print("xCloud debug: caching video \(objectID)")
+                        print("Cascade debug: caching video \(objectID)")
                         _ = try? await DownloadEngine.download(object: obj, quiet: true) { _, _ in }
-                        print("xCloud debug: cached \(obj.name) -> \(DownloadEngine.cacheURL(for: obj).path(percentEncoded: false))")
+                        print("Cascade debug: cached \(obj.name) -> \(DownloadEngine.cacheURL(for: obj).path(percentEncoded: false))")
                     }
                     NSApp.terminate(nil)
                 }
@@ -413,13 +413,13 @@ final class AppState {
                               FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { continue }
                         if await UploadEngine.generateThumbnails(for: url, objectID: obj.id, isVideo: true) != nil {
                             done += 1
-                            print("xCloud debug: regenerated thumbnail for \(obj.name)")
+                            print("Cascade debug: regenerated thumbnail for \(obj.name)")
                         } else {
                             failed += 1
-                            print("xCloud debug: thumbnail FAILED for \(obj.name)")
+                            print("Cascade debug: thumbnail FAILED for \(obj.name)")
                         }
                     }
-                    print("xCloud debug: regenerated \(done) video thumbnails (\(failed) failed)")
+                    print("Cascade debug: regenerated \(done) video thumbnails (\(failed) failed)")
                     NSApp.terminate(nil)
                 }
 
@@ -434,9 +434,9 @@ final class AppState {
                     if let img, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "/tmp/thumb-test.png"))
-                        print("xCloud debug: capture-test OK \(Int(img.size.width))x\(Int(img.size.height)) -> /tmp/thumb-test.png")
+                        print("Cascade debug: capture-test OK \(Int(img.size.width))x\(Int(img.size.height)) -> /tmp/thumb-test.png")
                     } else {
-                        print("xCloud debug: capture-test FAILED")
+                        print("Cascade debug: capture-test FAILED")
                     }
                     NSApp.terminate(nil)
                 }
@@ -481,7 +481,7 @@ final class AppState {
                         } else {
                             try? text.write(toFile: resultPath, atomically: true, encoding: .utf8)
                         }
-                        print("xCloud recover: \(text)")
+                        print("Cascade recover: \(text)")
                     }
                     log("=== recovery run \(Date()) ===")
                     let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
@@ -684,7 +684,7 @@ final class AppState {
         // scan (which can take 10–20s on a fresh account and left the card
         // showing the generic "Telegram Vault / Connected" placeholder).
         identity = try? await TelegramClient.shared.fetchIdentity()
-        print("xCloud post-auth: identity=\(identity?.firstName ?? "nil")")
+        print("Cascade post-auth: identity=\(identity?.firstName ?? "nil")")
         if let photo = try? await TelegramClient.shared.fetchProfilePhotoData() {
             profilePhotoData = photo
         }
@@ -693,15 +693,15 @@ final class AppState {
         // read. On a fresh container this adopts the account's existing vault channel
         // instead of creating an empty new one.
         if let vault = try? await VaultManager.ensureVault() {
-            print("xCloud post-auth: vault ready (channel \(vault.channelID))")
+            print("Cascade post-auth: vault ready (channel \(vault.channelID))")
             // Keep the channel out of the Telegram chat list (archive + mute) so it
             // is never accidentally opened — runs at every session start, since
             // ensureVault returns early for an existing vault.
             await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
             // Disaster-recovery mirror: every vault-channel message is forwarded
-            // into the "xCloud Backup" channel (created on first run).
+            // into the "Cascade Backup" channel (created on first run).
             if let backupID = await VaultManager.ensureBackupChannel() {
-                print("xCloud post-auth: backup channel ready (channel \(backupID))")
+                print("Cascade post-auth: backup channel ready (channel \(backupID))")
                 // Drain any forwards queued while the app was closed.
                 Task { await BackupDrainer.shared.drain() }
             }
@@ -714,11 +714,11 @@ final class AppState {
             // in one shot — no slow per-message scan. Falls back to the full scan.
             let restored = await CatalogSnapshot.restore()
             if restored {
-                print("xCloud post-auth: catalog restored from snapshot")
+                print("Cascade post-auth: catalog restored from snapshot")
                 await self.loadFiles()
             } else {
                 let changed = await VaultRepair.run()
-                print("xCloud post-auth: repair scan changed=\(changed), files=\((try? await DatabaseManager.shared.allObjects())?.count ?? -1)")
+                print("Cascade post-auth: repair scan changed=\(changed), files=\((try? await DatabaseManager.shared.allObjects())?.count ?? -1)")
                 if changed {
                     await self.loadFiles()
                     // Publish a corrected checkpoint so a stale snapshot document on
@@ -733,12 +733,12 @@ final class AppState {
                         self.lastSyncDate = syncedAt
                         self.lastSnapshotSignature = await self.currentCatalogSignature()
                     } else if fileCount == 0 {
-                        print("xCloud post-auth: catalog has zero files — refusing to publish checkpoint (collapse guard)")
+                        print("Cascade post-auth: catalog has zero files — refusing to publish checkpoint (collapse guard)")
                     }
                 }
             }
         } else {
-            print("xCloud post-auth: vault ensure FAILED")
+            print("Cascade post-auth: vault ensure FAILED")
         }
 
         // Heal the catalog if earlier snapshot merges duplicated chunk records
@@ -749,14 +749,14 @@ final class AppState {
         let removedDuplicates = ((try? await DatabaseManager.shared.dedupeChunkRecords()) ?? 0)
             + ((try? await DatabaseManager.shared.dedupeDuplicateObjects()) ?? 0)
         if removedDuplicates > 0 {
-            print("xCloud post-auth: removed \(removedDuplicates) duplicate chunk/object record(s)")
+            print("Cascade post-auth: removed \(removedDuplicates) duplicate chunk/object record(s)")
             let dedupeFileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
                 .filter { !$0.isFolder }.count
             if dedupeFileCount > 0, let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal() {
                 self.lastSyncDate = syncedAt
                 self.lastSnapshotSignature = await self.currentCatalogSignature()
             } else if dedupeFileCount == 0 {
-                print("xCloud post-auth: catalog empty after dedupe — refusing checkpoint (collapse guard)")
+                print("Cascade post-auth: catalog empty after dedupe — refusing checkpoint (collapse guard)")
             }
             await self.loadFiles()
         }
@@ -987,7 +987,7 @@ final class AppState {
             let changed = await VaultRepair.run()
             let after = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
             await self.loadFiles()
-            print("xCloud sync: messages=\(messages.count) v1Captions=\(v1Captions) before=\(before) after=\(after) changed=\(changed)")
+            print("Cascade sync: messages=\(messages.count) v1Captions=\(v1Captions) before=\(before) after=\(after) changed=\(changed)")
             alertMessage = "Sync complete — \(messages.count) messages in the channel (\(v1Captions) with file metadata), \(before) → \(after) files restored."
         }
         await forcePublishSnapshot()
@@ -1082,7 +1082,7 @@ final class AppState {
                     }
                 }
             } catch {
-                print("xCloud open error: \(error)")
+                print("Cascade open error: \(error)")
                 alertMessage = "Open failed: \(error.localizedDescription)"
             }
             isDownloading = false
@@ -1142,7 +1142,8 @@ final class AppState {
     /// Archived outgoing shares — hidden from the Shared page by default.
     @MainActor
     var archivedOutgoingShares: [ShareRecord] {
-        outgoingShares.filter { $0.state == "active" && $0.isArchived }
+        let result = outgoingShares.filter { $0.state == "active" && $0.isArchived }
+        return result
     }
 
     /// Object IDs shown under "Shared": only files I imported through share
@@ -1262,12 +1263,12 @@ final class AppState {
             do {
                 switch try await ShareEngine.importLink(trimmed) {
                 case .pending(let objectID):
-                    print("xCloud URL: staged for import decision (object \(objectID))")
+                    print("Cascade URL: staged for import decision (object \(objectID))")
                     pendingImportID = objectID
                     pendingImportObject = try? await DatabaseManager.shared.object(objectID)
                     await self.loadFiles()
                 case .imported:
-                    print("xCloud URL: imported via link")
+                    print("Cascade URL: imported via link")
                     let isGroup = ShareEngine.ShareLink.parse(trimmed)?.isGroup ?? false
                     // An import is a transfer: the card shows in Transfers
                     // (history like uploads/downloads), not on the Shared page —
@@ -1291,7 +1292,7 @@ final class AppState {
                         : "Shared file imported — find it in Transfers."
                     await self.loadFiles()
                 case .selfOpen(let objectID):
-                    print("xCloud URL: self-open, revealing object \(objectID)")
+                    print("Cascade URL: self-open, revealing object \(objectID)")
                     // Quiet, Drive-style behavior: reveal + select the original.
                     // No modal alert — the reveal highlight IS the feedback.
                     // A trashed original is revealed inside the Trash itself.
@@ -1309,7 +1310,7 @@ final class AppState {
                         }
                     }
                 case .alreadyImported(let objectID):
-                    print("xCloud URL: already imported, revealing object \(objectID)")
+                    print("Cascade URL: already imported, revealing object \(objectID)")
                     // The same exact file was imported before (content hash match) —
                     // reveal + blink the existing copy instead of a duplicate import.
                     await self.loadFiles()
@@ -1318,7 +1319,7 @@ final class AppState {
                     }
                 }
             } catch {
-                print("xCloud URL: import failed: \(error)")
+                print("Cascade URL: import failed: \(error)")
                 alertMessage = ShareEngine.describe(error)
             }
         }
@@ -1364,10 +1365,10 @@ final class AppState {
         }
     }
 
-    /// Entry point for `xcloud://share…` links opened by the OS (onOpenURL).
+    /// Entry point for `cascade://share…` links opened by the OS (onOpenURL).
     @MainActor
     func handleIncomingURL(_ url: URL) {
-        print("xCloud URL: AppState.handleIncomingURL \(url.absoluteString.prefix(80))")
+        print("Cascade URL: AppState.handleIncomingURL \(url.absoluteString.prefix(80))")
         guard url.scheme == "xcloud" else { return }
         importShareLink(url.absoluteString)
     }
@@ -2232,7 +2233,7 @@ final class AppState {
             // deleted these files — even if the catalog is now empty, that's correct.
             let remainingFiles = ((try? await DatabaseManager.shared.allObjects()) ?? [])
                 .filter { !$0.isFolder }.count
-            print("xCloud deleteForever: publishing checkpoint with \(remainingFiles) remaining file(s)")
+            print("Cascade deleteForever: publishing checkpoint with \(remainingFiles) remaining file(s)")
             if let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal(force: true) {
                 self.lastSyncDate = syncedAt
                 self.lastSnapshotSignature = await self.currentCatalogSignature()
@@ -2256,7 +2257,7 @@ final class AppState {
     @MainActor
     func resetVault(confirmed: Bool = false) async {
         guard confirmed else {
-            print("xCloud: resetVault called without confirmation — refusing")
+            print("Cascade: resetVault called without confirmation — refusing")
             return
         }
         isResetting = true

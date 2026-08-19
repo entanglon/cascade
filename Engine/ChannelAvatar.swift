@@ -5,7 +5,7 @@ import CoreText
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Generates branded profile pictures for xCloud's Telegram channels (vault,
+// Cascade's Telegram channels (vault,
 /// backup, public, private pool slots) so they're recognizable in the chat
 /// list and on t.me link previews. Pure local drawing — no assets, no network.
 enum ChannelAvatar {
@@ -80,11 +80,29 @@ enum ChannelAvatar {
         ctx.setShadow(offset: .zero, blur: 0, color: nil)
     }
 
-    /// Cache file for a label: `<tmp>/xcloud-avatars/<label>.jpg`.
+    /// Cache file for a label: `<tmp>/cascade-avatars/<label>.jpg`.
     private static func cacheURL(for label: String) -> URL? {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("xcloud-avatars", isDirectory: true)
+            .appendingPathComponent("cascade-avatars", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent(label).appendingPathExtension("jpg")
+    }
+
+    /// Loads a bundled PNG image (from Resources/) and converts it to JPEG.
+    /// Used for channel avatars when custom icons are provided.
+    static func makeJPEG(fromPNG named: String) -> URL? {
+        let cacheDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cascade-avatars", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let cached = cacheDir.appendingPathComponent(named).appendingPathExtension("jpg")
+        if FileManager.default.fileExists(atPath: cached.path(percentEncoded: false)) { return cached }
+        // Try loading from the bundle's Resources directory
+        guard let imageURL = Bundle.main.url(forResource: named, withExtension: "png") else { return nil }
+        guard let inputSource = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else { return nil }
+        guard let cgImage = CGImageSourceCreateImageAtIndex(inputSource, 0, nil) else { return nil }
+        guard let dest = CGImageDestinationCreateWithURL(cached as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, cgImage, nil)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return cached
     }
 }

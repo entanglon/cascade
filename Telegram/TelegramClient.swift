@@ -24,7 +24,7 @@ final class TelegramClient {
     private var client: TDLibClient?
 
     private let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "telegram"
     )
 
@@ -302,7 +302,7 @@ final class TelegramClient {
 
     // MARK: - Auth error display
 
-    private static let authLogger = Logger(subsystem: "com.xcloud.app", category: "auth")
+    private static let authLogger = Logger(subsystem: "com.cascade.app", category: "auth")
 
     /// TDLibKit's `Error` type does not conform to `LocalizedError`, so Swift turns every
     /// failure into a useless "The operation couldn't be completed. (TDLibKit.Error error 1.)".
@@ -511,21 +511,21 @@ final class TelegramClient {
         guard let obj = try? await DatabaseManager.shared.object(objectID),
               let vault = try? await DatabaseManager.shared.firstVault(),
               let chunks = try? await DatabaseManager.shared.chunks(for: objectID) else {
-            log("xCloud debug: cannot load chunks for \(objectID)")
+            log("Cascade debug: cannot load chunks for \(objectID)")
             return
         }
-        log("xCloud debug: chunks for \(obj.name) (recorded total \(obj.size))")
+        log("Cascade debug: chunks for \(obj.name) (recorded total \(obj.size))")
         for (i, c) in chunks.enumerated() {
             guard let mid = c.messageID else { continue }
             do {
                 let msg = try await getOrFetchMessage(chatId: vault.channelID, messageId: mid)
                 if let file = primaryFile(from: msg.content) {
-                    log("xCloud debug: chunk \(i) msg \(mid) db=\(c.size) tg=\(file.size) match=\(file.size == c.size)")
+                    log("Cascade debug: chunk \(i) msg \(mid) db=\(c.size) tg=\(file.size) match=\(file.size == c.size)")
                 } else {
-                    log("xCloud debug: chunk \(i) msg \(mid) NO file in message")
+                    log("Cascade debug: chunk \(i) msg \(mid) NO file in message")
                 }
             } catch {
-                log("xCloud debug: chunk \(i) msg \(mid) error \(error)")
+                log("Cascade debug: chunk \(i) msg \(mid) error \(error)")
             }
         }
     }
@@ -719,7 +719,7 @@ final class TelegramClient {
     func createVaultChannel(title: String) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
         let chat = try await client.createNewSupergroupChat(
-            description: "xCloud storage",
+            description: "Cascade storage",
             forImport: false,
             isChannel: true,
             isForum: false,
@@ -787,6 +787,23 @@ final class TelegramClient {
         }
     }
 
+    /// Sets a channel's profile photo from a bundled PNG image file.
+    func setChannelPhoto(chatId: Int64, pngNamed: String) async {
+        guard let client else { return }
+        guard let url = ChannelAvatar.makeJPEG(fromPNG: pngNamed) else { return }
+        do {
+            try await client.setChatPhoto(
+                chatId: chatId,
+                photo: .inputChatPhotoStatic(
+                    InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: url.path)))
+                )
+            )
+            logger.info("Channel photo set for \(chatId) (\(pngNamed))")
+        } catch {
+            logger.info("Channel photo failed for \(chatId): \(error.localizedDescription)")
+        }
+    }
+
     /// True when the chat already has a profile photo (used to avoid re-setting
     /// photos on legacy channels — TDLib throttles photo changes).
     func hasChannelPhoto(chatId: Int64) async -> Bool {
@@ -795,24 +812,24 @@ final class TelegramClient {
         return chat.photo != nil
     }
 
-    /// Looks for an existing "xCloud Vault" channel owned by this account so that
+    /// Looks for an existing "Cascade Vault" channel owned by this account so that
     /// logging in on a new device adopts the real vault instead of silently creating a
     /// brand-new empty channel (which is why files "disappear" after a fresh install).
     /// Searches the local chat list first, then the server, then pages the main chat
     /// list as a fallback. Returns nil when the account has no vault channel yet.
     func findVaultChannel() async -> Int64? {
-        await findChannel(title: "xCloud Vault")
+        await findChannel(title: "Cascade Vault")
     }
 
-    /// Same discovery as `findVaultChannel` but for the "xCloud Backup" channel
+    /// Same discovery as `findVaultChannel` but for the "Cascade Backup" channel
     /// (Engine/BackupSync.swift mirrors every vault message into it). Adopts an
-    /// older "xCloud Restore" channel if present and renames it to the new title.
+    /// older "Cascade Restore" channel if present and renames it to the new title.
     func findBackupChannel() async -> Int64? {
-        if let id = await findChannel(title: "xCloud Backup") {
+        if let id = await findChannel(title: "Cascade Backup") {
             return id
         }
-        if let id = await findChannel(title: "xCloud Restore") {
-            try? await client?.setChatTitle(chatId: id, title: "xCloud Backup")
+        if let id = await findChannel(title: "Cascade Restore") {
+            try? await client?.setChatTitle(chatId: id, title: "Cascade Backup")
             return id
         }
         return nil
@@ -903,7 +920,7 @@ final class TelegramClient {
     }
 
     /// Renames a chat when its current title differs — used to bring legacy
-    /// share channels (all titled "xCloud Shares") up to the per-slot naming.
+    // Cascade Shares") up to the per-slot naming.
     /// Errors are swallowed: naming is cosmetic, never share-critical.
     func renameChatIfNeeded(chatId: Int64, title: String) async {
         guard let client, let chat = try? await client.getChat(chatId: chatId) else { return }
@@ -1228,7 +1245,7 @@ final class TelegramClient {
             createsJoinRequest: false,
             expirationDate: Int(Date().timeIntervalSince1970) + Int(expiresIn),
             memberLimit: 1,
-            name: "xCloud share"
+            name: "Cascade share"
         )
         return link.inviteLink
     }
@@ -1243,7 +1260,7 @@ final class TelegramClient {
             createsJoinRequest: false,
             expirationDate: 0,
             memberLimit: 0,
-            name: "xCloud public share"
+            name: "Cascade public share"
         )
         return link.inviteLink
     }
@@ -1303,7 +1320,7 @@ final class TelegramClient {
     }
 
     /// Reads the share channel's messages (newest first) and returns those whose
-    /// caption carries the xCloud share prefix, ordered by message id ascending.
+    // Cascade share prefix, ordered by message id ascending.
     func shareChannelMessages(chatId: Int64, prefix: String) async throws -> [(messageId: Int64, caption: String)] {
         guard let client else { throw TelegramError.notInitialized }
         var result: [(messageId: Int64, caption: String)] = []
@@ -1415,7 +1432,7 @@ final class TelegramClient {
             atomically: true,
             encoding: .utf8
         )
-        print("xCloud debug: dumped \(lines.count) message(s) of chat \(chatId)")
+        print("Cascade debug: dumped \(lines.count) message(s) of chat \(chatId)")
     }
 
     /// Forwards a message into another chat and returns the new message's REAL

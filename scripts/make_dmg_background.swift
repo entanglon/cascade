@@ -1,5 +1,5 @@
 // make_dmg_background.swift
-// Renders the xCloud DMG background (660x400) matching the app's dark navy theme.
+// Cascade DMG background (660x400) matching the app's dark navy theme.
 // Usage: swift make_dmg_background.swift <icon.png> <output.png>
 // Coordinate system is bottom-left origin, matching dmgbuild's icon_locations.
 
@@ -77,7 +77,7 @@ func drawCentered(_ text: String, y: CGFloat, font: NSFont, color: NSColor) {
 }
 
 let wordmark = NSFont.systemFont(ofSize: 46, weight: .bold)
-drawCentered("xCloud", y: 318, font: wordmark, color: NSColor.white)
+drawCentered("Cascade", y: 318, font: wordmark, color: NSColor.white)
 
 let tagline = NSFont.systemFont(ofSize: 13, weight: .regular)
 drawCentered("Your private cloud — powered by Telegram", y: 288, font: tagline, color: NSColor(calibratedWhite: 0.62, alpha: 1.0))
@@ -159,7 +159,7 @@ if let icon = NSImage(contentsOfFile: iconPath) {
 }
 
 let appCaption = NSFont.systemFont(ofSize: 11, weight: .medium)
-let appLabel = "xCloud"
+let appLabel = "Cascade"
 let appLabelSize = (appLabel as NSString).size(withAttributes: [.font: appCaption])
 (appLabel as NSString).draw(
     at: NSPoint(x: appCenter.x - appLabelSize.width / 2, y: appCenter.y - slotSize / 2 - 22),
@@ -167,7 +167,7 @@ let appLabelSize = (appLabel as NSString).size(withAttributes: [.font: appCaptio
 )
 
 // ---- Bottom hint ----
-drawCentered("Drag xCloud to your Applications folder", y: 34, font: NSFont.systemFont(ofSize: 12, weight: .regular), color: NSColor(calibratedWhite: 0.45, alpha: 1.0))
+drawCentered("Drag Cascade to your Applications folder", y: 34, font: NSFont.systemFont(ofSize: 12, weight: .regular), color: NSColor(calibratedWhite: 0.45, alpha: 1.0))
 
 NSGraphicsContext.restoreGraphicsState()
 

@@ -17,7 +17,7 @@ struct AboutView: View {
                 .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
 
             VStack(spacing: 4) {
-                Text("xCloud")
+                Text("Cascade")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                 

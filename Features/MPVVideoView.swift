@@ -687,7 +687,7 @@ final class MPVLayer: CAOpenGLLayer {
             lastSurfaceH = h
             let dw = owner.getPropertyInt("video-out-params/dw") ?? -1
             let dh = owner.getPropertyInt("video-out-params/dh") ?? -1
-            print("xCloud gl: surface=\(w)x\(h) videoOut=\(dw)x\(dh) viewFrame=\(owner.frame)")
+            print("Cascade gl: surface=\(w)x\(h) videoOut=\(dw)x\(dh) viewFrame=\(owner.frame)")
         }
 
         glViewport(0, 0, GLsizei(w), GLsizei(h))
@@ -724,7 +724,7 @@ final class MPVLayer: CAOpenGLLayer {
 
 // MARK: - Hosting NSView Backed by CAOpenGLLayer
 final class MPVLayerView: NSView {
-    private static let mpvLogger = Logger(subsystem: "com.xcloud.app", category: "mpv")
+    private static let mpvLogger = Logger(subsystem: "com.cascade.app", category: "mpv")
 
     /// Guards mpvGL/mpv lifecycle against concurrent CAOpenGLLayer draws.
     fileprivate let renderLock = NSLock()
@@ -1463,7 +1463,7 @@ func mpvWakeUp(_ ctx: UnsafeMutableRawPointer?) {
 /// target window permanently unable to enter fullscreen (private AppKit
 /// state — only close+recreate recovers). Every fullscreen request in the app
 /// (player presentation, player toggle) is routed through this gate so that
-/// never happens. Registered at app launch (`xCloudApp.init`).
+// CascadeApp.init`).
 final class FullscreenTransitionGate {
     static let shared = FullscreenTransitionGate()
 
@@ -1561,7 +1561,7 @@ final class FullscreenTransitionGate {
 final class PlayerFullScreenWindow: NSObject, ObservableObject {
     static let shared = PlayerFullScreenWindow()
     /// NSWindow identifier used to locate the scene window from AppKit code.
-    static let windowTag = "xCloudFullscreenPlayer"
+    static let windowTag = "CascadeFullscreenPlayer"
 
     enum SessionKind {
         /// Player opened from the theater: the layer comes from the theater and
@@ -1799,11 +1799,11 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                 guard let self else { return event }
                 if event.keyCode == 53 {
                 if self.showExitWarning {
-                    print("xCloud player: ESC #2 — dismissing to theater")
+                    print("Cascade player: ESC #2 — dismissing to theater")
                     self.clearExitWarning()
                     self.dismiss()
                 } else {
-                    print("xCloud player: ESC #1 — showing exit hint")
+                    print("Cascade player: ESC #1 — showing exit hint")
                     self.showExitWarning = true
                     self.exitWarningTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
                         Task { @MainActor in self?.showExitWarning = false }
@@ -1827,7 +1827,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                   window.identifier?.rawValue == Self.windowTag,
                   window.styleMask.contains(.fullScreen)
             else { return }
-            print("xCloud player: minimize pressed in fullscreen — dismissing like ESC")
+            print("Cascade player: minimize pressed in fullscreen — dismissing like ESC")
             self.dismiss()
         }
         }
@@ -1846,13 +1846,13 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     @MainActor
     private func captureTheaterSnapshot() async {
         guard let theaterWindow = hostView?.window, theaterWindow.windowNumber > 0 else {
-            print("xCloud player: snapshot skipped — no theater window")
+            print("Cascade player: snapshot skipped — no theater window")
             return
         }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             guard let scWindow = content.windows.first(where: { Int($0.windowID) == theaterWindow.windowNumber }) else {
-                print("xCloud player: snapshot — SCWindow not found for \(theaterWindow.windowNumber)")
+                print("Cascade player: snapshot — SCWindow not found for \(theaterWindow.windowNumber)")
                 snapshotImage = nil
                 return
             }
@@ -1883,15 +1883,15 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                    flipped.maxX <= CGFloat(image.width), flipped.maxY <= CGFloat(image.height),
                    let cropped = image.cropping(to: flipped) {
                     snapshotImage = cropped
-                    print("xCloud player: captured theater snapshot \(cropped.width)x\(cropped.height) (cropped to video area \(rect))")
+                    print("Cascade player: captured theater snapshot \(cropped.width)x\(cropped.height) (cropped to video area \(rect))")
                     return
                 }
             }
             snapshotImage = image
-            print("xCloud player: captured theater snapshot \(image.width)x\(image.height) (uncropped)")
+            print("Cascade player: captured theater snapshot \(image.width)x\(image.height) (uncropped)")
         } catch {
             snapshotImage = nil
-            print("xCloud player: snapshot capture failed: \(error.localizedDescription) — live attach fallback")
+            print("Cascade player: snapshot capture failed: \(error.localizedDescription) — live attach fallback")
         }
     }
 
@@ -1966,7 +1966,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         if let screen = window.screen ?? NSScreen.main {
             window.setFrame(screen.frame, display: true, animate: false)
         }
-        print("xCloud player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen)) frame=\(window.frame) winScreen=\(String(describing: window.screen?.frame)) main=\(String(describing: NSScreen.main?.frame)) content=\(String(describing: window.contentView?.bounds.size))")
+        print("Cascade player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen)) frame=\(window.frame) winScreen=\(String(describing: window.screen?.frame)) main=\(String(describing: NSScreen.main?.frame)) content=\(String(describing: window.contentView?.bounds.size))")
 
         var didEnter = false
         var willObserver: NSObjectProtocol?
@@ -1976,7 +1976,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         ) { [weak window] _ in
             // Reveal at the START of the slide — this is what reads as the
             // window swiping into its own Space.
-            print("xCloud player: willEnterFullScreen reveal t=\(Date().timeIntervalSince1970)")
+            print("Cascade player: willEnterFullScreen reveal t=\(Date().timeIntervalSince1970)")
             window?.alphaValue = 1
             if let willObserver { NotificationCenter.default.removeObserver(willObserver) }
         }
@@ -1984,7 +1984,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
         ) { [weak self] _ in
             didEnter = true
-            print("xCloud player: didEnterFullScreen t=\(Date().timeIntervalSince1970)")
+            print("Cascade player: didEnterFullScreen t=\(Date().timeIntervalSince1970)")
             if let didObserver { NotificationCenter.default.removeObserver(didObserver) }
             // Ghost-window handoff: the live layer is still in the theater
             // (it never left); move it into the fullscreen container now and
@@ -2002,7 +2002,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self, self.entryGeneration == generation, !didEnter else { return }
             guard !window.styleMask.contains(.fullScreen) else { return }
-            print("xCloud player: watchdog — toggle ignored, recovering")
+            print("Cascade player: watchdog — toggle ignored, recovering")
             self.recoverIgnoredFullscreen(window)
         }
     }
@@ -2033,7 +2033,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                 }
                 return
             }
-            print("xCloud player: toggleFullScreen (direct) t=\(Date().timeIntervalSince1970)")
+            print("Cascade player: toggleFullScreen (direct) t=\(Date().timeIntervalSince1970)")
             window.toggleFullScreen(nil)
             return
         }
@@ -2044,14 +2044,14 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             playerView.frame = container.bounds
             playerView.autoresizingMask = [.width, .height]
             window.contentView?.layoutSubtreeIfNeeded()
-            print("xCloud player: attached video to container (fallback) \(container.bounds)")
+            print("Cascade player: attached video to container (fallback) \(container.bounds)")
         }
         guard playerContainer != nil else {
             // Container not mounted yet (SwiftUI content creation can take a
             // few hundred ms) — wait a beat and retry before toggling. If it
             // never mounts, abort cleanly: the video never left the theater.
             guard attempt < 50 else {
-                print("xCloud player: attach aborted — container never mounted")
+                print("Cascade player: attach aborted — container never mounted")
                 self.dismiss()
                 return
             }
@@ -2070,7 +2070,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             }
             return
         }
-        print("xCloud player: toggleFullScreen t=\(Date().timeIntervalSince1970)")
+        print("Cascade player: toggleFullScreen t=\(Date().timeIntervalSince1970)")
         window.toggleFullScreen(nil)
     }
 
@@ -2102,7 +2102,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             self?.snapshotImage = nil
         }
         videoLiveInFullscreen = true
-        print("xCloud player: live video swapped in at didEnter \(container.bounds)")
+        print("Cascade player: live video swapped in at didEnter \(container.bounds)")
     }
 
     /// Recovery ladder for a window whose fullscreen toggle was ignored (the
@@ -2123,7 +2123,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             window.collectionBehavior = behavior.union([.fullScreenPrimary])
             window.alphaValue = 0
             window.makeKeyAndOrderFront(nil)
-            print("xCloud player: recovery — soft reset")
+            print("Cascade player: recovery — soft reset")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self, self.entryGeneration == generation else { return }
                 self.configureAndEnter(window)
@@ -2131,12 +2131,12 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         } else if reopensDone < 2 {
             // Fresh window — the poisoned one cannot be fixed in place.
             reopensDone += 1
-            print("xCloud player: recovery — reopening scene (\(reopensDone))")
+            print("Cascade player: recovery — reopening scene (\(reopensDone))")
             reopenScene()
         } else {
             // Give up gracefully: visible windowed player; the controls'
             // fullscreen button remains as a manual fallback.
-            print("xCloud player: recovery exhausted — leaving player windowed")
+            print("Cascade player: recovery exhausted — leaving player windowed")
             window.alphaValue = 1
         }
     }
@@ -2172,7 +2172,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     func toggleFullScreen() {
         guard let window = Self.sceneWindow else { return }
         if window.styleMask.contains(.fullScreen) {
-            print("xCloud player: exit fullscreen button — dismissing to theater")
+            print("Cascade player: exit fullscreen button — dismissing to theater")
             dismiss()
             return
         }
@@ -2191,7 +2191,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     func dismiss() {
         guard isActive, !isDismissing else { return }
         isDismissing = true
-        print("xCloud player: dismiss t=\(Date().timeIntervalSince1970)")
+        print("Cascade player: dismiss t=\(Date().timeIntervalSince1970)")
         clearExitWarning()
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
@@ -2214,7 +2214,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     func sceneDidDisappear() {
         guard isDismissing || isActive else { return }
         isDismissing = true
-        print("xCloud player: sceneDidDisappear t=\(Date().timeIntervalSince1970)")
+        print("Cascade player: sceneDidDisappear t=\(Date().timeIntervalSince1970)")
         completeDismissal()
     }
 
@@ -2240,7 +2240,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             playerView.frame = hostView.bounds
             playerView.autoresizingMask = [.width, .height]
             videoLiveInFullscreen = false
-            print("xCloud player: returned to theater host=\(hostView.bounds) player=\(playerView.frame)")
+            print("Cascade player: returned to theater host=\(hostView.bounds) player=\(playerView.frame)")
             // Nudge the async GL layer to redraw at the new size — without
             // this it can sit on the stale fullscreen-size surface.
             playerView.needsDisplay = true
@@ -2254,7 +2254,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                     let dh = playerView.getPropertyInt("video-out-params/dh") ?? -1
                     let aw = playerView.getPropertyInt("video-params/w") ?? -1
                     let ah = playerView.getPropertyInt("video-params/h") ?? -1
-                    print("xCloud player: post-return t=\(delay) videoOut=\(dw)x\(dh) video=\(aw)x\(ah) view=\(playerView.frame.size)")
+                    print("Cascade player: post-return t=\(delay) videoOut=\(dw)x\(dh) video=\(aw)x\(ah) view=\(playerView.frame.size)")
                 }
             }
         }
@@ -2300,7 +2300,7 @@ private struct MPVLayerHost: NSViewRepresentable {
             snapLayer.frame = container.bounds
             snapLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
             container.layer?.addSublayer(snapLayer)
-            print("xCloud player: ghost snapshot layer mounted \(snap.width)x\(snap.height)")
+            print("Cascade player: ghost snapshot layer mounted \(snap.width)x\(snap.height)")
         }
         return container
     }
@@ -2600,7 +2600,7 @@ private struct FullscreenWindowConfigurator: NSViewRepresentable {
             // opened by restoration / the Window menu must stay visible.
             if PlayerFullScreenWindow.shared.isActive {
                 window.alphaValue = 0
-                print("xCloud player: configurator attach t=\(Date().timeIntervalSince1970) alpha=0")
+                print("Cascade player: configurator attach t=\(Date().timeIntervalSince1970) alpha=0")
             }
         }
     }

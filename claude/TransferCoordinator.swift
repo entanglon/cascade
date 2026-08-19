@@ -1,6 +1,6 @@
 //
 //  TransferCoordinator.swift
-//  xCloud
+// Cascade
 //
 //  Owns the set of active transfers and derives the FAB's phase from it.
 //  The rule that matters most: the appear/disappear morph is triggered ONLY

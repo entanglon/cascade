@@ -3,7 +3,7 @@ import SwiftUI
 /// Review sheet for a staged share file: the chunks are already forwarded
 /// into the recipient's own vault channel (streamable/previewable), but the
 /// file is NOT in the catalog until the user picks Import. Cancel deletes the
-/// forwarded copies from the vault channel — the file never shows in xCloud.
+/// forwarded copies from the vault channel — the file never shows in Cascade.
 struct PendingImportView: View {
     @Environment(AppState.self) private var appState
     let object: ObjectRecord
@@ -98,7 +98,7 @@ struct PendingImportView: View {
                 } label: {
                     Label("Cancel", systemImage: "trash")
                 }
-                .help("Deletes the copy from your cloud — it never shows in xCloud")
+                .help("Deletes the copy from your cloud — it never shows in Cascade")
                 Button {
                     isResolving = true
                     appState.confirmPendingImport()

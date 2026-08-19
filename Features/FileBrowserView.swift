@@ -245,7 +245,7 @@ struct FileBrowserView: View {
             } message: {
                 Text("Are you sure you want to permanently delete all items in the Trash? This action cannot be undone.")
             }
-            .alert("xCloud", isPresented: Binding(
+            .alert("Cascade", isPresented: Binding(
                 get: { appState.alertMessage != nil },
                 set: { if !$0 { appState.alertMessage = nil } }
             )) {
@@ -1297,7 +1297,7 @@ struct FileBrowserView: View {
     }
 
     private static let keyNavLogger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "keynav"
     )
 
@@ -3082,8 +3082,8 @@ final class FileBrowserKeyView: NSView {
 
 // MARK: - Share Link Sheet
 
-/// Shown after the sender creates a share: presents the xCloud share link so it can
-/// be copied and sent to another xCloud user. The link IS the credential — it carries
+// Cascade share link so it can
+// Cascade user. The link IS the credential — it carries
 /// the (base64) share key that unwraps the file's object key, so only someone holding
 /// the link can import the file. The share channel lives 7 days, then the cleanup
 /// loop deletes it (revoking the link).

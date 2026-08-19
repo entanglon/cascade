@@ -10,7 +10,7 @@ actor DatabaseManager {
     static let shared = DatabaseManager()
 
     private var pool: DatabasePool?
-    private let logger = Logger(subsystem: "com.xcloud.app", category: "database")
+    private let logger = Logger(subsystem: "com.cascade.app", category: "database")
 
     func start() throws {
         guard pool == nil else { return }
@@ -307,7 +307,7 @@ actor DatabaseManager {
             }
         }
         // Backup mirror channel: every vault-channel message is forwarded into a
-        // second private channel ("xCloud Backup") for disaster recovery.
+        // second private channel ("Cascade Backup") for disaster recovery.
         migrator.registerMigration("v20-backup-channel") { db in
             try db.alter(table: "vaults") { t in
                 t.add(column: "backupChannelID", .integer)
@@ -382,7 +382,7 @@ actor DatabaseManager {
         try migrator.migrate(newPool)
         pool = newPool
 
-        logger.info("xCloud database ready")
+        logger.info("Cascade database ready")
     }
 
     func read<T>(_ query: (Database) throws -> T) throws -> T {
@@ -950,7 +950,7 @@ actor DatabaseManager {
 
     func clearObjects() throws {
         let count = (try? read { db in try ObjectRecord.fetchCount(db) }) ?? 0
-        print("xCloud DB: clearObjects() wiping \(count) objects (DESTRUCTIVE — resetVault only)")
+        print("Cascade DB: clearObjects() wiping \(count) objects (DESTRUCTIVE — resetVault only)")
         try write { db in
             _ = try ChunkRecord.deleteAll(db)
             _ = try ObjectRecord.deleteAll(db)

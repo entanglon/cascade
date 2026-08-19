@@ -13,7 +13,7 @@ enum LoginStep {
 
 /// A country entry for the login dial-code picker: ISO alpha-2 code, display name
 /// and international dial code. Flag artwork is bundled as real PNGs in
-/// `xCloud/Flags/{CODE}.png` (loaded via `CountryFlagView`) — no emoji flags.
+// Cascade/Flags/{CODE}.png` (loaded via `CountryFlagView`) — no emoji flags.
 struct Country: Identifiable, Hashable {
     let code: String
     let name: String
@@ -313,7 +313,7 @@ struct LoginStepsView: View {
         case password
     }
 
-    private let logger = Logger(subsystem: "com.xcloud.app", category: "login")
+    private let logger = Logger(subsystem: "com.cascade.app", category: "login")
 
     private var currentStep: LoginStep {
         switch TelegramClient.shared.authStep {

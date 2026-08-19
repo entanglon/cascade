@@ -16,7 +16,7 @@ import os
 final class VideoStreamingEngine {
     static let shared = VideoStreamingEngine()
 
-    private static let logger = Logger(subsystem: "com.xcloud.app", category: "stream")
+    private static let logger = Logger(subsystem: "com.cascade.app", category: "stream")
 
     private let stateLock = NSLock()
     private var layouts: [String: ObjectLayout] = [:]

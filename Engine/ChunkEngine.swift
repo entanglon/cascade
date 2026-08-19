@@ -7,7 +7,7 @@ enum ChunkEngineError: Error, Sendable {
 
 enum ChunkEngine {
     private static let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "engine"
     )
 

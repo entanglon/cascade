@@ -36,7 +36,7 @@ struct LoginGateView: View {
     private var card: some View {
         VStack(spacing: 22) {
             VStack(spacing: 6) {
-                Text("xCloud")
+                Text("Cascade")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
 

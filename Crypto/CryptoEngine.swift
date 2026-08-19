@@ -18,7 +18,7 @@ enum CryptoEngine {
     static let sealedSliceSize = sliceSize + 28
     
     private static let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "crypto"
     )
     

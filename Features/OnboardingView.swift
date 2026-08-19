@@ -18,7 +18,7 @@ struct OnboardingView: View {
                         .foregroundStyle(XTheme.accent)
                 }
 
-                Text("Welcome to xCloud")
+                Text("Welcome to Cascade")
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(.white)
 

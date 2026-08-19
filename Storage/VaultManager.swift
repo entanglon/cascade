@@ -5,12 +5,12 @@ import TDLibKit
 import os
 
 enum VaultManager {
-    private static let logger = Logger(subsystem: "com.xcloud.app", category: "vault")
+    private static let logger = Logger(subsystem: "com.cascade.app", category: "vault")
 
     /// Returns the existing vault, or creates a private Telegram channel vault.
     ///
     /// On a fresh install/device (empty local DB) this first searches the account's
-    /// existing Telegram chats for a previously-created "xCloud Vault" channel and
+    /// existing Telegram chats for a previously-created "Cascade Vault" channel and
     /// adopts it, so files uploaded on another device reappear instead of the app
     /// silently creating a brand-new empty channel.
     static func ensureVault() async throws -> VaultRecord {
@@ -56,7 +56,7 @@ enum VaultManager {
             let vaultKey = SymmetricKey(size: .bits256)
             wrapped = try CryptoEngine.wrap(vaultKey, with: master)
             chatID = try await TelegramClient.shared
-                .createVaultChannel(title: "xCloud Vault")
+                .createVaultChannel(title: "Cascade Vault")
             logger.info("Created new vault channel \(chatID)")
         }
 
@@ -64,7 +64,7 @@ enum VaultManager {
             id: UUID().uuidString,
             accountID: accountID,
             channelID: chatID,
-            name: "xCloud Vault",
+            name: "Cascade Vault",
             wrappedKey: wrapped,
             createdAt: .now
         )
@@ -270,7 +270,7 @@ enum VaultManager {
         logger.info("Removed \(stale.count) stale vault key record(s)")
     }
 
-    /// Returns the "xCloud Backup" channel, adopting an existing one or creating
+    /// Returns the "Cascade Backup" channel, adopting an existing one or creating
     /// it fresh, archived + muted like the vault itself. Every message the app
     /// posts to the vault channel is mirrored into it (Engine/BackupSync.swift).
     static func ensureBackupChannel() async -> Int64? {
@@ -281,7 +281,7 @@ enum VaultManager {
         let backupID: Int64
         if let found = await TelegramClient.shared.findBackupChannel() {
             backupID = found
-        } else if let created = try? await TelegramClient.shared.createVaultChannel(title: "xCloud Backup") {
+        } else if let created = try? await TelegramClient.shared.createVaultChannel(title: "Cascade Backup") {
             backupID = created
         } else {
             return nil

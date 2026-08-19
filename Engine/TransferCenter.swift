@@ -6,7 +6,7 @@ extension Notification.Name {
     /// Posted (on the main actor) whenever an upload finishes successfully, so the
     /// file browser can refresh in real time regardless of how the upload was started
     /// (fresh upload, resume, or retry).
-    static let xCloudUploadFinished = Notification.Name("xCloudUploadFinished")
+    static let cascadeUploadFinished = Notification.Name("cascadeUploadFinished")
 }
 
 @MainActor
@@ -73,14 +73,14 @@ final class TransferCenter {
 
     // MARK: - Persistence (transfer history)
 
-    /// Tests run against the app's real database file (see xCloudTests), so the
+    // CascadeTests), so the
     /// engine must not write history rows while XCTest is driving it — the tests use
     /// fake object IDs and would pollute the user's actual transfer history.
     private var persistenceEnabled: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     }
 
-    private let logger = Logger(subsystem: "com.xcloud.app", category: "transfers")
+    private let logger = Logger(subsystem: "com.cascade.app", category: "transfers")
 
     /// Persists a finished (complete/failed) transfer so it survives app restarts.
     /// One row per object: a new attempt supersedes the previous history row (and
@@ -228,7 +228,7 @@ final class TransferCenter {
         cancelHandlers.removeValue(forKey: id)
         persist(items[i])
         if success, items[i].direction == .upload {
-            NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
+            NotificationCenter.default.post(name: .cascadeUploadFinished, object: nil)
         }
     }
 

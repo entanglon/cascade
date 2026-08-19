@@ -1,6 +1,6 @@
 //
 //  MetaballGlassStack.swift
-//  xCloud
+// Cascade
 //
 //  Fallback renderer for pre-macOS-26 targets, or for when you want tighter
 //  choreographic control over the neck than GlassEffectContainer's

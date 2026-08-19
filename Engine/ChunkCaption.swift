@@ -1,8 +1,8 @@
 import Foundation
 
-/// Unified xCloud caption codec.
+// Cascade caption codec.
 ///
-/// Every xCloud payload caption shares ONE prefix (`xcloud:`) followed by JSON
+// Cascade payload caption shares ONE prefix (`xcloud:`) followed by JSON
 /// that self-describes its `kind` — so a vault chunk, a share-channel copy and a
 /// forwarded message are all the SAME message type, and any reader can parse any
 /// copy:
@@ -75,9 +75,9 @@ enum ChunkCaption {
         return unifiedPrefix + json
     }
 
-    /// Parses any xCloud caption — unified (`xcloud:`), legacy vault
+    // Cascade caption — unified (`xcloud:`), legacy vault
     /// (`xcloud:v1:`) or legacy share (`xcloud:share:v1:`) — into normalized
-    /// fields. Nil for captions that aren't xCloud payloads.
+    // Cascade payloads.
     static func parse(_ caption: String) -> Meta? {
         let json: String
         if caption.hasPrefix(legacySharePrefix) {

@@ -8,9 +8,9 @@ struct TelegramCredentials: Sendable {
 }
 
 enum KeychainStore {
-    // Keychain space is scoped to the bundle ID so the dev build (…xCloud.dev) and the
-    // released app (…xCloud) never share Telegram credentials or vault keys.
-    static let service = Bundle.main.bundleIdentifier ?? "com.nemesys.xcloud.xCloud"
+    // Cascade.dev) and the
+    // Cascade) never share Telegram credentials or vault keys.
+    static let service = Bundle.main.bundleIdentifier ?? "com.cascade.app"
 
     private static let masterKeyAccount = "master-key"
     private static let telegramAccount = "telegram-credentials"

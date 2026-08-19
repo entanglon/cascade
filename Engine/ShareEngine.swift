@@ -3,7 +3,7 @@ import CryptoKit
 import TDLibKit
 import os
 
-/// Cloud-to-cloud sharing between two xCloud users.
+// Cascade users.
 ///
 /// Sender: the file's vault chunk messages are FORWARDED (reference copies —
 /// zero re-upload, any size) into a channel from the pool. PRIVATE shares each
@@ -33,13 +33,13 @@ enum ShareEngine {
     static let privatePoolSize = 5
 
     /// Per-slot channel titles, so Telegram shows WHICH channel is which: the
-    /// persistent public channel is "xCloud OC" (open channel — home of every
-    /// everlasting public link), private pool slots are "xCloud PC1"…"xCloud
+    /// persistent public channel is "Cascade OC" (open channel — home of every
+    /// everlasting public link), private pool slots are "Cascade PC1"…"Cascade
     /// PC5" (private channels — one expiring private link each). All of them
     /// are private Telegram channels; the difference is what they carry.
     static func poolChannelTitle(id: Int64, kind: ShareKind) -> String {
-        if kind == .public { return "xCloud OC" }
-        return "xCloud PC\(id)"
+        if kind == .public { return "Cascade OC" }
+        return "Cascade PC\(id)"
     }
 
     /// Short label drawn on the channel's profile photo (matches
@@ -67,13 +67,13 @@ enum ShareEngine {
     }
 
     private static let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "share"
     )
 
     // MARK: - Link codec
 
-    /// `xcloud://share?v=2&id=…&ch=…&inv=…&key=…&name=…&exp=…&m=…&w=…[&f=…]`
+    /// `cascade://share?v=2&id=…&ch=…&inv=…&key=…&name=…&exp=…&m=…&w=…[&f=…]`
     /// The `key` (the share secret) is what authorizes the file — the link IS the
     /// credential, so a one-time invite (memberLimit 1) keeps the channel closed
     /// to everyone except whoever holds the link.
@@ -136,10 +136,10 @@ enum ShareEngine {
 
         static func parse(_ raw: String) -> ShareLink? {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Obfuscated form: `xcloud://share#<base64url blob>`. Decrypt it back
+            // Obfuscated form: `cascade://share#<base64url blob>`. Decrypt it back
             // to the plaintext link and parse that — the transported form carries no
             // visible invite link, channel id or key material.
-            if trimmed.hasPrefix("xcloud://share#") {
+            if trimmed.hasPrefix("cascade://share#") {
                 guard let plain = try? ShareEngine.deobfuscate(trimmed) else { return nil }
                 return parse(plain)
             }
@@ -748,14 +748,9 @@ enum ShareEngine {
             await TelegramClient.shared.setMessageAutoDelete(chatId: channelID)
         }
         await TelegramClient.shared.archiveVaultChannel(chatId: channelID)
-        // Brand the channel: pool slots carry their slot label (PC1…PC5, each
-        // with its own hue) so they're distinguishable in the chat list; the
-        // public channel is "OC" (and its photo shows on t.me link previews).
-        await TelegramClient.shared.setChannelPhoto(
-            chatId: channelID,
-            label: poolAvatarLabel(id: id, kind: kind),
-            hue: poolAvatarHue(id: id, kind: kind)
-        )
+        // Brand the channel with the appropriate icon.
+        let pngName = kind == .public ? "oc" : "pc"
+        await TelegramClient.shared.setChannelPhoto(chatId: channelID, pngNamed: pngName)
         let invite = (try? await TelegramClient.shared.createPermanentShareInvite(chatId: channelID)) ?? ""
         var state = ShareChannelState(
             id: id,
@@ -777,31 +772,23 @@ enum ShareEngine {
         guard !underXCTest else { return }
         if let vault = try? await DatabaseManager.shared.firstVault() {
             if !(await TelegramClient.shared.hasChannelPhoto(chatId: vault.channelID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: vault.channelID, label: "Vault", hue: 0.58)
+                await TelegramClient.shared.setChannelPhoto(chatId: vault.channelID, pngNamed: "cascade")
             }
             if let backupID = vault.backupChannelID,
                !(await TelegramClient.shared.hasChannelPhoto(chatId: backupID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: backupID, label: "Backup", hue: 0.35)
+                await TelegramClient.shared.setChannelPhoto(chatId: backupID, pngNamed: "backup")
             }
         }
         for slot in 1...Int64(privatePoolSize) {
             guard let state = try? await DatabaseManager.shared.shareChannelState(id: slot),
                   await TelegramClient.shared.chatExists(chatId: state.channelID),
                   !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) else { continue }
-            await TelegramClient.shared.setChannelPhoto(
-                chatId: state.channelID,
-                label: poolAvatarLabel(id: state.id, kind: .private),
-                hue: poolAvatarHue(id: state.id, kind: .private)
-            )
+            await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "pc")
         }
         if let state = try? await DatabaseManager.shared.shareChannelState(id: publicChannelRowID),
            await TelegramClient.shared.chatExists(chatId: state.channelID),
            !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
-            await TelegramClient.shared.setChannelPhoto(
-                chatId: state.channelID,
-                label: poolAvatarLabel(id: state.id, kind: .public),
-                hue: poolAvatarHue(id: state.id, kind: .public)
-            )
+            await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "oc")
         }
     }
 
@@ -1141,7 +1128,7 @@ enum ShareEngine {
             updated.fileName = finalName
             try? await DatabaseManager.shared.saveShare(updated)
         }
-        NotificationCenter.default.post(name: .xCloudUploadFinished, object: nil)
+        NotificationCenter.default.post(name: .cascadeUploadFinished, object: nil)
         logger.info("Pending import \(objectID): imported as \(finalName) (\(chunks.count) chunks)")
         return finalName
     }
@@ -1368,7 +1355,7 @@ enum ShareEngine {
     // MARK: - Link obfuscation
 
     /// Wraps a plaintext share link so it travels as an opaque blob:
-    /// `xcloud://share#<base64url(key || AES-GCM(link))>`. The random key rides
+    /// `cascade://share#<base64url(key || AES-GCM(link))>`. The random key rides
     /// inside the blob so the recipient's app can unwrap it — this is OBFUSCATION,
     /// not end-to-end secrecy (the link is the credential either way: anyone with
     /// the app could decode it). What it buys: no visible t.me invite, channel id
@@ -1380,11 +1367,11 @@ enum ShareEngine {
         guard let combined = sealed.combined else { throw ShareError.invalidLink }
         var blob = key.withUnsafeBytes { Data($0) }
         blob.append(combined)
-        return "xcloud://share#" + base64URLEncode(blob)
+        return "cascade://share#" + base64URLEncode(blob)
     }
 
     static func deobfuscate(_ raw: String) throws -> String {
-        guard raw.hasPrefix("xcloud://share#"), let hash = raw.firstIndex(of: "#") else {
+        guard raw.hasPrefix("cascade://share#"), let hash = raw.firstIndex(of: "#") else {
             throw ShareError.invalidLink
         }
         let b64 = String(raw[raw.index(after: hash)...])
@@ -1427,9 +1414,9 @@ enum ShareEngine {
             case .notShareable: return "Only files can be shared."
             case .notShareablePrivate: return "Private files can't be shared — move them out of the Private Vault first."
             case .sourceUnavailable: return "This file has no uploaded chunks in the vault to forward."
-            case .invalidLink: return "That doesn't look like a valid xCloud share link."
+            case .invalidLink: return "That doesn't look like a valid Cascade share link."
             case .expired: return "This share link has expired."
-            case .invalidPayload: return "The share channel doesn't contain a valid xCloud file."
+            case .invalidPayload: return "The share channel doesn't contain a valid Cascade file."
             case .privatePoolFull: return "5 private shares are already active — cancel one on the Shared page, or make this share public instead."
             case .createFailed(let message): return "Couldn't create the share channel. \(message)"
             case .uploadFailed(let message): return "Forwarding the shared file failed. \(message)"

@@ -25,7 +25,7 @@ enum DownloadError: Error, Sendable, LocalizedError {
 
 enum DownloadEngine {
     private static let logger = Logger(
-        subsystem: "com.xcloud.app",
+        subsystem: "com.cascade.app",
         category: "download"
     )
 
