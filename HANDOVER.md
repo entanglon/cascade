@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20: user-supplied Cascade icon revision adopted and Debug app relaunched. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20: Public/icon.png optimized and applied as macOS AppIcon. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2408,6 +2408,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       `actool` asset compilation); prior Debug process stopped and the rebuilt
       `Cascade.app` launched. **No Release build** — user policy. Commit:
       `15ce81c`.
+
+96. **Public/icon.png optimized and applied as macOS AppIcon (2026-08-20 — COMMITTED)**
+    (`Public/icon.png`, `icon.png`, `xCloud/Assets.xcassets/AppIcon.appiconset/`)
+    - User supplied a tightly cropped 1238×1238 `Public/icon.png` (eliminating the
+      8 px outer border padding).
+    - Losslessly optimized PNG compression for `Public/icon.png` and copied to root
+      `icon.png`.
+    - Regenerated all 10 macOS AppIcon asset catalog renditions with Lanczos
+      resampling and maximum compression.
+    - Debug build **SUCCEEDED**, full test suite **TEST SUCCEEDED** (64: 56 unit +
+      4 UI + 4 launch), Debug app relaunched. **No Release build** — user policy.
 
 ## 5. Pending / next steps
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**

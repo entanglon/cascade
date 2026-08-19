@@ -2,7 +2,26 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 — User-supplied Cascade icon revision adopted and Debug app restarted.
+> 2026-08-20 (night) — Public/icon.png optimized and applied as macOS AppIcon.
+
+---
+
+## 2026-08-20 (night) — Public/icon.png optimized and applied as macOS AppIcon
+
+The user supplied a cropped 1238×1238 `Public/icon.png` (eliminating the 8 px border padding from the previous 1254×1254 master) to be optimized, used as the app icon, built, and restarted.
+
+### Changes
+
+- Losslessly optimized `Public/icon.png` compression (reduced from 1.71 MB to 1.41 MB, ~17.3% smaller) and synchronized to the root `icon.png` master.
+- Regenerated all 10 required macOS asset catalog renditions in `xCloud/Assets.xcassets/AppIcon.appiconset/` using high-fidelity Lanczos resampling with max PNG compression across all scales (16×16, 32×32, 64×64, 128×128, 256×256, 512×512, and 1024×1024).
+- Rebuilt Debug application (`Cascade.app`).
+- Terminated running processes and relaunched `Cascade.app`.
+
+### Build / test
+
+- Build green (Debug).
+- Full test suite **TEST SUCCEEDED** (64 tests: 56 unit + 4 UI + 4 launch, 0 failures).
+- App running as `Cascade.app`. **No Release build** — user policy.
 
 ---
 
