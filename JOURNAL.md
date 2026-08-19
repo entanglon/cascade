@@ -2,7 +2,22 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Public/icon.png optimized and applied as macOS AppIcon.
+> 2026-08-20 (late night) — Client-side zero-knowledge encryption & secure sharing architecture design.
+
+---
+
+## 2026-08-20 (late night) — Client-side zero-knowledge encryption & secure sharing architecture design
+
+Thorough security review and architectural design for re-introducing end-to-end client-side encryption across the entire upload, download, streaming, and sharing pipelines without requiring a central backend.
+
+### Key Conclusions & Architecture Decisions
+
+1. **Risk Analysis**: Unencrypted uploads expose binary headers (`mp4`, `mkv`, `zip`, `pdf`) and plaintext captions (`name`, `mime`) to automated Telegram AI/perceptual hash scanners, risking channel bans and data loss.
+2. **Envelope Encryption & Serverless Sharing**: Files are encrypted with random 256-bit keys ($K_{\text{file}}$). Sharing forwards ciphertext messages server-side via Telegram (zero download/upload bandwidth), embedding $K_{\text{file}}$ into the URL `#` fragment. The recipient claims ownership by re-wrapping $K_{\text{file}}$ under their own master key.
+3. **Password-Protected Share Links**: Sensitive shares derive a link key via PBKDF2 from a user-defined password, sealing $K_{\text{file}}$ with AES-GCM. Intercepted links are unreadable without the password.
+4. **Random-Access Streaming**: 1 MB slice-based encryption (`CryptoEngine`) allows `VaultStreamServer` to decrypt byte ranges on-the-fly directly into `mpv` with $O(1)$ seek latency and zero plaintext disk footprint.
+5. **Sanitized Captions & Compressed Snapshots**: Telegram chunk captions stripped of sensitive file names and MIME types; `CatalogSnapshot` database checkpoints encrypted and compressed with gzip (~85-90% size reduction).
+6. **Implementation Plan Created**: Complete specification saved in `implementation_plan.md`.
 
 ---
 

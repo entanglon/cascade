@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20: Public/icon.png optimized and applied as macOS AppIcon. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (late night): Client-side zero-knowledge encryption & secure sharing architecture designed (see implementation_plan.md). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2421,7 +2421,23 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       4 UI + 4 launch), Debug app relaunched. **No Release build** — user policy.
       Commit: `fb5484f`.
 
+97. **Client-side zero-knowledge encryption & secure sharing architecture (2026-08-20 — PLANNED)**
+    (`Crypto/CryptoEngine.swift`, `Engine/UploadEngine.swift`, `Engine/DownloadEngine.swift`,
+    `Engine/ShareEngine.swift`, `Engine/VaultStreamServer.swift`, `Storage/CatalogSnapshot.swift`)
+    - Designed full serverless zero-knowledge architecture to eliminate Telegram AI/content-scan risks.
+    - 1 MB slice-based AES encryption with random-access streaming into `mpv`.
+    - Cloud-to-cloud zero-download sharing with key delivery in URL `#` fragment.
+    - Password-protected share links via PBKDF2 key derivation.
+    - Metadata/caption sanitization and gzip-compressed snapshot backups.
+    - Detailed blueprint saved in `implementation_plan.md`.
+
 ## 5. Pending / next steps
+- **NEXT (Planned): Client-Side Encryption & Secure Sharing Pipeline** (HANDOVER item 97, see `implementation_plan.md`):
+  - Phase 1: `CryptoEngine` slice encryption/decryption + link key derivation.
+  - Phase 2: `UploadEngine` encrypted chunk uploads + `ChunkCaption` metadata sanitization.
+  - Phase 3: `VideoStreamingEngine` + `VaultStreamServer` in-memory slice decryption for `mpv`.
+  - Phase 4: `ShareEngine` zero-download key exchange + password-protected links.
+  - Phase 5: `CatalogSnapshot` gzip compression + snapshot encryption.
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
   (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the
   24h server-side TTL; user confirmed it was an intentional feature (private
