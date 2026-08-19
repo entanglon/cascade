@@ -30,6 +30,16 @@
    state code paths with `file:line`.
 7. **Ask before big structural moves.** Anything that renames files, restructures
    folders, or changes DB schema beyond an additive migration: propose first.
+8. **External model help (Qwen / Claude via the user).** The user keeps separate
+   chats with Qwen and Claude as consultants. Whenever I'm stuck — a bug that
+   resists root-causing, an Apple API behavior that contradicts docs/harness
+   evidence, a design choice with several options — STOP guessing and ask the
+   user to forward a help prompt. The prompt must be SELF-CONTAINED (repo
+   context, exact `file:line`, a short code excerpt, what was tried + results,
+   the specific question) so the consultant can answer without the repo. The
+   user pastes the reply back; verify the suggestion against the code before
+   implementing. Do not burn hours on a problem the user's consultants could
+   answer in minutes.
 
 ## 2. Build / test / run
 
