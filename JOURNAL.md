@@ -2,9 +2,49 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 — User confirmed fullscreen fix; NEW deferred item: smooth fullscreen transition (window pops up overlaid, then fullscreen — want flux/Apple-style swipe).
+> 2026-08-19 (evening) — Flashless fullscreen entry (transition gate + alpha-0), ESC-like minimize/exit buttons, folders recovered from channel deltas.
 
 ---
+
+## 2026-08-19 (evening) — Flashless fullscreen entry (transition gate + alpha-0), ESC-like minimize/exit buttons, folders recovered from the channel delta log
+
+Two tracks this session.
+
+### Track 1 — Folders "missing from the cloud" → actually missing from the LOCAL catalog; repair fixed + healed from deltas
+
+**User report**: "all folders missing from the All Files page — every file flattened at root".
+
+**Diagnosis (answered before fixing)**: folders were NEVER lost from the cloud — the vault channel still has all 6 folder metadata messages (Books/Images/Audios/Videos unified + legacy `xcloud:v1:` Video/Audio), and every file's chunk caption still carries its `parentID`. The LOCAL catalog lost the folder records (first cause unknown; candidates: undo of a folder creation — `registerUndo` delete at AppState.swift:1512-1518 — or a restore from a folderless checkpoint). Three bugs then made the loss permanent:
+1. `VaultRepair.run()` caption-extraction switch lacks `.messageText` — folders are sent as TEXT messages, so the scan could never rebuild them.
+2. `ChunkCaption.parse` REQUIRED `index`; legacy folder captions lack it → they didn't parse at all.
+3. The orphan-flatten (VaultRepair.swift:263) set files' `parentID = nil` with NO check whether the cloud still knows the folder.
+Plus: a folderless state got published as the authoritative checkpoint (`publishCheckpointFromLocal` collapse guard counts only files).
+
+**Fix** (`Storage/VaultRepair.swift`, `Engine/ChunkCaption.swift`): scan handles `.messageText`; `isFolder` also true via mime `xcloud/folder`; `channelKnownFolderIDs` collected from folder captions + all file captions' parentIDs; the folder's linkage chunk row (size-0) is recreated when missing (keeps rename-edit linkage, prevents duplicate metadata messages/resurrection); flatten runs only when the parentID is unknown BOTH locally and in the channel. `ChunkCaption.parse` defaults `index` to 0.
+
+**Recovery (the heal in action)**: on the next launch, `CatalogSnapshot.upload()`'s reconcile merged the channel DELTAS (which contained the folder records) back into the local catalog before the repair scan ran — DB now has 6 folders (Books 5, Images 4, Audios 3, Videos 2 files inside), 6 linkage chunk rows, 27 objects (21 files + 6 folders), `repair scan changed=false`. Nothing new to publish ("reconciled, nothing new to publish" ×3) — the cloud never needed the fix; the local catalog is healed.
+
+### Track 2 — Fullscreen player: flashless entry + exit polish (completes deferred item 86)
+
+**Goal** (deferred from the morning session): the player must appear to swipe straight into its own Space — flux/Apple TV feel, no pop-up in the normal Space.
+
+**Root cause of the remaining flash**: `configureAndEnter` set alpha-0 only at window-found (0.02–0.1s after creation) — the window was visible in between. The configurator now sets alpha-0 at ATTACH (frame 1, guarded on `isActive` so restoration/Window-menu windows stay visible).
+
+**AppKit landmine (Qwen + Claude consultant consensus, AGENTS rule 8)**: macOS runs at most one fullscreen Space transition at a time; `toggleFullScreen` during another window's transition is SILENTLY IGNORED and the target window is PERMANENTLY POISONED (only close+recreate recovers). Implemented `FullscreenTransitionGate` (Features/MPVVideoView.swift): observes will/did Enter+Exit (object:nil), FIFO pairing, 3.5s force-settle watchdog. Only 4 fullscreen notifications exist (no didFail variants). `present()` queues via `runWhenIdle` while transitioning; controls `toggleFullScreen` gate-guarded. **Swift globals are lazy, even module-level** — the gate is touched in `xCloudApp.init()` (harness-proven: App.init runs at process start).
+
+**Entry ladder**: `enterFullscreenSafely(attempt:)` (window-found ladder 0.02/0.1/0.3/0.6s, gate re-check, `.insert(.fullScreenPrimary)`, `tabbingMode = .disallowed`, black background, alpha-0, reveal at `willEnterFullScreen`, `didEnter` confirm, entryGeneration guards stale closures, 0.7s watchdog → `recoverIgnoredFullscreen`: soft reset → reopen fresh scene (≤2, `reopensDone` reset in presentNow) → alpha-1 windowed fallback). Harness-validated: gate queued a player request during the main window's transition and opened it after settle (fs=1 held); normal case attach→alpha0→toggle→willEnter reveal ~7ms.
+
+**Exit polish (user-driven)**:
+- OS **minimize** button (traffic light) on the fullscreen player now dismisses to the theater like ESC (`willMiniaturize` observer, gated on `.fullScreen` styleMask; windowed minimize keeps dock behavior).
+- Controls' **exit-fullscreen button** now dismisses to the theater when fullscreen; only toggles INTO fullscreen when the window is windowed (recovery fallback).
+
+**Regression found + fixed (this session)**: `updateNSViewController` re-asserted the player frame on EVERY SwiftUI update — while the player is re-parented into the fullscreen window, every controls re-render clobbered its frame to the theater size → video shifted/small in fullscreen (and the ESC flow LOOKED broken — the state after exit was wrong). Guarded: assert only when `superview === controller.view`.
+
+**Diagnostics kept**: GL surface-size-change log (`xCloud gl: surface=WxH videoOut=WxH viewFrame=…`) + post-return fit samples (`xCloud player: post-return …`). mpv client API 2.3 (modern — FBO-size reconfig handled internally; `video-out-params` mirrors input params on this build, so it is not a fit oracle).
+
+**Verification**: harness runs (gate/alpha/reveal); build green; full suite **TEST SUCCEEDED** (59 unit + 4 UI + 4 launch, 0 failures); user by eye: transition "much much better, almost perfect"; video fit + ESC×2 + exit button verified. Debug app relaunched. **No Release build** — user policy.
+
+**Commits**: `3a40113` (VaultRepair/ChunkCaption — folders) + `705bad5` (MPVVideoView/xCloudApp — fullscreen polish).
 
 ## 2026-08-19 — User confirmed the fullscreen fix; new item: smooth fullscreen transition (deferred to tomorrow)
 

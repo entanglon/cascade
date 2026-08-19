@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (fullscreen fix confirmed by user; transition smoothness deferred to 2026-08-20). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (evening): folders recovered from the channel delta log (item 87); fullscreen player transition gate + flashless entry + ESC-like minimize/exit buttons (item 88, completes deferred item 86). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2128,8 +2128,9 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       - **USER CONFIRMED WORKING** (same session). The player now opens in
         native fullscreen even when the app's main window is in fullscreen.
 
-86. **Fullscreen player transition smoothness (2026-08-19 — DEFERRED to
-      2026-08-20 by user)** (`Features/MPVVideoView.swift` + `App/xCloudApp.swift`)
+86. **Fullscreen player transition smoothness (2026-08-19 — DONE, completed
+      the same evening; see item 88)** (`Features/MPVVideoView.swift` +
+      `App/xCloudApp.swift`)
       - **User report (after 256f2e7 confirmed)**: the transition is not smooth
         — the player scene window first POPS UP OVERLAID in the normal Space,
         then animates into fullscreen, then lands in its own Space. Wanted: a
@@ -2144,14 +2145,104 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         does NOT auto-fullscreen its player — check what flux's transition
         actually feels like and whether a plain open (no auto-toggle) plus the
         windowed controls' toggle is what the user wants.
-      - NOT started — deferred by user. Tree clean, committed state `256f2e7`.
+      - **RESOLVED 2026-08-19 (evening)** — implemented as item 88 (transition
+        gate + alpha-0 at configurator attach; user: "much much better, almost
+        perfect").
+
+87. **Folders lost from the LOCAL catalog — repair fixed; healed from channel
+      deltas (2026-08-19 — COMMITTED)** (`Storage/VaultRepair.swift`,
+      `Engine/ChunkCaption.swift`)
+      - **User report**: "all folders missing from the All Files page — every
+        file flattened at root".
+      - **Diagnosis**: folders were NEVER lost from the cloud — the vault
+        channel still has all 6 folder metadata messages (Books/Images/
+        Audios/Videos unified + legacy `xcloud:v1:` Video/Audio; channel
+        `-1003757291622`) and every file's chunk caption still carries its
+        `parentID`. The LOCAL catalog lost the folder records (first cause
+        unknown; candidates: undo of a folder creation — `registerUndo` delete
+        AppState.swift:1512-1518 — or a restore from a folderless checkpoint).
+        Three bugs made the loss permanent:
+        1. `VaultRepair.run()` caption switch lacks `.messageText` (folders
+           are sent as TEXT messages) → scan could never rebuild them.
+        2. `ChunkCaption.parse` REQUIRED `index`; legacy folder captions lack
+           it → didn't parse.
+        3. Orphan-flatten (VaultRepair.swift:263) set `parentID = nil` without
+           checking whether the cloud still knows the folder.
+        Plus a folderless state got published as the authoritative checkpoint
+        (`publishCheckpointFromLocal` collapse guard counts only files).
+      - **Fix**: scan handles `.messageText`; `isFolder` also via mime
+        `xcloud/folder`; `channelKnownFolderIDs` collected from folder
+        captions + file captions' parentIDs; the folder's size-0 linkage chunk
+        row is recreated when missing (keeps rename-edit linkage, prevents
+        duplicate metadata messages/resurrection); flatten only when the
+        parentID is unknown locally AND in the channel. `ChunkCaption.parse`
+        defaults `index` to 0.
+      - **Recovery**: next launch's `CatalogSnapshot.upload()` reconcile
+        merged the channel DELTAS (which contained the folder records) back
+        into the local catalog before the scan ran — DB healed to 6 folders
+        (Books 5, Images 4, Audios 3, Videos 2 files inside), 6 linkage chunk
+        rows, 27 objects (21 files + 6 folders), `repair scan changed=false`,
+        "reconciled, nothing new to publish". Verified live via sqlite3 on
+        `~/Library/Application Support/xCloud/xCloud.sqlite`.
+      - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**
+        (59 unit + 4 UI + 4 launch, 0 failures). **No Release build** — user
+        policy.
+
+88. **Fullscreen player: transition gate + flashless alpha-0 entry; ESC-like
+      minimize/exit buttons (2026-08-19 — COMMITTED)** (`Features/MPVVideoView.swift`,
+      `App/xCloudApp.swift`)
+      - **Problem**: the remaining transition flash (window visible in the
+        normal Space before the slide) and — after the gate work — the OS
+        minimize button and the controls' exit-fullscreen button behaving
+        "wrong" (windowed box instead of back to the theater).
+      - **AppKit landmine (Qwen/Claude consultant consensus)**: macOS runs at
+        most one fullscreen Space transition at a time; a `toggleFullScreen`
+        during another window's transition is SILENTLY IGNORED and the target
+        window is PERMANENTLY POISONED (only close+recreate recovers).
+        `FullscreenTransitionGate` (observes will/did Enter+Exit object:nil,
+        FIFO pairing, 3.5s force-settle watchdog; only 4 fullscreen
+        notifications exist — no didFail variants) serializes all toggles:
+        `present()` queues via `runWhenIdle`; controls `toggleFullScreen()`
+        gate-guarded. Swift globals are lazy EVEN module-level → the gate is
+        touched in `xCloudApp.init()` (harness-proven: App.init runs at
+        process start).
+      - **Flashless entry**: alpha-0 at configurator attach (frame 1, guarded
+        on `isActive` — restoration/Window-menu windows stay visible) + in
+        `configureAndEnter`; reveal at `willEnterFullScreen` (start of the
+        slide); black background; tabbingMode disallowed; `.fullScreenPrimary`.
+        Watchdog: toggle ignored → recovery ladder (soft reset → reopen fresh
+        scene ≤2 → alpha-1 windowed fallback). Harness-validated: queued
+        request opened after the main window settled (fs=1 held); normal case
+        attach→alpha0→toggle→reveal ~7ms.
+      - **Exit polish**: OS minimize (traffic light) while fullscreen →
+        `dismiss()` to the theater like ESC (`willMiniaturize` observer gated
+        on `.fullScreen`; windowed minimize keeps dock behavior). Controls'
+        exit-fullscreen button → `dismiss()` when fullscreen; re-attempts
+        fullscreen only when windowed (recovery fallback).
+      - **Regression found + fixed**: `updateNSViewController` frame re-assert
+        clobbered the player's frame while it was re-parented into the
+        fullscreen window (every controls re-render → video shifted/small in
+        fullscreen; ESC flow looked broken). Guarded on
+        `superview === controller.view`.
+      - **Diagnostics kept**: GL surface-size-change log (`xCloud gl: surface=
+        WxH videoOut=WxH viewFrame=…`) + post-return fit samples. mpv client
+        API 2.3 (modern — FBO-size reconfig internal; `video-out-params`
+        mirrors input params on this build, not a fit oracle).
+      - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**
+        (59 unit + 4 UI + 4 launch, 0 failures). User by eye: "much much
+        better, almost perfect"; video fit + ESC×2 + minimize + exit button
+        verified. Debug app relaunched. **No Release build** — user policy.
 
 ## 5. Pending / next steps
-- **Fullscreen player transition smoothness (NEW 2026-08-19, deferred to
-  2026-08-20 by user):** the player scene window pops up overlaid, then
-  animates into fullscreen, then lands in its own Space — want a single
-  seamless swipe (flux/Apple style). See HANDOVER item 86 for the mechanism
-  and candidate approaches.
+- **DONE 2026-08-19 (evening): fullscreen player transition smoothness** —
+  transition gate + alpha-0 flashless entry + ESC-like minimize/exit buttons
+  (HANDOVER item 88). One follow-up if the user wants: the recovery fallback
+  path (toggle ignored → alpha-1 windowed player) is untested in the wild.
+- **Folders heal verified 2026-08-19 (evening):** the catalog was healed from
+  the channel deltas (6 folders + file parentIDs restored — HANDOVER item 87);
+  the FIRST cause of the folder-record loss (undo delete vs folderless
+  checkpoint restore) is still unknown — if folders ever vanish again, capture
+  the pre-launch DB + the last checkpoint payload before healing.
 - **Share E2E test (2026-08-16, user-driven):** install `xCloud-1.1.1.dmg`
   (production build, isolated data; fresh-install gate fix confirmed live — the
   API credentials form appears immediately, no splash deadlock), log in with a
