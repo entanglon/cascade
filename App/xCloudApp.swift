@@ -6,6 +6,13 @@ struct xCloudApp: App {
     @Environment(\.openWindow) private var openWindow
     @State private var appState = AppState()
 
+    init() {
+        // The fullscreen transition gate must observe every window's
+        // transition from the very first frame (Swift globals are lazy —
+        // touching it here guarantees registration before any window exists).
+        _ = FullscreenTransitionGate.shared
+    }
+
     var body: some Scene {
         // Single-instance `Window` (not `WindowGroup`): when macOS delivers an
         // `xcloud://` link while the app is running, a WindowGroup answers the

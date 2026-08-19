@@ -23,7 +23,14 @@ struct MPVVideoView: NSViewControllerRepresentable {
     }
 
     func updateNSViewController(_ nsViewController: MPVViewController, context: Context) {
-        // Updates handled via controller
+        // Re-assert the fill after SwiftUI re-layouts the theater — but ONLY
+        // while the player is actually hosted here. While the fullscreen
+        // window is active the layer is re-parented into it; touching its
+        // frame here would shrink/shift the video inside the fullscreen
+        // player (every PlayerControlsView re-render triggers this update).
+        if nsViewController.playerView.superview === nsViewController.view {
+            nsViewController.playerView.frame = nsViewController.view.bounds
+        }
     }
 
     static func dismantleNSViewController(_ nsViewController: MPVViewController, coordinator: Coordinator) {
@@ -549,6 +556,8 @@ final class MPVLayer: CAOpenGLLayer {
     private let frameLock = NSLock()
     private var hasNewFrame = false
     private var hasRenderedFirstFrame = false
+    private var lastSurfaceW: Int32 = 0
+    private var lastSurfaceH: Int32 = 0
 
     override init() {
         super.init()
@@ -668,6 +677,16 @@ final class MPVLayer: CAOpenGLLayer {
         guard w > 0 && h > 0 else {
             glFlush()
             return
+        }
+
+        // Diagnostics: the surface size must follow the view across the
+        // fullscreen → theater re-parent. Log on every size change.
+        if w != lastSurfaceW || h != lastSurfaceH {
+            lastSurfaceW = w
+            lastSurfaceH = h
+            let dw = owner.getPropertyInt("video-out-params/dw") ?? -1
+            let dh = owner.getPropertyInt("video-out-params/dh") ?? -1
+            print("xCloud gl: surface=\(w)x\(h) videoOut=\(dw)x\(dh) viewFrame=\(owner.frame)")
         }
 
         glViewport(0, 0, GLsizei(w), GLsizei(h))
@@ -1262,7 +1281,7 @@ final class MPVLayerView: NSView {
         return str
     }
 
-    private func getPropertyInt(_ name: String) -> Int? {
+    fileprivate func getPropertyInt(_ name: String) -> Int? {
         guard mpv != nil else { return nil }
         var value: Int64 = 0
         if mpv_get_property(mpv, name, MPV_FORMAT_INT64, &value) >= 0 { return Int(value) }
@@ -1437,12 +1456,97 @@ func mpvWakeUp(_ ctx: UnsafeMutableRawPointer?) {
 /// SwiftUI controls overlay (the same PlayerControlsView the windowed player uses)
 // MARK: - Player-only Full Screen Player
 
+/// App-wide serializer for native fullscreen transitions. macOS runs at most
+/// one fullscreen Space transition at a time; a `toggleFullScreen` issued
+/// while another window is mid-transition is SILENTLY IGNORED and leaves the
+/// target window permanently unable to enter fullscreen (private AppKit
+/// state — only close+recreate recovers). Every fullscreen request in the app
+/// (player presentation, player toggle) is routed through this gate so that
+/// never happens. Registered at app launch (`xCloudApp.init`).
+final class FullscreenTransitionGate {
+    static let shared = FullscreenTransitionGate()
+
+    private var activeTransitions = 0
+    private var pendingStarts: [UUID: Date] = [:]
+    private var idleHandlers: [UUID: () -> Void] = [:]
+
+    var isTransitioning: Bool { activeTransitions > 0 }
+
+    private init() {
+        let center = NotificationCenter.default
+        for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.transitionBegan()
+            }
+        }
+        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.transitionEnded()
+            }
+        }
+    }
+
+    private func transitionBegan() {
+        activeTransitions += 1
+        let id = UUID()
+        pendingStarts[id] = Date()
+        // macOS has no "transition failed" notification; if a transition never
+        // completes the counter must still settle or the gate would block
+        // every future fullscreen request forever.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
+            guard let self, self.pendingStarts[id] != nil else { return }
+            self.pendingStarts[id] = nil
+            self.activeTransitions = max(0, self.activeTransitions - 1)
+            self.drainIfIdle()
+        }
+    }
+
+    private func transitionEnded() {
+        guard !pendingStarts.isEmpty else {
+            activeTransitions = max(0, activeTransitions - 1)
+            drainIfIdle()
+            return
+        }
+        // Transitions are serialized by the OS, so FIFO pairing is correct.
+        let oldest = pendingStarts.keys.min { pendingStarts[$0]! < pendingStarts[$1]! }!
+        pendingStarts[oldest] = nil
+        activeTransitions = max(0, activeTransitions - 1)
+        drainIfIdle()
+    }
+
+    private func drainIfIdle() {
+        guard activeTransitions == 0 else { return }
+        let handlers = idleHandlers
+        idleHandlers.removeAll()
+        DispatchQueue.main.async {
+            for handler in handlers.values { handler() }
+        }
+    }
+
+    /// Runs `handler` now if no fullscreen transition is in flight, otherwise
+    /// after the in-flight transition completes.
+    func runWhenIdle(_ handler: @escaping () -> Void) {
+        if isTransitioning {
+            idleHandlers[UUID()] = handler
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.isTransitioning {
+                    self.runWhenIdle(handler)
+                } else {
+                    handler()
+                }
+            }
+        }
+    }
+}
+
 /// Presents the video in a SEPARATE, system-managed SwiftUI `Window` scene
 /// ("fullscreenPlayer") instead of a hand-rolled NSWindow. The scene window is
 /// a normal titled window, so it sizes itself correctly and can enter native
 /// Spaces fullscreen — no manual style masks, no intrinsic-size collapse (the
 /// same pattern the flux app uses). Entering fullscreen is owned by
-/// `present`/`ensureFullscreen` so it works even if the scene window was
+/// `present`/`enterFullscreenSafely` so it works even if the scene window was
 /// created earlier or the configurator no-ops.
 /// Playback transfers by re-parenting the SAME `MPVLayerView` (never recreated,
 /// mpv keeps running); the window hosts video + controls in one SwiftUI render
@@ -1450,6 +1554,9 @@ func mpvWakeUp(_ ctx: UnsafeMutableRawPointer?) {
 /// theater shows an opaque placeholder OVER the still-mounted player (it must
 /// stay mounted — dismantling it tears down mpv, which would kill the
 /// fullscreen window via teardown → dismiss).
+/// Fullscreen entry is flashless: the window is alpha-0 until the native
+/// transition starts (`willEnterFullScreen`), so the user only ever sees the
+/// window sliding into its own Space — no pop-up in the normal Space first.
 final class PlayerFullScreenWindow: NSObject, ObservableObject {
     static let shared = PlayerFullScreenWindow()
     /// NSWindow identifier used to locate the scene window from AppKit code.
@@ -1475,7 +1582,11 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     private weak var hostView: NSView?
     private var exitWarningTimer: Timer?
     private var keyMonitor: Any?
+    private var miniaturizeObserver: Any?
     private var isDismissing = false
+    /// Bumped on every present; stale async closures (window-find ladder,
+    /// fullscreen watchdog) bail when the generation no longer matches.
+    private var entryGeneration = 0
 
     private override init() {
         super.init()
@@ -1498,6 +1609,16 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onDismiss: @escaping () -> Void
     ) {
         guard !isActive, !isDismissing else { return }
+        // Opening a window while another window of the app is mid-fullscreen
+        // transition is what triggers the "silently ignored toggle + poisoned
+        // window" AppKit bug — queue the request until no transition is in
+        // flight.
+        guard !FullscreenTransitionGate.shared.isTransitioning else {
+            FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
+                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss)
+            }
+            return
+        }
         // If a scene window from a previous session is still open (e.g. a
         // close that never landed), SwiftUI would REUSE it without re-creating
         // its content — the mpv layer would never re-mount and no fullscreen
@@ -1522,6 +1643,9 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onDismiss: @escaping () -> Void
     ) {
         guard !isActive, !isDismissing else { return }
+        entryGeneration += 1
+        softResetsDone = 0
+        reopensDone = 0
         isActive = true
         session = Session(player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState)
         self.onClose = onClose
@@ -1537,8 +1661,10 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // Ensure the scene window actually enters native fullscreen. The
         // scene's configurator runs at most once per window lifetime and may
         // silently no-op (window not yet present when it probes), so the
-        // toggle is owned here and retried until the window is fullscreen.
-        ensureFullscreen(attempt: 1)
+        // toggle is owned here. Entry is flashless (alpha-0 until the
+        // transition starts) and gated (never toggle during another window's
+        // transition — that is what poisons a window).
+        enterFullscreenSafely(attempt: 0)
 
         // ESC is two-step: first press shows the exit hint, second exits full
         // screen; swallow the key so nothing else reacts.
@@ -1558,6 +1684,23 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             }
             return event
         }
+
+        // The OS minimize button (traffic light) on the FULLSCREEN player would
+        // shrink the player into a small windowed box in the normal Space — the
+        // user expects it to behave like ESC and return to the theater player.
+        // Intercept while the window is fullscreen; windowed minimize keeps its
+        // default dock-miniaturize behavior.
+        miniaturizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willMiniaturizeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let window = note.object as? NSWindow,
+                  window.identifier?.rawValue == Self.windowTag,
+                  window.styleMask.contains(.fullScreen)
+            else { return }
+            print("xCloud player: minimize pressed in fullscreen — dismissing like ESC")
+            self.dismiss()
+        }
     }
 
     /// The scene window (by identifier), if currently open.
@@ -1565,32 +1708,165 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         NSApp.windows.first { $0.identifier?.rawValue == windowTag }
     }
 
-    /// Enters native fullscreen on the scene window, retrying a few times in
-    /// case the window has not been created yet. Idempotent: skips once the
-    /// window is already fullscreen.
-    private func ensureFullscreen(attempt: Int) {
+    /// Finds the scene window, then enters native fullscreen flashlessly:
+    /// alpha-0 until `willEnterFullScreen` (the user sees only the slide into
+    /// the window's own Space). A watchdog treats a toggle that never starts
+    /// as the "silently ignored" AppKit failure and recovers: one soft reset,
+    /// then a fresh scene window (the only reliable cure for a poisoned
+    /// window). Idempotent: skips once the window is already fullscreen.
+    private func enterFullscreenSafely(attempt: Int) {
         guard isActive else { return }
+        let generation = entryGeneration
         if let window = Self.sceneWindow {
-            window.collectionBehavior = [.fullScreenPrimary]
-            if !window.styleMask.contains(.fullScreen) {
-                window.toggleFullScreen(nil)
+            guard !window.styleMask.contains(.fullScreen) else { return }
+            // The gate normally prevents a collision here (present() already
+            // waited), but the user can still green-button the main window in
+            // between — never toggle into a live transition.
+            guard !FullscreenTransitionGate.shared.isTransitioning else {
+                FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
+                    guard let self, self.entryGeneration == generation else { return }
+                    self.configureAndEnter(window)
+                }
+                return
             }
+            configureAndEnter(window)
             return
         }
-        let delays = [0.1, 0.3, 0.6, 1.0]
+        let delays = [0.02, 0.1, 0.3, 0.6]
         guard attempt < delays.count else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+            guard let self, self.entryGeneration == generation else { return }
+            self.enterFullscreenSafely(attempt: attempt + 1)
+        }
+    }
+
+    /// Prepares the window (fullscreen-primary, black, invisible) and toggles
+    /// it into native fullscreen, revealing it the moment the transition
+    /// starts. Installs a watchdog: if the toggle was silently ignored, the
+    /// window recovers via `recoverIgnoredFullscreen`.
+    private func configureAndEnter(_ window: NSWindow) {
+        let generation = entryGeneration
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.tabbingMode = .disallowed
+        window.backgroundColor = .black
+        // Invisible until the transition starts → no flash in the normal Space.
+        // (The configurator also sets alpha 0 at attach — earliest moment.)
+        window.alphaValue = 0
+        print("xCloud player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen))")
+
+        var didEnter = false
+        var willObserver: NSObjectProtocol?
+        var didObserver: NSObjectProtocol?
+        willObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main
+        ) { [weak window] _ in
+            // Reveal at the START of the slide — this is what reads as the
+            // window swiping into its own Space.
+            print("xCloud player: willEnterFullScreen reveal t=\(Date().timeIntervalSince1970)")
+            window?.alphaValue = 1
+            if let willObserver { NotificationCenter.default.removeObserver(willObserver) }
+        }
+        didObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+        ) { _ in
+            didEnter = true
+            print("xCloud player: didEnterFullScreen t=\(Date().timeIntervalSince1970)")
+            if let didObserver { NotificationCenter.default.removeObserver(didObserver) }
+        }
+        if !window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+        }
+        window.toggleFullScreen(nil)
+        print("xCloud player: toggleFullScreen t=\(Date().timeIntervalSince1970)")
+
+        // Watchdog: a toggle that never produced a willEnter was ignored —
+        // the window is poisoned and will never enter fullscreen on its own.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self, self.entryGeneration == generation, !didEnter else { return }
+            guard !window.styleMask.contains(.fullScreen) else { return }
+            print("xCloud player: watchdog — toggle ignored, recovering")
+            self.recoverIgnoredFullscreen(window)
+        }
+    }
+
+    /// Recovery ladder for a window whose fullscreen toggle was ignored (the
+    /// AppKit poisoned-window state): one soft reset (re-register Space
+    /// eligibility), then at most two fresh scene windows — the only reliable
+    /// cure. If the environment still refuses fullscreen, leave the player
+    /// visible and windowed (the controls' fullscreen button stays available).
+    private var softResetsDone = 0
+    private var reopensDone = 0
+
+    private func recoverIgnoredFullscreen(_ window: NSWindow) {
+        guard isActive else { return }
+        if softResetsDone == 0 {
+            softResetsDone += 1
+            let generation = entryGeneration
+            let behavior = window.collectionBehavior
+            window.orderOut(nil)
+            window.collectionBehavior = behavior.union([.fullScreenPrimary])
+            window.alphaValue = 0
+            window.makeKeyAndOrderFront(nil)
+            print("xCloud player: recovery — soft reset")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self, self.entryGeneration == generation else { return }
+                self.configureAndEnter(window)
+            }
+        } else if reopensDone < 2 {
+            // Fresh window — the poisoned one cannot be fixed in place.
+            reopensDone += 1
+            print("xCloud player: recovery — reopening scene (\(reopensDone))")
+            reopenScene()
+        } else {
+            // Give up gracefully: visible windowed player; the controls'
+            // fullscreen button remains as a manual fallback.
+            print("xCloud player: recovery exhausted — leaving player windowed")
+            window.alphaValue = 1
+        }
+    }
+
+    /// Closes the current scene window and re-presents the session in a fresh
+    /// one. `completeDismissal` clears session/callbacks, so capture first.
+    private func reopenScene() {
+        guard let session else { return }
+        let close = onClose
+        let dismiss = onDismiss
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        if let miniaturizeObserver {
+            NotificationCenter.default.removeObserver(miniaturizeObserver)
+            self.miniaturizeObserver = nil
+        }
+        onClose = nil
+        onDismiss = nil
+        dismissWindow?(id: "fullscreenPlayer")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
-            self.ensureFullscreen(attempt: attempt + 1)
+            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {})
         }
     }
 
     /// Toggles the scene window's native fullscreen from the player controls.
-    /// This is the manual fallback for the "fullscreen" button when the
-    /// window is not fullscreen yet.
+    /// While the window is in native fullscreen the button EXITS back to the
+    /// theater (same as ESC — the user expects the player, not a windowed
+    /// box). When the window is windowed (recovery fallback) it re-attempts
+    /// fullscreen. Gate-guarded like present().
     func toggleFullScreen() {
         guard let window = Self.sceneWindow else { return }
-        window.collectionBehavior = [.fullScreenPrimary]
+        if window.styleMask.contains(.fullScreen) {
+            print("xCloud player: exit fullscreen button — dismissing to theater")
+            dismiss()
+            return
+        }
+        guard !FullscreenTransitionGate.shared.isTransitioning else {
+            FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
+                self?.toggleFullScreen()
+            }
+            return
+        }
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.toggleFullScreen(nil)
     }
 
@@ -1603,6 +1879,10 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
+        }
+        if let miniaturizeObserver {
+            NotificationCenter.default.removeObserver(miniaturizeObserver)
+            self.miniaturizeObserver = nil
         }
         dismissWindow?(id: "fullscreenPlayer")
         // Fallback for the (unlikely) case the window close never lands.
@@ -1637,6 +1917,23 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             hostView.addSubview(playerView)
             playerView.frame = hostView.bounds
             playerView.autoresizingMask = [.width, .height]
+            print("xCloud player: returned to theater host=\(hostView.bounds) player=\(playerView.frame)")
+            // Nudge the async GL layer to redraw at the new size — without
+            // this it can sit on the stale fullscreen-size surface.
+            playerView.needsDisplay = true
+            playerView.mpvRenderUpdate()
+            // Fit-state diagnostics: mpv reconfigures on the FBO change, so
+            // sample after the dust settles.
+            for delay in [0.5, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak playerView] in
+                    guard let playerView else { return }
+                    let dw = playerView.getPropertyInt("video-out-params/dw") ?? -1
+                    let dh = playerView.getPropertyInt("video-out-params/dh") ?? -1
+                    let aw = playerView.getPropertyInt("video-params/w") ?? -1
+                    let ah = playerView.getPropertyInt("video-params/h") ?? -1
+                    print("xCloud player: post-return t=\(delay) videoOut=\(dw)x\(dh) video=\(aw)x\(ah) view=\(playerView.frame.size)")
+                }
+            }
         }
         let dismissAction = onDismiss
         onDismiss = nil
@@ -1777,6 +2074,16 @@ private struct FullscreenWindowConfigurator: NSViewRepresentable {
             let screen = window.screen ?? NSScreen.main
             if let screen, screen.maximumExtendedDynamicRangeColorComponentValue > 1.0 {
                 window.colorSpace = .extendedSRGB
+            }
+            // Invisible from the very first frame — the window must never be
+            // seen sitting in the normal Space; `configureAndEnter` toggles it
+            // into fullscreen and reveals it when the slide starts. If the
+            // toggle never happens, `recoverIgnoredFullscreen`'s fallback
+            // restores visibility. Only when a session is active: a window
+            // opened by restoration / the Window menu must stay visible.
+            if PlayerFullScreenWindow.shared.isActive {
+                window.alphaValue = 0
+                print("xCloud player: configurator attach t=\(Date().timeIntervalSince1970) alpha=0")
             }
         }
     }
