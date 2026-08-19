@@ -2,7 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (late) — Cascade rename (product + bundle ID), login simplification, icon crop.
+> 2026-08-19 (late) — Cascade icon corrected: tight framing and regenerated macOS assets.
+
+---
+
+## 2026-08-19 (late) — Cascade app icon framing corrected
+
+The installed `AppIcon` set still contained the older blue cloud image, while the intended dark Cascade mark was present in `Public/icon.png` but carried excess black canvas around its rounded silhouette.
+
+### Changes
+
+- Cropped `Public/icon.png` from 1254×1254 to a centered 1168×1168 master: the mark now fills the icon canvas while retaining an 8 px-equivalent safety margin around the outer edge and shadow.
+- Regenerated all ten required macOS app-icon renditions in `xCloud/Assets.xcassets/AppIcon.appiconset/` from that master (16 through 1024 px). The assets now consistently use the dark Cascade mark at every scale.
+
+### Verification
+
+- Inspected the 1024 px and 64 px variants visually; the rounded silhouette is not clipped and the three-step mark remains recognizable at small sizes.
+- Debug build succeeded, including asset-catalog compilation. No Release build — user policy.
+
+Commit: `ab77457` — `Fix Cascade app icon framing`.
 
 ---
 
@@ -1764,4 +1782,3 @@ Debug + Release rebuilt, /Applications refreshed, session preserved, release app
   the pool test is baseline-relative; createPoolChannel refuses under XCTest.
 - Tests green (46 unit incl. 4 new v3 tests + 4 UI + 4 launch); build green;
   app launched; migration verified on the real DB. NOT committed.
-

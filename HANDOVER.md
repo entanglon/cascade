@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (late): Cascade rename + login simplification committed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-19 (late): Cascade app-icon framing corrected and committed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2382,6 +2382,19 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Build green (Debug). Test suite green: **TEST SUCCEEDED** (56 unit +
       4 UI + 4 launch). **No Release build** — user policy.
 
+94. **Cascade app icon framing corrected (2026-08-19 — COMMITTED)**
+    (`Public/icon.png`, `xCloud/Assets.xcassets/AppIcon.appiconset/`)
+    - The installed asset catalog still rendered the previous blue cloud icon.
+      The intended dark Cascade source mark had too much surrounding black canvas,
+      making it appear undersized.
+    - Cropped the source to a centered 1168×1168 square: this retains a narrow,
+      safe margin for the silhouette and shadow while allowing the mark to fill the
+      application-icon canvas.
+    - Rebuilt all ten macOS icon sizes from the corrected master (16 through 1024
+      px). Visual inspection covers the 1024 px and 64 px assets; the latter keeps
+      the stepped mark distinct. Debug build succeeded including asset compilation.
+      **No Release build** — user policy. Commit: `ab77457`.
+
 ## 5. Pending / next steps
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
   (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the
@@ -2589,4 +2602,3 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
      placeholder when fullscreen is active (`PlayerFullScreenWindow.shared.isActive`).
    - **Stamp/bar alignment finalized**: `.frame(width: 76, height: 28)` — pixel-perfect.
    - **Debug build only**. Tests NOT rerun. **No Release build** — user policy.
-
