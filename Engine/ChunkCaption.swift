@@ -94,10 +94,12 @@ enum ChunkCaption {
               let id = dict["id"] as? String,
               let name = dict["name"] as? String,
               let mime = dict["mime"] as? String,
-              let index = dict["index"] as? Int,
               let size = (dict["size"] as? Int64) ?? (dict["size"] as? Int).map(Int64.init) else {
             return nil
         }
+        // Legacy captions predate the index field (folder metadata messages
+        // carry no index at all) — 0 is the correct fallback for those.
+        let index = dict["index"] as? Int ?? 0
         let chunkSize = (dict["chunkSize"] as? Int64) ?? (dict["chunkSize"] as? Int).map(Int64.init)
         return Meta(
             kind: dict["kind"] as? String,

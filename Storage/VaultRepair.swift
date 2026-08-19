@@ -38,6 +38,12 @@ enum VaultRepair {
 
         let objectDict = Dictionary(uniqueKeysWithValues: objects.map { ($0.id, $0) })
 
+        // Folder IDs the CHANNEL knows about (folder metadata messages AND the
+        // parentID carried by any file caption). Used to guard the orphan
+        // flatten: a file must never be flattened while the cloud still knows
+        // its folder.
+        var channelKnownFolderIDs = Set<String>()
+
         if !messages.isEmpty {
             for message in messages {
                 var fileName: String? = nil
@@ -60,6 +66,13 @@ enum VaultRepair {
                         fileSize = Int64(best.photo.size)
                     }
                     captionText = ph.caption.text
+                case .messageText(let text):
+                    // Folder metadata lives in TEXT messages
+                    // (sendMetadataMessage) — without this case the repair
+                    // could never rebuild a lost folder record from the
+                    // channel (2026-08-19: folders lost locally, files
+                    // flattened, cloud intact).
+                    captionText = text.text.text
                 default:
                     break
                 }
@@ -83,7 +96,7 @@ enum VaultRepair {
                     let isPrivate = meta.isPrivate
                     let trashed = meta.trashed
                     let isFavorite = meta.isFavorite
-                    let isFolder = meta.isFolder
+                    let isFolder = meta.isFolder || meta.mime == "xcloud/folder"
                     let totalChunks = meta.totalChunks
                     let wrappedKeyStr = meta.wrappedKey
                     // Empty base64 string (public/unencrypted files carry "") must
@@ -95,6 +108,10 @@ enum VaultRepair {
                         return Data(base64Encoded: wrappedKeyStr)
                     }()
                     let cleanParentID = (parentID == nil || parentID?.isEmpty == true) ? nil : parentID
+                    // The cloud's known folder set: folder metadata messages and
+                    // every parentID a file caption references.
+                    if isFolder { channelKnownFolderIDs.insert(objectID) }
+                    if let cleanParentID { channelKnownFolderIDs.insert(cleanParentID) }
 
                     // Restore or Update Object in SQLite
                     if let existing = objectDict[objectID] {
@@ -150,9 +167,13 @@ enum VaultRepair {
                         changed = true
                     }
 
-                    // Folders never have chunk records — their metadata message is
-                    // the whole file. Fabricating a chunk row here pollutes the
-                    // catalog and poisons the orphan purge's reference checks.
+                    // Folders have no data chunks, but the folder's metadata
+                    // message IS tracked by a size-0 chunk row (created by
+                    // syncObjectMetadataToTelegram) so renames edit the same
+                    // message. Recreate that linkage row when it's missing —
+                    // otherwise a rebuilt folder would accumulate duplicate
+                    // metadata messages on every rename, and the stale
+                    // messages would resurrect the old name on every scan.
                     if !isFolder {
                         // Restore Chunk if missing or update messageID
                         let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
@@ -212,6 +233,32 @@ enum VaultRepair {
                                 changed = true
                             }
                         }
+                    } else {
+                        // Folder linkage row: the metadata message is the folder's
+                        // whole record, tracked by a size-0 chunk row. Recreate it
+                        // when missing (e.g. the folder record was rebuilt above).
+                        let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
+                        if !existingChunks.contains(where: { $0.messageID == message.id }) {
+                            let newChunk = ChunkRecord(
+                                id: UUID().uuidString,
+                                objectID: objectID,
+                                index: 0,
+                                size: 0,
+                                plainHash: nil,
+                                cipherHash: nil,
+                                state: "uploaded",
+                                messageID: message.id,
+                                fileUniqueID: nil,
+                                channelID: vault.channelID,
+                                createdAt: .now
+                            )
+                            do {
+                                try await DatabaseManager.shared.save(newChunk)
+                            } catch {
+                                logger.error("VaultRepair: failed to save folder linkage chunk \(objectID): \(error.localizedDescription)")
+                            }
+                            changed = true
+                        }
                     }
                     continue
                 }
@@ -258,9 +305,13 @@ enum VaultRepair {
         //     All Files while still showing in Recent/Photos/Videos (which filter by
         //     type, not parent). Fresh fetch so folders created earlier in this scan
         //     are honored.
+        //     GUARD (2026-08-19): never flatten while the CHANNEL still knows the
+        //     folder (its metadata message or a file caption references it) — the
+        //     folder record was simply lost locally and must be rebuilt by the
+        //     scan, not erased from the structure.
         let reconcileObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
         let folderIDs = Set(reconcileObjects.filter(\.isFolder).map(\.id))
-        for var orphan in reconcileObjects where !orphan.isFolder && orphan.parentID != nil && !folderIDs.contains(orphan.parentID!) {
+        for var orphan in reconcileObjects where !orphan.isFolder && orphan.parentID != nil && !folderIDs.contains(orphan.parentID!) && !channelKnownFolderIDs.contains(orphan.parentID!) {
             orphan.parentID = nil
             try? await DatabaseManager.shared.save(orphan)
             changed = true
