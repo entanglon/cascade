@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (night): fullscreen player overhaul (ghost-window transition, direct video + image fullscreen), player polish, audio volume/chevron/arrow fixes (item 90). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (night): private share diagnosis + 24h TTL removed from share channels (item 91). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2317,12 +2317,49 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         (55 unit + 4 UI + 4 launch). Debug app relaunched. **No Release build**
         — user policy.
 
+91. **Private share diagnosis + 24h server-side TTL removed from share channels
+    (2026-08-19 — COMMITTED `8920745`)** (`Engine/ShareEngine.swift`,
+    `App/AppState.swift`, `Telegram/TelegramClient.swift`)
+    - User reported: private share card appears in Shared page, but the file
+      isn't in any private channel; Telegram shows no channels. Diagnosis:
+      - **The share flow WORKS.** Headless repro (`--create-share` +
+        `--import-share` hooks, App/AppState.swift:537-588) forwarded a fresh
+        file into PC3 (`-1004464188620`), **rejoining the previously-LEFT slot
+        via its permanent invite** (second pass of `allocatePrivateChannel`) —
+        record `8451B411` minted, link produced, recipient import SUCCESS.
+      - **Channels are invisible because every pool channel (PC1-PC5) + the
+        public channel are ARCHIVED** (`createPoolChannel` →
+        `archiveVaultChannel`). Server dump confirmed the files ARE in PC1/PC2
+        (message 5242880, posted 08-18 13:46/17:12 UTC) with the 24h TTL
+        (`message_auto_delete_time = 86400`) — deletion was due 08-19
+        19:16/22:42 IST. No new DB record existed for the user's latest test —
+        same-file share reuses the live link.
+      - 17:55 IST `updateSupergroup` → `chatMemberStatusBanned` burst covered
+        only OLD revoked channels, not PC1/PC2 — the app had NOT left the
+        active channels after sharing.
+    - **Fix (user decision: "Remove TTL")**: removed the 24h
+      `setMessageAutoDelete(86400)` calls from the share path (allocate first
+      pass / rejoin / adopt / createPoolChannel) — messages now persist until
+      the app revokes them at expiry. Added `disableAutoDeleteOnPoolChannels()`
+      (idempotent launch heal, sets TTL=0 on every recorded pool channel,
+      clearing the legacy server-side TTL), wired into the post-auth heal block
+      next to `healChannelPhotos` (App/AppState.swift:766).
+      `setMessageAutoDelete` default ttl is now 0.
+    - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**
+      (55 unit + 4 UI + 4 launch). Debug app relaunched; log confirms all 6
+      pool channels (PC1-PC5 + OC) got `setChatMessageAutoDeleteTime(0)`.
+      **No Release build** — user policy.
+
 ## 5. Pending / next steps
-- **DONE 2026-08-19 (night): fullscreen player overhaul + audio player fixes**
-  (HANDOVER item 90, commit `cf4320c`) — user verified direct fullscreen
-  ("perfect"), image fullscreen (after the loading-stuck fix), audio volume sync
-  + slider drag + chevron centering. The ESC/scaling verification from item 89
-  was also folded into this session.
+- **DONE 2026-08-19 (night): private share diagnosis + 24h server-side TTL
+  removed** (HANDOVER item 91, commit `8920745`) — headless repro proved the
+  share flow works end-to-end (forward → link → recipient import SUCCESS); the
+  channels were invisible because all pool channels are archived; TTL deleted
+  messages 24h after posting. TTL calls removed from the share path + launch
+  heal clears legacy TTL to 0 on every pool channel. Debug app relaunched.
+- **Open follow-up (item 91): the user still wants to verify private links on
+  the RELEASED build** (they suggested updating the Release app and re-testing
+  the link there) — approve a Release build to do that.
 - **Open follow-up (item 90): the transition fallback path (toggle ignored →
   alpha-1 windowed player) is still untested in the wild** — it only runs when
   the primary ghost-window path fails.

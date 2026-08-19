@@ -2,9 +2,27 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (night) — fullscreen player overhaul (ghost-window transition, direct + image fullscreen), player polish, audio volume/chevron/arrow fixes (cf4320c).
+> 2026-08-19 (night) — private share diagnosis + 24h TTL removed from share channels (8920745).
 
 ---
+
+## 2026-08-19 (night) — Private share "file not in any channel" diagnosis + 24h server-side TTL removed
+
+User reported private shares break: card appears in Shared page, but the file isn't in any private share channel; Telegram shows no channels. Long evidence-gathering session; conclusions:
+
+- **The share flow works.** Headless repro (`--create-share` + `--import-share` debug hooks in App/AppState.swift:537-588) forwarded a fresh file into PC3 (`-1004464188620`), **rejoining the previously-LEFT slot via its permanent invite** (the left-channel reuse concern is handled — `allocatePrivateChannel` second pass). Record `8451B411` minted, link produced, recipient import SUCCEEDED.
+- **Channels are invisible to the user because every pool channel (PC1-PC5) and the public channel are ARCHIVED** (`chatListArchive` in the TDLib dump — `createPoolChannel` calls `archiveVaultChannel`, TelegramClient.swift:750) — Telegram's chat list shows none of them. Server state confirmed the files ARE in PC1/PC2 (message id 5242880, posted 08-18 13:46/17:12 UTC) with `message_auto_delete_time = 86400` (24h TTL set by the 08-18 "1-day shares + TTL" round) — TTL deletion was due 08-19 19:16/22:42 IST.
+- **No new DB record existed for the user's latest test** — sharing the same file again reuses the live link (no re-forward); the card they saw was the existing record, still "active" until the 6h/launch cleanup.
+- A 17:55 IST burst of `updateSupergroup` → `chatMemberStatusBanned` covered only OLD revoked channels (08-17 debug+release era), NOT PC1/PC2 — the app had not left the active channels.
+
+### Change (user decision: "Remove TTL")
+
+- Removed the 24h `setMessageAutoDelete(86400)` calls from `allocatePrivateChannel` (first pass, rejoin, adopt) and `createPoolChannel` (Engine/ShareEngine.swift) — share messages now persist until the app revokes them at expiry.
+- Added `ShareEngine.disableAutoDeleteOnPoolChannels()` — idempotent launch heal that sets TTL=0 on every recorded pool channel (`allShareChannels()`), clearing the legacy TTL already applied server-side to PC1-PC5. Wired into the post-auth heal block (App/AppState.swift:766, next to `healChannelPhotos`). `setMessageAutoDelete` default is now 0.
+
+### Verification
+
+Build green; full suite **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch). Debug app relaunched; log confirms all 6 pool channels (PC1-PC5 + OC) got `setChatMessageAutoDeleteTime(0)` (chat updates show `message_auto_delete_time = 0`). **No Release build** — user policy. Commit: `8920745`.
 
 ## 2026-08-19 (night) — Fullscreen player overhaul (ghost-window transition, direct + image fullscreen), player polish, audio player fixes
 
