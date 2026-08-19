@@ -643,13 +643,11 @@ enum ShareEngine {
         for slot in 1...Int64(privatePoolSize) where !busySlots.contains(slot) {
             if let state = try? await DatabaseManager.shared.shareChannelState(id: slot),
                await TelegramClient.shared.chatExists(chatId: state.channelID) {
-                // Legacy channels (pre-naming) are renamed to their slot title;
-                // legacy channels (pre-TTL) get the 24h auto-delete enabled.
+                // Legacy channels (pre-naming) are renamed to their slot title.
                 await TelegramClient.shared.renameChatIfNeeded(
                     chatId: state.channelID,
                     title: poolChannelTitle(id: state.id, kind: .private)
                 )
-                await TelegramClient.shared.setMessageAutoDelete(chatId: state.channelID)
                 // Legacy channels get branded once, when they have no photo yet.
                 if !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
                     await TelegramClient.shared.setChannelPhoto(
@@ -675,7 +673,6 @@ enum ShareEngine {
                         chatId: existing.channelID,
                         title: poolChannelTitle(id: existing.id, kind: .private)
                     )
-                    await TelegramClient.shared.setMessageAutoDelete(chatId: existing.channelID)
                     if !(await TelegramClient.shared.hasChannelPhoto(chatId: existing.channelID)) {
                         await TelegramClient.shared.setChannelPhoto(
                             chatId: existing.channelID,
@@ -694,7 +691,6 @@ enum ShareEngine {
                     chatId: joined,
                     title: poolChannelTitle(id: existing.id, kind: .private)
                 )
-                await TelegramClient.shared.setMessageAutoDelete(chatId: joined)
                 if !(await TelegramClient.shared.hasChannelPhoto(chatId: joined)) {
                     await TelegramClient.shared.setChannelPhoto(
                         chatId: joined,
@@ -741,12 +737,6 @@ enum ShareEngine {
             throw ShareError.createFailed("Telegram unavailable under test")
         }
         let channelID = try await TelegramClient.shared.createShareChannel(title: poolChannelTitle(id: id, kind: kind))
-        // 24h server-side auto-delete on PRIVATE slots only: share messages
-        // vanish from Telegram a day after posting, even if this app never
-        // runs again. The public channel's messages must persist forever.
-        if kind == .private {
-            await TelegramClient.shared.setMessageAutoDelete(chatId: channelID)
-        }
         await TelegramClient.shared.archiveVaultChannel(chatId: channelID)
         // Brand the channel: pool slots carry their slot label (PC1…PC5, each
         // with its own hue) so they're distinguishable in the chat list; the
@@ -802,6 +792,18 @@ enum ShareEngine {
                 label: poolAvatarLabel(id: state.id, kind: .public),
                 hue: poolAvatarHue(id: state.id, kind: .public)
             )
+        }
+    }
+
+    /// One-time heal: clears the 24h server-side auto-delete (TTL) that earlier
+    /// builds set on private pool channels, so share messages persist instead of
+    /// vanishing a day after posting. Idempotent — setting 0 on a channel that
+    /// never had a TTL (or the public channel) is a no-op. Runs at every launch
+    /// after auth; keeps legacy channels (created before this change) healed.
+    static func disableAutoDeleteOnPoolChannels() async {
+        guard !underXCTest else { return }
+        for state in (try? await DatabaseManager.shared.allShareChannels()) ?? [] {
+            await TelegramClient.shared.setMessageAutoDelete(chatId: state.channelID, ttlSeconds: 0)
         }
     }
 

@@ -1253,12 +1253,11 @@ final class TelegramClient {
         return try await client.checkChatInviteLink(inviteLink: inviteLink)
     }
 
-    /// Enables 24h server-side message auto-delete (TTL) on a share channel:
-    /// Telegram itself removes every message a day after it was posted, so
-    /// used/expired shares clean up even if this app never runs again. Only
-    /// ever applied to PRIVATE pool channels — never the vault or the public
-    /// channel, whose messages must persist.
-    func setMessageAutoDelete(chatId: Int64, ttlSeconds: Int = 86400) async {
+    /// Sets the server-side message auto-delete (TTL) on a share channel.
+    /// Called with 0 by the launch heal to clear the 24h TTL that earlier
+    /// builds applied to private pool channels — share messages must persist
+    /// until the app revokes them at expiry.
+    func setMessageAutoDelete(chatId: Int64, ttlSeconds: Int = 0) async {
         guard let client else { return }
         try? await client.setChatMessageAutoDeleteTime(
             chatId: chatId,
