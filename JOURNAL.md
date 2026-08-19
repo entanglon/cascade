@@ -2,9 +2,45 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (late) — ESC routing fixed (theater passes through to fullscreen player), scaling animation killed, legacy empty folders purged permanently.
+> 2026-08-19 (night) — fullscreen player overhaul (ghost-window transition, direct + image fullscreen), player polish, audio volume/chevron/arrow fixes (cf4320c).
 
 ---
+
+## 2026-08-19 (night) — Fullscreen player overhaul (ghost-window transition, direct + image fullscreen), player polish, audio player fixes
+
+One continuous session on top of the ESC/scaling/purge round (`5e12d3d`). All code lands in a single commit `cf4320c`.
+
+### Track 1 — Ghost-window fullscreen transition (approved; completes deferred "smooth fullscreen transition" from item 86)
+
+Implemented in `Features/MPVVideoView.swift`:
+
+- **Snapshot capture** (`captureTheaterSnapshot`): before the Space transition starts, capture the theater's composited pixels via `SCWindow`/ScreenCaptureKit (`CGWindowListCreateImage` is unavailable on macOS 26), **cropped to the video area** — the theater chrome (bottom transport) is excluded, so the ghost reads as pure video. The snapshot becomes the fullscreen window's container content for the transition ("ghost window") — the theater never shows a hole during the Space swap.
+- **Live swap at `didEnterFullScreen`**: the real video layer is attached into the container and faded in over the ghost.
+- **Theater fade-out**: new `@Published videoLiveInFullscreen` on `PlayerFullScreenWindow` — true from transition start until the video returns to the theater at dismissal; the theater fades itself out while the flag is true.
+- Capture failure → live-attach fallback (old behavior).
+
+### Track 2 — Direct fullscreen for media files + image fullscreen
+
+- `SessionKind` enum (`.theater` / `.directVideo` / `.image`); `Session` gained `kind` + `file: ObjectRecord?`; `present`/`presentNow` take `kind` + `file`.
+- **`presentDirect(appState:file:playlist:)`** — context-menu "Open in Full Screen" for `isVideo || isPhoto` (`Features/FileBrowserView.swift`): plays the file straight into the fullscreen player window, no theater. `directMode = kind != .theater`; `DirectFullscreenRoot` shows a spinner until the engine's mpv controller exists; `attachVideoThenToggle` got a **directMode fast path** — direct mode has no `MPVLayerHost`, so the old container-wait retry loop would time out and dismiss ("attach aborted — container never mounted"). onClose/onDismiss stop the engine, clear `theaterFile`, `isTheaterFullScreen = false`. **User-verified "perfect".**
+- **`presentImage(appState:file:)`** — `SessionKind.image`, no engine. A bug was found + fixed here: an earlier version gated the download Task on `window.isActive && session.kind == .image`, which raced `present()`'s deferral paths (stale scene window → dismiss + 0.5s re-present, transition gate) and dropped the URL → eternal spinner. Fixed by removing the window-side URL and letting `ImageFullscreenRoot` own the download in `.task(id: file.id)` (same pattern as the theater's `loadFile`) with a "Downloading N%" progress ring and failure states. Cached images are instant; SVG rendered via `SVGWebView`. **Loading-stuck bug user-reported + fixed.**
+- Theater header fullscreen button moved to the top-right next to Close; `togglePlayerFullScreen()` now routes `.image` → `presentImage`.
+
+### Track 3 — Player polish
+
+- Hover tints normalized: per-button rounded-rect tints removed; container-level `.playerHoverTint(.capsule)` on the pill row; **autoplay button removed entirely** (user request — the icon was changed to `forward.end.fill` first, then the user decided the button shouldn't exist at all; engine `autoplayNextEnabled` default true is persisted but has no UI).
+- `PlayerHoverTint` overlay got `.allowsHitTesting(false)` — a shape overlay is hit-testable even with a transparent fill; a tinted PARENT (the volume pill capsule) would swallow every drag aimed at the slider beneath it.
+
+### Track 4 — Audio player fixes (user-reported)
+
+- **Volume bar didn't track the system volume.** Root cause: `Binding(get: { SystemVolumeManager.shared.volume })` is untracked by SwiftUI observation — rocker/Control Center changes never re-rendered the slider/icon. Fixed with `@Bindable private var volumeManager = SystemVolumeManager.shared` + `Slider(value: $volumeManager.volume)` in the audio player (TheaterView) AND the video player (PlayerControlsView) — slider + mute icon now follow external changes live.
+- **Up/down arrow keys** now adjust volume (±0.1) for both audio and video previews (previously they navigated files); rockers (F11/F12) already pass through KeyMonitorView to the system.
+- **Side prev/next chevrons not vertically centered**: the transport band was pinned to the play cluster's height (audio 68pt, video 76pt) and the edge-arrow row fills it (`maxHeight: .infinity`) so all buttons share the same center.
+- **Volume slider not draggable**: the hover-tint capsule overlay on the volume pill was swallowing drags (buttons kept working because their tint lives inside the button; the pill's tint is a sibling ABOVE the slider). Fix: `.allowsHitTesting(false)` on the tint **plus** removed the hover tint from the volume pill entirely — matching the Apple TV app, which has no volume-bar hover. **User-verified fixed.**
+
+### Verification & commits
+
+Build green; full suite **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch). Debug app relaunched. **No Release build** — user policy. Commit: `cf4320c`.
 
 ## 2026-08-19 (late) — ESC routing fixed, fullscreen scaling animation killed, legacy empty folders purged permanently
 

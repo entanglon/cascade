@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (evening): folders recovered from the channel delta log (item 87); fullscreen player transition gate + flashless entry + ESC-like minimize/exit buttons (item 88, completes deferred item 86). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (night): fullscreen player overhaul (ghost-window transition, direct video + image fullscreen), player polish, audio volume/chevron/arrow fixes (item 90). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2270,17 +2270,68 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**.
         Debug app relaunched. **No Release build** — user policy.
 
+90. **Fullscreen player overhaul: ghost-window transition; direct video + image
+      fullscreen; player polish; audio volume/chevron/arrow fixes (2026-08-19 —
+      COMMITTED `cf4320c`)** (`Features/MPVVideoView.swift`, `Features/TheaterView.swift`,
+      `Features/VideoPlaybackView.swift`, `Features/FileBrowserView.swift`)
+      - **Ghost-window transition** (completes the deferred "smooth fullscreen
+        transition"): `captureTheaterSnapshot` grabs the theater's composited
+        pixels (SCWindow/ScreenCaptureKit — CGWindowListCreateImage is gone on
+        macOS 26) **cropped to the video area** before the Space swap; the
+        snapshot is the window's content during the transition (the theater
+        never shows a hole); the live video layer is attached + faded in at
+        `didEnterFullScreen`. Theater fades itself out while the new
+        `@Published videoLiveInFullscreen` flag is true. Capture failure →
+        live-attach fallback.
+      - **SessionKind** (`.theater` / `.directVideo` / `.image`); `Session` and
+        `present`/`presentNow` now take `kind` + `file: ObjectRecord?`.
+      - **Direct fullscreen** (`presentDirect`, context-menu "Open in Full
+        Screen" for `isVideo || isPhoto`): plays straight into the fullscreen
+        window, no theater. `directMode` fast path in `attachVideoThenToggle`
+        (direct mode has no MPVLayerHost, so the old container-wait retry
+        timed out and dismissed). onClose/onDismiss stop the engine + clear
+        `theaterFile`/`isTheaterFullScreen`. USER-VERIFIED.
+      - **Image fullscreen** (`presentImage`, `SessionKind.image`): no engine;
+        `ImageFullscreenRoot` owns the download in `.task(id: file.id)` with a
+        "Downloading N%" ring + failure states; cached instant; SVG via
+        `SVGWebView`. (Fixed a bug where the download Task was gated on
+        `window.isActive && session.kind == .image`, which raced present()'s
+        deferral paths and dropped the URL → eternal spinner.) Theater header
+        fullscreen button moved top-right next to Close; `togglePlayerFullScreen`
+        routes `.image`. USER-VERIFIED (after the loading fix).
+      - **Player polish**: container-level capsule hover tint; **autoplay button
+        removed** (user request; engine `autoplayNextEnabled` default true
+        persists, no UI).
+      - **Audio fixes** (all user-reported): volume bar now live-syncs the
+        system volume via `@Bindable` (was an untracked `Binding(get:)`) —
+        rocker/Control Center changes re-render the slider + mute icon in both
+        the audio and video players; up/down arrows adjust volume (±0.1) for
+        audio AND video; chevron centering — transport band pinned to the play
+        cluster (audio 68, video 76) with the edge-row filling it; **slider drag
+        fixed** — the hover-tint capsule overlay on the volume pill swallowed
+        drags (a shape overlay is hit-testable even when transparent; buttons
+        worked only because their tint is inside the button) →
+        `.allowsHitTesting(false)` on the tint + hover tint removed from the
+        volume pill (matches Apple TV). USER-VERIFIED.
+      - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**
+        (55 unit + 4 UI + 4 launch). Debug app relaunched. **No Release build**
+        — user policy.
+
 ## 5. Pending / next steps
-- **Awaiting user verification 2026-08-19 (late):** after the ESC-routing +
-  scaling + diagnostics build (HANDOVER item 89): (1) entry transition — scaling
-  animation gone? (2) exit transition — lag still? (read `dismiss t=` vs
-  `sceneDidDisappear t=` in /tmp/xcloud-stdout.log if reported); (3) fullscreen
-  double-ESC now works (watch `ESC #1`/`ESC #2` prints); (4) single-ESC in the
-  small player exits playback for videos too.
+- **DONE 2026-08-19 (night): fullscreen player overhaul + audio player fixes**
+  (HANDOVER item 90, commit `cf4320c`) — user verified direct fullscreen
+  ("perfect"), image fullscreen (after the loading-stuck fix), audio volume sync
+  + slider drag + chevron centering. The ESC/scaling verification from item 89
+  was also folded into this session.
+- **Open follow-up (item 90): the transition fallback path (toggle ignored →
+  alpha-1 windowed player) is still untested in the wild** — it only runs when
+  the primary ghost-window path fails.
+- **Open follow-up (item 90): the autoplay toggle now has no UI** (engine
+  `autoplayNextEnabled` defaults true and persists in UserDefaults) — if the
+  user wants the button back, the plumbing still exists.
 - **DONE 2026-08-19 (evening): fullscreen player transition smoothness** —
   transition gate + alpha-0 flashless entry + ESC-like minimize/exit buttons
-  (HANDOVER item 88). One follow-up if the user wants: the recovery fallback
-  path (toggle ignored → alpha-1 windowed player) is untested in the wild.
+  (HANDOVER item 88).
 - **Folders heal verified 2026-08-19 (evening):** the catalog was healed from
   the channel deltas (6 folders + file parentIDs restored — HANDOVER item 87);
   the FIRST cause of the folder-record loss (undo delete vs folderless
