@@ -607,6 +607,43 @@ final class AppState {
                     NSApp.terminate(nil)
                 }
 
+                // Hidden debug hook: `--purge-legacy-folders` permanently removes
+                // legacy (old-format "xcloud:v1:" text metadata) folder records that
+                // exist only in the channel, not in the local catalog: deletes those
+                // messages, deletes the matching local records, publishes a fresh
+                // checkpoint (base = newest channel message) so old deltas can never
+                // resurrect them, writes a summary to /tmp/xcloud-purge.txt, then quits.
+                if CommandLine.arguments.contains("--purge-legacy-folders") {
+                    var summary = ""
+                    if let vault = try? await DatabaseManager.shared.firstVault() {
+                        let (legacyMessageIDs, legacyObjectIDs) =
+                            await VaultRepair.legacyFolderPurgeCandidates(chatId: vault.channelID)
+                        if !legacyMessageIDs.isEmpty {
+                            try? await TelegramClient.shared.deleteMessages(
+                                chatId: vault.channelID, messageIds: legacyMessageIDs
+                            )
+                            summary += "deleted \(legacyMessageIDs.count) legacy folder message(s)\n"
+                        }
+                        if !legacyObjectIDs.isEmpty {
+                            for id in legacyObjectIDs {
+                                try? await DatabaseManager.shared.deleteObjectWithChunks(id: id)
+                            }
+                            summary += "deleted \(legacyObjectIDs.count) local folder record(s)\n"
+                        }
+                        if !legacyMessageIDs.isEmpty || !legacyObjectIDs.isEmpty {
+                            if await CatalogSnapshot.publishCheckpointFromLocal() != nil {
+                                summary += "published fresh checkpoint (base = newest)\n"
+                            } else {
+                                summary += "checkpoint publish skipped or failed\n"
+                            }
+                        }
+                    }
+                    try? summary.isEmpty
+                        ? "nothing to purge".write(toFile: "/tmp/xcloud-purge.txt", atomically: true, encoding: .utf8)
+                        : summary.write(toFile: "/tmp/xcloud-purge.txt", atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                }
+
                 // Hidden debug hook: `--revoke-shares` deletes every outgoing share
                 // channel (revoking their links) so stale test channels can be
                 // cleaned up, writes the count to /tmp/xcloud-revoke.txt, then quits.

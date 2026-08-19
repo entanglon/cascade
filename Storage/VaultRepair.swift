@@ -394,6 +394,33 @@ enum VaultRepair {
         }
     }
 
+    /// Finds legacy (old-format "xcloud:v1:" text metadata) folder messages whose
+    /// folder is EMPTY locally (no children, or not present in the local catalog at
+    /// all) — these are old-version artifact folders (e.g. "Video"/"Audio") that can
+    /// never hold files again. Returns (messageIDs, objectIDs) for the
+    /// `--purge-legacy-folders` cleanup hook. A legacy-format folder WITH children
+    /// is never a candidate.
+    static func legacyFolderPurgeCandidates(chatId: Int64) async -> ([Int64], [String]) {
+        let local = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let parentIDs = Set(local.compactMap(\.parentID))
+        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId)
+        var messageIDs: [Int64] = []
+        var objectIDs: [String] = []
+        for msg in messages {
+            guard let cap = caption(of: msg),
+                  cap.hasPrefix("xcloud:v1:"),
+                  let data = cap.dropFirst("xcloud:v1:".count).data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = json["id"] as? String,
+                  (json["isFolder"] as? Bool) == true,
+                  !parentIDs.contains(id)
+            else { continue }
+            messageIDs.append(msg.id)
+            objectIDs.append(id)
+        }
+        return (messageIDs, objectIDs)
+    }
+
     /// Scans the channel and deletes ONLY messages that are provably orphaned chunk
     /// documents: xCloud chunk messages whose owning object no longer exists in the
     /// local catalog at all. Everything else — text messages (folder metadata, vault

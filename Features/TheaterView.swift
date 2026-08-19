@@ -19,10 +19,9 @@ struct TheaterView: View {
     @State private var errorMessage: String?
     @State private var showControls = true
     @State private var controlsTimer: Timer?
-    // Video players use a two-step Escape ("press Esc again to exit"); this state
-    // drives both the warning pill in the player chrome and the second-ESC close.
-    @State private var showExitWarning = false
-    @State private var exitWarningTimer: Timer?
+    // The two-step "press Esc again" exit hint lives ONLY in the fullscreen
+    // player (PlayerFullScreenWindow.showExitWarning); in the theater a single
+    // ESC exits playback for everything.
     @AppStorage("xc.canvasBackground") private var canvasBackground: CanvasBackground = .dark
     // Keep the same sort option AND direction as the file browser, so left/right
     // navigation follows the exact on-screen order of the files.
@@ -559,7 +558,6 @@ struct TheaterView: View {
         case .video:
             VideoPlaybackView(
                 object: file,
-                showExitWarning: showExitWarning,
                 onMinimize: closePlayer,
                 onToggleFullScreen: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -1229,38 +1227,16 @@ struct TheaterView: View {
         if PlayerFullScreenWindow.shared.isActive { return }
         withAnimation(.easeInOut(duration: 0.20)) {
             if previewKind == .video {
-                // Two-step exit: first ESC shows "Press Esc again to exit", the
-                // second (within 2s) stops playback and closes the theater. Videos
-                // stop when the theater closes — no background handoff.
-                guard AudioPlayerEngine.shared.currentTrack != nil else {
-                    appState.theaterFile = nil
-                    return
-                }
-                if showExitWarning {
-                    exitWarningTimer?.invalidate()
-                    exitWarningTimer = nil
-                    showExitWarning = false
-                    AudioPlayerEngine.shared.stop()
-                    appState.theaterFile = nil
-                } else {
-                    showExitWarning = true
-                    exitWarningTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
-                        Task { @MainActor in
-                            withAnimation(.easeInOut(duration: 0.20)) {
-                                self.showExitWarning = false
-                            }
-                        }
-                    }
-                }
-                return
-            }
-            if previewKind == .audio {
+                // Single ESC exits playback and closes the theater (the two-step
+                // "Press Esc again" hint is reserved for the FULLSCREEN player).
+                // Videos stop when the theater closes — no background handoff.
+                AudioPlayerEngine.shared.stop()
+                appState.theaterFile = nil
+            } else {
                 if AudioPlayerEngine.shared.currentTrack == nil {
                     // (Audio already plays headless and keeps going in the mini player.)
                     AudioPlayerEngine.shared.stop()
                 }
-                appState.theaterFile = nil
-            } else {
                 appState.theaterFile = nil
             }
         }
@@ -1773,6 +1749,13 @@ struct KeyMonitorView: NSViewRepresentable {
                     // space/arrow handling works again.
                     guard let self, self.window != nil else { return event }
                     if event.keyCode == 53 { // ESC key
+                        // While the fullscreen player window is up it OWNS ESC
+                        // (two-step exit, key monitor installed at present).
+                        // Pass the key through so its monitor sees it — local
+                        // monitors fire newest-first, but a re-mount of this
+                        // view can reorder them, so never swallow ESC here
+                        // while the player is active.
+                        if PlayerFullScreenWindow.shared.isActive { return event }
                         DispatchQueue.main.async { self.onEscape?() }
                         return nil
                     } else if event.keyCode == 123, let onLeft = self.onLeftArrow { // Left Arrow

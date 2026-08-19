@@ -1672,9 +1672,11 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             guard let self else { return event }
             if event.keyCode == 53 {
                 if self.showExitWarning {
+                    print("xCloud player: ESC #2 — dismissing to theater")
                     self.clearExitWarning()
                     self.dismiss()
                 } else {
+                    print("xCloud player: ESC #1 — showing exit hint")
                     self.showExitWarning = true
                     self.exitWarningTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
                         Task { @MainActor in self?.showExitWarning = false }
@@ -1752,7 +1754,14 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // Invisible until the transition starts → no flash in the normal Space.
         // (The configurator also sets alpha 0 at attach — earliest moment.)
         window.alphaValue = 0
-        print("xCloud player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen))")
+        // The scene opens at its default size (1280×800); without this the
+        // native fullscreen transition SCALES the window up during the slide.
+        // Size the window to the target screen first so the transition is a
+        // pure Space absorb (Apple-TV style), no scaling animation.
+        if let screen = window.screen ?? NSScreen.main {
+            window.setFrame(screen.frame, display: false)
+        }
+        print("xCloud player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen)) frame=\(window.frame)")
 
         var didEnter = false
         var willObserver: NSObjectProtocol?
@@ -1875,6 +1884,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     func dismiss() {
         guard isActive, !isDismissing else { return }
         isDismissing = true
+        print("xCloud player: dismiss t=\(Date().timeIntervalSince1970)")
         clearExitWarning()
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
@@ -1897,6 +1907,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     func sceneDidDisappear() {
         guard isDismissing || isActive else { return }
         isDismissing = true
+        print("xCloud player: sceneDidDisappear t=\(Date().timeIntervalSince1970)")
         completeDismissal()
     }
 

@@ -2233,7 +2233,50 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         better, almost perfect"; video fit + ESC×2 + minimize + exit button
         verified. Debug app relaunched. **No Release build** — user policy.
 
+89. **ESC routing fixed (theater passes through to fullscreen player); single-ESC
+      exits small player for everything; fullscreen entry scaling animation
+      killed; legacy empty Video/Audio folders purged permanently (2026-08-19 —
+      COMMITTED)** (`Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`,
+      `Features/MPVVideoView.swift`, `App/AppState.swift`, `Storage/VaultRepair.swift`)
+      - **ESC dead in fullscreen** — root cause: `KeyView`'s local keyDown
+        monitor swallowed ESC unconditionally; monitors fire in REVERSE
+        registration order (harness-proven), so the player's monitor normally
+        runs first but ANY remount/reorder starves it. Fix: `KeyView` passes
+        ESC through while `PlayerFullScreenWindow.shared.isActive`. Player
+        monitor logs `ESC #1`/`ESC #2`.
+      - **Spec change**: single ESC in the small player exits playback for
+        EVERYTHING (videos included) — the two-step hint lives only in the
+        fullscreen player (`showExitWarning` moved out of TheaterView /
+        VideoPlaybackView; PlayerControlsView keeps it for the window).
+      - **Entry scaling animation** — the fullscreen scene opens at
+        `.defaultSize(1280×800)` (App/xCloudApp.swift:118) and the native
+        transition scaled it up. Fix: `configureAndEnter` sets
+        `window.frame = screen.frame` before the toggle → pure Space absorb.
+      - **Exit-lag diagnostics**: `dismiss()` / `sceneDidDisappear()` timestamps
+        (delta measures where exit time goes). Awaiting user re-test:
+        transitions both ways, fullscreen double-ESC, small-player single-ESC.
+      - **Legacy folders purge (user-approved data deletion)**: the empty
+        "Video"/"Audio" folders were old-format `xcloud:v1:` TEXT metadata
+        messages (292552704, 286261248) always present in the vault channel;
+        the repair fix + delta merge merely surfaced them. New debug hook
+        `--purge-legacy-folders` (runs BEFORE post-auth): deletes old-format
+        folder messages whose folder is EMPTY locally (a legacy folder WITH
+        children is never a candidate — `VaultRepair.legacyFolderPurgeCandidates`),
+        deletes the local records, publishes a fresh checkpoint with
+        baseMessageID = newest (mergedChannelState replays only deltas newer
+        than base → they can never resurrect). Verified: 0 `xcloud:v1:`
+        messages left; newest checkpoint 378535936; DB = 4 folders
+        (Books/Audios/Videos/Images), 25 objects; app relaunch healthy.
+      - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**.
+        Debug app relaunched. **No Release build** — user policy.
+
 ## 5. Pending / next steps
+- **Awaiting user verification 2026-08-19 (late):** after the ESC-routing +
+  scaling + diagnostics build (HANDOVER item 89): (1) entry transition — scaling
+  animation gone? (2) exit transition — lag still? (read `dismiss t=` vs
+  `sceneDidDisappear t=` in /tmp/xcloud-stdout.log if reported); (3) fullscreen
+  double-ESC now works (watch `ESC #1`/`ESC #2` prints); (4) single-ESC in the
+  small player exits playback for videos too.
 - **DONE 2026-08-19 (evening): fullscreen player transition smoothness** —
   transition gate + alpha-0 flashless entry + ESC-like minimize/exit buttons
   (HANDOVER item 88). One follow-up if the user wants: the recovery fallback

@@ -7,7 +7,6 @@ extension Notification.Name {
 
 struct VideoPlaybackView: View {
     let object: ObjectRecord
-    var showExitWarning = false
     var onMinimize: () -> Void = {}
     var onToggleFullScreen: () -> Void = {}
     var onClose: () -> Void = {}
@@ -33,7 +32,6 @@ struct VideoPlaybackView: View {
                                 title: object.name,
                                 subtitle: ByteCountFormatter.string(fromByteCount: object.size, countStyle: .file),
                                 isFullScreen: fullScreenWindow.isActive,
-                                showExitWarning: showExitWarning,
                                 onMinimize: onMinimize,
                                 onToggleFullScreen: onToggleFullScreen,
                                 onClose: onClose

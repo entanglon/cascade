@@ -2,9 +2,39 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (evening) — Flashless fullscreen entry (transition gate + alpha-0), ESC-like minimize/exit buttons, folders recovered from channel deltas.
+> 2026-08-19 (late) — ESC routing fixed (theater passes through to fullscreen player), scaling animation killed, legacy empty folders purged permanently.
 
 ---
+
+## 2026-08-19 (late) — ESC routing fixed, fullscreen scaling animation killed, legacy empty folders purged permanently
+
+Follow-up to the evening session. User reports: (1) transition still laggy both directions; (2) scaling animation on entry (the window visibly grows into the screen); (3) ESC double-press does NOT work in fullscreen (the exit button does); (4) two empty legacy folders "Video"/"Audio" appeared in All Files that the user never created.
+
+### Track 1 — ESC routing: the theater's key monitor was eating the key
+
+**Root cause** (harness-proven, `/var/folders/k3/72m2fcsx4r58mt6zhzt4gkfr0000gn/T/opencode/monorder/main.swift`): local `keyDown` monitors fire in REVERSE registration order, so the player's monitor (installed later, at `presentNow`) normally runs BEFORE the theater's `KeyView` monitor. But `KeyView` returned `nil` (swallowed ESC) UNCONDITIONALLY — any remount/reorder of monitors starves the player's monitor → fullscreen ESC dead. **Fix**: `KeyView` now passes ESC through (`return event`) while `PlayerFullScreenWindow.shared.isActive` (Features/TheaterView.swift). Player monitor also logs `ESC #1` / `ESC #2` for verification.
+
+**Spec change**: single ESC in the SMALL player now exits playback for EVERYTHING (videos included) — `handleEscapeKey` no longer does the two-step for video; the two-step hint lives ONLY in the fullscreen player (`showExitWarning` moved: TheaterView @State + VideoPlaybackView param removed; PlayerControlsView keeps it for the window).
+
+### Track 2 — Entry scaling animation: scene default size was the cause
+
+The fullscreen scene opens at `.defaultSize(width: 1280, height: 800)` (App/xCloudApp.swift:118); the native transition then SCALES the window up to the screen → the visible growth animation. **Fix**: `configureAndEnter` sets `window.frame = screen.frame` (before `makeKeyAndOrderFront`/toggle) → the transition is a pure Space absorb, no scaling.
+
+### Track 3 — Exit lag: timing diagnostics added
+
+`dismiss()` and `sceneDidDisappear()` now print timestamps (`dismiss t=…` / `sceneDidDisappear t=…`) to measure where the exit time goes (dismiss → actual window close). Pending user re-test: entry transition (scale gone?), exit transition, fullscreen double-ESC, small-player single-ESC.
+
+### Track 4 — Legacy empty folders: explained + purged permanently
+
+**Answer to the user's question**: the Video/Audio folders were ALWAYS in the channel — old-format `xcloud:v1:` TEXT metadata messages from the pre-unified app (msg 292552704 = Video/069584F2…, msg 286261248 = Audio/809AEBD2…), both empty (0 files). The local catalog loss + repair fix made them visible; not a DB-snapshot problem.
+
+**Purge (user-approved data deletion)**: new debug hook `--purge-legacy-folders` (App/AppState.swift, runs BEFORE post-auth so no scan can rebuild them): `VaultRepair.legacyFolderPurgeCandidates` finds old-format folder messages whose folder is EMPTY locally (no children — a legacy folder WITH children is never a candidate); deletes those messages + the local records (`deleteObjectWithChunks`) + publishes a fresh checkpoint via `publishCheckpointFromLocal` (base = newest). **Why the checkpoint matters**: `mergedChannelState` (CatalogSnapshot.swift:291) replays only deltas NEWER than the checkpoint's baseMessageID — with base = newest, the old deltas containing the folder records can never resurrect them.
+
+**Verified**: DB has 4 folders (Books/Audios/Videos/Images), 25 objects (27 − 2); channel dump shows 0 `xcloud:v1:` messages, newest checkpoint at 378535936; app relaunch healthy.
+
+### Verification & commits
+
+Build green; full suite **TEST SUCCEEDED** (4 UI + 4 launch, 0 failures — tally as before). Debug app relaunched. **No Release build** — user policy. Docs for this round: see below (commit hashes next to the work).
 
 ## 2026-08-19 (evening) — Flashless fullscreen entry (transition gate + alpha-0), ESC-like minimize/exit buttons, folders recovered from the channel delta log
 
