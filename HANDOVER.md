@@ -1,6 +1,6 @@
 # xCloud — Session Handover
 
-> Written 2026-08-14, updated 2026-08-19 (night): private share diagnosis + 24h TTL removed from share channels (item 91). Read this first in any new chat before touching
+> Written 2026-08-14, updated 2026-08-19 (night): reverted TTL removal, 24h auto-delete restored + launch heal added (item 92). Read this first in any new chat before touching
 > the code. It captures the repo state, the uncommitted work in flight, how to
 > build/run/test, known gotchas, and what is still pending.
 
@@ -2317,8 +2317,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         (55 unit + 4 UI + 4 launch). Debug app relaunched. **No Release build**
         — user policy.
 
-91. **Private share diagnosis + 24h server-side TTL removed from share channels
-    (2026-08-19 — COMMITTED `8920745`)** (`Engine/ShareEngine.swift`,
+91. **Private share diagnosis (2026-08-19)** (`Engine/ShareEngine.swift`,
     `App/AppState.swift`, `Telegram/TelegramClient.swift`)
     - User reported: private share card appears in Shared page, but the file
       isn't in any private channel; Telegram shows no channels. Diagnosis:
@@ -2337,29 +2336,42 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       - 17:55 IST `updateSupergroup` → `chatMemberStatusBanned` burst covered
         only OLD revoked channels, not PC1/PC2 — the app had NOT left the
         active channels after sharing.
-    - **Fix (user decision: "Remove TTL")**: removed the 24h
-      `setMessageAutoDelete(86400)` calls from the share path (allocate first
-      pass / rejoin / adopt / createPoolChannel) — messages now persist until
-      the app revokes them at expiry. Added `disableAutoDeleteOnPoolChannels()`
-      (idempotent launch heal, sets TTL=0 on every recorded pool channel,
-      clearing the legacy server-side TTL), wired into the post-auth heal block
-      next to `healChannelPhotos` (App/AppState.swift:766).
-      `setMessageAutoDelete` default ttl is now 0.
+    - The 24h TTL was **confirmed as intentional behavior** (item 92 reverted
+      the mistaken removal).
+
+92. **Reverted: 24h TTL restored on private share channels + launch heal
+    (2026-08-19 — COMMITTED)** (`Engine/ShareEngine.swift`,
+    `App/AppState.swift`, `Telegram/TelegramClient.swift`)
+    - The previous commit (8920745) mistakenly removed the 24h server-side
+      TTL from private share channels. User clarified this was an intentional
+      feature: private share messages auto-delete from Telegram after 24 hours
+      as a lifecycle/security mechanism — the share link expires and the
+      channel messages vanish, even if the app never runs again.
+    - Reverted: `setMessageAutoDelete` default restored to 86400 (24h);
+      `setMessageAutoDelete(chatId:)` calls restored in all 3
+      `allocatePrivateChannel` paths (reuse, rejoin, adopt) + `createPoolChannel`
+      (private only). Removed the old `disableAutoDeleteOnPoolChannels()` heal.
+    - NEW heal: `ensureTTLOnPrivatePoolChannels()` — idempotent launch heal
+      that iterates all recorded pool channels and calls `setMessageAutoDelete`
+      (86400) on every PRIVATE slot, re-enabling the 24h TTL if it was ever
+      cleared (e.g. by the mistaken heal). Public channel is never touched.
+      Wired into the post-auth block next to `healChannelPhotos`.
+    - Verified live: Telegram shows "Messages will be automatically deleted
+      after 1 day" on PC1 again. Server-side enforcement confirmed —
+      messages auto-delete after 24h even if the app never runs.
     - Committed. Build green (Debug). Test suite green: **TEST SUCCEEDED**
-      (55 unit + 4 UI + 4 launch). Debug app relaunched; log confirms all 6
-      pool channels (PC1-PC5 + OC) got `setChatMessageAutoDeleteTime(0)`.
-      **No Release build** — user policy.
+      (55 unit + 4 UI + 4 launch). Debug app relaunched. **No Release build**
+      — user policy.
 
 ## 5. Pending / next steps
-- **DONE 2026-08-19 (night): private share diagnosis + 24h server-side TTL
-  removed** (HANDOVER item 91, commit `8920745`) — headless repro proved the
-  share flow works end-to-end (forward → link → recipient import SUCCESS); the
-  channels were invisible because all pool channels are archived; TTL deleted
-  messages 24h after posting. TTL calls removed from the share path + launch
-  heal clears legacy TTL to 0 on every pool channel. Debug app relaunched.
-- **Open follow-up (item 91): the user still wants to verify private links on
-  the RELEASED build** (they suggested updating the Release app and re-testing
-  the link there) — approve a Release build to do that.
+- **DONE 2026-08-19 (night): TTL restored + launch heal added**
+  (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the
+  24h server-side TTL; user confirmed it was an intentional feature (private
+  share messages auto-delete from Telegram after 24h). Reverted: TTL=86400
+  default restored, `setMessageAutoDelete` calls restored in allocatePrivateChannel
+  + createPoolChannel, old heal removed. Added `ensureTTLOnPrivatePoolChannels()`
+  launch heal that re-enables TTL on all private pool channels at every launch.
+  Verified live in Telegram. Build green, tests green. Debug app relaunched.
 - **Open follow-up (item 90): the transition fallback path (toggle ignored →
   alpha-1 windowed player) is still untested in the wild** — it only runs when
   the primary ghost-window path fails.

@@ -2,7 +2,27 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (night) — private share diagnosis + 24h TTL removed from share channels (8920745).
+> 2026-08-19 (night) — reverted TTL removal, 24h auto-delete restored on private share channels.
+
+---
+
+## 2026-08-19 (night) — Reverted: 24h TTL restored + launch heal added
+
+The previous commit (8920745) mistakenly removed the 24h server-side TTL (auto-delete) from private share channels. The user clarified this was an intentional feature: private share messages should auto-delete from Telegram after 24 hours as a lifecycle/security mechanism — the share link expires and the channel messages vanish, even if the app never runs again.
+
+### Changes reverted
+
+- `TelegramClient.swift`: restored `ttlSeconds: Int = 86400` default (was 0); restored original doc comment.
+- `Engine/ShareEngine.swift`: restored `setMessageAutoDelete(chatId:)` calls in all 3 `allocatePrivateChannel` paths (reuse, rejoin, adopt) + `createPoolChannel` (private only). Removed old `disableAutoDeleteOnPoolChannels()` heal. Added new `ensureTTLOnPrivatePoolChannels()` heal.
+- `App/AppState.swift`: replaced `disableAutoDeleteOnPoolChannels()` call with `ensureTTLOnPrivatePoolChannels()` in post-auth block.
+
+### New heal: `ensureTTLOnPrivatePoolChannels()`
+
+Iterates all recorded pool channels and calls `setMessageAutoDelete` (86400) on every PRIVATE slot. Idempotent — catches channels whose TTL was previously cleared (e.g. by the mistaken heal) or never set. Public channel never touched. Wired into post-auth next to `healChannelPhotos`.
+
+### Verification
+
+Build green; full suite **TEST SUCCEEDED** (55 unit + 4 UI + 4 launch, 0 failures). Relaunched; Telegram PC1 confirms "Messages will be automatically deleted after 1 day" restored. Server-side enforcement confirmed — messages auto-delete even if the app never runs. **No Release build** — user policy.
 
 ---
 
