@@ -5,6 +5,49 @@ extension Notification.Name {
     static let toggleVideoPlayback = Notification.Name("xcloud_toggleVideoPlayback")
 }
 
+/// Apple-TV-style button hover: a slight white tint fills the button's shape
+/// while the pointer is over it (over the liquid-glass material). Applied to
+/// every player button via `.playerHoverTint(...)` — the shape argument must
+/// match the button's own glass shape.
+enum PlayerHoverShape {
+    case circle
+    case capsule
+    case roundedRect(cornerRadius: CGFloat)
+}
+
+struct PlayerHoverTint: ViewModifier {
+    let shape: PlayerHoverShape
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                switch shape {
+                case .circle:
+                    Circle().fill(Color.white.opacity(hovering ? 0.16 : 0))
+                case .capsule:
+                    Capsule().fill(Color.white.opacity(hovering ? 0.16 : 0))
+                case .roundedRect(let r):
+                    RoundedRectangle(cornerRadius: r, style: .continuous)
+                        .fill(Color.white.opacity(hovering ? 0.16 : 0))
+                }
+            }
+            // Decorative tint only — it must NEVER intercept input. A shape
+            // overlay is hit-testable even when its fill is transparent, so
+            // without this a tinted PARENT (the volume pill capsule) would
+            // swallow every drag aimed at the slider beneath it.
+            .allowsHitTesting(false)
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
+extension View {
+    func playerHoverTint(_ shape: PlayerHoverShape = .circle) -> some View {
+        modifier(PlayerHoverTint(shape: shape))
+    }
+}
+
 struct VideoPlaybackView: View {
     let object: ObjectRecord
     var onMinimize: () -> Void = {}
@@ -180,6 +223,7 @@ struct PlayerControlsView: View {
     @State private var seekTarget: Double?
     @State private var isSharing = false
     @State private var showShareFeedback = false
+    @Bindable private var volumeManager = SystemVolumeManager.shared
 
     private let autoHideDelay: TimeInterval = 3.0
 
@@ -283,6 +327,7 @@ struct PlayerControlsView: View {
                 .frame(width: 36, height: 36)
                 .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)
+                .playerHoverTint()
             }
             .buttonStyle(.plain)
             .help("Share")
@@ -293,22 +338,19 @@ struct PlayerControlsView: View {
             Spacer()
 
             // Volume pill — the app's volume IS the system output volume
-            // (SystemVolumeManager), so keyboard keys and this slider are
-            // the same control.
+            // (SystemVolumeManager), so keyboard keys, the volume rockers, and
+            // this slider are the same control. Bound via @Bindable so the
+            // slider and mute icon track EXTERNAL changes (rocker keys, Control
+            // Center) live — a raw Binding(get:) would only ever re-read on
+            // this view's own re-renders and appear dead to rocker changes.
             HStack(spacing: 10) {
-                Image(systemName: SystemVolumeManager.shared.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.8))
 
-                Slider(
-                    value: Binding(
-                        get: { SystemVolumeManager.shared.volume },
-                        set: { SystemVolumeManager.shared.volume = $0 }
-                    ),
-                    in: 0...1
-                )
-                .frame(width: 80)
-                .tint(.white)
+                Slider(value: $volumeManager.volume, in: 0...1)
+                    .frame(width: 80)
+                    .tint(.white)
             }
             .padding(.horizontal, 12)
             .frame(height: 36)
@@ -321,6 +363,7 @@ struct PlayerControlsView: View {
                     .frame(width: 36, height: 36)
                     .contentShape(Circle())
                     .glassEffect(.regular.interactive(), in: .circle)
+                    .playerHoverTint()
             }
             .buttonStyle(.plain)
             .help(isFullScreen ? "Exit Full Screen" : "Full Screen")
@@ -332,6 +375,7 @@ struct PlayerControlsView: View {
                     .frame(width: 36, height: 36)
                     .contentShape(Circle())
                     .glassEffect(.regular.interactive(), in: .circle)
+                    .playerHoverTint()
             }
             .buttonStyle(.plain)
             .help("Close Player")
@@ -380,6 +424,7 @@ struct PlayerControlsView: View {
                         .frame(width: 58, height: 58)
                         .contentShape(Circle())
                         .glassEffect(.regular.interactive(), in: .circle)
+                        .playerHoverTint()
                 }
                 .buttonStyle(.plain)
                 .help("Back 10 seconds")
@@ -395,6 +440,7 @@ struct PlayerControlsView: View {
                         .frame(width: 76, height: 76)
                         .contentShape(Circle())
                         .glassEffect(.regular.interactive(), in: .circle)
+                        .playerHoverTint()
                 }
                 .buttonStyle(.plain)
                 .help(mpv.isPlaying ? "Pause" : "Play")
@@ -408,14 +454,16 @@ struct PlayerControlsView: View {
                         .frame(width: 58, height: 58)
                         .contentShape(Circle())
                         .glassEffect(.regular.interactive(), in: .circle)
+                        .playerHoverTint()
                 }
                 .buttonStyle(.plain)
                 .help("Forward 10 seconds")
             }
 
             // Previous / next arrows on the left/right edges, vertically centered
-            // with the transport. Each shows ONLY when a file exists on that side
-            // of the row navigation — never a disabled ghost.
+            // with the transport — the row fills the cluster's height band so
+            // the buttons always share its exact center. Each shows ONLY when
+            // a file exists on that side of the row navigation.
             HStack {
                 if canGoPrevious {
                     Button {
@@ -427,6 +475,7 @@ struct PlayerControlsView: View {
                             .frame(width: 46, height: 46)
                             .contentShape(Circle())
                             .glassEffect(.regular.interactive(), in: .circle)
+                            .playerHoverTint()
                     }
                     .buttonStyle(.plain)
                     .help("Previous")
@@ -444,13 +493,16 @@ struct PlayerControlsView: View {
                             .frame(width: 46, height: 46)
                             .contentShape(Circle())
                             .glassEffect(.regular.interactive(), in: .circle)
+                            .playerHoverTint()
                     }
                     .buttonStyle(.plain)
                     .help("Next")
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // fill the 76pt band → same center as the play cluster
             .padding(.horizontal, 28)
         }
+        .frame(height: 76) // pin the band: the play cluster defines the row's height
         .frame(maxWidth: .infinity)
     }
 
@@ -476,28 +528,8 @@ struct PlayerControlsView: View {
 
                 Spacer()
 
-                // Subtitles & Audio Pills
+                // Pills: subtitles + audio — one shared glass capsule.
                 HStack(spacing: 0) {
-                    Button {
-                        AudioPlayerEngine.shared.autoplayNextEnabled.toggle()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "infinity")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Auto")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                        .foregroundColor(AudioPlayerEngine.shared.autoplayNextEnabled ? XTheme.accent : .white.opacity(0.9))
-                        .frame(width: 56, height: 36)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(AudioPlayerEngine.shared.autoplayNextEnabled ? "Autoplay next: ON — the next file plays when this one ends" : "Autoplay next: OFF — Space/Play replays the current file when it ends")
-
-                    Divider()
-                        .frame(height: 20)
-                        .background(Color.white.opacity(0.2))
-
                     Button {
                         showSubtitlePopover.toggle()
                     } label: {
@@ -539,6 +571,7 @@ struct PlayerControlsView: View {
                     }
                 }
                 .glassEffect(.regular.interactive(), in: .capsule)
+                .playerHoverTint(.capsule)
             }
 
             // Progress Bar Row (Full Width)

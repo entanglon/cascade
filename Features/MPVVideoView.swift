@@ -4,6 +4,7 @@ import OpenGL.GL
 import MPVKit
 import Combine
 import Darwin
+import ScreenCaptureKit
 import os
 
 // MARK: - SwiftUI View
@@ -1562,15 +1563,45 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     /// NSWindow identifier used to locate the scene window from AppKit code.
     static let windowTag = "xCloudFullscreenPlayer"
 
+    enum SessionKind {
+        /// Player opened from the theater: the layer comes from the theater and
+        /// the window slides in over a ghost-window snapshot of it.
+        case theater
+        /// "Open in Full Screen" on a video: no theater — the window hosts its
+        /// own layer from the engine's controller (spinner until it exists).
+        case directVideo
+        /// "Open in Full Screen" on an image: no engine at all — the window
+        /// shows the image (spinner while it downloads).
+        case image
+    }
+
     struct Session {
-        let player: MPVLayerView
-        let mpv: MPVController
+        /// The theater's live mpv layer — nil in every non-theater kind (the
+        /// window hosts its own content).
+        let kind: SessionKind
+        let player: MPVLayerView?
+        let mpv: MPVController?
         let title: String
         let subtitle: String
         let appState: AppState
+        /// The file being shown — non-nil in `.image` sessions (the image
+        /// view resolves/downloads it itself, theater-style).
+        let file: ObjectRecord?
     }
 
     @Published private(set) var isActive = false
+    /// True once the live mpv layer has been moved into the fullscreen window
+    /// (the swap at didEnterFullScreen); false again when it returns to the
+    /// theater at dismissal. The theater uses this to fade itself out while
+    /// the video lives in the player window (the browser behind becomes
+    /// usable), but stay visible during the entry slide, when the video is
+    /// still in the theater.
+    @Published private(set) var videoLiveInFullscreen = false
+    /// True when the player was opened without a theater ("Open in Full
+    /// Screen"): there is no theater layer to attach, re-parent, or swap — the
+    /// window hosts its own content. True for both the direct-video and image
+    /// kinds.
+    private(set) var directMode = false
     @Published var showExitWarning = false
     private(set) var session: Session?
     var onClose: (() -> Void)?
@@ -1580,6 +1611,19 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     private var dismissWindow: DismissWindowAction?
     private weak var playerView: MPVLayerView?
     private weak var hostView: NSView?
+    /// The SwiftUI container inside the fullscreen window that the mpv layer
+    /// is attached to. Created by `MPVLayerHost.makeNSView` at window mount;
+    /// `configureAndEnter` does the actual attach (the video stays in the
+    /// theater until the transition starts, so there is no hole before the
+    /// slide).
+    fileprivate weak var playerContainer: NSView?
+    /// Composited capture of the theater window (incl. the live video) taken at
+    /// present time. The fullscreen window slides in showing this static
+    /// snapshot ("ghost window") — no live GL layer composited through the
+    /// Space absorb, no surface reconfig mid-slide — and the live layer is
+    /// swapped in at didEnterFullScreen with a fade. nil when capture failed
+    /// (falls back to attaching the live layer pre-toggle).
+    fileprivate var snapshotImage: CGImage?
     private var exitWarningTimer: Timer?
     private var keyMonitor: Any?
     private var miniaturizeObserver: Any?
@@ -1600,13 +1644,15 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     }
 
     func present(
-        _ player: MPVLayerView,
-        mpv: MPVController,
+        _ player: MPVLayerView?,
+        mpv: MPVController?,
         title: String,
         subtitle: String,
         appState: AppState,
         onClose: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping () -> Void,
+        kind: SessionKind = .theater,
+        file: ObjectRecord? = nil
     ) {
         guard !isActive, !isDismissing else { return }
         // Opening a window while another window of the app is mid-fullscreen
@@ -1615,7 +1661,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // flight.
         guard !FullscreenTransitionGate.shared.isTransitioning else {
             FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
-                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss)
+                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
             }
             return
         }
@@ -1626,51 +1672,132 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         if Self.sceneWindow != nil {
             dismissWindow?(id: "fullscreenPlayer")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss)
+                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
             }
         } else {
-            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss)
+            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
         }
     }
 
+    /// Opens a video STRAIGHT into the fullscreen player — the browser's "Open
+    /// in Full Screen" menu action. No theater: playback starts through the
+    /// engine and the fullscreen window hosts its own layer from the engine's
+    /// controller once it exists (direct mode). The window slides in over a
+    /// spinner; the video appears when the stream resolves. Exiting (ESC)
+    /// stops playback and returns to the browser.
+    @MainActor
+    static func presentDirect(appState: AppState, file: ObjectRecord, playlist: [ObjectRecord]) {
+        let engine = AudioPlayerEngine.shared
+        engine.play(file: file, in: playlist)
+        PlayerFullScreenWindow.shared.present(
+            nil,
+            mpv: nil,
+            title: file.name,
+            subtitle: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
+            appState: appState,
+            onClose: {
+                engine.stop()
+                appState.theaterFile = nil
+            },
+            onDismiss: {
+                engine.stop()
+                appState.theaterFile = nil
+                appState.isTheaterFullScreen = false
+            },
+            kind: .directVideo,
+            file: file
+        )
+    }
+
+    /// Opens an image STRAIGHT into the fullscreen player — the browser's
+    /// "Open in Full Screen" menu action and the theater's fullscreen button
+    /// for images. No engine, no theater: the window slides in over a spinner
+    /// while the image view resolves the file (cached → instant; uncached →
+    /// download with progress), then shows it fit-to-screen. Exiting
+    /// (ESC / close) returns to the browser. The image view owns the download
+    /// (view `.task`, like the theater's loadFile) — never gate it on the
+    /// window's session state, which races present()'s deferral paths.
+    @MainActor
+    static func presentImage(appState: AppState, file: ObjectRecord) {
+        PlayerFullScreenWindow.shared.present(
+            nil,
+            mpv: nil,
+            title: file.name,
+            subtitle: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file),
+            appState: appState,
+            onClose: {
+                appState.theaterFile = nil
+            },
+            onDismiss: {
+                appState.theaterFile = nil
+                appState.isTheaterFullScreen = false
+            },
+            kind: .image,
+            file: file
+        )
+    }
+
     private func presentNow(
-        _ player: MPVLayerView,
-        mpv: MPVController,
+        _ player: MPVLayerView?,
+        mpv: MPVController?,
         title: String,
         subtitle: String,
         appState: AppState,
         onClose: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping () -> Void,
+        kind: SessionKind,
+        file: ObjectRecord? = nil
     ) {
         guard !isActive, !isDismissing else { return }
         entryGeneration += 1
         softResetsDone = 0
         reopensDone = 0
         isActive = true
-        session = Session(player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState)
+        directMode = kind != .theater
+        session = Session(kind: kind, player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, file: file)
         self.onClose = onClose
         self.onDismiss = onDismiss
-
-        // Re-parent the live mpv layer into the full-screen window's tree.
-        hostView = player.superview
         playerView = player
-        player.removeFromSuperview()
 
-        openWindow?(id: "fullscreenPlayer")
+        // Remember where the live mpv layer lives in the THEATER so the exit
+        // can re-parent it back. The video is NOT detached here: it stays
+        // visible in the theater until `configureAndEnter` attaches it to the
+        // fullscreen window's container right before the transition starts —
+        // no hole in the theater during window setup, no vanish-then-slide.
+        // (Direct mode has no theater — nothing to remember.)
+        if let player, player.window != nil, let host = player.superview {
+            hostView = host
+        }
 
-        // Ensure the scene window actually enters native fullscreen. The
-        // scene's configurator runs at most once per window lifetime and may
-        // silently no-op (window not yet present when it probes), so the
-        // toggle is owned here. Entry is flashless (alpha-0 until the
-        // transition starts) and gated (never toggle during another window's
-        // transition — that is what poisons a window).
-        enterFullscreenSafely(attempt: 0)
+        // Ghost-window snapshot: capture the theater's composited pixels
+        // (includes the live GL video — WindowServer has it in the window
+        // surface) while it is still unobstructed. The fullscreen window
+        // slides in showing this frame, so no live-GL content is composited
+        // through the Space transition and the theater never shows a hole.
+        // The capture is async (ScreenCaptureKit) — the window opens only
+        // after it completes, so the container can mount the snapshot.
+        // Skipped in direct mode (no theater): the window slides in over the
+        // engine's loading spinner instead.
+        Task { @MainActor in
+            if player != nil {
+                await self.captureTheaterSnapshot()
+            }
 
-        // ESC is two-step: first press shows the exit hint, second exits full
-        // screen; swallow the key so nothing else reacts.
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            if event.keyCode == 53 {
+            openWindow?(id: "fullscreenPlayer")
+
+            // Ensure the scene window actually enters native fullscreen. The
+            // scene's configurator runs at most once per window lifetime and may
+            // silently no-op (window not yet present when it probes), so the
+            // toggle is owned here. Entry is flashless (alpha-0 until the
+            // transition starts) and gated (never toggle during another window's
+            // transition — that is what poisons a window).
+            self.enterFullscreenSafely(attempt: 0)
+
+            // ESC is two-step: first press shows the exit hint, second exits
+            // full screen; swallow the key so nothing else reacts.
+            self.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                if event.keyCode == 53 {
                 if self.showExitWarning {
                     print("xCloud player: ESC #2 — dismissing to theater")
                     self.clearExitWarning()
@@ -1687,12 +1814,12 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             return event
         }
 
-        // The OS minimize button (traffic light) on the FULLSCREEN player would
-        // shrink the player into a small windowed box in the normal Space — the
-        // user expects it to behave like ESC and return to the theater player.
-        // Intercept while the window is fullscreen; windowed minimize keeps its
-        // default dock-miniaturize behavior.
-        miniaturizeObserver = NotificationCenter.default.addObserver(
+        // The OS minimize button (traffic light) on the FULLSCREEN player
+        // would shrink the player into a small windowed box in the normal
+        // Space — the user expects it to behave like ESC and return to the
+        // theater player. Intercept while the window is fullscreen; windowed
+        // minimize keeps its default dock-miniaturize behavior.
+        self.miniaturizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willMiniaturizeNotification, object: nil, queue: .main
         ) { [weak self] note in
             guard let self,
@@ -1702,6 +1829,69 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             else { return }
             print("xCloud player: minimize pressed in fullscreen — dismissing like ESC")
             self.dismiss()
+        }
+        }
+    }
+
+    /// Captures the theater window's composited pixels (including the live GL
+    /// video) via ScreenCaptureKit. Called before the fullscreen window opens,
+    /// so its container can mount the snapshot as the "ghost window" content
+    /// for the Space transition. On failure the entry falls back to attaching
+    /// the live layer pre-toggle.
+    /// The capture is CROPPED to the video layer's frame: an uncropped window
+    /// capture would show the whole app UI (sidebar + small player) scaled up
+    /// on the fullscreen slide — the "player went back to the small player
+    /// for a split second" glitch. The cropped ghost is pure video, visually
+    /// identical to the live layer.
+    @MainActor
+    private func captureTheaterSnapshot() async {
+        guard let theaterWindow = hostView?.window, theaterWindow.windowNumber > 0 else {
+            print("xCloud player: snapshot skipped — no theater window")
+            return
+        }
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            guard let scWindow = content.windows.first(where: { Int($0.windowID) == theaterWindow.windowNumber }) else {
+                print("xCloud player: snapshot — SCWindow not found for \(theaterWindow.windowNumber)")
+                snapshotImage = nil
+                return
+            }
+            let config = SCStreamConfiguration()
+            let backing = theaterWindow.convertToBacking(theaterWindow.frame).size
+            config.width = Int(backing.width)
+            config.height = Int(backing.height)
+            config.showsCursor = false
+            let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: scWindow), configuration: config)
+            // Crop to the video layer's frame (window base coords → image pixel
+            // coords, flipped: CGImage origin is top-left, AppKit is bottom-left).
+            if let playerView {
+                let rect = playerView.convert(playerView.bounds, to: nil)
+                let scale = theaterWindow.backingScaleFactor
+                let backingRect = CGRect(
+                    x: rect.minX * scale,
+                    y: rect.minY * scale,
+                    width: rect.width * scale,
+                    height: rect.height * scale
+                )
+                let flipped = CGRect(
+                    x: backingRect.minX,
+                    y: CGFloat(image.height) - backingRect.maxY,
+                    width: backingRect.width,
+                    height: backingRect.height
+                )
+                if flipped.minX >= 0, flipped.minY >= 0,
+                   flipped.maxX <= CGFloat(image.width), flipped.maxY <= CGFloat(image.height),
+                   let cropped = image.cropping(to: flipped) {
+                    snapshotImage = cropped
+                    print("xCloud player: captured theater snapshot \(cropped.width)x\(cropped.height) (cropped to video area \(rect))")
+                    return
+                }
+            }
+            snapshotImage = image
+            print("xCloud player: captured theater snapshot \(image.width)x\(image.height) (uncropped)")
+        } catch {
+            snapshotImage = nil
+            print("xCloud player: snapshot capture failed: \(error.localizedDescription) — live attach fallback")
         }
     }
 
@@ -1742,10 +1932,15 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         }
     }
 
-    /// Prepares the window (fullscreen-primary, black, invisible) and toggles
-    /// it into native fullscreen, revealing it the moment the transition
-    /// starts. Installs a watchdog: if the toggle was silently ignored, the
-    /// window recovers via `recoverIgnoredFullscreen`.
+    /// Prepares the window (fullscreen-primary, black, invisible), attaches the
+    /// mpv layer to its container, and toggles it into native fullscreen,
+    /// revealing it the moment the transition starts. The video is attached
+    /// only HERE — the theater keeps showing it until the slide begins, and the
+    /// window is sized exactly to the screen and made borderless first, so the
+    /// GL surface does NOT change size during the transition (each mpv surface
+    /// reconfig stalls rendering — that was the stutter). Installs a watchdog:
+    /// if the toggle was silently ignored, the window recovers via
+    /// `recoverIgnoredFullscreen`.
     private func configureAndEnter(_ window: NSWindow) {
         let generation = entryGeneration
         window.collectionBehavior.insert(.fullScreenPrimary)
@@ -1758,10 +1953,20 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // native fullscreen transition SCALES the window up during the slide.
         // Size the window to the target screen first so the transition is a
         // pure Space absorb (Apple-TV style), no scaling animation.
+        // NOTE: do NOT mutate styleMask here (e.g. removing .titled to avoid
+        // the title-bar height growth) — a styleMask write right before the
+        // toggle makes the fullscreen toggle get SILENTLY IGNORED (window
+        // server rejects the transition). Sizing to the screen alone yields a
+        // content size that already equals the screen.
+        // display: true forces the content layout synchronously — with
+        // display: false the content can still be 30pt short (title bar) when
+        // the window hasn't finished mapping, which reconfigures the GL
+        // surface MID-slide (the stutter). The retry loop in
+        // attachVideoThenToggle re-asserts the frame after mapping.
         if let screen = window.screen ?? NSScreen.main {
-            window.setFrame(screen.frame, display: false)
+            window.setFrame(screen.frame, display: true, animate: false)
         }
-        print("xCloud player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen)) frame=\(window.frame)")
+        print("xCloud player: configureAndEnter t=\(Date().timeIntervalSince1970) fs=\(window.styleMask.contains(.fullScreen)) frame=\(window.frame) winScreen=\(String(describing: window.screen?.frame)) main=\(String(describing: NSScreen.main?.frame)) content=\(String(describing: window.contentView?.bounds.size))")
 
         var didEnter = false
         var willObserver: NSObjectProtocol?
@@ -1777,16 +1982,20 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         }
         didObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             didEnter = true
             print("xCloud player: didEnterFullScreen t=\(Date().timeIntervalSince1970)")
             if let didObserver { NotificationCenter.default.removeObserver(didObserver) }
+            // Ghost-window handoff: the live layer is still in the theater
+            // (it never left); move it into the fullscreen container now and
+            // fade it over the snapshot. The theater is in the background
+            // space, so its video area going dark is not visible.
+            self?.swapLiveVideoIn(window: window)
         }
         if !window.isVisible {
             window.makeKeyAndOrderFront(nil)
         }
-        window.toggleFullScreen(nil)
-        print("xCloud player: toggleFullScreen t=\(Date().timeIntervalSince1970)")
+        attachVideoThenToggle(window: window, generation: generation)
 
         // Watchdog: a toggle that never produced a willEnter was ignored —
         // the window is poisoned and will never enter fullscreen on its own.
@@ -1796,6 +2005,104 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             print("xCloud player: watchdog — toggle ignored, recovering")
             self.recoverIgnoredFullscreen(window)
         }
+    }
+
+    /// Waits for the fullscreen window's SwiftUI container to mount, then toggles
+    /// fullscreen. With a ghost snapshot the live layer stays in the theater
+    /// (it is swapped in at didEnterFullScreen); without one (capture failed)
+    /// the live layer is attached here, before the toggle, so the window never
+    /// slides in black. In direct mode there is no theater layer at all — the
+    /// window's own view mounts from the engine — so only the frame re-assert
+    /// and the toggle run here. Also re-asserts the screen frame on every
+    /// retry — the window is fully mapped by then, so the content ends up
+    /// EXACTLY screen-sized (the 1440×870 race) and the GL surface never
+    /// changes size during the slide.
+    private func attachVideoThenToggle(window: NSWindow, generation: Int, attempt: Int = 0) {
+        if let screen = window.screen ?? NSScreen.main {
+            window.setFrame(screen.frame, display: true, animate: false)
+        }
+        if directMode {
+            // Direct mode: no theater layer to attach and no MPVLayerHost
+            // container (the window's own view hosts the video from the
+            // engine) — the container wait below would time out and dismiss
+            // the window. Just toggle once the window is mapped.
+            guard !FullscreenTransitionGate.shared.isTransitioning else {
+                FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
+                    guard let self, self.entryGeneration == generation else { return }
+                    self.attachVideoThenToggle(window: window, generation: generation, attempt: attempt)
+                }
+                return
+            }
+            print("xCloud player: toggleFullScreen (direct) t=\(Date().timeIntervalSince1970)")
+            window.toggleFullScreen(nil)
+            return
+        }
+        if let playerView, snapshotImage == nil, let container = playerContainer, playerView.superview !== container {
+            // No ghost snapshot: attach the live layer pre-toggle (old path).
+            playerView.removeFromSuperview()
+            container.addSubview(playerView)
+            playerView.frame = container.bounds
+            playerView.autoresizingMask = [.width, .height]
+            window.contentView?.layoutSubtreeIfNeeded()
+            print("xCloud player: attached video to container (fallback) \(container.bounds)")
+        }
+        guard playerContainer != nil else {
+            // Container not mounted yet (SwiftUI content creation can take a
+            // few hundred ms) — wait a beat and retry before toggling. If it
+            // never mounts, abort cleanly: the video never left the theater.
+            guard attempt < 50 else {
+                print("xCloud player: attach aborted — container never mounted")
+                self.dismiss()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                guard let self, self.entryGeneration == generation else { return }
+                self.attachVideoThenToggle(window: window, generation: generation, attempt: attempt + 1)
+            }
+            return
+        }
+        // Never toggle into a live transition (the gate normally serializes
+        // present(), but the delayed toggle above can outlive it).
+        guard !FullscreenTransitionGate.shared.isTransitioning else {
+            FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
+                guard let self, self.entryGeneration == generation else { return }
+                self.attachVideoThenToggle(window: window, generation: generation, attempt: attempt)
+            }
+            return
+        }
+        print("xCloud player: toggleFullScreen t=\(Date().timeIntervalSince1970)")
+        window.toggleFullScreen(nil)
+    }
+
+    /// Ghost-window handoff at didEnterFullScreen: moves the live mpv layer
+    /// from the theater into the fullscreen container and fades it in over
+    /// the snapshot. The snapshot is NOT removed upfront — the first frames
+    /// of the moved layer are stale (the GL surface reconfigures to the new
+    /// size mid-render), and the snapshot masks that "small player stretched"
+    /// flash; it is removed when the fade completes. Idempotent (recovery
+    /// paths may re-enter).
+    private func swapLiveVideoIn(window: NSWindow?) {
+        guard snapshotImage != nil, let playerView, let container = playerContainer,
+              playerView.superview !== container, container.window != nil else { return }
+        playerView.removeFromSuperview()
+        container.addSubview(playerView)
+        playerView.frame = container.bounds
+        playerView.autoresizingMask = [.width, .height]
+        playerView.alphaValue = 0
+        playerView.mpvRenderUpdate()
+        window?.contentView?.layoutSubtreeIfNeeded()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.08
+            playerView.animator().alphaValue = 1
+        } completionHandler: { [weak self, weak container] in
+            // The live layer is opaque at the correct size now — drop the ghost.
+            for sub in container?.layer?.sublayers ?? [] where sub.name == "xcloudGhostSnapshot" {
+                sub.removeFromSuperlayer()
+            }
+            self?.snapshotImage = nil
+        }
+        videoLiveInFullscreen = true
+        print("xCloud player: live video swapped in at didEnter \(container.bounds)")
     }
 
     /// Recovery ladder for a window whose fullscreen toggle was ignored (the
@@ -1853,7 +2160,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         dismissWindow?(id: "fullscreenPlayer")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
-            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {})
+            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {}, kind: session.kind, file: session.file)
         }
     }
 
@@ -1916,7 +2223,11 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         isDismissing = false
         isActive = false
         session = nil
+        directMode = false
+        videoLiveInFullscreen = false
         clearExitWarning()
+        playerContainer = nil
+        snapshotImage = nil
         // Close the scene window if it is still around (the dismissWindow
         // close may not have landed) so the next present() gets a fresh one.
         if let window = Self.sceneWindow {
@@ -1928,6 +2239,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             hostView.addSubview(playerView)
             playerView.frame = hostView.bounds
             playerView.autoresizingMask = [.width, .height]
+            videoLiveInFullscreen = false
             print("xCloud player: returned to theater host=\(hostView.bounds) player=\(playerView.frame)")
             // Nudge the async GL layer to redraw at the new size — without
             // this it can sit on the stale fullscreen-size surface.
@@ -1961,37 +2273,56 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
 
 // MARK: - SwiftUI Views
 
-/// NSViewRepresentable that embeds an existing MPVLayerView inside a SwiftUI
-/// hierarchy.  Both video and controls share one SwiftUI render tree, so
-/// `.glassEffect()` materials can sample the video as a backdrop.
+/// NSViewRepresentable that hosts the mpv layer inside the fullscreen window.
+/// Both video and controls share one SwiftUI render tree, so `.glassEffect()`
+/// materials can sample the video as a backdrop.
+///
+/// The attach is deliberately NOT done here: `PlayerFullScreenWindow` decides
+/// when the live layer moves in (ghost-window pattern: the window slides in
+/// showing a static snapshot of the theater; the live layer is swapped in at
+/// didEnterFullScreen). This view creates the container, registers it on the
+/// window object, and shows the ghost snapshot while present.
 private struct MPVLayerHost: NSViewRepresentable {
     let playerView: MPVLayerView
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.isOpaque = false
-        container.layer?.backgroundColor = NSColor.clear.cgColor
-        playerView.frame = container.bounds
-        playerView.autoresizingMask = [.width, .height]
-        container.addSubview(playerView)
+        container.layer?.isOpaque = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+        let window = PlayerFullScreenWindow.shared
+        window.playerContainer = container
+        if let snap = window.snapshotImage {
+            let snapLayer = CALayer()
+            snapLayer.name = "xcloudGhostSnapshot"
+            snapLayer.contents = snap
+            snapLayer.contentsGravity = .resizeAspect
+            snapLayer.frame = container.bounds
+            snapLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            container.layer?.addSublayer(snapLayer)
+            print("xCloud player: ghost snapshot layer mounted \(snap.width)x\(snap.height)")
+        }
         return container
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        playerView.frame = nsView.bounds
+        if playerView.superview === nsView {
+            playerView.frame = nsView.bounds
+        }
     }
 }
 
 /// Root SwiftUI view for the fullscreen player.
 private struct FullscreenPlayerRoot<Controls: View>: View {
-    let mpvView: MPVLayerView
+    let mpvView: MPVLayerView?
     @ViewBuilder let controls: () -> Controls
 
     var body: some View {
         ZStack {
-            MPVLayerHost(playerView: mpvView)
-                .ignoresSafeArea()
+            if let mpvView {
+                MPVLayerHost(playerView: mpvView)
+                    .ignoresSafeArea()
+            }
             controls()
         }
         .background(Color.black)
@@ -2035,16 +2366,25 @@ struct FullscreenPlayerSceneView: View {
     var body: some View {
         Group {
             if let session = window.session, window.isActive {
-                FullscreenPlayerRoot(mpvView: session.player) {
-                    PlayerFullScreenControls(
-                        mpv: session.mpv,
-                        title: session.title,
-                        subtitle: session.subtitle,
-                        window: window
-                    )
+                switch session.kind {
+                case .theater:
+                    FullscreenPlayerRoot(mpvView: session.player) {
+                        PlayerFullScreenControls(
+                            mpv: session.mpv ?? AudioPlayerEngine.shared.mpvController ?? MPVController(),
+                            title: session.title,
+                            subtitle: session.subtitle,
+                            window: window
+                        )
+                    }
+                    .environment(session.appState)
+                    .environment(\.colorScheme, .dark)
+                case .directVideo:
+                    // No theater: the video view mounts here from the engine's
+                    // controller as soon as it exists (spinner until then).
+                    DirectFullscreenRoot(session: session, window: window)
+                case .image:
+                    ImageFullscreenRoot(session: session, window: window)
                 }
-                .environment(session.appState)
-                .environment(\.colorScheme, .dark)
             } else {
                 Color.black
             }
@@ -2054,6 +2394,172 @@ struct FullscreenPlayerSceneView: View {
         .onDisappear {
             window.sceneDidDisappear()
         }
+    }
+}
+
+/// Image-session root ("Open in Full Screen" on an image — no engine): the
+/// image fit-to-screen on black, with the file name and a close button in the
+/// top-right corner. The view owns the file resolution (cached → instant,
+/// uncached → download with progress, theater-style `.task`) — the window
+/// slides in over the spinner immediately and the image appears when the
+/// bytes land. ESC exits.
+private struct ImageFullscreenRoot: View {
+    let session: PlayerFullScreenWindow.Session
+    @ObservedObject var window: PlayerFullScreenWindow
+    @State private var url: URL?
+    @State private var failed = false
+    @State private var progress: Double = 0
+
+    var body: some View {
+        ZStack {
+            Group {
+                if let url {
+                    if (session.title as NSString).pathExtension.lowercased() == "svg" {
+                        SVGWebView(url: url)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(24)
+                    } else if let nsImage = NSImage(contentsOf: url) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .padding(24)
+                    } else {
+                        Text("This image cannot be previewed")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                } else if failed {
+                    Text("The image could not be downloaded")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                } else {
+                    ZStack {
+                        Color.black
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .controlSize(.large)
+                                .tint(.white.opacity(0.7))
+                            if progress > 0 && progress < 1 {
+                                Text("Downloading \(Int(progress * 100))%")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                        }
+                    }
+                }
+            }
+            .ignoresSafeArea()
+
+            VStack {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(session.subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    Spacer()
+                    Button {
+                        window.onClose?()
+                        window.dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close Viewer")
+                }
+                .padding(20)
+
+                Spacer()
+
+                if window.showExitWarning {
+                    Text("Press ESC to exit full screen")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(.bottom, 28)
+                }
+            }
+        }
+        .background(Color.black)
+        .environment(session.appState)
+        .environment(\.colorScheme, .dark)
+        .task(id: session.file?.id) {
+            guard let file = session.file else { return }
+            if DownloadEngine.isCached(file) {
+                url = DownloadEngine.cacheURL(for: file)
+                return
+            }
+            do {
+                let downloaded = try await DownloadEngine.download(object: file, quiet: true) { _, p in
+                    Task { @MainActor in progress = p }
+                }
+                url = downloaded
+            } catch {
+                failed = true
+            }
+        }
+    }
+}
+
+/// Direct-mode root ("Open in Full Screen" — no theater): mounts the engine's
+/// MPVVideoView once the controller exists, with the full controls overlay.
+/// The engine drives playback, state and track switching; the title follows
+/// currentTrack so Play Next / autoplay-next update it.
+private struct DirectFullscreenRoot: View {
+    let session: PlayerFullScreenWindow.Session
+    @ObservedObject var window: PlayerFullScreenWindow
+    @Bindable private var engine = AudioPlayerEngine.shared
+
+    var body: some View {
+        ZStack {
+            Group {
+                if let mpv = engine.mpvController, engine.isMPVPlayback {
+                    MPVVideoView(controller: mpv)
+                        .id(ObjectIdentifier(mpv))
+                } else {
+                    ZStack {
+                        Color.black
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .controlSize(.large)
+                            .tint(.white.opacity(0.7))
+                    }
+                }
+            }
+            .ignoresSafeArea()
+
+            if let mpv = engine.mpvController, engine.isMPVPlayback {
+                PlayerControlsView(
+                    mpv: mpv,
+                    title: engine.currentTrack?.name ?? session.title,
+                    subtitle: session.subtitle,
+                    isFullScreen: true,
+                    showExitWarning: window.showExitWarning,
+                    onMinimize: { window.dismiss() },
+                    onToggleFullScreen: { window.toggleFullScreen() },
+                    onClose: {
+                        window.onClose?()
+                        window.dismiss()
+                    }
+                )
+                .overlay {
+                    PlayerStatusOverlay(mpv: mpv)
+                }
+            }
+        }
+        .background(Color.black)
+        .environment(session.appState)
+        .environment(\.colorScheme, .dark)
     }
 }
 

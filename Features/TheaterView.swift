@@ -64,54 +64,70 @@ struct TheaterView: View {
 
     var body: some View {
         ZStack {
-            // The player stays MOUNTED here at all times. Swapping it for the
-            // placeholder when fullscreen activates would dismantle the mpv
-            // NSViewController, whose teardown destroys the core AND auto-closes
-            // the fullscreen window (PlayerFullScreenWindow.dismiss in teardown)
-            // — the window flashed up and died instantly. The placeholder is an
-            // opaque overlay on top instead; underneath, the (now empty) player
-            // view just sits idle while the mpv layer is in the fullscreen window.
-            ZStack {
-                // Adaptable canvas background (Dark / Slate / Light)
-                canvasBackground.color.ignoresSafeArea()
-
-            // Content
+            // While the video plays in the separate fullscreen player window,
+            // the theater fades out entirely (the mpv layer is re-parented
+            // into that window, so there is nothing left to show here) — the
+            // file browser behind becomes visible and usable, so the user can
+            // explore the app while the video keeps playing fullscreen. The
+            // view stays MOUNTED: dismantling it would tear down mpv and close
+            // the fullscreen window. Only the key monitor stays live, so
+            // ESC/arrows/space keep working while the theater is invisible.
             Group {
-                if isMetadataOnly {
-                    detailsView
-                } else if let errorMessage {
-                    errorView(errorMessage)
-                } else if url != nil {
-                    contentView
-                } else {
-                    downloadingView
+                ZStack {
+                    // The player stays MOUNTED here at all times. Swapping it for the
+                    // placeholder when fullscreen activates would dismantle the mpv
+                    // NSViewController, whose teardown destroys the core AND auto-closes
+                    // the fullscreen window (PlayerFullScreenWindow.dismiss in teardown)
+                    // — the window flashed up and died instantly. Underneath, the (now
+                    // empty) player view just sits idle while the mpv layer is in the
+                    // fullscreen window.
+                    ZStack {
+                        // Adaptable canvas background (Dark / Slate / Light)
+                        canvasBackground.color.ignoresSafeArea()
+
+                    // Content
+                    Group {
+                        if isMetadataOnly {
+                            detailsView
+                        } else if let errorMessage {
+                            errorView(errorMessage)
+                        } else if url != nil {
+                            contentView
+                        } else {
+                            downloadingView
+                        }
+                    }
+
+                    // Floating top controls. Video AND audio players own all their chrome now
+                    // (self-contained PlayerControlsView), so the old viewer top bar is
+                    // suppressed for media to avoid two overlapping control sets.
+                    VStack {
+                        if showControls, previewKind != .video, previewKind != .audio {
+                            topControls
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                        Spacer()
+
+                        // Bottom info bar (hidden for media — the player controls own the
+                        // bottom chrome there: seek bar, time labels, volume, tracks).
+                        if showControls, url != nil, previewKind != .video, previewKind != .audio {
+                            bottomInfoBar
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: showControls)
+
+                    // Navigation arrows (media players use keyboard arrows; the chevrons
+                    // are part of the old viewer chrome and would clash with the player).
+                    if showControls, url != nil, previewKind != .video, previewKind != .audio {
+                        navigationOverlay
+                    }
+                }
                 }
             }
-
-            // Floating top controls. Video AND audio players own all their chrome now
-            // (self-contained PlayerControlsView), so the old viewer top bar is
-            // suppressed for media to avoid two overlapping control sets.
-            VStack {
-                if showControls, previewKind != .video, previewKind != .audio {
-                    topControls
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                Spacer()
-
-                // Bottom info bar (hidden for media — the player controls own the
-                // bottom chrome there: seek bar, time labels, volume, tracks).
-                if showControls, url != nil, previewKind != .video, previewKind != .audio {
-                    bottomInfoBar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: showControls)
-
-            // Navigation arrows (media players use keyboard arrows; the chevrons
-            // are part of the old viewer chrome and would clash with the player).
-            if showControls, url != nil, previewKind != .video, previewKind != .audio {
-                navigationOverlay
-            }
+            .opacity(PlayerFullScreenWindow.shared.videoLiveInFullscreen && previewKind == .video ? 0 : 1)
+            .allowsHitTesting(!(PlayerFullScreenWindow.shared.videoLiveInFullscreen && previewKind == .video))
+            .animation(.easeOut(duration: 0.15), value: PlayerFullScreenWindow.shared.videoLiveInFullscreen)
 
             // Global window key monitor for ESC, Left/Right Arrows, Spacebar, and
             // the media keys (F7/F8/F9). While a video plays, arrows seek instead of
@@ -138,14 +154,16 @@ struct TheaterView: View {
                     }
                 },
                 onUpArrow: {
-                    if previewKind == .video {
+                    // Video AND audio: up/down adjust volume (the app's volume
+                    // IS the system volume). Other previews: vertical navigation.
+                    if previewKind == .video || previewKind == .audio {
                         SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
                     } else {
                         navigateMediaVertical(delta: -1)
                     }
                 },
                 onDownArrow: {
-                    if previewKind == .video {
+                    if previewKind == .video || previewKind == .audio {
                         SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
                     } else {
                         navigateMediaVertical(delta: 1)
@@ -230,7 +248,9 @@ struct TheaterView: View {
             return .handled
         }
         .onKeyPress(.upArrow) {
-            if previewKind == .video {
+            // Video AND audio: up/down adjust volume (the app's volume IS the
+            // system volume). Other previews: vertical navigation.
+            if previewKind == .video || previewKind == .audio {
                 SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
             } else {
                 navigateMediaVertical(delta: -1)
@@ -238,7 +258,7 @@ struct TheaterView: View {
             return .handled
         }
         .onKeyPress(.downArrow) {
-            if previewKind == .video {
+            if previewKind == .video || previewKind == .audio {
                 SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
             } else {
                 navigateMediaVertical(delta: 1)
@@ -277,16 +297,6 @@ struct TheaterView: View {
             appState.theaterFile = track
             appState.selectedFiles = [track.id]
         }
-
-            // Opaque placeholder on top while the fullscreen player window is
-            // active — the mpv layer is re-parented into that window, so the
-            // theater would otherwise show an empty video area. Overlay (not
-            // replacement): dismantling the player here tears down mpv and
-            // closes the fullscreen window.
-            if PlayerFullScreenWindow.shared.isActive, previewKind == .video {
-                fullscreenPlaceholder
-            }
-        }
     }
 
     /// Player-only full screen: presents the video in a separate borderless window
@@ -298,6 +308,11 @@ struct TheaterView: View {
         if PlayerFullScreenWindow.shared.isActive {
             PlayerFullScreenWindow.shared.dismiss()
             appState.isTheaterFullScreen = false
+        } else if previewKind == .image {
+            // Images have no mpv controller — the player window shows the
+            // image itself (fit-to-screen, spinner while it downloads).
+            PlayerFullScreenWindow.presentImage(appState: appState, file: file)
+            appState.isTheaterFullScreen = true
         } else if let mpv = AudioPlayerEngine.shared.mpvController,
                   let layer = mpv.playerView?.playerView {
             PlayerFullScreenWindow.shared.present(
@@ -315,49 +330,6 @@ struct TheaterView: View {
                 }
             )
             appState.isTheaterFullScreen = true
-        }
-    }
-
-    // MARK: - Fullscreen Placeholder
-
-    /// Shown in the main window when the video is playing in the separate
-    /// fullscreen player window.  Keeps the theater open so the user can
-    /// return, but hides the broken/duplicated video layer.
-    private var fullscreenPlaceholder: some View {
-        ZStack {
-            canvasBackground.color.ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                Spacer()
-
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 48, weight: .light))
-                    .foregroundStyle(.white.opacity(0.4))
-
-                Text("Playing in full-screen")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-
-                Text(file.name)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .lineLimit(1)
-
-                Button {
-                    // Return to the fullscreen player window.
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: {
-                    Text("Switch to Player")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
         }
     }
 
@@ -387,24 +359,6 @@ struct TheaterView: View {
             .buttonStyle(.plain)
             .help("Minimize to Background")
 
-            // Full Screen toggle button — player-only fullscreen (separate window),
-            // never a whole-app/native-window toggle. The mpv view is re-parented, so
-            // playback survives the transition.
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    togglePlayerFullScreen()
-                }
-            } label: {
-                Image(systemName: appState.isTheaterFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
-            .help(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen (Hide Sidebar)")
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
                     .font(.system(size: 13, weight: .bold))
@@ -419,6 +373,25 @@ struct TheaterView: View {
             .padding(.leading, 4)
 
             Spacer()
+
+            // Full Screen toggle button — player-only fullscreen (separate window),
+            // never a whole-app/native-window toggle. For video/audio the mpv view is
+            // re-parented, so playback survives the transition; for images the window
+            // shows the image fit-to-screen. Top-right, next to Close.
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    togglePlayerFullScreen()
+                }
+            } label: {
+                Image(systemName: appState.isTheaterFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help(appState.isTheaterFullScreen ? "Exit Full Screen" : "Full Screen")
 
             // Close button (Stops playback completely)
             Button {
@@ -1307,6 +1280,7 @@ struct TheaterAudioPlayerView: View {
     var onMinimize: () -> Void = {}
     var onClose: () -> Void = {}
     @Bindable var audioEngine = AudioPlayerEngine.shared
+    @Bindable private var volumeManager = SystemVolumeManager.shared
     @State private var thumbURL: URL?
     @State private var dragProgress: Double?
     // Holds the clicked/dragged position after release until mpv's telemetry
@@ -1437,7 +1411,10 @@ struct TheaterAudioPlayerView: View {
 
                 // Transport — same as the video player: center play cluster with
                 // previous/next pinned to the left and right edges, shown only
-                // when a file exists on that side of the row navigation.
+                // when a file exists on that side of the row navigation. The
+                // whole band is pinned to the cluster's height (68) and the edge
+                // chevrons fill it, so all three buttons always share the exact
+                // same vertical center — never offset toward the lower side.
                 ZStack {
                     HStack(spacing: 36) {
                         Button { audioEngine.skipPrevious() } label: {
@@ -1447,6 +1424,7 @@ struct TheaterAudioPlayerView: View {
                                 .frame(width: 48, height: 48)
                                 .contentShape(Circle())
                                 .glassEffect(.regular.interactive(), in: .circle)
+                                .playerHoverTint()
                         }
                         .buttonStyle(.plain)
 
@@ -1468,6 +1446,7 @@ struct TheaterAudioPlayerView: View {
                             .frame(width: 68, height: 68)
                             .contentShape(Circle())
                             .glassEffect(.regular.interactive(), in: .circle)
+                            .playerHoverTint()
                         }
                         .buttonStyle(.plain)
 
@@ -1478,6 +1457,7 @@ struct TheaterAudioPlayerView: View {
                                 .frame(width: 48, height: 48)
                                 .contentShape(Circle())
                                 .glassEffect(.regular.interactive(), in: .circle)
+                                .playerHoverTint()
                         }
                         .buttonStyle(.plain)
                     }
@@ -1491,6 +1471,7 @@ struct TheaterAudioPlayerView: View {
                                     .frame(width: 46, height: 46)
                                     .contentShape(Circle())
                                     .glassEffect(.regular.interactive(), in: .circle)
+                                    .playerHoverTint()
                             }
                             .buttonStyle(.plain)
                             .help("Previous track")
@@ -1504,55 +1485,32 @@ struct TheaterAudioPlayerView: View {
                                     .frame(width: 46, height: 46)
                                     .contentShape(Circle())
                                     .glassEffect(.regular.interactive(), in: .circle)
+                                    .playerHoverTint()
                             }
                             .buttonStyle(.plain)
                             .help("Next track")
                         }
                     }
-                    .frame(maxWidth: .infinity) // pin the chevrons to the real edges
+                    .frame(maxWidth: .infinity, maxHeight: .infinity) // chevrons fill the 68pt band → same center as the cluster
                 }
+                .frame(height: 68) // pin the band: the cluster defines the row's height
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 40)
                 .padding(.top, 30)
 
                 // Volume pill — the app's volume IS the system output volume
-                // (SystemVolumeManager), so keyboard keys and this slider are
-                // the same control. The repeat pill toggles autoplay-next
-                // (shared with video).
+                // (SystemVolumeManager), so keyboard keys, the volume rockers,
+                // and this slider are the same control. Bound via @Bindable so
+                // the slider and mute icon track EXTERNAL changes (rocker
+                // keys, Control Center) live — a raw Binding(get:) would only
+                // re-read on this view's own re-renders.
                 HStack(spacing: 10) {
-                    Button {
-                        audioEngine.autoplayNextEnabled.toggle()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "infinity")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Auto")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                        .foregroundColor(audioEngine.autoplayNextEnabled ? XTheme.accent : .white.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: 54, height: 30)
-                    .contentShape(Capsule())
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .help(audioEngine.autoplayNextEnabled ? "Autoplay next: ON — the next track plays when this one ends" : "Autoplay next: OFF — Space replays the current track when it ends")
-
-                    Divider()
-                        .frame(height: 16)
-                        .background(Color.white.opacity(0.25))
-
-                    Image(systemName: SystemVolumeManager.shared.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.8))
-                    Slider(
-                        value: Binding(
-                            get: { SystemVolumeManager.shared.volume },
-                            set: { SystemVolumeManager.shared.volume = $0 }
-                        ),
-                        in: 0...1
-                    )
-                    .frame(width: 90)
-                    .tint(.white)
+                    Slider(value: $volumeManager.volume, in: 0...1)
+                        .frame(width: 90)
+                        .tint(.white)
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 34)

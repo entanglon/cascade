@@ -1749,6 +1749,24 @@ struct FileItemContextMenu: View {
             } label: {
                 Label("Quick Look", systemImage: "eye")
             }
+            // Media can open STRAIGHT into the fullscreen player — no theater,
+            // no small player first: videos start playing in the player window
+            // itself, images show fit-to-screen (spinner while they download).
+            if file.isVideo || file.isPhoto {
+                Button {
+                    if file.isVideo {
+                        PlayerFullScreenWindow.presentDirect(
+                            appState: appState,
+                            file: file,
+                            playlist: appState.files.filter { $0.isAudio || $0.isVideo }
+                        )
+                    } else {
+                        PlayerFullScreenWindow.presentImage(appState: appState, file: file)
+                    }
+                } label: {
+                    Label("Open in Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+            }
             // Open externally: submenu listing every app that can open this file
             // (VLC, IINA, QuickTime, …), plus Default App and Choose App — the same
             // Open With behavior as the viewer.
