@@ -2,7 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (late) — Cascade icon corrected: tight framing and regenerated macOS assets.
+> 2026-08-20 — User-supplied Cascade icon revision adopted and Debug app restarted.
+
+---
+
+## 2026-08-20 — Revised Cascade icon adopted
+
+The first Cascade icon correction was technically tightly cropped but still looked visually undersized in macOS. The user supplied a revised `Public/icon-new.png` with the three-step mark enlarged and an edge-to-edge rounded background.
+
+### Changes
+
+- Preserved the supplied 1254×1254 composition exactly (no additional crop), copied it to the canonical `Public/icon.png`, and kept `Public/icon-new.png` as the committed supplied original.
+- Regenerated all ten macOS asset-catalog renditions in `xCloud/Assets.xcassets/AppIcon.appiconset/`, from 16×16 through 1024×1024.
+
+### Verification
+
+- Inspected 1024 px and 64 px outputs: the larger mark stays clear at small size and the background reaches the canvas edge.
+- Debug build **SUCCEEDED**, including `actool` asset-catalog compilation. Stopped the previous Debug process and launched the newly built `Cascade.app`. No Release build — user policy.
+
+Commit: `15ce81c` — `Use revised Cascade app icon`.
 
 ---
 
