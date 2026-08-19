@@ -1871,6 +1871,44 @@ struct xCloudTests {
         try await DatabaseManager.shared.deleteShare(id: privateShare.id)
         try await DatabaseManager.shared.deleteShare(id: publicShare.id)
     }
+
+    @Test func archiveShareHidesFromActiveList() async throws {
+        let now = Date()
+        let share = ShareRecord(
+            id: "share-archive-test", objectID: "obj-archive-1",
+            channelID: -100700, inviteLink: "https://t.me/+ca", shareKey: "",
+            expiry: now.addingTimeInterval(86400), role: "outgoing", state: "active",
+            fileName: "archive-test.txt", createdAt: now, messageIDs: "3145728"
+        )
+        try await DatabaseManager.shared.saveShare(share)
+
+        // Before archive: appears in active list
+        let activeBefore = try await DatabaseManager.shared.shares(role: "outgoing")
+            .filter { $0.state == "active" && !$0.isArchived }
+        #expect(activeBefore.contains { $0.id == share.id })
+
+        // Archive it
+        try await DatabaseManager.shared.archiveShare(id: share.id)
+        let archived = try await DatabaseManager.shared.share(id: share.id)
+        #expect(archived?.isArchived == true, "isArchived should be true after archiving")
+
+        // After archive: disappears from active list
+        let activeAfter = try await DatabaseManager.shared.shares(role: "outgoing")
+            .filter { $0.state == "active" && !$0.isArchived }
+        #expect(!activeAfter.contains { $0.id == share.id })
+
+        // Unarchive it
+        try await DatabaseManager.shared.unarchiveShare(id: share.id)
+        let unarchived = try await DatabaseManager.shared.share(id: share.id)
+        #expect(unarchived?.isArchived == false, "isArchived should be false after unarchiving")
+
+        // Back in active list
+        let activeRestore = try await DatabaseManager.shared.shares(role: "outgoing")
+            .filter { $0.state == "active" && !$0.isArchived }
+        #expect(activeRestore.contains { $0.id == share.id })
+
+        try await DatabaseManager.shared.deleteShare(id: share.id)
+    }
 }
 
 

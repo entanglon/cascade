@@ -1132,11 +1132,17 @@ final class AppState {
         outgoingShares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
     }
 
-    /// Active outgoing shares (state == "active"), private and public, newest
-    /// first — what the Shared page manages.
+    /// Active outgoing shares (state == "active", not archived), private and
+    /// public, newest first — what the Shared page manages.
     @MainActor
     var activeOutgoingShares: [ShareRecord] {
-        outgoingShares.filter { $0.state == "active" }
+        outgoingShares.filter { $0.state == "active" && !$0.isArchived }
+    }
+
+    /// Archived outgoing shares — hidden from the Shared page by default.
+    @MainActor
+    var archivedOutgoingShares: [ShareRecord] {
+        outgoingShares.filter { $0.state == "active" && $0.isArchived }
     }
 
     /// Object IDs shown under "Shared": only files I imported through share
@@ -1221,6 +1227,25 @@ final class AppState {
     func cancelAllShares() {
         Task {
             await ShareEngine.cancelAllShares()
+            await loadShares()
+        }
+    }
+
+    /// Archives a share — hides it from the Shared page without revoking it.
+    /// The link stays live; the share record and channel messages are untouched.
+    @MainActor
+    func archiveShare(_ share: ShareRecord) {
+        Task {
+            try? await DatabaseManager.shared.archiveShare(id: share.id)
+            await loadShares()
+        }
+    }
+
+    /// Unarchives a share — makes it visible on the Shared page again.
+    @MainActor
+    func unarchiveShare(_ share: ShareRecord) {
+        Task {
+            try? await DatabaseManager.shared.unarchiveShare(id: share.id)
             await loadShares()
         }
     }

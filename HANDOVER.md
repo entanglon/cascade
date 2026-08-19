@@ -2363,6 +2363,27 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       (55 unit + 4 UI + 4 launch). Debug app relaunched. **No Release build**
       — user policy.
 
+93. **Share archiving (2026-08-19 — COMMITTED)** (`Storage/Models.swift`,
+    `Storage/DatabaseManager.swift`, `App/AppState.swift`,
+    `Features/ShareManagerView.swift`, `xCloudTests/xCloudTests.swift`)
+    - **Problem**: public shares never expire, so the Shared page accumulates
+      cards forever — cluttered for users who share many files.
+    - **Solution**: archive shares (hide from UI without revoking — the link
+      stays live).
+    - **DB**: migration `v25-share-archive` adds `shares.isArchived` (boolean,
+      default false). `ShareRecord` gains `isArchived: Bool = false`.
+    - **DatabaseManager**: `archiveShare(id:)` / `unarchiveShare(id:)` —
+      fetch-modify-save pattern.
+    - **AppState**: `activeOutgoingShares` now excludes archived shares;
+      `archivedOutgoingShares` computed property added; `archiveShare(_:)` / `unarchiveShare(_:)` methods.
+    - **ShareManagerView**: header toggle button switches between Active and
+      Archived views; context menu gains Archive / Unarchive action (between
+      Copy Link and Cancel Share); empty state adapts to the view mode.
+    - **Test**: `archiveShareHidesFromActiveList` — archive hides from active
+      list, unarchive restores; `isArchived` persists.
+    - Build green (Debug). Test suite green: **TEST SUCCEEDED** (56 unit +
+      4 UI + 4 launch). **No Release build** — user policy.
+
 ## 5. Pending / next steps
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
   (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the

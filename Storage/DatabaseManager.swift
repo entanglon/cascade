@@ -373,6 +373,11 @@ actor DatabaseManager {
             }
             try db.execute(sql: "UPDATE share_state SET kind = 'private' WHERE id = 1")
         }
+        migrator.registerMigration("v25-share-archive") { db in
+            try db.alter(table: "shares") { t in
+                t.add(column: "isArchived", .boolean).notNull().defaults(to: false)
+            }
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
@@ -448,6 +453,24 @@ actor DatabaseManager {
 
     func deleteShare(id: String) throws {
         try write { db in _ = try ShareRecord.deleteOne(db, id: id) }
+    }
+
+    func archiveShare(id: String) throws {
+        try write { db in
+            if var record = try ShareRecord.fetchOne(db, id: id) {
+                record.isArchived = true
+                try record.save(db)
+            }
+        }
+    }
+
+    func unarchiveShare(id: String) throws {
+        try write { db in
+            if var record = try ShareRecord.fetchOne(db, id: id) {
+                record.isArchived = false
+                try record.save(db)
+            }
+        }
     }
 
     func share(id: String) throws -> ShareRecord? {

@@ -2,7 +2,23 @@
 
 >> Chronological log of the work on the Freebuff/xCloud macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-19 (night) — reverted TTL removal, 24h auto-delete restored on private share channels.
+> 2026-08-19 (night) — share archiving (hide without revoking, filter toggle).
+
+---
+
+## 2026-08-19 (night) — Share archiving (hide without revoking)
+
+Public shares never expire, so the Shared page accumulates cards forever. Added an archive mechanism: hide share cards from the UI without revoking the link (the share stays live in the channel).
+
+### Changes
+
+- `Storage/Models.swift`: `ShareRecord.isArchived: Bool = false` (v25).
+- `Storage/DatabaseManager.swift`: migration `v25-share-archive` adds `shares.isArchived` column; `archiveShare(id:)` / `unarchiveShare(id:)` methods.
+- `App/AppState.swift`: `activeOutgoingShares` excludes archived; `archivedOutgoingShares` computed property; `archiveShare(_:)` / `unarchiveShare(_:)` methods.
+- `Features/ShareManagerView.swift`: header toggle (Active / Archived), context menu gains Archive / Unarchive action, empty state adapts.
+- `xCloudTests/xCloudTests.swift`: `archiveShareHidesFromActiveList` — archive hides, unarchive restores, persists.
+
+Build green; full suite **TEST SUCCEEDED** (56 unit + 4 UI + 4 launch, 0 failures). **No Release build** — user policy.
 
 ---
 

@@ -300,6 +300,9 @@ struct ShareRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, S
     /// persistent public channel; false for private shares (dedicated pool
     /// channel, expiring one-use invite). Always false on incoming records.
     var isPublic: Bool = false
+    /// v25+: archived shares are hidden from the Shared page but the link
+    /// still works. The share record and channel messages are untouched.
+    var isArchived: Bool = false
 }
 
 // MARK: - Share channel pool (v24)

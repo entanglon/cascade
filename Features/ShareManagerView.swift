@@ -19,12 +19,15 @@ struct ShareManagerView: View {
     @State private var selectedShareID: String? = nil
     @State private var columnCount = 2
     @State private var scrollTargetID: String? = nil
+    @State private var showArchived = false
 
     /// Flat list in visual order (public section first, then private section) —
     /// the order arrow-key navigation walks, matching the grid layout.
     private var navigableShares: [ShareRecord] { publicShares + privateShares }
 
-    private var active: [ShareRecord] { appState.activeOutgoingShares }
+    private var active: [ShareRecord] {
+        showArchived ? appState.archivedOutgoingShares : appState.activeOutgoingShares
+    }
     private var privateShares: [ShareRecord] { active.filter { !$0.isPublic } }
     private var publicShares: [ShareRecord] { active.filter { $0.isPublic } }
 
@@ -38,9 +41,26 @@ struct ShareManagerView: View {
                     ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            if active.count > 1 {
-                                HStack {
-                                    Spacer()
+                            HStack {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showArchived.toggle()
+                                    }
+                                } label: {
+                                    Text(showArchived ? "Active" : "Archived")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.85))
+                                        .frame(width: XTheme.topBarControlsWidth, height: 34)
+                                        .contentShape(Capsule())
+                                        .glassEffect(.regular.interactive(), in: .capsule)
+                                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                                .help(showArchived ? "Show active shares" : "Show archived shares")
+
+                                Spacer()
+
+                                if !showArchived && appState.activeOutgoingShares.count > 1 {
                                     Button {
                                         showCancelAll = true
                                     } label: {
@@ -55,10 +75,10 @@ struct ShareManagerView: View {
                                     .buttonStyle(.plain)
                                     .help("Revoke every share link")
                                 }
-                                .padding(.top, 16)
-                                .padding(.leading, 24)
-                                .padding(.trailing, 20)
                             }
+                            .padding(.top, 16)
+                            .padding(.leading, 24)
+                            .padding(.trailing, 20)
 
                             if !publicShares.isEmpty {
                                 sectionHeader("Public")
@@ -207,15 +227,17 @@ struct ShareManagerView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "arrow.triangle.swap")
+            Image(systemName: showArchived ? "tray" : "arrow.triangle.swap")
                 .font(.system(size: 48, weight: .ultraLight))
                 .foregroundStyle(XTheme.brandGradient)
 
-            Text("No Active Shares")
+            Text(showArchived ? "No Archived Shares" : "No Active Shares")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Links you share appear here. Private links expire after a week and can be cancelled any time; public links never expire.")
+            Text(showArchived
+                ? "Archived shares are hidden from the main view but their links still work."
+                : "Links you share appear here. Private links expire after a day and can be cancelled any time; public links never expire.")
                 .font(.system(size: 14))
                 .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -388,6 +410,20 @@ struct ShareGridCard: View {
             copyLink()
         } label: {
             Label(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        Divider()
+        if share.isArchived {
+            Button {
+                appState.unarchiveShare(share)
+            } label: {
+                Label("Unarchive", systemImage: "tray.and.arrow.up")
+            }
+        } else {
+            Button {
+                appState.archiveShare(share)
+            } label: {
+                Label("Archive", systemImage: "tray.and.arrow.down")
+            }
         }
         Button(role: .destructive) {
             onCancel()
