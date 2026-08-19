@@ -413,10 +413,10 @@ struct LoginStepsView: View {
 
     private var subtitleForStep: String {
         switch currentStep {
-        case .phone: return "Enter your phone number to connect your Telegram account."
-        case .code: return "We've sent a code via SMS or Telegram message."
+        case .phone: return "Enter your phone number to get started."
+        case .code: return "We've sent you a verification code."
         case .password: return "Your account is protected with an additional password."
-        case .confirmation: return "Open Telegram on one of your other devices and tap the login confirmation."
+        case .confirmation: return "Open Cascade on another device and approve the login."
         }
     }
 
@@ -541,7 +541,7 @@ struct LoginStepsView: View {
             .buttonStyle(.xGlassProminent)
             .disabled(password.isEmpty || isLoading)
 
-            Text("Forgot it? Reset your password in the Telegram app on another device.")
+            Text("Forgot it? Reset your password in Cascade on another device.")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.4))
                 .multilineTextAlignment(.center)
@@ -564,7 +564,7 @@ struct LoginStepsView: View {
             .buttonStyle(.xGlassProminent)
             .disabled(isLoading)
 
-            Text("Didn't get a prompt? Make sure you're logged into Telegram on another device.")
+            Text("Didn't get a prompt? Make sure you're logged into Cascade on another device.")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.4))
                 .multilineTextAlignment(.center)

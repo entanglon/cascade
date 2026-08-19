@@ -40,7 +40,7 @@ struct LoginGateView: View {
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
 
-                Text("Your private cloud, powered by Telegram")
+                Text("Your private cloud")
                     .font(.system(size: 13))
                     .foregroundStyle(XTheme.textSecondary)
             }
@@ -98,11 +98,11 @@ struct TelegramSetupForm: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 5) {
-                Text("Connect Telegram")
+                Text("API Credentials")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
 
-                Text("Enter the API credentials from my.telegram.org")
+                Text("Get your API ID and API Hash from my.telegram.org")
                     .font(.system(size: 12))
                     .foregroundStyle(XTheme.textSecondary)
             }

@@ -69,7 +69,7 @@ struct OnboardingView: View {
                     // API credentials step and the phone/code/password login flow.
                     completeOnboarding()
                 } label: {
-                    Text("Connect Telegram")
+                    Text("Get Started")
                         .fontWeight(.semibold)
                 }
                 .buttonStyle(.xGlassProminent)

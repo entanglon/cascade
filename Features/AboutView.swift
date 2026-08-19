@@ -26,16 +26,10 @@ struct AboutView: View {
                     .foregroundStyle(.white.opacity(0.5))
             }
 
-            VStack(spacing: 8) {
-                Text("Unlimited cloud storage")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                
-                Text("Powered by Telegram & TDLibKit")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
+            Text("Unlimited cloud storage")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
 
             Button("Close") { dismiss() }
                 .buttonStyle(.xGlass)
