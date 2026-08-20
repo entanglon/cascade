@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F71DD54D3023297400135A65 /* xCloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD54C3023297400135A65 /* xCloudApp.swift */; };
+		F71DD54D3023297400135A65 /* CascadeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD54C3023297400135A65 /* CascadeApp.swift */; };
 		F71DD57930232A9500135A65 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57830232A8D00135A65 /* AppState.swift */; };
 		F71DD57C30232B4500135A65 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57B30232B4500135A65 /* RootView.swift */; };
 		F71DD57E30232BBF00135A65 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57D30232BBF00135A65 /* SidebarView.swift */; };
@@ -52,22 +52,22 @@
 			containerPortal = F71DD5413023297400135A65 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = F71DD5483023297400135A65;
-			remoteInfo = xCloud;
+			remoteInfo = Cascade;
 		};
 		F71DD5613023297500135A65 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = F71DD5413023297400135A65 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = F71DD5483023297400135A65;
-			remoteInfo = xCloud;
+			remoteInfo = Cascade;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		F71DD5493023297400135A65 /* Cascade.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cascade.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F71DD54C3023297400135A65 /* xCloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = xCloudApp.swift; sourceTree = "<group>"; };
-		F71DD5563023297500135A65 /* xCloudTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xCloudTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F71DD5603023297500135A65 /* xCloudUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xCloudUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F71DD54C3023297400135A65 /* CascadeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CascadeApp.swift; sourceTree = "<group>"; };
+		F71DD5563023297500135A65 /* CascadeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CascadeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F71DD5603023297500135A65 /* CascadeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CascadeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F71DD57830232A8D00135A65 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		F71DD57B30232B4500135A65 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		F71DD57D30232BBF00135A65 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -104,19 +104,19 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F71DD54B3023297400135A65 /* xCloud */ = {
+		F71DD54B3023297400135A65 /* Cascade */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = xCloud;
+			path = Cascade;
 			sourceTree = "<group>";
 		};
-		F71DD5593023297500135A65 /* xCloudTests */ = {
+		F71DD5593023297500135A65 /* CascadeTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = xCloudTests;
+			path = CascadeTests;
 			sourceTree = "<group>";
 		};
-		F71DD5633023297500135A65 /* xCloudUITests */ = {
+		F71DD5633023297500135A65 /* CascadeUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = xCloudUITests;
+			path = CascadeUITests;
 			sourceTree = "<group>";
 		};
 		F783B6483023338700326355 /* Storage */ = {
@@ -176,9 +176,9 @@
 				F783B65B3023390F00326355 /* Crypto */,
 				F783B6523023381000326355 /* Engine */,
 				F783B6483023338700326355 /* Storage */,
-				F71DD54B3023297400135A65 /* xCloud */,
-				F71DD5593023297500135A65 /* xCloudTests */,
-				F71DD5633023297500135A65 /* xCloudUITests */,
+				F71DD54B3023297400135A65 /* Cascade */,
+				F71DD5593023297500135A65 /* CascadeTests */,
+				F71DD5633023297500135A65 /* CascadeUITests */,
 				F71DD54A3023297400135A65 /* Products */,
 				F71DD57330232A1600135A65 /* App */,
 				F71DD57530232A3400135A65 /* Design */,
@@ -190,8 +190,8 @@
 			isa = PBXGroup;
 			children = (
 				F71DD5493023297400135A65 /* Cascade.app */,
-				F71DD5563023297500135A65 /* xCloudTests.xctest */,
-				F71DD5603023297500135A65 /* xCloudUITests.xctest */,
+				F71DD5563023297500135A65 /* CascadeTests.xctest */,
+				F71DD5603023297500135A65 /* CascadeUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -199,7 +199,7 @@
 		F71DD57330232A1600135A65 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				F71DD54C3023297400135A65 /* xCloudApp.swift */,
+				F71DD54C3023297400135A65 /* CascadeApp.swift */,
 				F71DD57830232A8D00135A65 /* AppState.swift */,
 				F783B67730236D5C00326355 /* TerminationHandler.swift */,
 				F7A1B00600000000000000A5 /* AppPaths.swift */,
@@ -250,9 +250,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F71DD5483023297400135A65 /* xCloud */ = {
+		F71DD5483023297400135A65 /* Cascade */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F71DD56A3023297500135A65 /* Build configuration list for PBXNativeTarget "xCloud" */;
+			buildConfigurationList = F71DD56A3023297500135A65 /* Build configuration list for PBXNativeTarget "Cascade" */;
 			buildPhases = (
 				F71DD5453023297400135A65 /* Sources */,
 				F71DD5463023297400135A65 /* Frameworks */,
@@ -263,25 +263,25 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				F71DD54B3023297400135A65 /* xCloud */,
+				F71DD54B3023297400135A65 /* Cascade */,
 				F783B6483023338700326355 /* Storage */,
 				F783B6523023381000326355 /* Engine */,
 				F783B65B3023390F00326355 /* Crypto */,
 				F783B6633023411100326355 /* Telegram */,
 			);
-			name = xCloud;
+			name = Cascade;
 			packageProductDependencies = (
 				F783B6503023365500326355 /* GRDB */,
 				F783B661302340F500326355 /* TDLibKit */,
 				F7C0FF00000000000000A001 /* MPVKit */,
 			);
-			productName = xCloud;
+			productName = Cascade;
 			productReference = F71DD5493023297400135A65 /* Cascade.app */;
 			productType = "com.apple.product-type.application";
 		};
-		F71DD5553023297500135A65 /* xCloudTests */ = {
+		F71DD5553023297500135A65 /* CascadeTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F71DD56D3023297500135A65 /* Build configuration list for PBXNativeTarget "xCloudTests" */;
+			buildConfigurationList = F71DD56D3023297500135A65 /* Build configuration list for PBXNativeTarget "CascadeTests" */;
 			buildPhases = (
 				F71DD5523023297500135A65 /* Sources */,
 				F71DD5533023297500135A65 /* Frameworks */,
@@ -293,18 +293,18 @@
 				F71DD5583023297500135A65 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				F71DD5593023297500135A65 /* xCloudTests */,
+				F71DD5593023297500135A65 /* CascadeTests */,
 			);
-			name = xCloudTests;
+			name = CascadeTests;
 			packageProductDependencies = (
 			);
-			productName = xCloudTests;
-			productReference = F71DD5563023297500135A65 /* xCloudTests.xctest */;
+			productName = CascadeTests;
+			productReference = F71DD5563023297500135A65 /* CascadeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		F71DD55F3023297500135A65 /* xCloudUITests */ = {
+		F71DD55F3023297500135A65 /* CascadeUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F71DD5703023297500135A65 /* Build configuration list for PBXNativeTarget "xCloudUITests" */;
+			buildConfigurationList = F71DD5703023297500135A65 /* Build configuration list for PBXNativeTarget "CascadeUITests" */;
 			buildPhases = (
 				F71DD55C3023297500135A65 /* Sources */,
 				F71DD55D3023297500135A65 /* Frameworks */,
@@ -316,13 +316,13 @@
 				F71DD5623023297500135A65 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				F71DD5633023297500135A65 /* xCloudUITests */,
+				F71DD5633023297500135A65 /* CascadeUITests */,
 			);
-			name = xCloudUITests;
+			name = CascadeUITests;
 			packageProductDependencies = (
 			);
-			productName = xCloudUITests;
-			productReference = F71DD5603023297500135A65 /* xCloudUITests.xctest */;
+			productName = CascadeUITests;
+			productReference = F71DD5603023297500135A65 /* CascadeUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -348,7 +348,7 @@
 					};
 				};
 			};
-			buildConfigurationList = F71DD5443023297400135A65 /* Build configuration list for PBXProject "xCloud" */;
+			buildConfigurationList = F71DD5443023297400135A65 /* Build configuration list for PBXProject "Cascade" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -367,9 +367,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F71DD5483023297400135A65 /* xCloud */,
-				F71DD5553023297500135A65 /* xCloudTests */,
-				F71DD55F3023297500135A65 /* xCloudUITests */,
+				F71DD5483023297400135A65 /* Cascade */,
+				F71DD5553023297500135A65 /* CascadeTests */,
+				F71DD55F3023297500135A65 /* CascadeUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -430,7 +430,7 @@
 				F71DD58030232BDC00135A65 /* AppBackground.swift in Sources */,
 				F783B67830236D5C00326355 /* TerminationHandler.swift in Sources */,
 				F7A1B00500000000000000A5 /* AppPaths.swift in Sources */,
-				F71DD54D3023297400135A65 /* xCloudApp.swift in Sources */,
+				F71DD54D3023297400135A65 /* CascadeApp.swift in Sources */,
 				F71DD58830232FF300135A65 /* XTheme.swift in Sources */,
 				F783B66A3023476900326355 /* LoginView.swift in Sources */,
 				F71DD57E30232BBF00135A65 /* SidebarView.swift in Sources */,
@@ -459,12 +459,12 @@
 /* Begin PBXTargetDependency section */
 		F71DD5583023297500135A65 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F71DD5483023297400135A65 /* xCloud */;
+			target = F71DD5483023297400135A65 /* Cascade */;
 			targetProxy = F71DD5573023297500135A65 /* PBXContainerItemProxy */;
 		};
 		F71DD5623023297500135A65 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F71DD5483023297400135A65 /* xCloud */;
+			target = F71DD5483023297400135A65 /* Cascade */;
 			targetProxy = F71DD5613023297500135A65 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -623,7 +623,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cascade.app;
-				PRODUCT_MODULE_NAME = xCloud;
+				PRODUCT_MODULE_NAME = Cascade;
 				PRODUCT_NAME = Cascade;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -668,7 +668,7 @@
 				);
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cascade.app.prod;
-				PRODUCT_MODULE_NAME = xCloud;
+				PRODUCT_MODULE_NAME = Cascade;
 				PRODUCT_NAME = Cascade;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -737,7 +737,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = xCloud;
+				TEST_TARGET_NAME = Cascade;
 			};
 			name = Debug;
 		};
@@ -756,14 +756,14 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = xCloud;
+				TEST_TARGET_NAME = Cascade;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F71DD5443023297400135A65 /* Build configuration list for PBXProject "xCloud" */ = {
+		F71DD5443023297400135A65 /* Build configuration list for PBXProject "Cascade" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F71DD5683023297500135A65 /* Debug */,
@@ -772,7 +772,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F71DD56A3023297500135A65 /* Build configuration list for PBXNativeTarget "xCloud" */ = {
+		F71DD56A3023297500135A65 /* Build configuration list for PBXNativeTarget "Cascade" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F71DD56B3023297500135A65 /* Debug */,
@@ -781,7 +781,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F71DD56D3023297500135A65 /* Build configuration list for PBXNativeTarget "xCloudTests" */ = {
+		F71DD56D3023297500135A65 /* Build configuration list for PBXNativeTarget "CascadeTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F71DD56E3023297500135A65 /* Debug */,
@@ -790,7 +790,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F71DD5703023297500135A65 /* Build configuration list for PBXNativeTarget "xCloudUITests" */ = {
+		F71DD5703023297500135A65 /* Build configuration list for PBXNativeTarget "CascadeUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F71DD5713023297500135A65 /* Debug */,

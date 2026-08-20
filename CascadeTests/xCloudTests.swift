@@ -10,10 +10,10 @@ import Foundation
 import AppKit
 import CryptoKit
 import GRDB
-@testable import xCloud
+@testable import Cascade
 
 @Suite(.serialized)
-struct xCloudTests {
+struct CascadeTests {
 
     @Test func databaseIsolationSupportsCustomDatabase() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
