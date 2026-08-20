@@ -2,7 +2,27 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — About Cascade window branding & official AppIcon update.
+> 2026-08-20 (morning) — Fix Telegram setup transition and upgrade country flags to high-DPI Apple Color Emoji.
+
+---
+
+## 2026-08-20 (morning) — Fix Telegram setup transition and upgrade country flags to high-DPI Apple Color Emoji
+
+Investigated and resolved the API credential setup stall and upgraded the country dial code picker to render crisp, high-DPI Apple Color Emoji vector glyphs.
+
+### Root cause (API setup stall)
+- In `Features/TelegramSetupView.swift`, `LoginGateView.needsCredentials` was checking `(try? KeychainStore.loadTelegramCredentials()) == nil` instead of reading `@Observable` property `appState.hasTelegramCredentials`. When `appState.startTelegram` completed and wrote credentials to Keychain, SwiftUI was unaware of the change and did not trigger a view transition. Restarting the app worked because `hasTelegramCredentials` initialized from Keychain on boot.
+
+### Changes
+- `Features/TelegramSetupView.swift`:
+  - Fixed `LoginGateView.needsCredentials` to check `!appState.hasTelegramCredentials`, ensuring instant automatic transition to the login steps upon TDLib connection.
+  - Added `@State private var isConnecting` with a spinner on the Connect button to give immediate feedback.
+- `Features/LoginView.swift`:
+  - Upgraded `CountryFlagView` to compute and render official Unicode regional indicator emoji sequences (Apple Color Emoji), delivering gorgeous, high-resolution, vector-rendered flags for all 227 countries on Retina displays.
+  - Updated phone input field to show the selected country's flag chip next to the dial code.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 

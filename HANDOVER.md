@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): About Cascade Window Branding & Official AppIcon Update completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Telegram Setup View Transition Fix & High-DPI Country Flags completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2479,6 +2479,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Added dynamic version resolution from bundle info and updated copy to highlight zero-knowledge encryption and native MPV media engine.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `bfe6c39`.
+
+104. **Telegram setup view transition fix & high-DPI country flags (2026-08-20 — COMMITTED)**
+    (`Features/TelegramSetupView.swift`, `Features/LoginView.swift`)
+    - **API setup stall fix**: `LoginGateView.needsCredentials` was checking `(try? KeychainStore.loadTelegramCredentials()) == nil` instead of reading `@Observable` property `appState.hasTelegramCredentials`. Fixed so SwiftUI automatically observes the credential save and switches to `LoginStepsView` without requiring an app restart. Added `isConnecting` spinner on Connect button.
+    - **High-DPI Country Flags**: Upgraded `CountryFlagView` to render official Unicode regional indicator emoji sequences (Apple Color Emoji) with crisp vector graphics on Retina displays. Updated phone number field to render the selected country flag inside the dial code button.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

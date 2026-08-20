@@ -256,36 +256,28 @@ struct CountryDetector {
     }
 }
 
-/// Renders a country's real flag from the bundled PNGs as a small rounded chip.
-/// Falls back to a letter badge only if the artwork is somehow missing.
+/// Renders a country's flag using Apple Color Emoji vector glyphs for crisp,
+/// high-resolution rendering on Retina displays.
 struct CountryFlagView: View {
     let code: String
     var height: CGFloat = 16
 
-    var body: some View {
-        Group {
-            if let img = CountryDatabase.flagImage(code: code) {
-                Image(nsImage: img)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(.white.opacity(0.14))
-                    .overlay(
-                        Text(code)
-                            .font(.system(size: max(height * 0.38, 8), weight: .bold))
-                            .foregroundStyle(.white.opacity(0.6))
-                    )
-            }
+    /// Computes the official 2-character regional indicator emoji sequence from the ISO alpha-2 country code.
+    private var flagEmoji: String {
+        let base: UInt32 = 127397
+        var s = ""
+        for v in code.uppercased().unicodeScalars {
+            guard let scalar = UnicodeScalar(base + v.value) else { return code }
+            s.unicodeScalars.append(scalar)
         }
-        .frame(width: height * 1.6, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: height * 0.18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: height * 0.18, style: .continuous)
-                .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
-                .allowsHitTesting(false)
-        )
+        return s
+    }
+
+    var body: some View {
+        Text(flagEmoji)
+            .font(.system(size: height * 1.1))
+            .baselineOffset(0)
+            .fixedSize()
     }
 }
 
@@ -429,18 +421,21 @@ struct LoginStepsView: View {
                 Button {
                     showCountryPicker = true
                 } label: {
-                    Text(dialCode)
-                        .font(.system(size: 15, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .frame(width: 62)
-                        .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.06)))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-                                .allowsHitTesting(false)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    HStack(spacing: 6) {
+                        CountryFlagView(code: CountryDatabase.code(forDialCode: dialCode), height: 16)
+                        Text(dialCode)
+                            .font(.system(size: 14, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.06)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $showCountryPicker, arrowEdge: .bottom) {
@@ -763,7 +758,7 @@ private struct CountryRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
-                CountryFlagView(code: country.code, height: 15)
+                CountryFlagView(code: country.code, height: 18)
                 Text(country.name)
                     .font(.system(size: 13))
                     .foregroundStyle(.white)

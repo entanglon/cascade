@@ -9,7 +9,7 @@ struct LoginGateView: View {
     @Environment(AppState.self) private var appState
 
     private var needsCredentials: Bool {
-        (try? KeychainStore.loadTelegramCredentials()) == nil
+        !appState.hasTelegramCredentials
     }
 
     var body: some View {
@@ -88,6 +88,7 @@ struct TelegramSetupForm: View {
     @State private var apiID: String = ""
     @State private var apiHash: String = ""
     @State private var errorMessage: String?
+    @State private var isConnecting: Bool = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -149,9 +150,18 @@ struct TelegramSetupForm: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button("Connect") { connect() }
-                .buttonStyle(.xGlassProminent)
-                .disabled(apiID.isEmpty || apiHash.isEmpty)
+            Button(action: connect) {
+                HStack(spacing: 8) {
+                    if isConnecting {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Connect")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.xGlassProminent)
+            .disabled(apiID.isEmpty || apiHash.isEmpty || isConnecting)
         }
         .onAppear { focusedField = .apiID }
     }
@@ -159,8 +169,10 @@ struct TelegramSetupForm: View {
     private func connect() {
         guard let id = Int(apiID), !apiHash.isEmpty else { return }
         errorMessage = nil
+        isConnecting = true
         Task {
             await appState.startTelegram(apiID: id, apiHash: apiHash)
+            isConnecting = false
             if let dbError = appState.databaseError {
                 errorMessage = dbError
                 return
