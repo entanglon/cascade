@@ -27,6 +27,8 @@ Implemented hardware-accelerated zlib compression for catalog snapshot payloads 
 
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
+Commit: `475343e` — `Phase 5: Catalog snapshot zlib compression and immutable backup preservation`.
+
 ---
 
 ## 2026-08-20 (morning) — Phase 4: Zero-knowledge password-protected & simple share links with client-side key re-wrapping

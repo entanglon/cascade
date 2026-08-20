@@ -2471,6 +2471,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Added backwards-compatible decompression with raw JSON fallback for legacy snapshots.
     - **Immutable Backup Guarantee**: `pruneOldSnapshots` only prunes checkpoints from active vault channel and NEVER from the backup channel. `BackupSync.deleteFromVaultAndBackup` permanently protects `checkpointObjectID`, `deltaObjectID`, and `keyRecordObjectID` from deletion in the backup channel.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `475343e`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
