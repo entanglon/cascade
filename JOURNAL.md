@@ -34,6 +34,8 @@ Implemented zero-knowledge client-side encryption and key management for cloud-t
 
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (71: 63 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
+Commit: `726b450` — `Phase 4: Zero-knowledge password-protected and simple share links with client-side key re-wrapping`.
+
 ---
 
 ## 2026-08-20 (morning) — Phase 3: In-memory media streaming slice decryption & download engine caching

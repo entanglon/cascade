@@ -2463,6 +2463,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Import key re-wrapping**: `stageImport` unwraps $K_{\text{file}}$ using link key and re-wraps under recipient's vault master key (`recipientVaultKey`).
     - Added `SharePasswordPromptSheet` in `FileBrowserView` and `SharePasswordUnlockSheet` in `RootView`.
     - Full test suite green: **TEST SUCCEEDED** (71: 63 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `726b450`.
 
 ## 5. Pending / next steps
 - **NEXT: Phase 5 — Snapshot Gzip Compression & Vault Migration** (see `implementation_plan.md`):
