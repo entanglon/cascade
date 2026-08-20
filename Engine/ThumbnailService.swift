@@ -3,6 +3,7 @@ import AppKit
 import Vision
 import OSLog
 import UniformTypeIdentifiers
+import QuickLookThumbnailing
 
 extension Notification.Name {
     static let xcThumbnailReady = Notification.Name("xc.thumbnailReady")
@@ -307,16 +308,16 @@ actor ThumbnailService {
             return url
         }
 
-        // 6. LAST RESORT — thumbnail-only download for PHOTOS ONLY: quietly pull
-        //    the file down, generate a thumbnail, then delete the cached copy so
-        //    we never hold the whole file. Videos/audio are deliberately excluded:
-        //    their previews come from Telegram's attached thumbnail, and a
-        //    whole-file download just to produce nothing is wasteful (a video can
-        //    be gigabytes). This is the guarantee that every photo — including
-        //    uploads that predate Telegram thumbnail attachment — eventually
-        //    gets a preview. Single-flight so a grid of placeholders never
-        //    starts a download storm.
-        if !object.isFolder, !object.isPrivate, object.isPhoto {
+        // 6. LAST RESORT — thumbnail-only download for PHOTOS AND AUDIO:
+        //    quietly pull the file down, generate a thumbnail, then delete the
+        //    cached copy so we never hold the whole file. Photos and audio are
+        //    small; videos are deliberately excluded (a video can be gigabytes).
+        //    This is the guarantee that every photo AND audio file — including
+        //    uploads that predate Telegram thumbnail attachment (the encrypted
+        //    era sent chunks without the attached preview) — eventually gets a
+        //    preview. Single-flight so a grid of placeholders never starts a
+        //    download storm.
+        if !object.isFolder, !object.isPrivate, object.isPhoto || isAudio(object) {
             await ensureThumbnailByDownload(object)
             if let thumb = localThumbnailOnDisk(for: object.id) {
                 cache[object.id] = thumb
@@ -363,7 +364,8 @@ actor ThumbnailService {
     private var failedIDs: [String: Date] = [:]
 
     /// Downloads a file purely to produce its thumbnail, then removes the
-    /// download so the cache holds no more than a few seconds of it.
+    /// download so the cache holds no more than a few seconds of it. Photos use
+    /// the local image generator; audio uses the embedded-artwork extractor.
     private func ensureThumbnailByDownload(_ object: ObjectRecord) async {
         // Single-flight: one thumbnail-only download at a time.
         if generatingIDs.contains(object.id) { return }
@@ -374,13 +376,21 @@ actor ThumbnailService {
         if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 { return }
         if DownloadEngine.isCached(object) {
             // Cached but generation failed earlier — try once more from disk.
-            generateAndSaveThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
+            if object.isPhoto {
+                generateAndSaveThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
+            } else {
+                await generateAndSaveAudioThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
+            }
         } else {
             generatingIDs.insert(object.id)
             defer { generatingIDs.remove(object.id) }
             do {
                 let url = try await DownloadEngine.download(object: object, progress: { _, _ in }, quiet: true)
-                generateAndSaveThumbnail(for: object, from: url)
+                if object.isPhoto {
+                    generateAndSaveThumbnail(for: object, from: url)
+                } else {
+                    await generateAndSaveAudioThumbnail(for: object, from: url)
+                }
                 // The file was only needed for its preview — drop it.
                 try? FileManager.default.removeItem(at: url)
             } catch {
@@ -462,7 +472,10 @@ actor ThumbnailService {
         }
     }
 
-    /// Extracts embedded album artwork from an audio file using FFmpeg.
+    /// Extracts embedded album artwork from an audio file using FFmpeg (or the
+    /// pure-Swift artwork parser for local files). Audio WITHOUT embedded art
+    /// falls back to QuickLook's generic audio icon, matching the upload-time
+    /// thumbnail pipeline — so a recovered thumb is identical to the original.
     func generateAndSaveAudioThumbnail(for object: ObjectRecord, from url: URL) async {
         guard isAudio(object), !generatingIDs.contains(object.id) else { return }
         generatingIDs.insert(object.id)
@@ -476,7 +489,21 @@ actor ThumbnailService {
             NotificationCenter.default.post(name: .xcThumbnailReady, object: nil)
         }
 
-        guard let frame = await VideoFrameExtractor.representativeFrame(from: url),
+        var frame = await VideoFrameExtractor.representativeFrame(from: url)
+        if frame == nil, url.isFileURL {
+            // No embedded artwork (e.g. voice memos) — QuickLook's generic audio
+            // icon, same as the upload-time pipeline's last resort.
+            let request = QLThumbnailGenerator.Request(
+                fileAt: url,
+                size: CGSize(width: 640, height: 640),
+                scale: 1,
+                representationTypes: .thumbnail
+            )
+            if let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
+                frame = NSImage(cgImage: rep.cgImage, size: NSSize(width: rep.cgImage.width, height: rep.cgImage.height))
+            }
+        }
+        guard let frame,
               let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")

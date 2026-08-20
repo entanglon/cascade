@@ -332,7 +332,7 @@ enum UploadEngine {
                         path: tmpURL.path(percentEncoded: false),
                         kind: objectKey != nil ? .document : kind,
                         caption: captionString,
-                        thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath,
+                        thumbnailPath: uploadThumbnailPath,
                         onProgress: { p in
                             progressState.setFraction(item.index, min(max(0.0, p), 1.0))
                             report("Uploading chunks…", min(progressState.overall, 0.99))
