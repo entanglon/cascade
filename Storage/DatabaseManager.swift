@@ -378,6 +378,12 @@ actor DatabaseManager {
                 t.add(column: "isArchived", .boolean).notNull().defaults(to: false)
             }
         }
+
+        migrator.registerMigration("v26-thumb-sidecar") { db in
+            try db.alter(table: "objects") { t in
+                t.add(column: "thumbMessageID", .integer)
+            }
+        }
         
         try migrator.migrate(newPool)
         pool = newPool
@@ -972,11 +978,14 @@ actor DatabaseManager {
             // Safety snapshot: stash current catalog into backup tables so a bad
             // replace is recoverable via manual SQL. The backup tables are small
             // (same WAL page) and overwritten on every replace — no accumulation.
-            try db.execute(sql: "CREATE TABLE IF NOT EXISTS objects_backup AS SELECT * FROM objects WHERE 0")
-            try db.execute(sql: "DELETE FROM objects_backup")
+            // DROP + recreate EVERY time: a backup table created before a schema
+            // migration keeps the old column count, and `INSERT ... SELECT *`
+            // then fails ("20 columns but 21 values").
+            try db.execute(sql: "DROP TABLE IF EXISTS objects_backup")
+            try db.execute(sql: "CREATE TABLE objects_backup AS SELECT * FROM objects WHERE 0")
             try db.execute(sql: "INSERT INTO objects_backup SELECT * FROM objects")
-            try db.execute(sql: "CREATE TABLE IF NOT EXISTS chunks_backup AS SELECT * FROM chunks WHERE 0")
-            try db.execute(sql: "DELETE FROM chunks_backup")
+            try db.execute(sql: "DROP TABLE IF EXISTS chunks_backup")
+            try db.execute(sql: "CREATE TABLE chunks_backup AS SELECT * FROM chunks WHERE 0")
             try db.execute(sql: "INSERT INTO chunks_backup SELECT * FROM chunks")
             _ = try ChunkRecord.deleteAll(db)
             _ = try ObjectRecord.deleteAll(db)

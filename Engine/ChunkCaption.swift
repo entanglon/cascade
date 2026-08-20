@@ -18,6 +18,7 @@ enum ChunkCaption {
     static let legacySharePrefix = "xcloud:share:v1:"
     static let kindChunk = "chunk"
     static let kindObject = "object"
+    static let kindThumb = "thumb"
 
     struct Meta: Equatable, Sendable {
         var kind: String? = nil        // unified only; legacy captions carry no kind
@@ -135,5 +136,31 @@ enum ChunkCaption {
         }
         guard let meta = parse(caption) else { return false }
         return meta.kind == kindChunk
+    }
+
+    // MARK: - Thumbnail sidecar captions
+
+    /// Caption for an encrypted thumbnail sidecar document: `xcloud:{"kind":"thumb","v":1,"id":...}`.
+    /// Deliberately carries ONLY the object id — the bytes themselves are AES-GCM
+    /// encrypted with the object key, and the id is the same random UUID the
+    /// chunk captions already expose. Minimal metadata keeps the channel clean.
+    static func thumbCaption(objectID: String) -> String? {
+        let dict: [String: Any] = [
+            "kind": kindThumb,
+            "v": 1,
+            "id": objectID,
+            // parse() requires a size for any unified caption — the sidecar
+            // size is unknown at encode time, so 0 (never read for thumbs).
+            "size": 0
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return unifiedPrefix + json
+    }
+
+    /// True when a caption identifies a thumbnail sidecar document.
+    static func isThumbCaption(_ caption: String) -> Bool {
+        guard let meta = parse(caption) else { return false }
+        return meta.kind == kindThumb
     }
 }

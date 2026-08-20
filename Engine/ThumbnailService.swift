@@ -574,9 +574,19 @@ actor ThumbnailService {
 
     private func fetchFromTelegram(_ object: ObjectRecord) async -> URL? {
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }
-        // Iterate every chunk message — uploads now attach the same thumbnail to each
-        // chunk, so the first one with a stored thumbnail wins. This also keeps older
-        // files fetchable if their first chunk predates thumbnails.
+        // 1. Encrypted sidecar (new uploads): the preview is an opaque encrypted
+        //    document linked via thumbMessageID. Download + decrypt → <id>-tg.jpg.
+        //    On any failure (message missing, key unwrap, tampered bytes) fall
+        //    through to the attached-thumbnail path, which still covers older
+        //    uploads that predate the sidecar.
+        if let sidecarID = object.thumbMessageID,
+           let url = await fetchSidecarThumbnail(object, sidecarID: sidecarID, vault: vault) {
+            return url
+        }
+        // 2. Attached thumbnail (pre-sidecar uploads and private files): iterate
+        //    every chunk message — uploads attach the same thumbnail to each
+        //    chunk, so the first one with a stored thumbnail wins. This also
+        //    keeps older files fetchable if their first chunk predates thumbnails.
         let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
         for chunk in chunks {
             guard let messageId = chunk.messageID,
@@ -590,6 +600,34 @@ actor ThumbnailService {
             if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
                 return url
             }
+        }
+        return nil
+    }
+
+    /// Downloads the encrypted thumbnail sidecar document, decrypts it with the
+    /// object key (AES-GCM, startSliceIndex 0 — the JPEG is a single slice) and
+    /// writes `<id>-tg.jpg`. Returns nil on any failure so the caller falls back
+    /// to the legacy attached-thumbnail path.
+    private func fetchSidecarThumbnail(_ object: ObjectRecord, sidecarID: Int64, vault: VaultRecord) async -> URL? {
+        guard let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty,
+              let vaultKey = try? VaultManager.vaultKey(for: vault),
+              let objectKey = try? CryptoEngine.unwrap(wrappedKey, with: vaultKey) else { return nil }
+        let tmp = ((try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("thumb-\(object.id).bin")
+        try? FileManager.default.removeItem(at: tmp)
+        do {
+            try await TelegramClient.shared.downloadMessageFile(messageId: sidecarID, chatId: vault.channelID, to: tmp)
+            let encrypted = try Data(contentsOf: tmp)
+            let plain = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: 0)
+            try? FileManager.default.removeItem(at: tmp)
+            let url = telegramPath(for: object.id)
+            try? plain.write(to: url)
+            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+                return url
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            logger.warning("thumb sidecar fetch failed for \(object.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         return nil
     }

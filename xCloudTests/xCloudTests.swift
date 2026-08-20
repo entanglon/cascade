@@ -2233,6 +2233,63 @@ struct xCloudTests {
             }
         }
     }
+
+    @Test func thumbnailSidecarEncryptDecryptRoundTrips() async throws {
+        // Encrypted uploads attach no thumbnail — the preview is an encrypted
+        // sidecar document. The sidecar must round-trip through the SAME chunk
+        // codec used for files: encryptChunk/decryptChunk with startSliceIndex 0
+        // (the ≤320px JPEG is one slice). Guards the upload+fetch pipeline.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("thumb-sidecar-\(UUID().uuidString).png")
+        let size = NSSize(width: 640, height: 480)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.systemRed.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        image.unlockFocus()
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            Issue.record("failed to synthesize test PNG")
+            return
+        }
+        try png.write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let objectID = "thumb-sidecar-obj-\(UUID().uuidString)"
+        guard let uploadPath = await UploadEngine.generateThumbnails(for: tmp, objectID: objectID) else {
+            Issue.record("upload pipeline must produce the -up.jpg path")
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: uploadPath)) }
+        let plain = try Data(contentsOf: URL(fileURLWithPath: uploadPath))
+        #expect(!plain.isEmpty)
+
+        let key = SymmetricKey(size: .bits256)
+        let encrypted = try CryptoEngine.encryptChunk(plain, objectKey: key, startSliceIndex: 0)
+        #expect(encrypted != plain, "sidecar bytes must be encrypted (opaque in the channel)")
+        let decrypted = try CryptoEngine.decryptChunk(encrypted, objectKey: key, startSliceIndex: 0)
+        #expect(decrypted == plain, "sidecar decrypt must restore the exact JPEG")
+        // One sealed slice for a <1 MB thumbnail.
+        #expect(encrypted.count == plain.count + 28)
+    }
+
+    @Test func thumbCaptionCodecMarksSidecarDocuments() {
+        let objectID = "sidecar-obj-\(UUID().uuidString)"
+        guard let caption = ChunkCaption.thumbCaption(objectID: objectID) else {
+            Issue.record("thumb caption must encode")
+            return
+        }
+        #expect(caption.hasPrefix(ChunkCaption.unifiedPrefix))
+        #expect(ChunkCaption.isThumbCaption(caption))
+        #expect(!ChunkCaption.isChunkCaption(caption), "sidecars must never be orphan-purge candidates")
+        guard let meta = ChunkCaption.parse(caption) else {
+            Issue.record("thumb caption must parse")
+            return
+        }
+        #expect(meta.kind == ChunkCaption.kindThumb)
+        #expect(meta.id == objectID)
+    }
 }
 
 

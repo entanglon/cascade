@@ -94,13 +94,19 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// in the Photos/Videos collections. Auto-set to the first photo moved in,
     /// manually changeable. Synced like the other flags.
     var coverObjectID: String? = nil
+    /// Telegram messageID of the object's encrypted thumbnail sidecar document
+    /// (encrypted uploads only). The sidecar replaced the plaintext attached
+    /// thumbnail: it is an opaque encrypted file in the vault channel, and
+    /// ThumbnailService downloads + decrypts it to restore the preview after a
+    /// local cache clear. nil → pre-sidecar uploads (attached thumbnail path).
+    var thumbMessageID: Int64? = nil
 
     // Custom decoding so records missing newer fields (old catalog snapshots in the
     // channel, or rows read before a migration) still decode — every optional-ish
     // flag falls back to its default instead of throwing.
     enum CodingKeys: String, CodingKey {
         case id, vaultID, name, size, mime, state, rootHash, wrappedKey, createdAt, modifiedAt
-        case isFavorite, trashed, parentID, isFolder, isPrivate, sourcePath, chunkSize, isArchived, isInLibrary, coverObjectID
+        case isFavorite, trashed, parentID, isFolder, isPrivate, sourcePath, chunkSize, isArchived, isInLibrary, coverObjectID, thumbMessageID
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +131,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         isInLibrary = try c.decodeIfPresent(Bool.self, forKey: .isInLibrary) ?? false
         coverObjectID = try c.decodeIfPresent(String.self, forKey: .coverObjectID)
+        thumbMessageID = try c.decodeIfPresent(Int64.self, forKey: .thumbMessageID)
     }
 
     // Explicit memberwise init (matching the old synthesized one, in property
@@ -149,7 +156,8 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         chunkSize: Int64? = nil,
         isArchived: Bool = false,
         isInLibrary: Bool = false,
-        coverObjectID: String? = nil
+        coverObjectID: String? = nil,
+        thumbMessageID: Int64? = nil
     ) {
         self.id = id
         self.vaultID = vaultID
@@ -171,6 +179,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.isArchived = isArchived
         self.isInLibrary = isInLibrary
         self.coverObjectID = coverObjectID
+        self.thumbMessageID = thumbMessageID
     }
 }
 

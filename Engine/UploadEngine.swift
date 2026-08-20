@@ -332,7 +332,13 @@ enum UploadEngine {
                         path: tmpURL.path(percentEncoded: false),
                         kind: objectKey != nil ? .document : kind,
                         caption: captionString,
-                        thumbnailPath: uploadThumbnailPath,
+                        // Encrypted uploads NEVER attach the thumbnail: an attached
+                        // JPEG is a plaintext preview sitting in the channel. The
+                        // preview for these files is the encrypted sidecar document
+                        // uploaded once after the chunks (see uploadThumbnailSidecar).
+                        // Private (plaintext) files keep the attachment — their
+                        // channel is private, so a visible preview is intended.
+                        thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath,
                         onProgress: { p in
                             progressState.setFraction(item.index, min(max(0.0, p), 1.0))
                             report("Uploading chunks…", min(progressState.overall, 0.99))
@@ -416,6 +422,28 @@ enum UploadEngine {
                 }
 
                 try await DatabaseManager.shared.updateObject(objectID) { $0.state = "ready" }
+
+                // Encrypted uploads have no attached thumbnail (plaintext previews
+                // in the channel are gone) — the preview is this sidecar: the same
+                // ≤320px JPEG, AES-GCM sealed with the object key, posted as an
+                // opaque document and linked via the object row. Skipped when a
+                // sidecar already exists (resume) or the thumbnail could not be
+                // generated. A sidecar failure logs and continues — the file is
+                // complete; only its Telegram-backed preview is missing (the
+                // local `<id>.png` still serves the current session).
+                if let objectKey, let uploadThumbnailPath,
+                   ((try? await DatabaseManager.shared.object(objectID))?.thumbMessageID) == nil {
+                    do {
+                        try await uploadThumbnailSidecar(
+                            uploadPath: uploadThumbnailPath,
+                            objectID: objectID,
+                            objectKey: objectKey,
+                            vault: vault
+                        )
+                    } catch {
+                        logger.error("thumb sidecar upload failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
 
                 // Populate local cache for instant (0ms) double-click previews
                 if let cacheDir = try? DownloadEngine.cacheDirectory() {
@@ -575,6 +603,40 @@ enum UploadEngine {
               let dir = try? thumbnailsDirectory() else { return }
         let dest = dir.appendingPathComponent("\(objectID)-cover.jpg")
         try? jpg.write(to: dest)
+    }
+
+    // MARK: - Thumbnail sidecar
+
+    /// Uploads the object's preview as its OWN tiny encrypted document: the
+    /// ≤320px JPEG sealed with the object key (AES-GCM, same codec as chunks —
+    /// a single 1 MB slice) and posted to the vault channel as an opaque
+    /// `file.bin` with a `thumb` caption and NO thumbnail attachment, so the
+    /// channel shows nothing but a name-less file. The messageID is recorded on
+    /// the object row; ThumbnailService downloads + decrypts it after a local
+    /// cache clear. Mirrored to the backup channel like every vault message.
+    static func uploadThumbnailSidecar(
+        uploadPath: String,
+        objectID: String,
+        objectKey: SymmetricKey,
+        vault: VaultRecord
+    ) async throws {
+        let data = try Data(contentsOf: URL(fileURLWithPath: uploadPath))
+        guard !data.isEmpty else { throw UploadError.readFailed }
+        let encrypted = try CryptoEngine.encryptChunk(data, objectKey: objectKey, startSliceIndex: 0)
+        let tmpURL = try tempDirectory().appendingPathComponent("\(objectID)-thumb.bin")
+        try encrypted.write(to: tmpURL)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        let messageId = try await TelegramClient.shared.sendFile(
+            chatId: vault.channelID,
+            path: tmpURL.path(percentEncoded: false),
+            kind: .document,
+            caption: ChunkCaption.thumbCaption(objectID: objectID),
+            thumbnailPath: nil
+        )
+        BackupSync.enqueue(messageID: messageId, objectID: objectID)
+        try await DatabaseManager.shared.updateObject(objectID) { $0.thumbMessageID = messageId }
+        logger.info("thumb sidecar uploaded for \(objectID, privacy: .public) msg=\(messageId, privacy: .public)")
     }
 
     // MARK: - Helpers
