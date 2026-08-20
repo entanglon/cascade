@@ -2,9 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Phase 2 Features: FTS5 full-text search virtual table, version history foundation, local export engine, conflict branch preservation, transfer priority queue.
+> 2026-08-20 (night) — Phase 3 CI: GitHub Actions automated workflow for build and headless unit test execution.
 
 ---
+
+## 2026-08-20 (night) — Phase 3 CI: GitHub Actions automated workflow for build and headless unit test execution
+
+Implemented Item 25 from the Architecture Review Roadmap:
+
+### What was changed
+1. **Item 25: GitHub Actions CI Workflow** (`.github/workflows/ci.yml`):
+   - Created automated GitHub Actions workflow triggered on `push` and `pull_request` to `main`.
+   - Targets `macos-14` runner with `xcode-select` setup for Xcode 15+.
+   - Executes Debug scheme build and headless unit test suite (`xcodebuild ... -only-testing:xCloudTests test`) to catch regressions and Swift 6 concurrency errors automatically.
+2. **Item 24 Roadmap Update** (`architecture_review.md`):
+   - Marked Item 24 resolved by the existing modular engine architecture (`TransferCenter`, `AudioPlayerEngine`, `VideoStreamingEngine`, `ShareEngine`, `BackupSync`, `ThumbnailService`, `CatalogSnapshot`, `VaultRepair`, `ExportEngine`).
+
+### Verification
+- Headless test execution: `xcodebuild -configuration Debug -scheme xCloud -destination 'platform=macOS' -only-testing:xCloudTests test`
+- **Result**: `** TEST SUCCEEDED **` (70 unit tests passed, 0 failures, 2.0s).
 
 ## 2026-08-20 (night) — Phase 2 Features: FTS5 full-text search virtual table, version history foundation, local export engine, conflict branch preservation, transfer priority queue
 

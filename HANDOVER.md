@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (night): Phase 2 Features completed (item 123). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (night): Phase 3 CI Pipeline completed (item 124). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2966,3 +2966,8 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 22 (Download Priority & Preemption Queue)**: Added `TransferCenter.Item.Priority` (`.background`, `.standard`, `.interactive`) to prioritize user interactive streaming downloads ahead of bulk background batch tasks.
     - **UI Integration (Sync Status & Vault Export UI)**: Added cloud sync status badge to `SidebarProfileCard`, "Export Vault to Local Folder" UI in `SettingsView`, and independent backup copy setting toggle.
     - Full test suite green: **TEST SUCCEEDED** (73: 70 unit + 2 UI + 1 launch, 0 failures). Commits: `356722a`, `22de0da`.
+
+124. **CI Pipeline & Scale — Phase 3 (2026-08-20 — COMMITTED)** (`.github/workflows/ci.yml`, `architecture_review.md`, `JOURNAL.md`, `HANDOVER.md`)
+    - **Item 25 (GitHub Actions CI Workflow)**: Added `.github/workflows/ci.yml` running automated Debug scheme compilation and headless unit test verification (`xcodebuild ... -only-testing:xCloudTests test`) on macOS runners upon pushes and PRs to `main`.
+    - **Item 24 (Decomposition Resolution)**: Verified and documented full domain engine separation (`TransferCenter`, `AudioPlayerEngine`, `VideoStreamingEngine`, `ShareEngine`, `BackupSync`, `ThumbnailService`, `CatalogSnapshot`, `VaultRepair`, `ExportEngine`).
+    - Headless unit test suite green: **TEST SUCCEEDED** (70 unit tests passed, 0 failures).
