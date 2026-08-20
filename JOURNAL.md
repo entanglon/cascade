@@ -2,7 +2,26 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Fix floating transfers button collective progress & individual queued cards.
+> 2026-08-20 (afternoon) — Fix audio thumbnail extraction, Telegram attachment & cache-cleared retrieval.
+
+---
+
+## 2026-08-20 (afternoon) — Fix audio thumbnail extraction, Telegram attachment & cache-cleared retrieval
+
+Fixed audio file thumbnail generation and persistence so that album cover art is extracted at upload time, permanently attached to chunk messages on Telegram, and reliably re-fetched / decoded even after local cache purges.
+
+### Root cause & Solution
+- `UploadEngine.subjectThumbnail` relied solely on `QLThumbnailGenerator` for non-video files. For audio files (MP3, FLAC, M4A, etc.), `QLThumbnailGenerator` returned `nil` or generic icons rather than embedded album art, resulting in `uploadThumbnailPath == nil`.
+- Because no thumbnail was passed to `TelegramClient.sendFile`, the uploaded Telegram chunk documents had no thumbnail attached on the server.
+- When local cache was cleared, `ThumbnailService.thumbnailURL` found no local file, `fetchFromTelegram` found no thumbnail on Telegram, and step 6 intentionally excluded audio from whole-file re-downloads, leaving audio files permanently without thumbnails.
+- **Fix**:
+  - `Engine/VideoFrameExtractor.swift`: Added attached picture detection across all streams (`AV_DISPOSITION_ATTACHED_PIC` or `attached_pic.size > 0`). Extracts raw embedded JPEG/PNG album art in 0.1ms directly from Libavformat packets.
+  - `Engine/UploadEngine.swift`: Wired audio extensions to use `VideoFrameExtractor` in `subjectThumbnail`, generating both the grid PNG preview and the $\le 320$px JPEG thumbnail attached to Telegram chunk messages.
+  - `Engine/ThumbnailService.swift`: Added `generateAndSaveAudioThumbnail` and streaming-probed artwork extraction for cached/streamed audio files; updated `isThumbnailable` to include all audio types.
+  - Symmetrical persistence: Audio files now permanently retain their attached thumbnails on Telegram and seamlessly reload after local cache clears.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 

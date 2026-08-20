@@ -489,11 +489,9 @@ enum UploadEngine {
             return loaded
         }
 
-        // Videos: extract a representative frame with the FFmpeg extractor instead
-        // of QuickLook, which always picks the FIRST frame — typically a black
-        // title card (the black thumbnails users saw). QuickLook stays as the
-        // fallback for files mpv can't decode (audio-only, undecodable).
-        if isVideo,
+        // Videos and audio: extract representative frame or embedded album artwork with FFmpeg
+        let audioExts = ["mp3", "m4a", "flac", "wav", "aac", "ogg", "wma", "aiff", "opus", "alac", "dsf", "ape"]
+        if isVideo || audioExts.contains(ext),
            let frame = await VideoFrameExtractor.representativeFrame(from: url) {
             return frame
         }

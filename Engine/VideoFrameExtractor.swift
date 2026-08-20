@@ -99,6 +99,22 @@ enum VideoFrameExtractor {
 
         guard avformat_find_stream_info(fmtCtx, nil) >= 0 else { return nil }
 
+        // 1. Check for attached pictures across all streams (embedded album art in MP3, FLAC, M4A, OGG, etc.)
+        if let streams = fmtCtx.pointee.streams {
+            for i in 0..<Int(fmtCtx.pointee.nb_streams) {
+                guard let st = streams[i] else { continue }
+                if (st.pointee.disposition & AV_DISPOSITION_ATTACHED_PIC) != 0 || st.pointee.attached_pic.size > 0 {
+                    let pkt = st.pointee.attached_pic
+                    if pkt.size > 0, let bytes = pkt.data {
+                        let data = Data(bytes: bytes, count: Int(pkt.size))
+                        if let image = NSImage(data: data) {
+                            return image
+                        }
+                    }
+                }
+            }
+        }
+
         var codec: UnsafePointer<AVCodec>? = nil
         let videoIdx = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0)
         guard videoIdx >= 0, let codec, let streams = fmtCtx.pointee.streams,

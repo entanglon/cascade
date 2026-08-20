@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Floating Transfers Button Collective Progress & Individual Cards completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (afternoon): Audio Thumbnail Extraction, Telegram Attachment & Cache-Cleared Retrieval completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2522,6 +2522,13 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Individual cards on Transfers**: Every queued file gets its own card immediately visible in `TransfersView` and `MiniTransfersView` popover, transitioning smoothly from `"Queued…"` to active uploading to `"Uploaded ✅"`.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `741d53d`.
+
+110. **Audio thumbnail extraction, Telegram attachment & cache-cleared retrieval (2026-08-20 — COMMITTED)**
+    (`Engine/VideoFrameExtractor.swift`, `Engine/UploadEngine.swift`, `Engine/ThumbnailService.swift`)
+    - **Embedded artwork extraction**: Added direct attached-picture extraction (`AV_DISPOSITION_ATTACHED_PIC` or `attached_pic.size > 0`) in `VideoFrameExtractor.extract`, retrieving raw embedded album art in 0.1ms via Libavformat.
+    - **Telegram attachment**: Wired audio extensions in `UploadEngine.subjectThumbnail` to generate 640px grid PNGs and $\le 320$px JPEGs attached to Telegram chunk messages on upload.
+    - **Cache clear resilience & streaming probe**: Added `generateAndSaveAudioThumbnail` in `ThumbnailService` and wired streaming probe/cache reload; audio thumbnails reload cleanly from Telegram or local stream even after cache clears.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

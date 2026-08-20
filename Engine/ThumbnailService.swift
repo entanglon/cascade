@@ -259,6 +259,16 @@ actor ThumbnailService {
                         return thumb
                     }
                 }
+            } else if isAudio(object) {
+                if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 {
+                    // Fall through to the Telegram thumbnail instead of retrying.
+                } else {
+                    await generateAndSaveAudioThumbnail(for: object, from: cacheURL)
+                    if let thumb = localThumbnailOnDisk(for: object.id) {
+                        cache[object.id] = thumb
+                        return thumb
+                    }
+                }
             } else if object.isBook {
                 Task { await UploadEngine.generateBookCover(for: cacheURL, objectID: object.id) }
                 if let cover = bookCoverOnDisk(for: object.id) {
@@ -274,6 +284,16 @@ actor ThumbnailService {
                 // Fall through to the Telegram thumbnail instead of retrying.
             } else if let streamURL = await VideoStreamingEngine.shared.mpvStreamURL(for: object) {
                 await generateAndSaveVideoThumbnail(for: object, from: streamURL)
+                if let thumb = localThumbnailOnDisk(for: object.id) {
+                    cache[object.id] = thumb
+                    return thumb
+                }
+            }
+        } else if isAudio(object) {
+            if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 {
+                // Fall through to the Telegram thumbnail instead of retrying.
+            } else if let streamURL = await VideoStreamingEngine.shared.mpvStreamURL(for: object) {
+                await generateAndSaveAudioThumbnail(for: object, from: streamURL)
                 if let thumb = localThumbnailOnDisk(for: object.id) {
                     cache[object.id] = thumb
                     return thumb
@@ -313,8 +333,8 @@ actor ThumbnailService {
     private func isThumbnailable(_ object: ObjectRecord) -> Bool {
         if object.isPhoto { return true }
         if object.isVideo { return true }
-        if object.mime.hasPrefix("audio/") { return true }
-        return ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((object.name as NSString).pathExtension.lowercased())
+        if isAudio(object) { return true }
+        return false
     }
 
     /// Background pass that guarantees a thumbnail for every media file that
@@ -440,6 +460,42 @@ actor ThumbnailService {
                 try? png.write(to: destPNG)
             }
         }
+    }
+
+    /// Extracts embedded album artwork from an audio file using FFmpeg.
+    func generateAndSaveAudioThumbnail(for object: ObjectRecord, from url: URL) async {
+        guard isAudio(object), !generatingIDs.contains(object.id) else { return }
+        generatingIDs.insert(object.id)
+        defer { generatingIDs.remove(object.id) }
+        defer {
+            if localThumbnailOnDisk(for: object.id) != nil {
+                failedIDs.removeValue(forKey: object.id)
+            } else {
+                failedIDs[object.id] = Date()
+            }
+            NotificationCenter.default.post(name: .xcThumbnailReady, object: nil)
+        }
+
+        guard let frame = await VideoFrameExtractor.representativeFrame(from: url),
+              let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
+        let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
+        let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
+        if let square = ThumbnailCrop.subjectSquare(frame, target: 320) {
+            if let jpg = ThumbnailCrop.jpegData(from: square, quality: 0.85) {
+                try? jpg.write(to: destJPG)
+                cache[object.id] = destJPG
+            }
+            if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+               let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: destPNG)
+            }
+        }
+    }
+
+    private func isAudio(_ object: ObjectRecord) -> Bool {
+        if object.mime.hasPrefix("audio/") { return true }
+        let ext = (object.name as NSString).pathExtension.lowercased()
+        return ["mp3", "m4a", "wav", "flac", "aac", "ogg", "wma", "aiff", "opus", "alac", "dsf", "ape"].contains(ext)
     }
 
     /// Squares + downscales a PHOTO into its thumbnail. Videos and audio are
