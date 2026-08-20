@@ -2514,6 +2514,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Creation & allocation paths verified**: Ensured all public and private share channels created dynamically on first share immediately apply `oc.png` and `pc.png`.
     - **Legacy public adoption**: Added photo check in `publicChannel()` to brand existing public channels if unbranded.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `d5687ba`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

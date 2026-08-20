@@ -20,6 +20,8 @@ Verified and ensured that whenever public or private share channels are created 
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `d5687ba` — `Verify and wire full-bleed profile pictures into dynamic share channel creation`.
+
 ---
 
 ## 2026-08-20 (morning) — Fix multiple channel photo updates by adding XCTestCase safeguard to TelegramClient
