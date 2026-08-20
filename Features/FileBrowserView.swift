@@ -3017,6 +3017,16 @@ private struct FileBrowserKeyMonitorView: NSViewRepresentable {
 }
 
 final class FileBrowserKeyView: NSView {
+    // This view exists ONLY as an NSEvent-monitor host in `.background` — it
+    // must never participate in mouse hit-testing. macOS 26's NSHostingView
+    // layering regression can hand clicks to a background-hosted NSView that
+    // doesn't opt out (its default AppKit hitTest returns self for any point
+    // inside its full-window bounds, swallowing sibling SwiftUI buttons).
+    // Overriding hitTest to nil keeps the monitors' coordinate space without
+    // ever stealing a click. The key monitoring is event-based
+    // (NSEvent.addLocalMonitorForEvents), not view-based, so this is safe.
+    override func hitTest(_ point: NSPoint) -> NSView? { return nil }
+
     var shouldDefer: (() -> Bool)?
     var onMediaPlayPause: (() -> Bool)?
     var onMediaForward: (() -> Bool)?

@@ -22,21 +22,27 @@ struct PlayerHoverTint: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
+                // The tint is decoration ONLY — it must never intercept input.
+                // allowsHitTesting(false) is scoped to the OVERLAY: placed
+                // outside (on the whole composed label) it removes the button's
+                // own label + interactive glass from the hit-test tree, which
+                // killed every player transport button on macOS 26. A shape
+                // overlay is hit-testable even with a transparent fill, so the
+                // false is still required here (a tinted PARENT pill would
+                // otherwise swallow drags aimed at the slider beneath it).
                 switch shape {
                 case .circle:
                     Circle().fill(Color.white.opacity(hovering ? 0.16 : 0))
+                        .allowsHitTesting(false)
                 case .capsule:
                     Capsule().fill(Color.white.opacity(hovering ? 0.16 : 0))
+                        .allowsHitTesting(false)
                 case .roundedRect(let r):
                     RoundedRectangle(cornerRadius: r, style: .continuous)
                         .fill(Color.white.opacity(hovering ? 0.16 : 0))
+                        .allowsHitTesting(false)
                 }
             }
-            // Decorative tint only — it must NEVER intercept input. A shape
-            // overlay is hit-testable even when its fill is transparent, so
-            // without this a tinted PARENT (the volume pill capsule) would
-            // swallow every drag aimed at the slider beneath it.
-            .allowsHitTesting(false)
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)
     }
