@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (evening): Trash-restore bug fixed, test artifact file1.txt removed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (evening): trash-restore fixed, file1.txt removed, catalog-restore hang + silent empty-DB incident fixed (item 115). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2561,6 +2561,19 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Fix**: outer bar material → `.glassEffect(.regular, in: .capsule)` (non-interactive); each button keeps its `.interactive()` circle. Same pattern as the working BookReader containers.
     - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
       Commit: `66b1681`.
+
+115. **Catalog restore hang + silent empty-DB incident — FIXED (2026-08-20 — COMMITTED)**
+    (`Telegram/TelegramClient.swift`, `Storage/DatabaseManager.swift`, `Storage/CatalogSnapshot.swift`)
+    - **Trigger**: unit test `replaceCatalogCreatesBackupSnapshot` wiped the REAL Debug DB catalog; the launch restore was meant to heal it but left the DB empty ("everything is gone").
+    - **Root cause A (hang)**: TDLibKit can DROP the response when TDLib answers instantly from its local cache (`@extra` dispatch races the pending-completion registration) → `getMessage` continuation never resumes → restore parked forever. Watchdog only covered `downloadFile`.
+    - **Fix A (kept)**: `withResponseTimeout(_:_:)` (15s task-group race) + `getOrFetchMessage` retries 3× with fresh `@extra` (getMessage → getMessages → getChatHistory+getMessage). New `TelegramError.timedOut`. TelegramClient.swift:381-455.
+    - **Fix B (kept)**: cached-file fast path in `downloadMessageFile` — TDLib returning an already-cached file emits NO updateFile event (same drop hazard), so copy the cached path directly. TelegramClient.swift:622.
+    - **Root cause B (silent empty DB)**: `replaceCatalog` threw `SQLite error 19: FOREIGN KEY constraint failed` on orphan chunks (size-0 linkage rows for a DELETED folder, objectID `6C76E5E3-…`, floating in channel deltas) — whole transaction rolled back. `restore()` used `try?` and printed "restored" regardless → lying success.
+    - **Fix C (kept)**: `replaceCatalog` drops orphan chunks instead of FK-failing (DatabaseManager.swift:990); `restore()` propagates errors honestly (CatalogSnapshot.swift:456).
+    - **Channel heal**: the checkpoint had been pruned from the vault channel (only a forward survived in backup), so restore replayed all 23 deltas. Republished a clean checkpoint with `baseMessageID = newest channel ID`; stale checkpoints pruned; old deltas now covered and inert.
+    - **End-to-end verified**: wiped DB → clean restore from checkpoint (25 objects, 25 chunks, NO `file1.txt`, 0 orphans) → "reconciled, nothing new to publish". Healed the same way after the test suite re-wiped it.
+    - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `024523b`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
