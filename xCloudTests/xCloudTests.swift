@@ -2401,6 +2401,11 @@ struct xCloudTests {
         let testDB = DatabaseManager()
         try await testDB.start(customURL: tempURL)
 
+        let account = AccountRecord(id: "acc-fts", telegramUserID: 12345, displayName: "Test", state: "ready", createdAt: Date())
+        let vault = VaultRecord(id: "v1", accountID: account.id, channelID: -100, name: "Vault", wrappedKey: Data(), createdAt: Date())
+        try await testDB.save(account)
+        try await testDB.save(vault)
+
         let now = Date()
         let obj1 = ObjectRecord(id: "fts-1", vaultID: "v1", name: "Quarterly Financial Report 2026.pdf", size: 1000, mime: "application/pdf", state: "ready", rootHash: nil, wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 1000)
         let obj2 = ObjectRecord(id: "fts-2", vaultID: "v1", name: "Holiday Photos in Japan.zip", size: 5000, mime: "application/zip", state: "ready", rootHash: nil, wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 5000)
@@ -2425,6 +2430,11 @@ struct xCloudTests {
         defer { try? FileManager.default.removeItem(at: tempURL) }
         let testDB = DatabaseManager()
         try await testDB.start(customURL: tempURL)
+
+        let account = AccountRecord(id: "acc-ver", telegramUserID: 12345, displayName: "Test", state: "ready", createdAt: Date())
+        let vault = VaultRecord(id: "v1", accountID: account.id, channelID: -100, name: "Vault", wrappedKey: Data(), createdAt: Date())
+        try await testDB.save(account)
+        try await testDB.save(vault)
 
         let now = Date()
         let obj = ObjectRecord(id: "ver-obj-1", vaultID: "v1", name: "document.txt", size: 50, mime: "text/plain", state: "ready", rootHash: "hash-v1", wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 50)
