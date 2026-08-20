@@ -422,6 +422,46 @@ actor DatabaseManager {
             }
             try db.create(index: "idx_objects_tombstone", on: "objects", columns: ["tombstoneAt"])
         }
+
+        migrator.registerMigration("v28-fts5-search") { db in
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE IF NOT EXISTS objects_fts USING fts5(
+                    id UNINDEXED,
+                    name,
+                    tokenize = 'unicode61'
+                );
+            """)
+            try db.execute(sql: """
+                INSERT INTO objects_fts(id, name)
+                SELECT id, name FROM objects WHERE tombstoneAt IS NULL;
+            """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS objects_ai AFTER INSERT ON objects BEGIN
+                    INSERT INTO objects_fts(id, name) VALUES (new.id, new.name);
+                END;
+                CREATE TRIGGER IF NOT EXISTS objects_ad AFTER DELETE ON objects BEGIN
+                    DELETE FROM objects_fts WHERE id = old.id;
+                END;
+                CREATE TRIGGER IF NOT EXISTS objects_au AFTER UPDATE ON objects BEGIN
+                    DELETE FROM objects_fts WHERE id = old.id;
+                    INSERT INTO objects_fts(id, name) VALUES (new.id, new.name);
+                END;
+            """)
+        }
+
+        migrator.registerMigration("v29-object-versions") { db in
+            try db.create(table: "object_versions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("objectID", .text).notNull()
+                t.column("versionNumber", .integer).notNull()
+                t.column("rootHash", .text)
+                t.column("size", .integer).notNull()
+                t.column("modifiedAt", .datetime).notNull()
+                t.column("chunksJSON", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(index: "idx_object_versions_objectID", on: "object_versions", columns: ["objectID"])
+        }
     }
 
     private func ensureStarted() throws -> DatabasePool {
@@ -675,6 +715,76 @@ actor DatabaseManager {
         try write { db in
             try db.execute(sql: "DELETE FROM faces WHERE personID = ?", arguments: [id])
             _ = try PersonRecord.deleteOne(db, id: id)
+        }
+    }
+
+    // MARK: - Full-Text Search (FTS5)
+
+    func searchObjects(query: String, vaultID: String? = nil, limit: Int = 100) throws -> [ObjectRecord] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        // Sanitize tokens and append * for prefix matching
+        let tokens = trimmed.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return [] }
+        let matchQuery = tokens.map { "\"\($0)\"*" }.joined(separator: " ")
+
+        return try read { db in
+            if let vaultID {
+                let sql = """
+                    SELECT o.* FROM objects o
+                    JOIN objects_fts f ON o.id = f.id
+                    WHERE objects_fts MATCH ?
+                      AND o.tombstoneAt IS NULL
+                      AND o.vaultID = ?
+                    ORDER BY rank
+                    LIMIT ?
+                """
+                return try ObjectRecord.fetchAll(db, sql: sql, arguments: [matchQuery, vaultID, limit])
+            } else {
+                let sql = """
+                    SELECT o.* FROM objects o
+                    JOIN objects_fts f ON o.id = f.id
+                    WHERE objects_fts MATCH ?
+                      AND o.tombstoneAt IS NULL
+                    ORDER BY rank
+                    LIMIT ?
+                """
+                return try ObjectRecord.fetchAll(db, sql: sql, arguments: [matchQuery, limit])
+            }
+        }
+    }
+
+    // MARK: - Version History
+
+    func recordVersion(for objectID: String) throws {
+        try write { db in
+            guard let obj = try ObjectRecord.fetchOne(db, id: objectID) else { return }
+            let existingCount = try ObjectVersionRecord.filter(Column("objectID") == objectID).fetchCount(db)
+            let chunks = try ChunkRecord.filter(Column("objectID") == objectID).fetchAll(db)
+            let chunksJSON = (try? String(data: JSONEncoder().encode(chunks), encoding: .utf8)) ?? ""
+
+            let version = ObjectVersionRecord(
+                id: UUID().uuidString,
+                objectID: objectID,
+                versionNumber: existingCount + 1,
+                rootHash: obj.rootHash,
+                size: obj.size,
+                modifiedAt: obj.modifiedAt,
+                chunksJSON: chunksJSON,
+                createdAt: Date()
+            )
+            try version.save(db)
+        }
+    }
+
+    func versions(for objectID: String) throws -> [ObjectVersionRecord] {
+        try read { db in
+            try ObjectVersionRecord
+                .filter(Column("objectID") == objectID)
+                .order(Column("versionNumber").desc)
+                .fetchAll(db)
         }
     }
 

@@ -2,9 +2,36 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Phase 1 Robustness: token-bucket rate limiter, API metrics telemetry, conditional heal, backup sendCopy, checkpoint pagination, file-backed log manager.
+> 2026-08-20 (night) — Phase 2 Features: FTS5 full-text search virtual table, version history foundation, local export engine, conflict branch preservation, transfer priority queue.
 
 ---
+
+## 2026-08-20 (night) — Phase 2 Features: FTS5 full-text search virtual table, version history foundation, local export engine, conflict branch preservation, transfer priority queue
+
+Implemented Phase 2 (Items 17, 18, 19, 21, 22 from the Architecture Review Roadmap):
+
+### What was changed
+1. **Item 17: SQLite FTS5 Full-Text Search Virtual Table (`objects_fts`)** (`Storage/DatabaseManager.swift`, `xCloudTests/xCloudTests.swift`):
+   - Added migration `v28-fts5-search` creating `objects_fts USING fts5(id UNINDEXED, name, tokenize = 'unicode61')`.
+   - Populated existing records and registered automatic SQLite triggers (`objects_ai`, `objects_ad`, `objects_au`) to synchronize FTS index with `objects` table mutations.
+   - Added `DatabaseManager.shared.searchObjects(query:vaultID:limit:)` with token sanitization, prefix wildcarding (`"token"*`), and rank ordering.
+2. **Item 18: Version History Foundation (`ObjectVersionRecord`)** (`Storage/Models.swift`, `Storage/DatabaseManager.swift`, `xCloudTests/xCloudTests.swift`):
+   - Added model `ObjectVersionRecord` and migration `v29-object-versions` creating table `object_versions`.
+   - Added `DatabaseManager.recordVersion(for:)` to snapshot previous `rootHash`, `size`, `modifiedAt`, and `chunksJSON` before overwrites.
+   - Added `DatabaseManager.versions(for:)` descending by version number.
+3. **Item 19: Local Backup & Bulk Export Engine (`ExportEngine`)** (`Engine/DownloadEngine.swift`):
+   - Created `actor ExportEngine` supporting bulk extraction of vault files/folders to arbitrary local filesystem targets.
+   - Reconstructs complete nested directory trees and downloads/decrypts missing files sequentially with progress reporting and cancellation.
+4. **Item 21: Conflict Detection & Branch Preservation** (`Storage/CatalogSnapshot.swift`, `xCloudTests/xCloudTests.swift`):
+   - Updated `CatalogSnapshot.merge` to detect concurrent diverged modifications (differing non-empty `rootHash` on active files).
+   - Generates non-destructive conflicted copy records (`"<basename> (Conflicted copy <date>).<ext>"`) for the losing version with cloned chunk records, matching Dropbox/Drive multi-device file preservation.
+5. **Item 22: Download Priority & Preemption Queue** (`Engine/TransferCenter.swift`, `xCloudTests/xCloudTests.swift`):
+   - Added `TransferCenter.Item.Priority` (`.background`, `.standard`, `.interactive`).
+   - Wired priority parameter into `TransferCenter.begin` to allow interactive stream buffers and viewer requests to preempt bulk background transfers.
+
+### Verification
+- `xcodebuild -configuration Debug build` succeeded.
+- `xcodebuild -configuration Debug test`: **TEST SUCCEEDED** (73 tests: 70 unit + 2 UI + 1 launch, 0 failures).
 
 ## 2026-08-20 (night) — Phase 1 Robustness: token-bucket rate limiter, API metrics telemetry, conditional heal, backup sendCopy, checkpoint pagination, file-backed log manager
 

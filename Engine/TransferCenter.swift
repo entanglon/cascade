@@ -31,9 +31,19 @@ final class TransferCenter {
         /// How much work this transfer represents (e.g. chunk count), used to
         /// aggregate collective progress across concurrent transfers.
         var totalWork: Double = 1
+        var priority: Priority = .standard
 
         enum Direction { case upload, download, inbound }
         enum State { case active, paused, complete, failed }
+        enum Priority: Int, Comparable, Sendable {
+            case background = 0
+            case standard = 1
+            case interactive = 2
+
+            static func < (lhs: Priority, rhs: Priority) -> Bool {
+                lhs.rawValue < rhs.rawValue
+            }
+        }
     }
 
     private(set) var items: [Item] = []
@@ -121,6 +131,7 @@ final class TransferCenter {
         statusText: String = "Starting…",
         state: Item.State = .active,
         totalWork: Double = 1,
+        priority: Item.Priority = .standard,
         reuseExisting: Bool = false
     ) -> String {
         // A batch starts when an active transfer begins with nothing else
@@ -145,6 +156,7 @@ final class TransferCenter {
             items[existingIndex].progress = initialProgress
             items[existingIndex].statusText = statusText
             items[existingIndex].totalWork = totalWork
+            items[existingIndex].priority = priority
             return id
         }
         let item = Item(
@@ -154,7 +166,8 @@ final class TransferCenter {
             progress: initialProgress,
             statusText: statusText,
             state: state,
-            totalWork: totalWork
+            totalWork: totalWork,
+            priority: priority
         )
         items.insert(item, at: 0)
         if items.count > 100 {

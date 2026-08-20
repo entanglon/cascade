@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (night): Phase 1 Robustness & Telemetry completed (item 122). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (night): Phase 2 Features completed (item 123). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2957,3 +2957,11 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 15 (File-Backed Structured Logging `LogManager`)**: Created `actor LogManager` maintaining rotating log files (`cascade.log`, up to 3 rotations of 5 MB each) in Application Support.
     - **Item 16 (Conditional Post-Auth Heal)**: Added `xc.catalogHealClean` flag tracking to skip $O(N)$ chunk/object dedupe scans at launch when the catalog was clean, speeding up cold startup.
     - Full test suite green: **TEST SUCCEEDED** (69: 66 unit + 2 UI + 1 launch, 0 failures). Commit: `613981a`.
+
+123. **Features & Capabilities — Phase 2 (2026-08-20 — COMMITTED)** (`Storage/DatabaseManager.swift`, `Storage/Models.swift`, `Engine/DownloadEngine.swift`, `Storage/CatalogSnapshot.swift`, `Engine/TransferCenter.swift`, `xCloudTests/xCloudTests.swift`)
+    - **Item 17 (SQLite FTS5 Full-Text Search Virtual Table `objects_fts`)**: Added migration `v28-fts5-search` creating `objects_fts USING fts5(id UNINDEXED, name, tokenize = 'unicode61')` with auto-sync triggers (`objects_ai`, `objects_ad`, `objects_au`). Added `DatabaseManager.shared.searchObjects(query:vaultID:limit:)` with prefix search (`"token"*`) and rank ordering.
+    - **Item 18 (Version History Foundation `ObjectVersionRecord`)**: Added `ObjectVersionRecord` schema and migration `v29-object-versions` for `object_versions` table. Implemented `recordVersion(for:)` and `versions(for:)` in `DatabaseManager`.
+    - **Item 19 (Local Backup & Bulk Export Engine `ExportEngine`)**: Created `actor ExportEngine` supporting bulk extraction of entire vaults or selected folders to arbitrary local filesystem destinations with hierarchical tree reproduction, progress reporting, and cancellation.
+    - **Item 21 (Conflict Detection & Branch Preservation)**: Updated `CatalogSnapshot.merge` to detect concurrent file modifications (differing non-empty `rootHash`) and generate non-destructive conflicted copy records (`"<basename> (Conflicted copy <date>).<ext>"`) preserving the losing side's chunks.
+    - **Item 22 (Download Priority & Preemption Queue)**: Added `TransferCenter.Item.Priority` (`.background`, `.standard`, `.interactive`) to prioritize user interactive streaming downloads ahead of bulk background batch tasks.
+    - Full test suite green: **TEST SUCCEEDED** (73: 70 unit + 2 UI + 1 launch, 0 failures).

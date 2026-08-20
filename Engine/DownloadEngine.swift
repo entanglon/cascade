@@ -316,3 +316,105 @@ enum DownloadEngine {
         }
     }
 }
+
+// MARK: - Local Vault Export Engine
+
+actor ExportEngine {
+    static let shared = ExportEngine()
+
+    private let logger = Logger(subsystem: "com.cascade.app", category: "export")
+
+    struct Progress: Sendable {
+        var completedFiles: Int
+        var totalFiles: Int
+        var currentFile: String
+        var isRunning: Bool
+    }
+
+    private var isCancelled = false
+
+    func cancel() {
+        isCancelled = true
+    }
+
+    /// Exports the specified objects (or the full vault catalog if `objectIDs` is empty)
+    /// to the target local folder, preserving folder hierarchy.
+    func export(
+        objectIDs: [String]? = nil,
+        to destinationURL: URL,
+        onProgress: (@Sendable (Progress) -> Void)? = nil
+    ) async throws -> Int {
+        isCancelled = false
+        let allObjects = try await DatabaseManager.shared.allObjects()
+            .filter { $0.tombstoneAt == nil && !$0.trashed }
+
+        let objectsByID = Dictionary(uniqueKeysWithValues: allObjects.map { ($0.id, $0) })
+        let exportSet: [ObjectRecord]
+
+        if let objectIDs, !objectIDs.isEmpty {
+            let requestedIDs = Set(objectIDs)
+            exportSet = allObjects.filter { requestedIDs.contains($0.id) }
+        } else {
+            exportSet = allObjects
+        }
+
+        let nonFolderObjects = exportSet.filter { !$0.isFolder }
+        let totalCount = nonFolderObjects.count
+        var completedCount = 0
+
+        func relativePath(for object: ObjectRecord) -> String {
+            var components: [String] = [object.name]
+            var currentParentID = object.parentID
+            while let pid = currentParentID, let parent = objectsByID[pid] {
+                components.insert(parent.name, at: 0)
+                currentParentID = parent.parentID
+            }
+            return components.joined(separator: "/")
+        }
+
+        let fm = FileManager.default
+        try fm.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+
+        for obj in exportSet {
+            guard !isCancelled else { break }
+
+            let relPath = relativePath(for: obj)
+            let targetURL = destinationURL.appendingPathComponent(relPath)
+
+            if obj.isFolder {
+                try? fm.createDirectory(at: targetURL, withIntermediateDirectories: true)
+                continue
+            }
+
+            let parentDir = targetURL.deletingLastPathComponent()
+            try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+
+            onProgress?(Progress(
+                completedFiles: completedCount,
+                totalFiles: totalCount,
+                currentFile: obj.name,
+                isRunning: true
+            ))
+
+            do {
+                let downloadedURL = try await DownloadEngine.download(object: obj, progress: { _, _ in }, quiet: true)
+                if fm.fileExists(atPath: targetURL.path) {
+                    try? fm.removeItem(at: targetURL)
+                }
+                try fm.copyItem(at: downloadedURL, to: targetURL)
+                completedCount += 1
+            } catch {
+                logger.error("Export failed for \(obj.name): \(error.localizedDescription)")
+            }
+        }
+
+        onProgress?(Progress(
+            completedFiles: completedCount,
+            totalFiles: totalCount,
+            currentFile: "",
+            isRunning: false
+        ))
+
+        return completedCount
+    }
+}

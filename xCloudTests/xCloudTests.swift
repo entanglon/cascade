@@ -2394,6 +2394,97 @@ struct xCloudTests {
         #expect(parsed.nonce == nonce)
         #expect(parsed.baseMessageID == 1048576)
     }
+
+    @Test func fts5FullTextSearch() async throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-fts5-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let testDB = DatabaseManager()
+        try testDB.start(customURL: tempURL)
+
+        let obj1 = ObjectRecord(id: "fts-1", vaultID: "v1", name: "Quarterly Financial Report 2026.pdf", size: 1000, mime: "application/pdf", isFolder: false, createdAt: Date(), modifiedAt: Date())
+        let obj2 = ObjectRecord(id: "fts-2", vaultID: "v1", name: "Holiday Photos in Japan.zip", size: 5000, mime: "application/zip", isFolder: false, createdAt: Date(), modifiedAt: Date())
+        let obj3 = ObjectRecord(id: "fts-3", vaultID: "v1", name: "Report Summary Draft.docx", size: 2000, mime: "application/docx", isFolder: false, createdAt: Date(), modifiedAt: Date())
+
+        try testDB.save(obj1)
+        try testDB.save(obj2)
+        try testDB.save(obj3)
+
+        let results = try testDB.searchObjects(query: "Report")
+        #expect(results.count == 2)
+        #expect(results.contains { $0.id == "fts-1" })
+        #expect(results.contains { $0.id == "fts-3" })
+
+        let prefixResults = try testDB.searchObjects(query: "Finan")
+        #expect(prefixResults.count == 1)
+        #expect(prefixResults.first?.id == "fts-1")
+    }
+
+    @Test func versionHistoryTracking() async throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-ver-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let testDB = DatabaseManager()
+        try testDB.start(customURL: tempURL)
+
+        let obj = ObjectRecord(id: "ver-obj-1", vaultID: "v1", name: "document.txt", size: 50, mime: "text/plain", isFolder: false, createdAt: Date(), modifiedAt: Date(), rootHash: "hash-v1")
+        try testDB.save(obj)
+
+        try testDB.recordVersion(for: "ver-obj-1")
+
+        var updated = obj
+        updated.rootHash = "hash-v2"
+        updated.size = 120
+        updated.modifiedAt = Date().addingTimeInterval(60)
+        try testDB.save(updated)
+        try testDB.recordVersion(for: "ver-obj-1")
+
+        let versions = try testDB.versions(for: "ver-obj-1")
+        #expect(versions.count == 2)
+        #expect(versions[0].versionNumber == 2)
+        #expect(versions[0].rootHash == "hash-v2")
+        #expect(versions[1].versionNumber == 1)
+        #expect(versions[1].rootHash == "hash-v1")
+    }
+
+    @Test func conflictBranchPreservationInMerge() {
+        let localID = "conflict-file-1"
+        let localDate = Date()
+        let remoteDate = localDate.addingTimeInterval(-30) // local is slightly newer
+
+        let localObj = ObjectRecord(id: localID, vaultID: "v1", name: "Notes.txt", size: 100, mime: "text/plain", isFolder: false, createdAt: localDate, modifiedAt: localDate, rootHash: "hash-local")
+        let remoteObj = ObjectRecord(id: localID, vaultID: "v1", name: "Notes.txt", size: 150, mime: "text/plain", isFolder: false, createdAt: remoteDate, modifiedAt: remoteDate, rootHash: "hash-remote")
+
+        let localChunk = ChunkRecord(id: "c-local", objectID: localID, index: 0, size: 100, hash: "h-l", messageID: 101)
+        let remoteChunk = ChunkRecord(id: "c-remote", objectID: localID, index: 0, size: 150, hash: "h-r", messageID: 202)
+
+        let local = CatalogSnapshot.Payload(version: 1, objects: [localObj], chunks: [localChunk])
+        let remote = CatalogSnapshot.Payload(version: 1, objects: [remoteObj], chunks: [remoteChunk])
+
+        let merged = CatalogSnapshot.merge(local: local, remote: remote, localVaultID: "v1")
+
+        // Merged must have the canonical winner (local) AND the preserved conflicted copy (remote)
+        #expect(merged.objects.count == 2)
+        let winner = merged.objects.first { $0.id == localID }
+        #expect(winner?.rootHash == "hash-local")
+
+        let conflicted = merged.objects.first { $0.id != localID }
+        #expect(conflicted != nil)
+        #expect(conflicted?.name.contains("Conflicted copy") == true)
+        #expect(conflicted?.rootHash == "hash-remote")
+    }
+
+    @Test func transferCenterPriorityOrdering() async {
+        let tc = await TransferCenter()
+        let id1 = await tc.begin(.download, objectID: "obj-bg", name: "background.zip", priority: .background)
+        let id2 = await tc.begin(.download, objectID: "obj-stream", name: "stream.mp4", priority: .interactive)
+
+        let items = await tc.items
+        let bgItem = items.first { $0.id == id1 }
+        let interactiveItem = items.first { $0.id == id2 }
+
+        #expect(bgItem?.priority == .background)
+        #expect(interactiveItem?.priority == .interactive)
+        #expect((bgItem?.priority ?? .standard) < (interactiveItem?.priority ?? .standard))
+    }
 }
 
 

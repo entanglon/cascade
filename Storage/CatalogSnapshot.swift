@@ -186,6 +186,9 @@ enum CatalogSnapshot {
             if rec.wrappedKey?.isEmpty == true { rec.wrappedKey = nil }
             objectsByID[rec.id] = rec
         }
+        var conflictedObjects: [ObjectRecord] = []
+        var conflictedChunks: [ChunkRecord] = []
+
         // Fold in local records: local wins strictly-newer; ties keep remote.
         for o in local.objects {
             if let remoteWinner = objectsByID[o.id] {
@@ -199,12 +202,54 @@ enum CatalogSnapshot {
                     if o.modifiedAt > remoteWinner.modifiedAt {
                         objectsByID[o.id] = o
                     }
-                } else if o.modifiedAt > remoteWinner.modifiedAt {
-                    objectsByID[o.id] = o
+                } else {
+                    // Conflict branch preservation:
+                    // If both sides are active files (not folders, not deleted), have differing content
+                    // hashes, and both have non-empty rootHashes, preserve the losing version as a conflicted copy.
+                    if let lHash = o.rootHash, let rHash = remoteWinner.rootHash,
+                       !lHash.isEmpty, !rHash.isEmpty, lHash != rHash,
+                       !o.isFolder && !remoteWinner.isFolder {
+                        let isLocalWinner = o.modifiedAt > remoteWinner.modifiedAt
+                        let loser = isLocalWinner ? remoteWinner : o
+                        let df = DateFormatter()
+                        df.dateFormat = "yyyy-MM-dd HH.mm"
+                        let dateStr = df.string(from: loser.modifiedAt)
+
+                        let baseName = (loser.name as NSString).deletingPathExtension
+                        let ext = (loser.name as NSString).pathExtension
+                        let conflictName = ext.isEmpty
+                            ? "\(baseName) (Conflicted copy \(dateStr))"
+                            : "\(baseName) (Conflicted copy \(dateStr)).\(ext)"
+
+                        let conflictID = UUID().uuidString
+                        var conflictRecord = loser
+                        conflictRecord.id = conflictID
+                        conflictRecord.name = conflictName
+                        conflictRecord.vaultID = localVaultID
+                        conflictRecord.createdAt = Date()
+                        conflictedObjects.append(conflictRecord)
+
+                        let loserChunks = (isLocalWinner ? remote.chunks : local.chunks)
+                            .filter { $0.objectID == loser.id }
+                        for c in loserChunks {
+                            var copy = c
+                            copy.id = "\(conflictID)-\(c.index)"
+                            copy.objectID = conflictID
+                            conflictedChunks.append(copy)
+                        }
+                    }
+
+                    if o.modifiedAt > remoteWinner.modifiedAt {
+                        objectsByID[o.id] = o
+                    }
                 }
             } else {
                 objectsByID[o.id] = o
             }
+        }
+
+        for conf in conflictedObjects {
+            objectsByID[conf.id] = conf
         }
 
         // Chunks are immutable once uploaded — merge is a union, preferring the copy
@@ -219,6 +264,9 @@ enum CatalogSnapshot {
             } else {
                 chunksByID[c.id] = c
             }
+        }
+        for c in conflictedChunks {
+            chunksByID[c.id] = c
         }
 
         // Defensive dedup: older channel snapshots can carry two chunk rows for the

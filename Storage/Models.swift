@@ -382,3 +382,20 @@ extension FaceRecord {
     static let databaseTableName = "faces"
     static let faceThumbDirectory = "faces"
 }
+
+// MARK: - Object Versions (Version History)
+
+struct ObjectVersionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    var id: String
+    var objectID: String
+    var versionNumber: Int
+    var rootHash: String?
+    var size: Int64
+    var modifiedAt: Date
+    var chunksJSON: String?
+    var createdAt: Date
+}
+
+extension ObjectVersionRecord {
+    static let databaseTableName = "object_versions"
+}
