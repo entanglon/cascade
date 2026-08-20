@@ -2,7 +2,23 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Fix multiple channel photo updates by adding XCTestCase safeguard to TelegramClient.
+> 2026-08-20 (morning) — Verify and wire full-bleed profile pictures into dynamic share channel creation.
+
+---
+
+## 2026-08-20 (morning) — Verify and wire full-bleed profile pictures into dynamic share channel creation
+
+Verified and ensured that whenever public or private share channels are created dynamically upon sharing, the full-bleed cropped avatars (`oc.png` and `pc.png`) are applied immediately.
+
+### Verification & Changes
+- `Engine/ShareEngine.swift`:
+  - `createPoolChannel(id:kind:)`: Already automatically assigns and applies `oc.png` (public) or `pc.png` (private) on creation.
+  - `allocatePrivateChannel`: Applies `pc.png` whenever an existing or adopted private channel slot is allocated.
+  - `publicChannel`: Added explicit photo check to apply `oc.png` on existing/adopted public channels.
+  - Both `Public/` and `Resources/` assets for `oc.png` and `pc.png` are confirmed to have 0.00% white margins and 100% full bleed.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 

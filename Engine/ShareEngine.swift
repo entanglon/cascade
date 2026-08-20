@@ -777,6 +777,9 @@ enum ShareEngine {
                 chatId: state.channelID,
                 title: poolChannelTitle(id: state.id, kind: .public)
             )
+            if !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
+                await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "oc")
+            }
             return state
         }
         return try await createPoolChannel(id: publicChannelRowID, kind: .public)

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): XCTestCase Safeguard for Channel Photo Updates completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Dynamic Share Channel Full-Bleed Branding Verification completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2508,6 +2508,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Fix**: Added `guard NSClassFromString("XCTestCase") == nil else { return }` directly into `TelegramClient.setChannelPhoto` overloads, ensuring tests never issue live photo changes.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `d4c77ed`.
+
+108. **Dynamic share channel full-bleed branding verification (2026-08-20 — COMMITTED)**
+    (`Engine/ShareEngine.swift`)
+    - **Creation & allocation paths verified**: Ensured all public and private share channels created dynamically on first share immediately apply `oc.png` and `pc.png`.
+    - **Legacy public adoption**: Added photo check in `publicChannel()` to brand existing public channels if unbranded.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
