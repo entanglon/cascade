@@ -2,11 +2,28 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Media keys claim now-playing (no Apple Music double-trigger).
+> 2026-08-20 (evening) — Encrypted thumbnail sidecars (no plaintext previews).
 
 ---
 
-## 2026-08-20 (evening) — Media keys claim now-playing (no Apple Music double-trigger)
+## 2026-08-20 (evening) — Encrypted thumbnail sidecars (no plaintext previews)
+
+User approved Option A for the design question from earlier: encrypted uploads stopped attaching plaintext thumbnails to chunk messages (those were visible image previews sitting in the Telegram channel). The preview is now its own tiny encrypted document.
+
+### What changed
+- **Upload** (`Engine/UploadEngine.swift`): chunk `sendFile` calls pass `thumbnailPath: nil` whenever `objectKey != nil` (every non-private file). Private (plaintext) files keep attached thumbs — their channel is private and a visible preview is intended. After the chunk group completes (and on resume — the block runs before `state = "ready"`, skipped when `thumbMessageID` already set), `uploadThumbnailSidecar` seals the same ≤320px `<id>-up.jpg` with `CryptoEngine.encryptChunk(objectKey, startSliceIndex 0)` (single 1 MB slice) and posts it as an opaque `file.bin` document with a new `xcloud:{"kind":"thumb","v":1,"id":...}` caption and NO attachment — the channel shows a name-less file, no preview. Mirrored via `BackupSync.enqueue` like every vault message. The messageID is recorded as `objects.thumbMessageID` (migration `v26-thumb-sidecar`). Sidecar failure logs and continues (file complete; only Telegram-backed preview missing — the local `<id>.png` still serves the session).
+- **Fetch** (`Engine/ThumbnailService.fetchFromTelegram`): when `thumbMessageID != nil`, download + `decryptChunk(startSliceIndex 0)` → `<id>-tg.jpg`. Any failure falls through to the legacy attached-thumbnail loop, which still covers pre-sidecar uploads. `fetchSidecarThumbnail` unwraps the object key via `VaultManager.vaultKey` exactly like DownloadEngine.
+- **Codec** (`Engine/ChunkCaption.swift`): `kindThumb = "thumb"` + `thumbCaption(objectID:)` (carries `size: 0` — `parse()` requires a size field) + `isThumbCaption`. `isChunkCaption` returns false for thumbs, so sidecars are never orphan-purge candidates.
+- **Model/DB** (`Storage/Models.swift`, `DatabaseManager.swift`): `ObjectRecord.thumbMessageID: Int64?` (CodingKeys + decodeIfPresent + memberwise init — old snapshots decode to nil); migration `v26-thumb-sidecar` adds the column.
+- **Latent bug fixed** (`DatabaseManager.replaceCatalog`): the `objects_backup`/`chunks_backup` safety tables were `CREATE TABLE IF NOT EXISTS ... SELECT * WHERE 0` — a backup table created before a schema migration keeps the OLD column count and `INSERT INTO objects_backup SELECT * FROM objects` then fails ("20 columns but 21 values"), which my migration exposed in `replaceCatalogCreatesBackupSnapshot`. Now DROP + recreate every replace.
+- **Tests**: `thumbnailSidecarEncryptDecryptRoundTrips` (encrypt/decrypt round-trip, one sealed slice, encrypted != plain) + `thumbCaptionCodecMarksSidecarDocuments` (codec round-trip, not a chunk caption). The old `uploadThumbnailJPEGIsGeneratedAndReturnedForAttachment` guard test still passes (generation pipeline unchanged).
+
+### Build / test
+- Build green (Debug). Full suite **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures — first full run failed 2 tests, both fixed above). Debug app relaunched; migration applied to the live Debug DB.
+
+Commit: `4da98b9`. New uploads get sidecars automatically; already-uploaded files keep their visible previews until re-uploaded (user-approved).
+
+---
 
 User reported after the media-keys commit: F8 toggles Cascade AND Apple Music at once. The OS routes each media key to the frontmost app (NSEvent copy) AND separately to the now-playing app via MediaRemote — Music was still the registered now-playing app.
 
