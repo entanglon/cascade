@@ -2964,4 +2964,4 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 19 (Local Backup & Bulk Export Engine `ExportEngine`)**: Created `actor ExportEngine` supporting bulk extraction of entire vaults or selected folders to arbitrary local filesystem destinations with hierarchical tree reproduction, progress reporting, and cancellation.
     - **Item 21 (Conflict Detection & Branch Preservation)**: Updated `CatalogSnapshot.merge` to detect concurrent file modifications (differing non-empty `rootHash`) and generate non-destructive conflicted copy records (`"<basename> (Conflicted copy <date>).<ext>"`) preserving the losing side's chunks.
     - **Item 22 (Download Priority & Preemption Queue)**: Added `TransferCenter.Item.Priority` (`.background`, `.standard`, `.interactive`) to prioritize user interactive streaming downloads ahead of bulk background batch tasks.
-    - Full test suite green: **TEST SUCCEEDED** (73: 70 unit + 2 UI + 1 launch, 0 failures).
+    - Full test suite green: **TEST SUCCEEDED** (73: 70 unit + 2 UI + 1 launch, 0 failures). Commits: `356722a`, `22de0da`.

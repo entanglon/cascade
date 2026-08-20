@@ -32,6 +32,7 @@ Implemented Phase 2 (Items 17, 18, 19, 21, 22 from the Architecture Review Roadm
 ### Verification
 - `xcodebuild -configuration Debug build` succeeded.
 - `xcodebuild -configuration Debug test`: **TEST SUCCEEDED** (73 tests: 70 unit + 2 UI + 1 launch, 0 failures).
+- Commits: `356722a`, `22de0da`.
 
 ## 2026-08-20 (night) — Phase 1 Robustness: token-bucket rate limiter, API metrics telemetry, conditional heal, backup sendCopy, checkpoint pagination, file-backed log manager
 
