@@ -120,15 +120,18 @@ enum VaultRepair {
                             // Object was explicitly deleted/tombstoned; do not resurrect it from an old message
                             continue
                         }
-                        let nameChanged = !name.isEmpty && existing.name != name
-                        let mimeChanged = !mime.isEmpty && mime != "application/octet-stream" && existing.mime != mime
-                        if existing.trashed != trashed || nameChanged || mimeChanged || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {
+                        // Existing object metadata in the local DB/checkpoint is authoritative over
+                        // older immutable chunk captions (e.g. moves into folders, renames, favorites).
+                        // Only fill in if existing fields are empty/missing, or if a previously unparented
+                        // object gains a parent from the cloud caption.
+                        let nameRepaired = existing.name.isEmpty && !name.isEmpty
+                        let mimeRepaired = (existing.mime.isEmpty || existing.mime == "application/octet-stream") && (!mime.isEmpty && mime != "application/octet-stream")
+                        let parentRepaired = existing.parentID == nil && cleanParentID != nil
+                        if nameRepaired || mimeRepaired || parentRepaired {
                             var updated = existing
-                            if nameChanged { updated.name = name }
-                            if mimeChanged { updated.mime = mime }
-                            updated.parentID = cleanParentID
-                            updated.trashed = trashed
-                            updated.isFavorite = isFavorite
+                            if nameRepaired { updated.name = name }
+                            if mimeRepaired { updated.mime = mime }
+                            if parentRepaired { updated.parentID = cleanParentID }
                             do {
                                 try await DatabaseManager.shared.save(updated)
                             } catch {

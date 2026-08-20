@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (night): Phase 3 CI Pipeline completed (item 124). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (night): VaultRepair metadata clobber fix completed (item 125). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2971,3 +2971,8 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 25 (GitHub Actions CI Workflow)**: Added `.github/workflows/ci.yml` running automated Debug scheme compilation and headless unit test verification (`xcodebuild ... -only-testing:xCloudTests test`) on macOS runners upon pushes and PRs to `main`.
     - **Item 24 (Decomposition Resolution)**: Verified and documented full domain engine separation (`TransferCenter`, `AudioPlayerEngine`, `VideoStreamingEngine`, `ShareEngine`, `BackupSync`, `ThumbnailService`, `CatalogSnapshot`, `VaultRepair`, `ExportEngine`).
     - Headless unit test suite green: **TEST SUCCEEDED** (70 unit tests passed, 0 failures). Commit: `8c8953d`.
+
+125. **VaultRepair Metadata Clobber Fix (2026-08-20 — COMMITTED)** (`Storage/VaultRepair.swift`, `JOURNAL.md`, `HANDOVER.md`)
+    - **Root Cause**: During startup post-auth scan, `VaultRepair.run()` scanned Telegram document messages and parsed captions. For files in SQLite that had been moved into folders (such as `Images/`), `VaultRepair` saw `existing.parentID != cleanParentID` (because older immutable chunk captions carried `parentID = nil`), and overwrote `existing.parentID = nil` in SQLite before calling `loadFiles()`, causing images to briefly flicker into the root of "All Files" until the cloud checkpoint restored their folder parentage.
+    - **Fix**: Local and checkpoint metadata for existing objects is now authoritative over older chunk captions. `cleanParentID` is only applied if `existing.parentID == nil && cleanParentID != nil`, never clobbering an existing folder location with `nil`.
+    - Headless unit test suite green: **TEST SUCCEEDED** (70 unit tests passed, 0 failures).

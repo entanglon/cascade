@@ -2,9 +2,23 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Phase 3 CI: GitHub Actions automated workflow for build and headless unit test execution.
+> 2026-08-20 (night) — Fix: Prevent VaultRepair from overwriting newer local folder placement/metadata with stale Telegram captions.
 
 ---
+
+## 2026-08-20 (night) — Fix: Prevent VaultRepair from overwriting newer local folder placement/metadata with stale Telegram captions
+
+### Root Cause
+During startup post-auth setup, `VaultRepair.run()` scanned Telegram document messages and parsed captions. For files that already existed in SQLite and had been moved into folders (such as `Images/`), `VaultRepair` saw that `existing.parentID != cleanParentID` (because older immutable chunk captions carried `parentID = nil`), and overwrote `existing.parentID = nil` in SQLite before triggering `loadFiles()`. This caused moved images to briefly flicker into the root of "All Files" until the newer cloud checkpoint restored their proper folder parentage.
+
+### What was changed
+1. **`Storage/VaultRepair.swift`**:
+   - For objects already existing in SQLite (`objectDict[objectID] != nil`), local and checkpoint metadata (such as folder parentage, renames, favorites) is strictly authoritative over older immutable chunk captions.
+   - `cleanParentID` is now only applied if `existing.parentID == nil && cleanParentID != nil` (repairing unparented files), never clobbering an existing folder location with `nil`.
+
+### Verification
+- Headless test execution: `xcodebuild -configuration Debug -scheme xCloud -destination 'platform=macOS' -only-testing:xCloudTests test`
+- **Result**: `** TEST SUCCEEDED **` (70 unit tests passed, 0 failures, 2.0s).
 
 ## 2026-08-20 (night) — Phase 3 CI: GitHub Actions automated workflow for build and headless unit test execution
 
