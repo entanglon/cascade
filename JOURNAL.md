@@ -2,9 +2,43 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Bulletproof restore: backup-channel fallback + backup drainer wedge fix.
+> 2026-08-20 (evening) — Architecture review + Claude consultation prompt.
 
 ---
+
+## 2026-08-20 (evening) — Architecture review + Claude consultation prompt
+
+User asked: "is the current architecture perfect and bullet proof?" and asked for
+a self-contained prompt for Claude (their external architecture consultant) on
+the app's architecture and improvements that could take Cascade to "Google Drive
+level".
+
+### Honest assessment (delivered to user)
+No — not perfect or bulletproof. Solid single-user Telegram-backed drive, but
+real gaps remain: (1) no deletion tombstones — delta replay resurrects
+permanently-deleted records on the double-failure restore path (documented
+HANDOVER pending); (2) the test suite runs against the LIVE Debug DB — the
+destructive `replaceCatalogCreatesBackupSnapshot` test is the exact wipe that
+started the 2026-08-20 incident; (3) the TDLibKit dropped-response bug is
+patched with timeout+retry (`withResponseTimeout`, TelegramClient.swift:390), a
+workaround rather than a root fix in the TDLibKit layer; (4) LWW-by-modifiedAt is
+the only cross-device conflict resolution — no version history, no undo; (5)
+chunks are stored as Telegram-channel plaintext (per-file encryption dropped by
+user decision 2026-08-16, CryptoEngine.sliceSize 1 MiB); (6) single-platform,
+single-account; (7) no CI, no observability/error reporting, no real backup
+beyond the two Telegram channels themselves.
+
+### What was done
+- HANDOVER updated with item 117 (this round) + expanded known-weaknesses list
+  for the consultation; Pending updated (consultation in flight; tombstone
+  proposal still the top architecture decision awaiting the user).
+- Built the Claude consultation prompt per AGENTS.md rule 8 (SELF-CONTAINED:
+  repo context, file:line refs, short code excerpts, known gaps, concrete
+  questions — Claude must answer without the repo).
+- No code changed this round. Repo clean, app running, DB healthy
+  (25/25, 10 active + 12 trashed + 3 folders, no file1.txt).
+- Commit: `dea24f5` (previous round, docs) — no new commit this round
+  (docs-only round, committed directly with the prompt below).
 
 ## 2026-08-20 (evening) — Bulletproof restore: backup-channel fallback + backup drainer wedge fix
 
