@@ -2529,6 +2529,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Telegram attachment**: Wired audio extensions in `UploadEngine.subjectThumbnail` to generate 640px grid PNGs and $\le 320$px JPEGs attached to Telegram chunk messages on upload.
     - **Cache clear resilience & streaming probe**: Added `generateAndSaveAudioThumbnail` in `ThumbnailService` and wired streaming probe/cache reload; audio thumbnails reload cleanly from Telegram or local stream even after cache clears.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `e542116`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

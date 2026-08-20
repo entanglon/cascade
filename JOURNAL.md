@@ -23,6 +23,8 @@ Fixed audio file thumbnail generation and persistence so that album cover art is
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `e542116` — `Fix audio thumbnail extraction, Telegram attachment and cache-cleared retrieval`.
+
 ---
 
 ## 2026-08-20 (morning) — Fix floating transfers button collective progress & individual queued cards
