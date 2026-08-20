@@ -2,11 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Mini player transport clicks + app-wide media keys.
+> 2026-08-20 (evening) — Media keys claim now-playing (no Apple Music double-trigger).
 
 ---
 
-## 2026-08-20 (evening) — Mini player transport clicks + app-wide media keys
+## 2026-08-20 (evening) — Media keys claim now-playing (no Apple Music double-trigger)
+
+User reported after the media-keys commit: F8 toggles Cascade AND Apple Music at once. The OS routes each media key to the frontmost app (NSEvent copy) AND separately to the now-playing app via MediaRemote — Music was still the registered now-playing app.
+
+### Root cause & Solution
+- When a track is loaded the app now claims now-playing: `MPRemoteCommandCenter` registers togglePlayPause/nextTrack/previousTrack (enabled in `play()`, disabled in `stop()`/playback-error path) and `MPNowPlayingInfoCenter` publishes title/duration/elapsed/rate (+ queue index), throttled to ~1 Hz via the mpv `$timePos` sink, cleared on stop. Music loses the claim, so it stops receiving the keys.
+- Because one physical press now arrives TWICE (NX systemDefined event to the frontmost app + remote command), added `AudioPlayerEngine.consumeMediaKeyPress()` — a 300 ms timestamp gate (NSLock-guarded, thread-safe from the event thread) — and routed every NX media-key handler (theater KeyView + FileBrowserKeyView closures) through it AFTER their context guards. First path wins; the duplicate returns `.commandFailed` / passes through.
+- Side benefit: with the claim active, media keys control the app even while another app is frontmost (the command fires regardless of focus).
+
+### Build / test
+- Build green (Debug). Full suite **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched for user verification.
+
+Commit: `1ee8968`. Pending user verification.
+
+---
 
 User reported: (a) mini player transport buttons still dead on mouse clicks, (b) keyboard media keys (F7/F8/F9 / NX play-next-prev) don't control the app, (c) thumbnails visible in plaintext in the Telegram channel (design question).
 

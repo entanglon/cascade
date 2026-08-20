@@ -2789,3 +2789,9 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Media keys**: previously handled ONLY while the theater window was open (KeyView). Now FileBrowserKeyView handles F7/F8/F9 keyDown (98/100/101) AND NX systemDefined media events (PLAY=16, NEXT/FAST=17/19, PREV/REWIND=18/20) whenever a track is loaded and the theater is closed; volume/mute pass through. Theater's own monitor still wins while open (newest-first).
     - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
       Commit: `cc63030`.
+
+116. **Media keys no longer double-trigger Apple Music (2026-08-20 — COMMITTED)** (`Engine/AudioPlayerEngine.swift`, `Features/TheaterView.swift`, `Features/FileBrowserView.swift`)
+    - **Bug**: F8 toggled Cascade AND Apple Music simultaneously. The OS routes each media key to the frontmost app's NSEvent copy AND separately to the now-playing app via MediaRemote — Music was still the now-playing app.
+    - **Fix**: the app now claims now-playing while a track is loaded — `MPRemoteCommandCenter` registers togglePlayPause/nextTrack/previousTrack (enabled in `play()`, disabled in `stop()`/error path) and `MPNowPlayingInfoCenter` carries title/duration/elapsed/rate + queue index, throttled to ~1 Hz, cleared on stop. `AudioPlayerEngine.consumeMediaKeyPress()` is a timestamp gate (300 ms, NSLock) so the local NX monitor and the remote command can't both act on one press — first path wins. All NX media-key handlers (theater KeyView + FileBrowserKeyView closures) go through the gate AFTER their context guards. Bonus: media keys now control the app even while another app is frontmost (the commands fire whenever we're now-playing).
+    - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `1ee8968`. Pending user verification of no Music double-trigger.
