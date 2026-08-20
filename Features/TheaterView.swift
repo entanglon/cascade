@@ -1723,19 +1723,19 @@ struct KeyMonitorView: NSViewRepresentable {
                     }
                     switch keyCode {
                     case 16: // NX_KEYTYPE_PLAY
-                        if let cb = self.onMediaPlayPause {
+                        if let cb = self.onMediaPlayPause, AudioPlayerEngine.consumeMediaKeyPress() {
                             self.lastMediaKeyTime = CFAbsoluteTimeGetCurrent()
                             DispatchQueue.main.async { cb() }
                             return nil
                         }
                     case 17, 19: // NX_KEYTYPE_NEXT / NX_KEYTYPE_FAST
-                        if let cb = self.onMediaForward {
+                        if let cb = self.onMediaForward, AudioPlayerEngine.consumeMediaKeyPress() {
                             self.lastMediaKeyTime = CFAbsoluteTimeGetCurrent()
                             DispatchQueue.main.async { cb() }
                             return nil
                         }
                     case 18, 20: // NX_KEYTYPE_PREVIOUS / NX_KEYTYPE_REWIND
-                        if let cb = self.onMediaBackward {
+                        if let cb = self.onMediaBackward, AudioPlayerEngine.consumeMediaKeyPress() {
                             self.lastMediaKeyTime = CFAbsoluteTimeGetCurrent()
                             DispatchQueue.main.async { cb() }
                             return nil

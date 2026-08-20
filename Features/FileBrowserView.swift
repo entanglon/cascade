@@ -510,23 +510,28 @@ struct FileBrowserView: View {
                     // Media keys (F8 / NX play): own them whenever a track is
                     // loaded — the mini player is the only audio surface here
                     // (the theater's own monitor handles them while it's open).
+                    // consumeMediaKeyPress dedupes against MPRemoteCommandCenter
+                    // (the app claims now-playing, so one press arrives twice).
                     guard AudioPlayerEngine.shared.currentTrack != nil,
                           appState.theaterFile == nil,
-                          !AudioPlayerEngine.shared.isFullScreen else { return false }
+                          !AudioPlayerEngine.shared.isFullScreen,
+                          AudioPlayerEngine.consumeMediaKeyPress() else { return false }
                     AudioPlayerEngine.shared.togglePlayPause()
                     return true
                 },
                 onMediaForward: {
                     guard AudioPlayerEngine.shared.currentTrack != nil,
                           appState.theaterFile == nil,
-                          !AudioPlayerEngine.shared.isFullScreen else { return false }
+                          !AudioPlayerEngine.shared.isFullScreen,
+                          AudioPlayerEngine.consumeMediaKeyPress() else { return false }
                     AudioPlayerEngine.shared.skipNext()
                     return true
                 },
                 onMediaBackward: {
                     guard AudioPlayerEngine.shared.currentTrack != nil,
                           appState.theaterFile == nil,
-                          !AudioPlayerEngine.shared.isFullScreen else { return false }
+                          !AudioPlayerEngine.shared.isFullScreen,
+                          AudioPlayerEngine.consumeMediaKeyPress() else { return false }
                     AudioPlayerEngine.shared.skipPrevious()
                     return true
                 },

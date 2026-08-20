@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Combine
 import CoreAudio
+import MediaPlayer
 import os
 
 /// Single source of truth for the app's volume: the macOS SYSTEM output volume
@@ -203,7 +204,92 @@ final class AudioPlayerEngine {
     /// mpv is the only player in the app — there is no AVPlayer fallback anywhere.
     var isMPVPlayback: Bool { mpvController != nil }
 
-    private init() {}
+    private init() {
+        setupRemoteCommands()
+    }
+
+    // MARK: - Now-playing claim (media keys & Control Center)
+
+    /// One physical media-key press is delivered BOTH as an NX systemDefined
+    /// event to the frontmost app (local monitor) AND as an MPRemoteCommandCenter
+    /// callback (because this app claims now-playing). The gate lets exactly one
+    /// path act per press — whichever arrives first wins, the duplicate is dropped.
+    private static let mediaKeyGateLock = NSLock()
+    private static var lastMediaKeyConsumedAt: CFTimeInterval = 0
+    static func consumeMediaKeyPress(at time: CFTimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
+        mediaKeyGateLock.lock()
+        defer { mediaKeyGateLock.unlock() }
+        guard time - lastMediaKeyConsumedAt > 0.3 else { return false }
+        lastMediaKeyConsumedAt = time
+        return true
+    }
+
+    /// Registers with MediaRemote so the media keys (F7/F8/F9, headset buttons,
+    /// Control Center) control THIS app — not Apple Music — whenever a track is
+    /// loaded, even while another app is frontmost. The handlers dedupe against
+    /// the local NX monitors via consumeMediaKeyPress. The commands start
+    /// disabled and are enabled in play() — while disabled the system keeps
+    /// routing media keys to Music.
+    private func setupRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        let toggle = center.togglePlayPauseCommand
+        toggle.isEnabled = false
+        toggle.addTarget { [weak self] _ in
+            guard Self.consumeMediaKeyPress() else { return .commandFailed }
+            DispatchQueue.main.async { self?.togglePlayPause() }
+            return .success
+        }
+        let next = center.nextTrackCommand
+        next.isEnabled = false
+        next.addTarget { [weak self] _ in
+            guard Self.consumeMediaKeyPress() else { return .commandFailed }
+            DispatchQueue.main.async { self?.skipNext() }
+            return .success
+        }
+        let prev = center.previousTrackCommand
+        prev.isEnabled = false
+        prev.addTarget { [weak self] _ in
+            guard Self.consumeMediaKeyPress() else { return .commandFailed }
+            DispatchQueue.main.async { self?.skipPrevious() }
+            return .success
+        }
+    }
+
+    private func setRemoteCommandsEnabled(_ enabled: Bool) {
+        let center = MPRemoteCommandCenter.shared()
+        center.togglePlayPauseCommand.isEnabled = enabled
+        center.nextTrackCommand.isEnabled = enabled
+        center.previousTrackCommand.isEnabled = enabled
+    }
+
+    /// Last elapsed time pushed to the system (throttles per-second updates).
+    private var lastElapsedReported: Double = -1
+
+    /// Reflects the current track in the system now-playing state. Empty while
+    /// nothing is loaded — releases the claim so Music gets its keys back.
+    private func updateNowPlayingInfo() {
+        guard let track = currentTrack, mpvController != nil else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            if #available(macOS 13.0, *) {
+                MPNowPlayingInfoCenter.default().playbackState = .stopped
+            }
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.name,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+        ]
+        if let idx = playlist.firstIndex(where: { $0.id == track.id }) {
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = idx
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = playlist.count
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        if #available(macOS 13.0, *) {
+            MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+        }
+    }
 
     @MainActor
     func play(file: ObjectRecord, in trackList: [ObjectRecord] = []) {
@@ -246,6 +332,8 @@ final class AudioPlayerEngine {
         isPlaying = false
         currentTime = resumePos
         duration = 0
+        setRemoteCommandsEnabled(true)
+        updateNowPlayingInfo()
 
         Task {
             do {
@@ -311,6 +399,8 @@ final class AudioPlayerEngine {
                 self.currentTrack = nil
                 self.isPlaying = false
                 self.isLoading = false
+                self.setRemoteCommandsEnabled(false)
+                self.updateNowPlayingInfo()
             }
         }
         controller.onEndOfFile = { [weak self] in
@@ -346,12 +436,21 @@ final class AudioPlayerEngine {
         mpvCancellables.removeAll()
         mpvCancellables.insert(controller.$isPlaying.receive(on: DispatchQueue.main).sink { [weak self] playing in
             self?.isPlaying = playing
+            self?.updateNowPlayingInfo()
         })
         mpvCancellables.insert(controller.$timePos.receive(on: DispatchQueue.main).sink { [weak self] t in
-            self?.currentTime = t
+            guard let self else { return }
+            self.currentTime = t
+            if abs(t - self.lastElapsedReported) >= 1.0 {
+                self.lastElapsedReported = t
+                self.updateNowPlayingInfo()
+            }
         })
         mpvCancellables.insert(controller.$duration.receive(on: DispatchQueue.main).sink { [weak self] d in
-            if d > 0 { self?.duration = d }
+            if d > 0 {
+                self?.duration = d
+                self?.updateNowPlayingInfo()
+            }
         })
         isLoading = false
         if audioOnly {
@@ -449,5 +548,7 @@ final class AudioPlayerEngine {
         isFullScreen = false
         playbackError = nil
         ended = false
+        setRemoteCommandsEnabled(false)
+        updateNowPlayingInfo()
     }
 }
