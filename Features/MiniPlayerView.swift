@@ -147,7 +147,12 @@ struct MiniPlayerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        // Container material must be NON-interactive: an `.interactive()` glass
+        // capsule over the whole bar swallows child hit-testing on macOS 26
+        // (the same quirk as the DMG login gate — clicks only land near the
+        // center). Each button carries its own `.interactive()` circle, so the
+        // bar keeps its glass look while clicks reach the controls.
+        .glassEffect(.regular, in: .capsule)
         .padding(.bottom, 20)
     }
 
