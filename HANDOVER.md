@@ -2446,6 +2446,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Message captions sanitized: `name = ""` and `mime = "application/octet-stream"`, preventing Telegram AI scanners from reading filenames and types. Added `cipherHash`.
     - `VaultRepair` updated to preserve `plainHash`/`cipherHash` and avoid overwriting local names with empty strings.
     - Full test suite green: **TEST SUCCEEDED** (68: 60 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `c7d8e2d`.
 
 ## 5. Pending / next steps
 - **NEXT: Phase 3 — Media Streaming Decryption & Download Caching** (see `implementation_plan.md`):

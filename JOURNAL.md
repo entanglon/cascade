@@ -29,6 +29,8 @@ Implemented automatic per-file 256-bit AES key generation, client-side chunk enc
 
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (68: 60 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
+Commit: `c7d8e2d` — `Phase 2: Encrypted chunk uploads and Telegram caption metadata sanitization`.
+
 ---
 
 ## 2026-08-20 (morning) — Phase 1: Cryptographic primitives (chunk encryption/decryption, slice seeking & link key derivation)
