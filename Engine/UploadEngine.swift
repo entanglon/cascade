@@ -489,10 +489,29 @@ enum UploadEngine {
             return loaded
         }
 
-        // Videos and audio: extract representative frame or embedded album artwork with FFmpeg
-        let audioExts = ["mp3", "m4a", "flac", "wav", "aac", "ogg", "wma", "aiff", "opus", "alac", "dsf", "ape"]
-        if isVideo || audioExts.contains(ext),
-           let frame = await VideoFrameExtractor.representativeFrame(from: url) {
+        // Audio files: extract real embedded artwork (Pure-Swift parser -> QuickLook -> FFmpeg attached pic)
+        let audioExts = ["mp3", "m4a", "flac", "wav", "aac", "ogg", "wma", "aiff", "opus", "alac", "dsf", "ape", "m4b", "m4p"]
+        if audioExts.contains(ext) {
+            if let art = AudioArtworkParser.extractArtwork(from: url) {
+                return art
+            }
+            let request = QLThumbnailGenerator.Request(
+                fileAt: url,
+                size: CGSize(width: 640, height: 640),
+                scale: 1,
+                representationTypes: .thumbnail
+            )
+            if let thumb = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
+                return NSImage(cgImage: thumb.cgImage, size: NSSize(width: thumb.cgImage.width, height: thumb.cgImage.height))
+            }
+            if let frame = await VideoFrameExtractor.representativeFrame(from: url) {
+                return frame
+            }
+            return nil
+        }
+
+        // Videos: extract representative frame with FFmpeg
+        if isVideo, let frame = await VideoFrameExtractor.representativeFrame(from: url) {
             return frame
         }
 

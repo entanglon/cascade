@@ -1,11 +1,12 @@
 import AppKit
 import Foundation
+import ImageIO
 
-/// Fast, pure-Swift parser for embedded album artwork in audio files (MP3 ID3v2,
-/// M4A/MP4 `covr`, and FLAC `METADATA_BLOCK_PICTURE`), plus a high-res artwork
-/// generator for audio files without embedded art.
+/// Pure-Swift, zero-AVFoundation embedded album artwork extractor for audio files
+/// (MP3 ID3v2, M4A/MP4/AAC `covr`, and FLAC `METADATA_BLOCK_PICTURE`).
 ///
-/// Fully headless, zero-AVFoundation, zero-QuickLook dependency.
+/// Fast, robust atom/tag seeking — skips multi-gigabyte `mdat` blocks in 0ms
+/// and verifies image validity via ImageIO.
 enum AudioArtworkParser {
     /// Extracts embedded album artwork from a local audio file URL, or returns nil
     /// if the file contains no embedded artwork.
@@ -17,12 +18,11 @@ enum AudioArtworkParser {
         switch ext {
         case "mp3":
             return parseID3v2(handle: handle)
-        case "m4a", "mp4", "aac", "alac":
+        case "m4a", "mp4", "aac", "alac", "m4b", "m4p":
             return parseMP4(handle: handle)
         case "flac":
             return parseFLAC(handle: handle)
         default:
-            // Try ID3v2 then MP4 then FLAC as fallbacks
             if let img = parseID3v2(handle: handle) { return img }
             try? handle.seek(toOffset: 0)
             if let img = parseMP4(handle: handle) { return img }
@@ -31,77 +31,14 @@ enum AudioArtworkParser {
         }
     }
 
-    /// Generates a rich 640x640 album artwork disc for audio files that have no
-    /// embedded artwork (e.g. voice memos, sound effects), so every audio file
-    /// has a high-res preview permanently attached to Telegram and cacheable on disk.
-    static func defaultAudioArtwork(title: String) -> NSImage? {
-        let size = CGSize(width: 640, height: 640)
-        guard let ctx = CGContext(
-            data: nil,
-            width: Int(size.width),
-            height: Int(size.height),
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
+    // MARK: - Validation
 
-        // 1. Rich dark gradient background
-        let colors = [
-            NSColor(red: 0.10, green: 0.10, blue: 0.18, alpha: 1.0).cgColor,
-            NSColor(red: 0.05, green: 0.05, blue: 0.09, alpha: 1.0).cgColor
-        ] as CFArray
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0.0, 1.0]) {
-            ctx.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: 0, y: size.height),
-                end: CGPoint(x: size.width, y: 0),
-                options: []
-            )
-        }
-
-        // 2. Vinyl disc background
-        let discRect = CGRect(x: 40, y: 40, width: 560, height: 560)
-        ctx.setFillColor(NSColor(white: 0.08, alpha: 1.0).cgColor)
-        ctx.fillEllipse(in: discRect)
-
-        // 3. Concentric groove rings
-        ctx.setStrokeColor(NSColor(white: 0.16, alpha: 0.7).cgColor)
-        ctx.setLineWidth(1.5)
-        for inset in stride(from: CGFloat(20), to: CGFloat(150), by: CGFloat(14)) {
-            ctx.strokeEllipse(in: discRect.insetBy(dx: inset, dy: inset))
-        }
-
-        // 4. Center label with accent gradient
-        let labelRect = CGRect(x: 200, y: 200, width: 240, height: 240)
-        let labelColors = [
-            NSColor(red: 0.90, green: 0.35, blue: 0.55, alpha: 1.0).cgColor,
-            NSColor(red: 0.45, green: 0.20, blue: 0.85, alpha: 1.0).cgColor
-        ] as CFArray
-        if let labelGrad = CGGradient(colorsSpace: colorSpace, colors: labelColors, locations: [0.0, 1.0]) {
-            ctx.saveGState()
-            ctx.addEllipse(in: labelRect)
-            ctx.clip()
-            ctx.drawLinearGradient(
-                labelGrad,
-                start: CGPoint(x: 200, y: 440),
-                end: CGPoint(x: 440, y: 200),
-                options: []
-            )
-            ctx.restoreGState()
-        }
-
-        // Center spindle hole
-        let holeRect = CGRect(x: 300, y: 300, width: 40, height: 40)
-        ctx.setFillColor(NSColor(white: 0.05, alpha: 1.0).cgColor)
-        ctx.fillEllipse(in: holeRect)
-        ctx.setStrokeColor(NSColor(white: 0.3, alpha: 0.8).cgColor)
-        ctx.setLineWidth(2)
-        ctx.strokeEllipse(in: holeRect)
-
-        guard let cg = ctx.makeImage() else { return nil }
-        return NSImage(cgImage: cg, size: NSSize(width: 640, height: 640))
+    private static func imageFromData(_ data: Data) -> NSImage? {
+        guard data.count > 32 else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard CGImageSourceGetCount(source) > 0,
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     // MARK: - MP3 ID3v2 Parser
@@ -112,13 +49,15 @@ enum AudioArtworkParser {
         guard header[0] == 0x49, header[1] == 0x44, header[2] == 0x33 else { return nil } // "ID3"
 
         let version = header[3]
-        guard version == 2 || version == 3 || version == 4 else { return nil }
+        guard version >= 2 && version <= 4 else { return nil }
 
-        let tagSize = (Int(header[6]) << 21) | (Int(header[7]) << 14) | (Int(header[8]) << 7) | Int(header[9])
+        let tagSize = (Int(header[6] & 0x7F) << 21) |
+                      (Int(header[7] & 0x7F) << 14) |
+                      (Int(header[8] & 0x7F) << 7)  |
+                      Int(header[9] & 0x7F)
         guard tagSize > 0 else { return nil }
 
-        // Read the tag body (capped at 16 MB to prevent OOM on corrupt files)
-        let readLen = min(tagSize, 16 * 1024 * 1024)
+        let readLen = min(tagSize, 32 * 1024 * 1024)
         guard let tagData = try? handle.read(upToCount: readLen), !tagData.isEmpty else { return nil }
 
         var offset = 0
@@ -136,11 +75,15 @@ enum AudioArtworkParser {
             } else {
                 frameID = String(decoding: tagData[offset..<offset+4], as: UTF8.self)
                 if version == 4 {
-                    // ID3v2.4 syncsafe integer
-                    frameSize = (Int(tagData[offset+4]) << 21) | (Int(tagData[offset+5]) << 14) | (Int(tagData[offset+6]) << 7) | Int(tagData[offset+7])
+                    frameSize = (Int(tagData[offset+4] & 0x7F) << 21) |
+                                (Int(tagData[offset+5] & 0x7F) << 14) |
+                                (Int(tagData[offset+6] & 0x7F) << 7)  |
+                                Int(tagData[offset+7] & 0x7F)
                 } else {
-                    // ID3v2.3 regular 32-bit int
-                    frameSize = (Int(tagData[offset+4]) << 24) | (Int(tagData[offset+5]) << 16) | (Int(tagData[offset+6]) << 8) | Int(tagData[offset+7])
+                    frameSize = (Int(tagData[offset+4]) << 24) |
+                                (Int(tagData[offset+5]) << 16) |
+                                (Int(tagData[offset+6]) << 8)  |
+                                Int(tagData[offset+7])
                 }
                 offset += 10
             }
@@ -149,7 +92,7 @@ enum AudioArtworkParser {
 
             if frameID == "APIC" || frameID == "PIC" {
                 let frameData = tagData.subdata(in: offset..<offset+frameSize)
-                if let image = extractImageFromAPIC(frameData: frameData, isV22: isV22) {
+                if let image = extractImageFromPayload(frameData) {
                     return image
                 }
             }
@@ -157,21 +100,25 @@ enum AudioArtworkParser {
             offset += frameSize
         }
 
-        return nil
+        // Fallback: Scan entire ID3 tag data for embedded JPEG or PNG magic bytes
+        return extractImageFromPayload(tagData)
     }
 
-    private static func extractImageFromAPIC(frameData: Data, isV22: Bool) -> NSImage? {
-        guard frameData.count > 10 else { return nil }
+    private static func extractImageFromPayload(_ data: Data) -> NSImage? {
+        guard data.count > 32 else { return nil }
+        let bytes = [UInt8](data)
+        let count = bytes.count
 
-        // Find magic bytes for JPEG (FF D8 FF) or PNG (89 50 4E 47)
-        let bytes = [UInt8](frameData)
-        for i in 0..<(bytes.count - 4) {
+        for i in 0..<(count - 8) {
+            // JPEG: FF D8 FF
             if bytes[i] == 0xFF && bytes[i+1] == 0xD8 && bytes[i+2] == 0xFF {
-                let imgData = frameData.subdata(in: i..<frameData.count)
-                if let image = NSImage(data: imgData) { return image }
-            } else if bytes[i] == 0x89 && bytes[i+1] == 0x50 && bytes[i+2] == 0x4E && bytes[i+3] == 0x47 {
-                let imgData = frameData.subdata(in: i..<frameData.count)
-                if let image = NSImage(data: imgData) { return image }
+                let sub = data.subdata(in: i..<count)
+                if let img = imageFromData(sub) { return img }
+            }
+            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            else if bytes[i] == 0x89 && bytes[i+1] == 0x50 && bytes[i+2] == 0x4E && bytes[i+3] == 0x47 {
+                let sub = data.subdata(in: i..<count)
+                if let img = imageFromData(sub) { return img }
             }
         }
         return nil
@@ -180,42 +127,69 @@ enum AudioArtworkParser {
     // MARK: - M4A / MP4 Parser
 
     private static func parseMP4(handle: FileHandle) -> NSImage? {
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 16 else { return nil }
         try? handle.seek(toOffset: 0)
-        guard let data = try? handle.read(upToCount: 8 * 1024 * 1024), data.count > 16 else { return nil }
-        return searchAtomsForCover(data: data, start: 0, end: data.count)
+        return scanMP4Atoms(handle: handle, start: 0, length: Int(fileSize))
     }
 
-    private static func searchAtomsForCover(data: Data, start: Int, end: Int) -> NSImage? {
+    private static func scanMP4Atoms(handle: FileHandle, start: UInt64, length: Int) -> NSImage? {
         var offset = start
-        while offset + 8 <= end {
-            let size = Int(data[offset]) << 24 | Int(data[offset+1]) << 16 | Int(data[offset+2]) << 8 | Int(data[offset+3])
-            guard size >= 8, offset + size <= end else { break }
+        let end = start + UInt64(length)
 
-            let name = String(decoding: data[offset+4..<offset+8], as: UTF8.self)
-            if name == "moov" || name == "udta" || name == "ilst" {
-                if let found = searchAtomsForCover(data: data, start: offset + 8, end: offset + size) {
+        while offset + 8 <= end {
+            try? handle.seek(toOffset: offset)
+            guard let hdr = try? handle.read(upToCount: 8), hdr.count == 8 else { break }
+
+            var atomSize = UInt64(UInt32(hdr[0]) << 24 | UInt32(hdr[1]) << 16 | UInt32(hdr[2]) << 8 | UInt32(hdr[3]))
+            var headerSize: UInt64 = 8
+            let atomType = String(decoding: hdr[4..<8], as: UTF8.self)
+
+            if atomSize == 1 {
+                // 64-bit large size
+                guard let extHdr = try? handle.read(upToCount: 8), extHdr.count == 8 else { break }
+                atomSize = UInt64(extHdr[0]) << 56 | UInt64(extHdr[1]) << 48 |
+                           UInt64(extHdr[2]) << 40 | UInt64(extHdr[3]) << 32 |
+                           UInt64(extHdr[4]) << 24 | UInt64(extHdr[5]) << 16 |
+                           UInt64(extHdr[6]) << 8  | UInt64(extHdr[7])
+                headerSize = 16
+            } else if atomSize == 0 {
+                atomSize = end - offset
+            }
+
+            guard atomSize >= headerSize, offset + atomSize <= end else { break }
+
+            if atomType == "moov" || atomType == "udta" || atomType == "ilst" {
+                if let found = scanMP4Atoms(handle: handle, start: offset + headerSize, length: Int(atomSize - headerSize)) {
                     return found
                 }
-            } else if name == "meta" {
-                // meta atom has 4 bytes version/flags before child atoms
-                if offset + 12 <= offset + size {
-                    if let found = searchAtomsForCover(data: data, start: offset + 12, end: offset + size) {
+            } else if atomType == "meta" {
+                // meta atom has 4 bytes version/flags before children
+                let metaHdr: UInt64 = headerSize + 4
+                if atomSize > metaHdr {
+                    if let found = scanMP4Atoms(handle: handle, start: offset + metaHdr, length: Int(atomSize - metaHdr)) {
                         return found
                     }
                 }
-            } else if name == "covr" {
-                // Inside covr atom: look for data atom
-                var covrOffset = offset + 8
-                while covrOffset + 8 <= offset + size {
-                    let childSize = Int(data[covrOffset]) << 24 | Int(data[covrOffset+1]) << 16 | Int(data[covrOffset+2]) << 8 | Int(data[covrOffset+3])
-                    guard childSize >= 8, covrOffset + childSize <= offset + size else { break }
-                    let childName = String(decoding: data[covrOffset+4..<covrOffset+8], as: UTF8.self)
-                    if childName == "data" {
-                        // data atom header: 4 bytes size, 4 bytes 'data', 4 bytes type, 4 bytes locale = 16 bytes
-                        if childSize > 16 {
-                            let imgData = data.subdata(in: (covrOffset + 16)..<(covrOffset + childSize))
-                            if let image = NSImage(data: imgData) {
-                                return image
+            } else if atomType == "covr" {
+                // Inside covr: search for data atom
+                var covrOffset = offset + headerSize
+                let covrEnd = offset + atomSize
+                while covrOffset + 8 <= covrEnd {
+                    try? handle.seek(toOffset: covrOffset)
+                    guard let childHdr = try? handle.read(upToCount: 8), childHdr.count == 8 else { break }
+                    let childSize = UInt64(UInt32(childHdr[0]) << 24 | UInt32(childHdr[1]) << 16 | UInt32(childHdr[2]) << 8 | UInt32(childHdr[3]))
+                    let childType = String(decoding: childHdr[4..<8], as: UTF8.self)
+
+                    guard childSize >= 8, covrOffset + childSize <= covrEnd else { break }
+
+                    if childType == "data" {
+                        // data atom: 8 bytes header + 8 bytes (type indicator & locale) = 16 bytes prefix
+                        let payloadSize = Int(childSize - 16)
+                        if payloadSize > 16 {
+                            try? handle.seek(toOffset: covrOffset + 16)
+                            if let payload = try? handle.read(upToCount: payloadSize),
+                               let img = imageFromData(payload) {
+                                return img
                             }
                         }
                     }
@@ -223,7 +197,7 @@ enum AudioArtworkParser {
                 }
             }
 
-            offset += size
+            offset += atomSize
         }
         return nil
     }
@@ -244,31 +218,25 @@ enum AudioArtworkParser {
 
             if blockType == 6 { // PICTURE block
                 guard let blockData = try? handle.read(upToCount: blockSize), blockData.count == blockSize else { break }
-                // Parse picture block:
-                // 4 bytes: picture type
-                // 4 bytes: MIME length
-                var pos = 4
+                var pos = 4 // skip picture type (4)
                 guard pos + 4 <= blockData.count else { break }
-                let mimeLen = (Int(blockData[pos]) << 24) | (Int(blockData[pos+1]) << 16) | (Int(blockData[pos+2]) << 8) | Int(blockData[pos+3])
+                let mimeLen = Int(UInt32(blockData[pos]) << 24 | UInt32(blockData[pos+1]) << 16 | UInt32(blockData[pos+2]) << 8 | UInt32(blockData[pos+3]))
                 pos += 4 + mimeLen
 
-                // 4 bytes: desc length
                 guard pos + 4 <= blockData.count else { break }
-                let descLen = (Int(blockData[pos]) << 24) | (Int(blockData[pos+1]) << 16) | (Int(blockData[pos+2]) << 8) | Int(blockData[pos+3])
+                let descLen = Int(UInt32(blockData[pos]) << 24 | UInt32(blockData[pos+1]) << 16 | UInt32(blockData[pos+2]) << 8 | UInt32(blockData[pos+3]))
                 pos += 4 + descLen
 
-                // 16 bytes: width(4), height(4), depth(4), colors(4)
-                pos += 16
+                pos += 16 // width, height, depth, colors
 
-                // 4 bytes: data length
                 guard pos + 4 <= blockData.count else { break }
-                let dataLen = (Int(blockData[pos]) << 24) | (Int(blockData[pos+1]) << 16) | (Int(blockData[pos+2]) << 8) | Int(blockData[pos+3])
+                let dataLen = Int(UInt32(blockData[pos]) << 24 | UInt32(blockData[pos+1]) << 16 | UInt32(blockData[pos+2]) << 8 | UInt32(blockData[pos+3]))
                 pos += 4
 
                 guard pos + dataLen <= blockData.count else { break }
                 let imgData = blockData.subdata(in: pos..<pos+dataLen)
-                if let image = NSImage(data: imgData) {
-                    return image
+                if let img = imageFromData(imgData) {
+                    return img
                 }
             } else {
                 guard let cur = try? handle.offset() else { break }

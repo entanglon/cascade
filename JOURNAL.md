@@ -2,7 +2,34 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (afternoon) — Pure-Swift audio artwork parser, default artwork generator & smooth streaming loading states.
+> 2026-08-20 (afternoon) — Real audio artwork extraction, mini player teardown on delete/trash & 3-button audio player.
+
+---
+
+## 2026-08-20 (afternoon) — Real audio artwork extraction, mini player teardown on delete/trash & 3-button audio player
+
+Fixed audio album art extraction to extract ONLY real embedded artwork via a layered pipeline (Pure-Swift parser $\rightarrow$ QuickLook $\rightarrow$ FFmpeg packet reader) with zero fake placeholders. Added instant teardown of `AudioPlayerEngine` and `theaterFile` when an active file is trashed or deleted forever. Streamlined the theater audio player transport to the 3 iconic buttons (removing side arrow chevrons and fixing play/pause hit-testing).
+
+### Root cause & Solution
+1. **Real Audio Artwork Pipeline**:
+   - `AudioArtworkParser.defaultAudioArtwork` was generating a synthetic vinyl disc graphic when extraction returned nil, masking real artwork and confusing the user with "fake" thumbnails.
+   - `AudioArtworkParser` atom parser previously broke on M4A files where `moov` was placed after large `mdat` atoms.
+   - **Fix**:
+     - `Engine/AudioArtworkParser.swift`: Implemented random-access atom seek to traverse any atom hierarchy (jumping past `mdat` in 0ms) and ImageIO validation. Removed all synthetic placeholder generation.
+     - `Engine/UploadEngine.swift`: Layered extraction for audio files: (1) `AudioArtworkParser`, (2) `QLThumbnailGenerator`, (3) `VideoFrameExtractor`. If no embedded art exists, returns `nil` cleanly.
+     - `Engine/VideoFrameExtractor.swift`: Added `decodeFirstFrame` to read packet 0 without backward seeking.
+2. **Mini Player & Theater Teardown on Delete / Trash**:
+   - Deleting or trashing an active audio track did not notify `AudioPlayerEngine`, leaving the floating mini player active and playable after deletion.
+   - **Fix**:
+     - `App/AppState.swift`: In `bulkTrash()`, `emptyTrash()`, `deleteForever(_:)`, and `loadFiles()`, if `AudioPlayerEngine.shared.currentTrack?.id` or `theaterFile?.id` matches the deleted/trashed object, `AudioPlayerEngine.shared.stop()` is called and `theaterFile = nil` is cleared immediately.
+3. **Theater Audio Player Transport & Play Button Clickability**:
+   - `TheaterAudioPlayerView` had an overlapping `HStack` (`canGoPrevious` / `canGoNext` chevrons) with `.frame(maxWidth: .infinity, maxHeight: .infinity)` layered inside a `ZStack` on top of the center buttons, intercepting clicks and preventing the play/pause button from responding to mouse clicks (while spacebar worked globally).
+   - **Fix**:
+     - Removed the side chevrons and the overlapping `HStack`.
+     - Streamlined the transport row to the 3 iconic player buttons (Previous, Play/Pause with loading state, Next), ensuring 100% direct hit-testing on click.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 

@@ -98,13 +98,11 @@ enum VideoFrameExtractor {
         guard path.withCString({ avformat_open_input(&fmt, $0, nil, &options) }) >= 0,
               let fmtCtx = fmt else {
             logger.warning("thumbnail: cannot open \(url.lastPathComponent, privacy: .public)")
-            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+            return nil
         }
         defer { avformat_close_input(&fmt) }
 
-        guard avformat_find_stream_info(fmtCtx, nil) >= 0 else {
-            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
-        }
+        guard avformat_find_stream_info(fmtCtx, nil) >= 0 else { return nil }
 
         // 2. Check for attached pictures across all streams (embedded album art in MP3, FLAC, M4A, OGG, etc.)
         if let streams = fmtCtx.pointee.streams {
@@ -126,32 +124,30 @@ enum VideoFrameExtractor {
         let videoIdx = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0)
         guard videoIdx >= 0, let codec, let streams = fmtCtx.pointee.streams,
               let stream = streams[Int(videoIdx)], let codecpar = stream.pointee.codecpar else {
-            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+            return nil
         }
 
         var dec: UnsafeMutablePointer<AVCodecContext>? = avcodec_alloc_context3(codec)
-        guard let decCtx = dec else {
-            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
-        }
+        guard let decCtx = dec else { return nil }
         defer { avcodec_free_context(&dec) }
         guard avcodec_parameters_to_context(decCtx, codecpar) >= 0,
               avcodec_open2(decCtx, codec, nil) >= 0 else {
-            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+            return nil
         }
         // Best-effort timestamps become meaningful with the real timebase set.
         decCtx.pointee.pkt_timebase = stream.pointee.time_base
 
         let duration = mediaDuration(fmt: fmtCtx, stream: stream)
         if duration <= 0.05 || isAudio {
-            // Single-frame cover art or very short stream: decode frame 0 without seeking
-            if let decoded = decodeFrame(at: 0, fmt: fmtCtx, dec: decCtx, streamIndex: Int32(videoIdx), stream: stream) {
+            // Single-frame cover art or audio stream: decode frame 0 without seeking
+            if let decoded = decodeFirstFrame(fmt: fmtCtx, dec: decCtx, streamIndex: Int32(videoIdx)) {
                 var frame: UnsafeMutablePointer<AVFrame>? = decoded
                 defer { av_frame_free(&frame) }
                 if let rgba = convertToRGBA(frame: decoded) {
                     return image(fromRGBA: rgba, rotationDegrees: displayRotation(frame: decoded))
                 }
             }
-            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+            return nil
         }
 
         // Sample each candidate; keep the frame with the most visual content.
@@ -256,6 +252,40 @@ enum VideoFrameExtractor {
             }
         }
         return lastDecoded
+    }
+
+    /// Decodes the very first video/picture packet without seeking (for audio embedded art).
+    private static func decodeFirstFrame(
+        fmt: UnsafeMutablePointer<AVFormatContext>,
+        dec: UnsafeMutablePointer<AVCodecContext>,
+        streamIndex: Int32
+    ) -> UnsafeMutablePointer<AVFrame>? {
+        avcodec_flush_buffers(dec)
+        var pkt: UnsafeMutablePointer<AVPacket>? = av_packet_alloc()
+        var scratch: UnsafeMutablePointer<AVFrame>? = av_frame_alloc()
+        guard let pktPtr = pkt, let scratchPtr = scratch else {
+            av_packet_free(&pkt)
+            av_frame_free(&scratch)
+            return nil
+        }
+        defer {
+            av_packet_free(&pkt)
+            av_frame_free(&scratch)
+        }
+
+        var packets = 0
+        while packets < 50, av_read_frame(fmt, pktPtr) >= 0 {
+            packets += 1
+            defer { av_packet_unref(pktPtr) }
+            guard pktPtr.pointee.stream_index == streamIndex else { continue }
+
+            if avcodec_send_packet(dec, pktPtr) == 0 {
+                while avcodec_receive_frame(dec, scratchPtr) == 0 {
+                    return av_frame_clone(scratchPtr)
+                }
+            }
+        }
+        return nil
     }
 
     /// Luma variance over a coarse sample of the decoded frame's Y plane

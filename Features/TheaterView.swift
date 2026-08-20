@@ -1290,18 +1290,7 @@ struct TheaterAudioPlayerView: View {
     private var isCurrent: Bool { audioEngine.currentTrack?.id == file.id }
     private var isPlaying: Bool { isCurrent && audioEngine.isPlaying }
 
-    /// Previous/next in the playing playlist (row navigation of media files).
-    private var canGoPrevious: Bool {
-        guard let track = audioEngine.currentTrack, !audioEngine.playlist.isEmpty else { return false }
-        guard let idx = audioEngine.playlist.firstIndex(where: { $0.id == track.id }) else { return false }
-        return idx > 0
-    }
 
-    private var canGoNext: Bool {
-        guard let track = audioEngine.currentTrack, !audioEngine.playlist.isEmpty else { return false }
-        guard let idx = audioEngine.playlist.firstIndex(where: { $0.id == track.id }) else { return false }
-        return idx + 1 < audioEngine.playlist.count
-    }
 
     private var indexText: String? {
         let idx = mediaFiles.firstIndex(where: { $0.id == file.id })
@@ -1409,99 +1398,59 @@ struct TheaterAudioPlayerView: View {
                 scrubberRow
                     .padding(.top, 26)
 
-                // Transport — same as the video player: center play cluster with
-                // previous/next pinned to the left and right edges, shown only
-                // when a file exists on that side of the row navigation. The
-                // whole band is pinned to the cluster's height (68) and the edge
-                // chevrons fill it, so all three buttons always share the exact
-                // same vertical center — never offset toward the lower side.
-                ZStack {
-                    HStack(spacing: 36) {
-                        Button { audioEngine.skipPrevious() } label: {
-                            Image(systemName: "backward.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white.opacity(0.85))
-                                .frame(width: 48, height: 48)
-                                .contentShape(Circle())
-                                .glassEffect(.regular.interactive(), in: .circle)
-                                .playerHoverTint()
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            if isCurrent {
-                                audioEngine.togglePlayPause()
-                            } else {
-                                audioEngine.play(file: file, in: mediaFiles)
-                            }
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.black.opacity(0.001)) // glass renders over the backdrop
-                                if audioEngine.isLoading && isCurrent {
-                                    ProgressView()
-                                        .controlSize(.regular)
-                                        .tint(.white)
-                                } else {
-                                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                        .font(.system(size: 26, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .offset(x: isPlaying ? 0 : 2)
-                                }
-                            }
-                            .frame(width: 68, height: 68)
+                // Transport — 3 iconic player buttons (previous, play/pause, next)
+                HStack(spacing: 36) {
+                    Button { audioEngine.skipPrevious() } label: {
+                        Image(systemName: "backward.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .frame(width: 48, height: 48)
                             .contentShape(Circle())
                             .glassEffect(.regular.interactive(), in: .circle)
                             .playerHoverTint()
-                        }
-                        .buttonStyle(.plain)
-
-                        Button { audioEngine.skipNext() } label: {
-                            Image(systemName: "forward.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white.opacity(0.85))
-                                .frame(width: 48, height: 48)
-                                .contentShape(Circle())
-                                .glassEffect(.regular.interactive(), in: .circle)
-                                .playerHoverTint()
-                        }
-                        .buttonStyle(.plain)
                     }
+                    .buttonStyle(.plain)
 
-                    HStack {
-                        if canGoPrevious {
-                            Button { audioEngine.skipPrevious() } label: {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(.white.opacity(0.92))
-                                    .frame(width: 46, height: 46)
-                                    .contentShape(Circle())
-                                    .glassEffect(.regular.interactive(), in: .circle)
-                                    .playerHoverTint()
-                            }
-                            .buttonStyle(.plain)
-                            .help("Previous track")
+                    Button {
+                        if isCurrent {
+                            audioEngine.togglePlayPause()
+                        } else {
+                            audioEngine.play(file: file, in: mediaFiles)
                         }
-                        Spacer()
-                        if canGoNext {
-                            Button { audioEngine.skipNext() } label: {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(.white.opacity(0.92))
-                                    .frame(width: 46, height: 46)
-                                    .contentShape(Circle())
-                                    .glassEffect(.regular.interactive(), in: .circle)
-                                    .playerHoverTint()
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color.white.opacity(0.001)) // glass renders over the backdrop
+                            if audioEngine.isLoading && isCurrent {
+                                ProgressView()
+                                    .controlSize(.regular)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 26, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .offset(x: isPlaying ? 0 : 2)
                             }
-                            .buttonStyle(.plain)
-                            .help("Next track")
                         }
+                        .frame(width: 68, height: 68)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .playerHoverTint()
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity) // chevrons fill the 68pt band → same center as the cluster
+                    .buttonStyle(.plain)
+
+                    Button { audioEngine.skipNext() } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .frame(width: 48, height: 48)
+                            .contentShape(Circle())
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .playerHoverTint()
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(height: 68) // pin the band: the cluster defines the row's height
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 40)
+                .frame(height: 68)
                 .padding(.top, 30)
 
                 // Volume pill — the app's volume IS the system output volume

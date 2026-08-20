@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (afternoon): Pure-Swift Audio Artwork Parser, Default Artwork Generator & Smooth Streaming Loading States completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (afternoon): Real Audio Artwork Extraction, Mini Player Teardown on Delete/Trash & 3-Button Audio Player completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2537,7 +2537,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Default high-res audio artwork**: Added `AudioArtworkParser.defaultAudioArtwork` generating 640x640 vinyl disc art for audio files without embedded art.
     - **Smooth zero-flash media loading**: Fixed `TheaterView` to present `contentView` immediately for video and audio (eliminating the flashing `downloadingView` "Preparing... 0%" card); added glass container with `"Connecting to stream…"` in `VideoPlaybackView` and spinner overlay in `TheaterAudioPlayerView`.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
-      Commit: `4c6eb58`.
+112. **Real audio artwork extraction, mini player teardown on delete/trash & 3-button audio player (2026-08-20 — COMMITTED)**
+    (`Engine/AudioArtworkParser.swift`, `Engine/UploadEngine.swift`, `Engine/VideoFrameExtractor.swift`, `App/AppState.swift`, `Features/TheaterView.swift`)
+    - **Real embedded artwork only**: Removed synthetic placeholders; implemented random-access MP4 atom traversal and ImageIO validation in `AudioArtworkParser`. Layered extraction in `UploadEngine.subjectThumbnail` (`AudioArtworkParser` $\rightarrow$ `QLThumbnailGenerator` $\rightarrow$ `VideoFrameExtractor`).
+    - **Teardown on delete/trash**: `bulkTrash()`, `emptyTrash()`, `deleteForever(_:)`, and `loadFiles()` automatically stop `AudioPlayerEngine` and dismiss `theaterFile` if the deleted track was active or floating in the mini-player.
+    - **3 Iconic Buttons & Direct Hit-Testing**: Removed side chevron arrows and the overlapping `HStack` container from `TheaterAudioPlayerView`, simplifying to 3 iconic transport buttons and fixing play/pause mouse clickability.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

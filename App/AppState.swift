@@ -228,6 +228,24 @@ final class AppState {
                 if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
                 return lhs.createdAt > rhs.createdAt
             }
+            if let currentTrackID = AudioPlayerEngine.shared.currentTrack?.id {
+                if let track = self.files.first(where: { $0.id == currentTrackID }) {
+                    if track.trashed {
+                        AudioPlayerEngine.shared.stop()
+                    }
+                } else {
+                    AudioPlayerEngine.shared.stop()
+                }
+            }
+            if let theaterID = theaterFile?.id {
+                if let file = self.files.first(where: { $0.id == theaterID }) {
+                    if file.trashed {
+                        theaterFile = nil
+                    }
+                } else {
+                    theaterFile = nil
+                }
+            }
         } catch {
             print("Failed to load files: \(error)")
         }
@@ -1487,6 +1505,14 @@ final class AppState {
     @MainActor
     func bulkTrash() {
         let ids = selectedFiles
+        for id in ids {
+            if AudioPlayerEngine.shared.currentTrack?.id == id {
+                AudioPlayerEngine.shared.stop()
+            }
+            if theaterFile?.id == id {
+                theaterFile = nil
+            }
+        }
         Task {
             for id in ids {
                 try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
@@ -2243,6 +2269,14 @@ final class AppState {
     @MainActor
     func emptyTrash() {
         let trashed = files.filter { $0.trashed }
+        for file in trashed {
+            if AudioPlayerEngine.shared.currentTrack?.id == file.id {
+                AudioPlayerEngine.shared.stop()
+            }
+            if theaterFile?.id == file.id {
+                theaterFile = nil
+            }
+        }
         Task {
             for file in trashed {
                 deleteForever(file)
@@ -2253,6 +2287,12 @@ final class AppState {
 
     @MainActor
     func deleteForever(_ file: ObjectRecord) {
+        if AudioPlayerEngine.shared.currentTrack?.id == file.id {
+            AudioPlayerEngine.shared.stop()
+        }
+        if theaterFile?.id == file.id {
+            theaterFile = nil
+        }
         Task {
             let all = (try? await DatabaseManager.shared.allObjects()) ?? []
             var ids = [file.id]
