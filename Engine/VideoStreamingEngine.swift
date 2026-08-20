@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import UniformTypeIdentifiers
 import os
 
@@ -10,9 +11,8 @@ import os
 /// Layout model (why the arithmetic works):
 /// - A file is split into chunk documents whose sizes are multiples of the 1 MB slice
 ///   size (except the final chunk), so no slice ever straddles two chunks.
-/// - All files are plaintext: chunk bytes == file bytes; ranges map 1:1.
-///   (Encryption was removed from the data path; the 1 MB slice alignment remains
-///   so mpv's byte-range requests map cleanly onto chunk boundaries.)
+/// - When encrypted, each 1 MB slice maps to a sealed slice of (1 MB + 28 bytes).
+///   The engine fetches the exact sealed slice and decrypts it in-memory with O(1) latency.
 final class VideoStreamingEngine {
     static let shared = VideoStreamingEngine()
 
@@ -84,36 +84,51 @@ final class VideoStreamingEngine {
         let chunk = layout.chunks[chunkIndex]
         let fileID = try await fileID(for: objectID, chunkIndex: chunkIndex, layout: layout)
 
-        let slicePlainOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize)
-        let remainingInChunk = chunk.plainSize - slicePlainOffset
-        // One TDLib call covers up to `slicesPerFetch` contiguous slices WITHIN this
-        // chunk (slices never straddle chunks — the layout guarantees it).
-        let batchBytes = min(
-            Int64(Self.slicesPerFetch) * Int64(CryptoEngine.sliceSize),
-            remainingInChunk
-        )
+        if let objectKey = layout.objectKey {
+            // Encrypted streaming: fetch exact sealed slice (1 MB + 28 bytes) and decrypt
+            let sliceCipherOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sealedSliceSize)
+            let plainRemainingInChunk = max(0, chunk.plainSize - Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize))
+            let plainSliceLen = min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk)
+            let sealedSliceLen = plainSliceLen + 28
 
-        let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
-        let raw = try await fetchWithRetry(
-            fetcher, fileID: fileID, offset: slicePlainOffset, limit: batchBytes, objectID: objectID
-        )
-
-        // Split the batch into slice-sized pieces and cache every slice we got — the
-        // stream loop's next calls hit the cache instead of issuing more round trips.
-        var pieceStart = 0
-        while pieceStart < raw.count {
-            let pieceEnd = min(pieceStart + Int(CryptoEngine.sliceSize), raw.count)
-            let piece = raw.subdata(in: pieceStart..<pieceEnd)
-            sliceCache.put(
-                SliceCache.Key(
-                    objectID: objectID,
-                    sliceIndex: fileSliceIndex + pieceStart / Int(CryptoEngine.sliceSize)
-                ),
-                piece
+            let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
+            let sealedData = try await fetchWithRetry(
+                fetcher, fileID: fileID, offset: sliceCipherOffset, limit: sealedSliceLen, objectID: objectID
             )
-            pieceStart = pieceEnd
+            let decryptedSlice = try CryptoEngine.decryptSlice(
+                sealedData, objectKey: objectKey, index: fileSliceIndex
+            )
+            sliceCache.put(cacheKey, decryptedSlice)
+            return decryptedSlice
+        } else {
+            // Plaintext streaming (legacy unencrypted)
+            let slicePlainOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize)
+            let remainingInChunk = chunk.plainSize - slicePlainOffset
+            let batchBytes = min(
+                Int64(Self.slicesPerFetch) * Int64(CryptoEngine.sliceSize),
+                remainingInChunk
+            )
+
+            let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
+            let raw = try await fetchWithRetry(
+                fetcher, fileID: fileID, offset: slicePlainOffset, limit: batchBytes, objectID: objectID
+            )
+
+            var pieceStart = 0
+            while pieceStart < raw.count {
+                let pieceEnd = min(pieceStart + Int(CryptoEngine.sliceSize), raw.count)
+                let piece = raw.subdata(in: pieceStart..<pieceEnd)
+                sliceCache.put(
+                    SliceCache.Key(
+                        objectID: objectID,
+                        sliceIndex: fileSliceIndex + pieceStart / Int(CryptoEngine.sliceSize)
+                    ),
+                    piece
+                )
+                pieceStart = pieceEnd
+            }
+            return sliceCache.get(cacheKey) ?? raw
         }
-        return sliceCache.get(cacheKey) ?? raw
     }
 
     /// Incrementally yields the plaintext bytes covering `start..<start+length` as
@@ -266,10 +281,21 @@ final class VideoStreamingEngine {
         let chunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
         guard !chunks.isEmpty else { return nil }
 
+        let objectKey: SymmetricKey?
+        if let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty {
+            if let vaultKey = try? VaultManager.vaultKey(for: vault) {
+                objectKey = try? CryptoEngine.unwrap(wrappedKey, with: vaultKey)
+            } else {
+                objectKey = nil
+            }
+        } else {
+            objectKey = nil
+        }
+
         var chunkLayouts: [ChunkLayout] = []
         var starts: [Int64] = []
         var offset: Int64 = 0
-        for chunk in chunks {
+        for (idx, chunk) in chunks.enumerated() {
             guard let messageID = chunk.messageID else { return nil }
             // Use Telegram's ACTUAL document size, not the catalog's recorded size.
             // A stale chunk-size record (chunk-plan change / interrupted upload) maps
@@ -280,10 +306,21 @@ final class VideoStreamingEngine {
             let actual = try? await TelegramClient.shared.fileSize(
                 forMessage: messageID, chatId: vault.channelID
             )
-            let size = actual ?? chunk.size
-            chunkLayouts.append(ChunkLayout(messageID: messageID, plainSize: size))
+            let cipherSize = actual ?? chunk.size
+            let plainSize: Int64
+            if objectKey != nil {
+                if idx == chunks.count - 1 {
+                    plainSize = max(0, object.size - offset)
+                } else {
+                    let slices = Int64(cipherSize / Int64(CryptoEngine.sealedSliceSize))
+                    plainSize = slices * Int64(CryptoEngine.sliceSize)
+                }
+            } else {
+                plainSize = cipherSize
+            }
+            chunkLayouts.append(ChunkLayout(messageID: messageID, plainSize: plainSize))
             starts.append(offset)
-            offset += size
+            offset += plainSize
         }
 
         // Invariant: no slice may straddle two chunks. Every non-final chunk must be an
@@ -297,15 +334,16 @@ final class VideoStreamingEngine {
             // The layout must span the ACTUAL chunk bytes (sum of real sizes) — the
             // object's recorded size is usually the same, but a stale chunk record can
             // make it diverge, and the layout must agree with what TDLib can serve.
-            fileSize: offset,
+            fileSize: object.size > 0 ? object.size : offset,
             channelID: vault.channelID,
             chunks: chunkLayouts,
             chunkStarts: starts,
             contentType: contentType,
-            canStream: canStream
+            canStream: canStream,
+            objectKey: objectKey
         )
         Self.logger.info(
-            "Stream layout \(objectID, privacy: .public): chunks=\(chunks.count, privacy: .public) size=\(object.size, privacy: .public) canStream=\(canStream, privacy: .public)"
+            "Stream layout \(objectID, privacy: .public): chunks=\(chunks.count, privacy: .public) size=\(object.size, privacy: .public) encrypted=\(objectKey != nil, privacy: .public) canStream=\(canStream, privacy: .public)"
         )
 
         stateLock.lock()
@@ -387,6 +425,7 @@ struct ObjectLayout {
     let chunkStarts: [Int64]
     let contentType: String
     let canStream: Bool
+    var objectKey: SymmetricKey? = nil
 
     /// Maps a file-wide plaintext slice index to its chunk and the slice's index
     /// *within that chunk* (indices restart at 0 per chunk).

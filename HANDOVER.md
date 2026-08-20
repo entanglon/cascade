@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Phase 2 (Encrypted Chunk Uploads & Caption Sanitization) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Phase 3 (Media Streaming Decryption & Download Caching) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2448,11 +2448,16 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Full test suite green: **TEST SUCCEEDED** (68: 60 unit + 4 UI + 4 launch, 0 failures).
       Commit: `c7d8e2d`.
 
+100. **Phase 3: Media streaming decryption & download caching (2026-08-20 — COMMITTED)**
+    (`Engine/VideoStreamingEngine.swift`, `Engine/DownloadEngine.swift`, `xCloudTests/xCloudTests.swift`)
+    - `VideoStreamingEngine`: Unwraps $K_{\text{file}}$, calculates sealed slice offsets (`localSlice * (1MB + 28B)`), fetches exact slices from Telegram, and decrypts in-memory via `CryptoEngine.decryptSlice` with $O(1)$ seek latency for `mpv` loopback HTTP range streaming.
+    - `DownloadEngine`: Unwraps $K_{\text{file}}$, verifies ciphertext integrity against `cipherHash`, decrypts chunks via `CryptoEngine.decryptChunk`, verifies plaintext hash, and writes decrypted files to cache.
+    - Full test suite green: **TEST SUCCEEDED** (69: 61 unit + 4 UI + 4 launch, 0 failures).
+
 ## 5. Pending / next steps
-- **NEXT: Phase 3 — Media Streaming Decryption & Download Caching** (see `implementation_plan.md`):
-  - In-memory slice decryption in `VaultStreamServer` / `VideoStreamingEngine` for `mpv` HTTP range requests.
-  - Full-file background download decryption in `DownloadEngine`.
-- **Phase 4: Zero-Download Sharing & Password-Protected Links** (`ShareEngine`, `ShareManagerView`).
+- **NEXT: Phase 4 — Zero-Download Sharing & Password-Protected Links** (see `implementation_plan.md`):
+  - Forward-based cloud-to-cloud sharing with $K_{\text{file}}$ in URL `#` fragment.
+  - Password protection sheet in `ShareManagerView` and PBKDF2 link key derivation in `ShareEngine`.
 - **Phase 5: Snapshot Compression & Vault Migration** (`CatalogSnapshot`, `DatabaseManager`).
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
   (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the

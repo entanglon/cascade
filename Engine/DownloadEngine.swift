@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import AppKit
 import os
 import UniformTypeIdentifiers
@@ -99,6 +100,14 @@ enum DownloadEngine {
                 let chunks = try DatabaseManager.shared.chunks(for: object.id)
                 guard !chunks.isEmpty else { throw DownloadError.noChunks }
 
+                let objectKey: SymmetricKey?
+                if let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty {
+                    let vaultKey = try VaultManager.vaultKey(for: vault)
+                    objectKey = try CryptoEngine.unwrap(wrappedKey, with: vaultKey)
+                } else {
+                    objectKey = nil
+                }
+
                 // Pre-fetch messages so TDLib has them in its local cache
                 await TelegramClient.shared.fetchRecentMessages(chatId: vault.channelID, limit: 200)
 
@@ -137,18 +146,34 @@ enum DownloadEngine {
                     )
 
                     report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)
-                    let data = try Data(contentsOf: tmp)
+                    let downloadedData = try Data(contentsOf: tmp)
 
-                    // PLAINTEXT (all files): verify the recorded hash when present.
-                    if let expected = chunk.plainHash,
-                       FileHasher.sha256(of: data) != expected {
-                        if !(object.mime.hasPrefix("image/") && NSImage(data: data) != nil) {
+                    // Verify ciphertext hash if recorded
+                    if let expectedCipher = chunk.cipherHash,
+                       FileHasher.sha256(of: downloadedData) != expectedCipher {
+                        throw DownloadError.hashMismatch
+                    }
+
+                    let plainData: Data
+                    if let objectKey {
+                        let startSliceIndex = Int(writtenBytes / Int64(CryptoEngine.sliceSize))
+                        plainData = try CryptoEngine.decryptChunk(
+                            downloadedData, objectKey: objectKey, startSliceIndex: startSliceIndex
+                        )
+                    } else {
+                        plainData = downloadedData
+                    }
+
+                    // Verify plaintext hash if recorded
+                    if let expectedPlain = chunk.plainHash,
+                       FileHasher.sha256(of: plainData) != expectedPlain {
+                        if !(object.mime.hasPrefix("image/") && NSImage(data: plainData) != nil) {
                             throw DownloadError.hashMismatch
                         }
                     }
 
-                    handle.write(data)
-                    writtenBytes += Int64(data.count)
+                    handle.write(plainData)
+                    writtenBytes += Int64(plainData.count)
 
                     try? fm.removeItem(at: tmp)
                     report("Assembled chunk \(n)/\(chunks.count)", Double(n) / total)

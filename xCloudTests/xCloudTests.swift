@@ -320,6 +320,54 @@ struct xCloudTests {
         #expect(r.chunk == 2 && r.local == 35)
     }
 
+    @Test func encryptedStreamingLayoutAndSliceDecryption() throws {
+        let mb: Int64 = 1024 * 1024
+        let objectKey = SymmetricKey(size: .bits256)
+        
+        // 5.5 MB payload across 3 chunks: [2 MB, 2 MB, 1.5 MB]
+        let totalSize = Int(5.5 * Double(mb))
+        var filePlaintext = Data(count: totalSize)
+        _ = filePlaintext.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, totalSize, $0.baseAddress!)
+        }
+        
+        let chunk0Plain = filePlaintext.subdata(in: 0 ..< Int(2 * mb))
+        let chunk1Plain = filePlaintext.subdata(in: Int(2 * mb) ..< Int(4 * mb))
+        let chunk2Plain = filePlaintext.subdata(in: Int(4 * mb) ..< totalSize)
+        
+        // Encrypt each chunk independently with sequential slice indices
+        let chunk0Encrypted = try CryptoEngine.encryptChunk(chunk0Plain, objectKey: objectKey, startSliceIndex: 0)
+        let chunk1Encrypted = try CryptoEngine.encryptChunk(chunk1Plain, objectKey: objectKey, startSliceIndex: 2)
+        let chunk2Encrypted = try CryptoEngine.encryptChunk(chunk2Plain, objectKey: objectKey, startSliceIndex: 4)
+        
+        let layout = ObjectLayout(
+            fileSize: Int64(totalSize),
+            channelID: 100,
+            chunks: [
+                ChunkLayout(messageID: 101, plainSize: 2 * mb),
+                ChunkLayout(messageID: 102, plainSize: 2 * mb),
+                ChunkLayout(messageID: 103, plainSize: Int64(chunk2Plain.count))
+            ],
+            chunkStarts: [0, 2 * mb, 4 * mb],
+            contentType: "video/mp4",
+            canStream: true,
+            objectKey: objectKey
+        )
+        
+        // Verify seek to slice #3 (offset 3MB..4MB, inside chunk 1, local slice 1):
+        let targetSliceIndex = 3
+        let mapping = layout.chunkAndLocalIndex(for: targetSliceIndex)
+        #expect(mapping.chunk == 1)
+        #expect(mapping.local == 1)
+        
+        let sliceCipherOffset = mapping.local * CryptoEngine.sealedSliceSize
+        let sealedSliceData = chunk1Encrypted.subdata(in: sliceCipherOffset ..< sliceCipherOffset + CryptoEngine.sealedSliceSize)
+        
+        let decryptedSlice = try CryptoEngine.decryptSlice(sealedSliceData, objectKey: objectKey, index: targetSliceIndex)
+        let expectedSlicePlain = filePlaintext.subdata(in: Int(3 * mb) ..< Int(4 * mb))
+        #expect(decryptedSlice == expectedSlicePlain)
+    }
+
     @Test func pinRecoveryKeyRoundTripsVaultKey() throws {
         // The cross-device recovery path: the vault key sealed with the PIN-derived
         // key must unwrap back to the identical key, and a wrong PIN must fail.

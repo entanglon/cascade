@@ -2,7 +2,28 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Phase 2: Encrypted chunk uploads & Telegram caption metadata sanitization.
+> 2026-08-20 (morning) — Phase 3: In-memory media streaming slice decryption & download engine caching.
+
+---
+
+## 2026-08-20 (morning) — Phase 3: In-memory media streaming slice decryption & download engine caching
+
+Implemented on-the-fly random-access in-memory slice decryption for `mpv` byte-range playback via `VaultStreamServer` and full-file background download decryption in `DownloadEngine`.
+
+### Changes
+
+- `Engine/VideoStreamingEngine.swift`:
+  - `loadLayoutUncached`: Unwraps $K_{\text{file}}$ from `object.wrappedKey` using vault master key. Derives exact plaintext byte-range layout mapping chunk documents to 1 MB sealed slices.
+  - `plaintextSlice`: Fetches exact (1 MB + 28 bytes) sealed slice from Telegram with $O(1)$ seek latency and decrypts on-the-fly via `CryptoEngine.decryptSlice` directly into loopback HTTP stream for `mpv`.
+  - Maintains `SliceCache` LRU for instant 0ms repeated slice lookups without touching disk.
+- `Engine/DownloadEngine.swift`:
+  - Unwraps $K_{\text{file}}$, verifies downloaded chunk ciphertext against `chunk.cipherHash` before decryption.
+  - Decrypts multi-slice chunks via `CryptoEngine.decryptChunk`, verifies decrypted plaintext against `chunk.plainHash`, and assembles verified plaintext into local cache.
+- `xCloudTests/xCloudTests.swift`: Added `encryptedStreamingLayoutAndSliceDecryption` unit test verifying multi-chunk slice translation and random-access slice decryption.
+
+### Build / test
+
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (69: 61 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
 ---
 
