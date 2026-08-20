@@ -2537,6 +2537,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Default high-res audio artwork**: Added `AudioArtworkParser.defaultAudioArtwork` generating 640x640 vinyl disc art for audio files without embedded art.
     - **Smooth zero-flash media loading**: Fixed `TheaterView` to present `contentView` immediately for video and audio (eliminating the flashing `downloadingView` "Preparing... 0%" card); added glass container with `"Connecting to stream…"` in `VideoPlaybackView` and spinner overlay in `TheaterAudioPlayerView`.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `4c6eb58`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

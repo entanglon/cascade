@@ -29,6 +29,8 @@ Implemented pure-Swift embedded album artwork parsing (MP3 ID3v2 APIC, M4A/MP4 c
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `4c6eb58` — `Add pure-Swift audio artwork parser, default artwork generator and smooth streaming loading states`.
+
 ---
 
 ## 2026-08-20 (afternoon) — Fix audio thumbnail extraction, Telegram attachment & cache-cleared retrieval
