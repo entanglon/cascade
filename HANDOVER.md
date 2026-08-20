@@ -2485,6 +2485,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **API setup stall fix**: `LoginGateView.needsCredentials` was checking `(try? KeychainStore.loadTelegramCredentials()) == nil` instead of reading `@Observable` property `appState.hasTelegramCredentials`. Fixed so SwiftUI automatically observes the credential save and switches to `LoginStepsView` without requiring an app restart. Added `isConnecting` spinner on Connect button.
     - **High-DPI Country Flags**: Upgraded `CountryFlagView` to render official Unicode regional indicator emoji sequences (Apple Color Emoji) with crisp vector graphics on Retina displays. Updated phone number field to render the selected country flag inside the dial code button.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `db553bc`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

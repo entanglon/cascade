@@ -24,6 +24,8 @@ Investigated and resolved the API credential setup stall and upgraded the countr
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `db553bc` — `Fix Telegram setup view transition and upgrade country flags to high-DPI Apple Color Emoji`.
+
 ---
 
 ## 2026-08-20 (morning) — About Cascade window branding & official AppIcon update
