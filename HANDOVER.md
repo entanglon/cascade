@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Phase 5 (Catalog Snapshot Zlib Compression & Immutable Backup Preservation) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): About Cascade Window Branding & Official AppIcon Update completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2472,6 +2472,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Immutable Backup Guarantee**: `pruneOldSnapshots` only prunes checkpoints from active vault channel and NEVER from the backup channel. `BackupSync.deleteFromVaultAndBackup` permanently protects `checkpointObjectID`, `deltaObjectID`, and `keyRecordObjectID` from deletion in the backup channel.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `475343e`.
+
+103. **About Cascade window branding & official AppIcon update (2026-08-20 — COMMITTED)**
+    (`Features/AboutView.swift`)
+    - Replaced the hardcoded SF symbol placeholder with the official high-resolution `AppIcon` asset.
+    - Added dynamic version resolution from bundle info and updated copy to highlight zero-knowledge encryption and native MPV media engine.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

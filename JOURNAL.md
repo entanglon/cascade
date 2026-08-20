@@ -2,7 +2,24 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Phase 5: Catalog snapshot zlib compression & immutable backup preservation.
+> 2026-08-20 (morning) — About Cascade window branding & official AppIcon update.
+
+---
+
+## 2026-08-20 (morning) — About Cascade window branding & official AppIcon update
+
+Updated the "About Cascade" window to render the official high-resolution `AppIcon` asset, dynamic app version strings, and updated product copy.
+
+### Changes
+
+- `Features/AboutView.swift`:
+  - Replaced hardcoded SF Symbol placeholder with the official `AppIcon` asset (`Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)`), styled with subtle shadow and border stroke.
+  - Dynamically displays `CFBundleShortVersionString` and `CFBundleVersion`.
+  - Updated title and subtitle copy to reflect the zero-knowledge encrypted architecture.
+
+### Build / test
+
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 
