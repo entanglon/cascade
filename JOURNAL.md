@@ -2,11 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Encrypted thumbnail sidecars (no plaintext previews).
+> 2026-08-20 (evening) — Player click fixes from Claude/Qwen consultation.
 
 ---
 
-## 2026-08-20 (evening) — Encrypted thumbnail sidecars (no plaintext previews)
+## 2026-08-20 (evening) — Player click fixes from Claude/Qwen consultation
+
+User forwarded the two consultants' replies to the hit-test prompt (both self-consistent, converging on the same fixes). Verified each claim against the code before applying.
+
+### Findings (all confirmed in code)
+- **`playerHoverTint` was the theater/video killer** — both consultants, independently: `.allowsHitTesting(false)` (Features/VideoPlaybackView.swift:39) sat on the WHOLE composed label (`content.overlay{...}.allowsHitTesting(false)`), removing the button's label + its interactive glass from the hit-test tree. BookReader doesn't actually use the modifier (rg confirms only VideoPlaybackView + TheaterView call `.playerHoverTint`). Fix: scope `.allowsHitTesting(false)` to each tint shape INSIDE the overlay (the transparent shape is still hit-testable without it, so the volume-pill-swallowing concern stays covered).
+- **Background key-monitor NSView (Claude's #1 mini-player suspect)**: `FileBrowserKeyMonitorView` sits in `.background` of the main window's ZStack and fills it; its AppKit view's default `hitTest` returns `self` for any point in bounds — on macOS 26's NSHostingView-layering regression that can hand sibling SwiftUI clicks to it. Fix: `override func hitTest(_:) -> NSView? { nil }` — it exists only as an NSEvent-monitor host (event-based, not view-based), so opting out of mouse hits is safe.
+- Harness "Row A dead" is at least partially a CGEvent coordinate/timing artifact (both consultants); the glass-vs-no-glass effect is real. Glass config alone is NOT the mini-player cause (row D/F matched the real bar and still failed in-app).
+- Remaining ranked mini-player suspects if still dead: sibling `.contentShape(Rectangle())`+`.onTapGesture` layer (AppKit recognizer priority), nested glass (use `GlassEffectContainer`), ZStack+Spacer wrapper → `.overlay(alignment:)`.
+
+### Applied
+- `Features/VideoPlaybackView.swift` — overlay-scoped `allowsHitTesting(false)`.
+- `Features/FileBrowserView.swift` — `FileBrowserKeyView.hitTest → nil`.
+
+### Build / test
+- Build green (Debug). Full suite **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched for click verification of both UIs.
+
+Commit: `5f98797`. Awaiting user click test before any structural restructure (`.overlay(alignment:)`, `GlassEffectContainer`, gesture-layer removal).
+
+---
 
 User approved Option A for the design question from earlier: encrypted uploads stopped attaching plaintext thumbnails to chunk messages (those were visible image previews sitting in the Telegram channel). The preview is now its own tiny encrypted document.
 

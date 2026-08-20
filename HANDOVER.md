@@ -2803,3 +2803,10 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Latent fix**: `replaceCatalog` backup tables were created once (`IF NOT EXISTS`) so they kept pre-migration column counts and `INSERT ... SELECT *` broke ("20 columns but 21 values") — now DROP + recreate each call.
     - New uploads only: already-uploaded files keep visible previews until re-uploaded (user-approved).
     - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures). Commit: `4da98b9`. Pending user verification of an actual upload (channel should show only the opaque sidecar).
+
+118. **Player click fixes from Claude/Qwen consultation (2026-08-20 — COMMITTED, awaiting click verification)** (`Features/VideoPlaybackView.swift`, `Features/FileBrowserView.swift`)
+    - **Root cause 1 (theater/video transport dead)**: `playerHoverTint` applied `.allowsHitTesting(false)` to the whole composed button label — the label's interactive glass was removed from the hit-test tree, so the Button never received clicks. BookReader does NOT use the modifier (verified by rg). Fixed: `.allowsHitTesting(false)` scoped to each tint shape inside the `.overlay`.
+    - **Root cause 2 (mini player, Claude's top suspect)**: the background key-monitor NSView (`FileBrowserKeyView`) filled the window and its default AppKit `hitTest` returned `self`, a click-swallower under macOS 26's NSHostingView-layering regression. Fixed: `override func hitTest(_:) -> NSView? { nil }`.
+    - Harness "plain buttons dead" is partly a CGEvent coordinate/timing artifact — glass config alone isn't the mini cause (harness row D/F matched the real bar and still failed in-app).
+    - If mini player is still dead after verification, remaining ranked fixes (both consultants): drop the sibling `.contentShape(Rectangle())`+`.onTapGesture` layer / move it to `.simultaneousGesture`, replace the nested `.glassEffect(.regular, in: .capsule)` container with `GlassEffectContainer`, and restructure the ZStack+Spacer wrapper to `.overlay(alignment: .bottom)`.
+    - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures). Commit: `5f98797`.
