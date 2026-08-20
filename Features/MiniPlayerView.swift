@@ -89,6 +89,7 @@ struct MiniPlayerView: View {
                         .foregroundStyle(.white.opacity(0.85))
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
                 }
                 .buttonStyle(.plain)
 
@@ -111,6 +112,7 @@ struct MiniPlayerView: View {
                         .foregroundStyle(.white.opacity(0.85))
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
                 }
                 .buttonStyle(.plain)
             }
@@ -128,6 +130,7 @@ struct MiniPlayerView: View {
                     .foregroundStyle(.white.opacity(0.85))
                     .frame(width: 30, height: 30)
                     .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
             .help("Expand Player")
@@ -141,6 +144,7 @@ struct MiniPlayerView: View {
                     .foregroundStyle(.white.opacity(0.7))
                     .frame(width: 30, height: 30)
                     .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
             .help("Close Player")

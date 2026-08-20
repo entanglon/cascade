@@ -506,6 +506,30 @@ struct FileBrowserView: View {
                         || appState.selectedDestination == .transfers
                         || appState.selectedDestination == .shared
                 },
+                onMediaPlayPause: {
+                    // Media keys (F8 / NX play): own them whenever a track is
+                    // loaded — the mini player is the only audio surface here
+                    // (the theater's own monitor handles them while it's open).
+                    guard AudioPlayerEngine.shared.currentTrack != nil,
+                          appState.theaterFile == nil,
+                          !AudioPlayerEngine.shared.isFullScreen else { return false }
+                    AudioPlayerEngine.shared.togglePlayPause()
+                    return true
+                },
+                onMediaForward: {
+                    guard AudioPlayerEngine.shared.currentTrack != nil,
+                          appState.theaterFile == nil,
+                          !AudioPlayerEngine.shared.isFullScreen else { return false }
+                    AudioPlayerEngine.shared.skipNext()
+                    return true
+                },
+                onMediaBackward: {
+                    guard AudioPlayerEngine.shared.currentTrack != nil,
+                          appState.theaterFile == nil,
+                          !AudioPlayerEngine.shared.isFullScreen else { return false }
+                    AudioPlayerEngine.shared.skipPrevious()
+                    return true
+                },
                 onDelete: {
                     if appState.selectedDestination == .trash {
                         showEmptyTrashAlert = true
@@ -2939,6 +2963,9 @@ struct PrivateVaultLockView: View {
 
 private struct FileBrowserKeyMonitorView: NSViewRepresentable {
     var shouldDefer: () -> Bool
+    var onMediaPlayPause: () -> Bool
+    var onMediaForward: () -> Bool
+    var onMediaBackward: () -> Bool
     var onDelete: () -> Bool
     var onDeleteForever: () -> Bool
     var onEscape: () -> Bool
@@ -2965,6 +2992,9 @@ private struct FileBrowserKeyMonitorView: NSViewRepresentable {
 
     private func apply(_ view: FileBrowserKeyView) {
         view.shouldDefer = shouldDefer
+        view.onMediaPlayPause = onMediaPlayPause
+        view.onMediaForward = onMediaForward
+        view.onMediaBackward = onMediaBackward
         view.onDelete = onDelete
         view.onDeleteForever = onDeleteForever
         view.onEscape = onEscape
@@ -2983,6 +3013,9 @@ private struct FileBrowserKeyMonitorView: NSViewRepresentable {
 
 final class FileBrowserKeyView: NSView {
     var shouldDefer: (() -> Bool)?
+    var onMediaPlayPause: (() -> Bool)?
+    var onMediaForward: (() -> Bool)?
+    var onMediaBackward: (() -> Bool)?
     var onDelete: (() -> Bool)?
     var onDeleteForever: (() -> Bool)?
     var onEscape: (() -> Bool)?
@@ -2997,6 +3030,7 @@ final class FileBrowserKeyView: NSView {
     var onCmdO: (() -> Bool)?
     var onCmdZ: ((Bool) -> Bool)?
     private var monitor: Any?
+    private var mediaMonitor: Any?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -3054,6 +3088,15 @@ final class FileBrowserKeyView: NSView {
                 case 49: // space
                     if self.onSpace?() == true { return nil }
                     return event
+                case 98: // F7 (rewind) — function-key mode media control
+                    if self.onMediaBackward?() == true { return nil }
+                    return event
+                case 100: // F8 (play/pause)
+                    if self.onMediaPlayPause?() == true { return nil }
+                    return event
+                case 101: // F9 (forward)
+                    if self.onMediaForward?() == true { return nil }
+                    return event
                 case 36: // return
                     if self.onReturn?() == true { return nil }
                     return event
@@ -3082,15 +3125,48 @@ final class FileBrowserKeyView: NSView {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
         }
+
+        // Media keys are NSSystemDefined events (subtype 8, NX_SUBTYPE_AUX_CONTROL_BUTTONS),
+        // NOT keyDown events — a plain key monitor never sees them. Consume only
+        // play/next/previous; volume/mute (codes 0/1/7) MUST pass through so the OS
+        // still adjusts the system output volume (which is the app's volume).
+        // The theater installs its own newer monitor while open, so it wins there;
+        // this monitor covers the browser + mini player.
+        if window != nil && mediaMonitor == nil {
+            mediaMonitor = NSEvent.addLocalMonitorForEvents(matching: .systemDefined) { [weak self] event in
+                guard let self, self.window != nil, event.subtype.rawValue == 8 else { return event }
+                let keyCode = Int((event.data1 & 0xFFFF0000) >> 16)
+                let keyFlags = event.data1 & 0x0000FFFF
+                let keyState = (keyFlags & 0xFF00) >> 8 // 0xA = down, 0xB = up
+                guard keyState == 0xA else { return event }
+                switch keyCode {
+                case 16: // NX_KEYTYPE_PLAY
+                    if self.onMediaPlayPause?() == true { return nil }
+                case 17, 19: // NX_KEYTYPE_NEXT / NX_KEYTYPE_FAST
+                    if self.onMediaForward?() == true { return nil }
+                case 18, 20: // NX_KEYTYPE_PREVIOUS / NX_KEYTYPE_REWIND
+                    if self.onMediaBackward?() == true { return nil }
+                default:
+                    break // volume/mute and everything else: system handles it
+                }
+                return event
+            }
+        } else if window == nil && mediaMonitor != nil {
+            if let mediaMonitor { NSEvent.removeMonitor(mediaMonitor) }
+            mediaMonitor = nil
+        }
     }
 
     func teardown() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if let mediaMonitor { NSEvent.removeMonitor(mediaMonitor) }
+        mediaMonitor = nil
     }
 
     deinit {
         if let monitor { NSEvent.removeMonitor(monitor) }
+        if let mediaMonitor { NSEvent.removeMonitor(mediaMonitor) }
     }
 }
 
