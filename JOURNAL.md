@@ -18,6 +18,8 @@ Cropped `cascade.png`, `oc.png`, and `pc.png` so their circular artwork aligns e
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `f4c948e` — `Crop channel profile pictures to full bleed for perfect circular fit`.
+
 ---
 
 ## 2026-08-20 (morning) — Official PNG channel profile pictures integration

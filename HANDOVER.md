@@ -2500,6 +2500,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Cropped padding & white borders**: `cascade.png`, `oc.png`, and `pc.png` had circular artwork embedded within a padded white square canvas. Cropped all 3 assets tightly to their circular graphics and rescaled with high-quality Lanczos interpolation to $1254\times 1254$ full bleed (0.00% white boundary pixels).
     - **Full-bleed fit in Telegram**: When Telegram applies its circular crop mask, the artwork now fills the entire circle with zero clipped crescents or white margins.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `f4c948e`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
