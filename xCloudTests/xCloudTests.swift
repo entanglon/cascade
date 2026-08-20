@@ -2399,22 +2399,23 @@ struct xCloudTests {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-fts5-\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: tempURL) }
         let testDB = DatabaseManager()
-        try testDB.start(customURL: tempURL)
+        try await testDB.start(customURL: tempURL)
 
-        let obj1 = ObjectRecord(id: "fts-1", vaultID: "v1", name: "Quarterly Financial Report 2026.pdf", size: 1000, mime: "application/pdf", isFolder: false, createdAt: Date(), modifiedAt: Date())
-        let obj2 = ObjectRecord(id: "fts-2", vaultID: "v1", name: "Holiday Photos in Japan.zip", size: 5000, mime: "application/zip", isFolder: false, createdAt: Date(), modifiedAt: Date())
-        let obj3 = ObjectRecord(id: "fts-3", vaultID: "v1", name: "Report Summary Draft.docx", size: 2000, mime: "application/docx", isFolder: false, createdAt: Date(), modifiedAt: Date())
+        let now = Date()
+        let obj1 = ObjectRecord(id: "fts-1", vaultID: "v1", name: "Quarterly Financial Report 2026.pdf", size: 1000, mime: "application/pdf", state: "ready", rootHash: nil, wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 1000)
+        let obj2 = ObjectRecord(id: "fts-2", vaultID: "v1", name: "Holiday Photos in Japan.zip", size: 5000, mime: "application/zip", state: "ready", rootHash: nil, wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 5000)
+        let obj3 = ObjectRecord(id: "fts-3", vaultID: "v1", name: "Report Summary Draft.docx", size: 2000, mime: "application/docx", state: "ready", rootHash: nil, wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 2000)
 
-        try testDB.save(obj1)
-        try testDB.save(obj2)
-        try testDB.save(obj3)
+        try await testDB.save(obj1)
+        try await testDB.save(obj2)
+        try await testDB.save(obj3)
 
-        let results = try testDB.searchObjects(query: "Report")
+        let results = try await testDB.searchObjects(query: "Report")
         #expect(results.count == 2)
         #expect(results.contains { $0.id == "fts-1" })
         #expect(results.contains { $0.id == "fts-3" })
 
-        let prefixResults = try testDB.searchObjects(query: "Finan")
+        let prefixResults = try await testDB.searchObjects(query: "Finan")
         #expect(prefixResults.count == 1)
         #expect(prefixResults.first?.id == "fts-1")
     }
@@ -2423,21 +2424,22 @@ struct xCloudTests {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-ver-\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: tempURL) }
         let testDB = DatabaseManager()
-        try testDB.start(customURL: tempURL)
+        try await testDB.start(customURL: tempURL)
 
-        let obj = ObjectRecord(id: "ver-obj-1", vaultID: "v1", name: "document.txt", size: 50, mime: "text/plain", isFolder: false, createdAt: Date(), modifiedAt: Date(), rootHash: "hash-v1")
-        try testDB.save(obj)
+        let now = Date()
+        let obj = ObjectRecord(id: "ver-obj-1", vaultID: "v1", name: "document.txt", size: 50, mime: "text/plain", state: "ready", rootHash: "hash-v1", wrappedKey: nil, createdAt: now, modifiedAt: now, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 50)
+        try await testDB.save(obj)
 
-        try testDB.recordVersion(for: "ver-obj-1")
+        try await testDB.recordVersion(for: "ver-obj-1")
 
         var updated = obj
         updated.rootHash = "hash-v2"
         updated.size = 120
-        updated.modifiedAt = Date().addingTimeInterval(60)
-        try testDB.save(updated)
-        try testDB.recordVersion(for: "ver-obj-1")
+        updated.modifiedAt = now.addingTimeInterval(60)
+        try await testDB.save(updated)
+        try await testDB.recordVersion(for: "ver-obj-1")
 
-        let versions = try testDB.versions(for: "ver-obj-1")
+        let versions = try await testDB.versions(for: "ver-obj-1")
         #expect(versions.count == 2)
         #expect(versions[0].versionNumber == 2)
         #expect(versions[0].rootHash == "hash-v2")
@@ -2450,11 +2452,11 @@ struct xCloudTests {
         let localDate = Date()
         let remoteDate = localDate.addingTimeInterval(-30) // local is slightly newer
 
-        let localObj = ObjectRecord(id: localID, vaultID: "v1", name: "Notes.txt", size: 100, mime: "text/plain", isFolder: false, createdAt: localDate, modifiedAt: localDate, rootHash: "hash-local")
-        let remoteObj = ObjectRecord(id: localID, vaultID: "v1", name: "Notes.txt", size: 150, mime: "text/plain", isFolder: false, createdAt: remoteDate, modifiedAt: remoteDate, rootHash: "hash-remote")
+        let localObj = ObjectRecord(id: localID, vaultID: "v1", name: "Notes.txt", size: 100, mime: "text/plain", state: "ready", rootHash: "hash-local", wrappedKey: nil, createdAt: localDate, modifiedAt: localDate, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 100)
+        let remoteObj = ObjectRecord(id: localID, vaultID: "v1", name: "Notes.txt", size: 150, mime: "text/plain", state: "ready", rootHash: "hash-remote", wrappedKey: nil, createdAt: remoteDate, modifiedAt: remoteDate, isFavorite: false, trashed: false, parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil, chunkSize: 150)
 
-        let localChunk = ChunkRecord(id: "c-local", objectID: localID, index: 0, size: 100, hash: "h-l", messageID: 101)
-        let remoteChunk = ChunkRecord(id: "c-remote", objectID: localID, index: 0, size: 150, hash: "h-r", messageID: 202)
+        let localChunk = ChunkRecord(id: "c-local", objectID: localID, index: 0, size: 100, plainHash: "p-l", cipherHash: "c-l", state: "uploaded", messageID: 101, fileUniqueID: "fu-l", channelID: -100, createdAt: localDate)
+        let remoteChunk = ChunkRecord(id: "c-remote", objectID: localID, index: 0, size: 150, plainHash: "p-r", cipherHash: "c-r", state: "uploaded", messageID: 202, fileUniqueID: "fu-r", channelID: -100, createdAt: remoteDate)
 
         let local = CatalogSnapshot.Payload(version: 1, objects: [localObj], chunks: [localChunk])
         let remote = CatalogSnapshot.Payload(version: 1, objects: [remoteObj], chunks: [remoteChunk])
