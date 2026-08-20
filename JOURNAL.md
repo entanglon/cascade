@@ -2,7 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (afternoon) — Real audio artwork extraction, mini player teardown on delete/trash & 3-button audio player.
+> 2026-08-20 (evening) — Fix: audio thumbnails vanish after cache clear (encrypted-era upload stopped attaching previews).
+
+---
+
+## 2026-08-20 (evening) — Fix: audio thumbnails vanish after cache clear (encrypted-era upload stopped attaching previews)
+
+User reported: uploaded audio files show thumbnails, but after "Clear Cache" the thumbnails disappear and never come back (images still recover). Root-caused the encrypted-upload regression and restored audio thumbnail recovery end-to-end.
+
+### Root cause & Solution
+1. **Uploads stopped attaching thumbnail previews to Telegram (Bug 1)**:
+   - `Engine/UploadEngine.swift:335` had `thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath`. Since Phase 2 encrypted chunk uploads (commit `c7d8e2d`), every upload mints an `objectKey` (never nil), so the `<id>-up.jpg` preview was NEVER attached to chunk messages — for any file type.
+   - Images masked the bug: photos regenerate locally (cached → `generateAndSaveThumbnail`; uncached → step-6 thumbnail-only download). Audio had zero recovery paths: `fetchFromTelegram` found no attached preview and step 6 was photos-only.
+   - **Fix**: `Engine/UploadEngine.swift:335` — always pass `uploadThumbnailPath` (private files still pass nil since `uploadThumbnailPath` is nil for them; encrypted uploads work because `TelegramClient.thumbnailFileId` handles `.messageDocument` → `doc.document.thumbnail?.file.id`).
+2. **No last-resort recovery for audio (Bug 2)**:
+   - `Engine/ThumbnailService.swift` step 6 ("LAST RESORT — thumbnail-only download") was gated `object.isPhoto` only; audio files already uploaded during the encrypted era (no attached preview) could never heal.
+   - **Fix**: `thumbnailURL` step 6 now includes `isAudio(object)`; `ensureThumbnailByDownload` dispatches photos → `generateAndSaveThumbnail`, audio → `generateAndSaveAudioThumbnail` (both cached and freshly-downloaded branches). Videos stay excluded (can be gigabytes).
+3. **Audio without embedded art couldn't regenerate (Bug 3)**:
+   - `generateAndSaveAudioThumbnail` returned nil for art-less audio (e.g. voice memos), while the upload-time pipeline fell back to QuickLook's generic icon — recovered thumbs would differ from originals.
+   - **Fix**: `Engine/ThumbnailService.swift` — `generateAndSaveAudioThumbnail` falls back to `QLThumbnailGenerator` (640×640) for local files when FFmpeg/parser find no artwork (added `import QuickLookThumbnailing`).
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (67: 63 unit + 2 UI + 2 launch, 0 failures).
+
+Commit: `84194cb` — `Fix audio thumbnails after cache clear: restore upload thumbnail attachment + audio recovery paths`.
 
 ---
 

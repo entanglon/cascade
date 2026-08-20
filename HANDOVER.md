@@ -2542,8 +2542,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Real embedded artwork only**: Removed synthetic placeholders; implemented random-access MP4 atom traversal and ImageIO validation in `AudioArtworkParser`. Layered extraction in `UploadEngine.subjectThumbnail` (`AudioArtworkParser` $\rightarrow$ `QLThumbnailGenerator` $\rightarrow$ `VideoFrameExtractor`).
     - **Teardown on delete/trash**: `bulkTrash()`, `emptyTrash()`, `deleteForever(_:)`, and `loadFiles()` automatically stop `AudioPlayerEngine` and dismiss `theaterFile` if the deleted track was active or floating in the mini-player.
     - **3 Iconic Buttons & Direct Hit-Testing**: Removed side chevron arrows and the overlapping `HStack` container from `TheaterAudioPlayerView`, simplifying to 3 iconic transport buttons and fixing play/pause mouse clickability.
-    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
-      Commit: `4e3d8b0`.
+- Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+       Commit: `4e3d8b0`.
+
+113. **Audio thumbnails vanish after cache clear — FIXED (2026-08-20 — COMMITTED)**
+    (`Engine/UploadEngine.swift`, `Engine/ThumbnailService.swift`)
+    - **Bug 1 (root cause)**: `UploadEngine.swift:335` had `thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath`. Since Phase 2 encrypted chunk uploads (commit `c7d8e2d`), every upload mints an `objectKey` (never nil) so the `<id>-up.jpg` preview was NEVER attached to chunk messages — for any file type. Images masked the bug (photos regenerate locally or via the step-6 thumbnail-only download); audio had zero recovery paths (`fetchFromTelegram` found no attached preview + step 6 was photos-only).
+    - **Bug 2**: `ThumbnailService` step 6 ("LAST RESORT — thumbnail-only download") was gated `object.isPhoto` only; audio uploaded during the encrypted era could never heal after a cache clear.
+    - **Bug 3**: `generateAndSaveAudioThumbnail` returned nil for audio without embedded art (voice memos), unlike the upload-time pipeline's QuickLook generic-icon fallback.
+    - **Fixes**: `thumbnailPath: uploadThumbnailPath` unconditional (private files still pass nil); step 6 gate now `object.isPhoto || isAudio(object)` with `ensureThumbnailByDownload` dispatching photos → `generateAndSaveThumbnail`, audio → `generateAndSaveAudioThumbnail`; QuickLook 640×640 fallback added to `generateAndSaveAudioThumbnail` for local files without art (new `import QuickLookThumbnailing`). Videos remain excluded from step 6 (can be gigabytes).
+    - Full test suite green: **TEST SUCCEEDED** (67: 63 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `84194cb`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
