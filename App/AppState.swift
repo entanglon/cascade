@@ -44,6 +44,11 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+extension Notification.Name {
+    /// Posted when a user-facing toast/banner notification should be shown.
+    static let cascadeAppNotification = Notification.Name("cascadeAppNotification")
+}
+
 @Observable
 final class AppState {
     var selectedDestination: SidebarDestination = .allFiles
@@ -206,6 +211,53 @@ final class AppState {
         return "Starting storage engine…"
     }
 
+    // MARK: - Toast / Banner Notifications
+
+    enum NotificationKind: String, Sendable {
+        case info
+        case warning
+        case error
+        case success
+    }
+
+    struct AppNotification: Identifiable, Equatable, Sendable {
+        let id: UUID
+        let title: String
+        let message: String?
+        let kind: NotificationKind
+        let timestamp: Date
+
+        init(title: String, message: String? = nil, kind: NotificationKind = .info) {
+            self.id = UUID()
+            self.title = title
+            self.message = message
+            self.kind = kind
+            self.timestamp = Date()
+        }
+    }
+
+    var currentNotification: AppNotification? = nil
+    private var notificationDismissTask: Task<Void, Never>? = nil
+
+    @MainActor
+    func notify(title: String, message: String? = nil, kind: NotificationKind = .info, duration: TimeInterval = 4.0) {
+        notificationDismissTask?.cancel()
+        currentNotification = AppNotification(title: title, message: message, kind: kind)
+        notificationDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            if self.currentNotification?.title == title {
+                self.currentNotification = nil
+            }
+        }
+    }
+
+    @MainActor
+    func dismissNotification() {
+        notificationDismissTask?.cancel()
+        currentNotification = nil
+    }
+
     var breadcrumbs: [(id: String?, name: String)] {
         var chain: [ObjectRecord] = []
         var current = currentFolderID
@@ -223,7 +275,7 @@ final class AppState {
     @MainActor
     func loadFiles() async {
         do {
-            let objects = try await DatabaseManager.shared.allObjects()
+            let objects = try await DatabaseManager.shared.allObjects().filter { $0.tombstoneAt == nil }
             self.files = objects.sorted { lhs, rhs in
                 if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
                 return lhs.createdAt > rhs.createdAt
@@ -304,6 +356,9 @@ final class AppState {
             // The upload merges the channel's snapshot into the local catalog —
             // reload so records published by other devices show up immediately.
             await self.loadFiles()
+            notify(title: "Catalog Synced", message: "Cloud catalog snapshot successfully updated.", kind: .success)
+        } else {
+            notify(title: "Sync Failed", message: "Unable to update cloud snapshot. Check your connection.", kind: .error)
         }
     }
 
@@ -320,6 +375,15 @@ final class AppState {
         isInitialLoading = true
         defer { isInitialLoading = false }
         do {
+            NotificationCenter.default.addObserver(forName: .cascadeAppNotification, object: nil, queue: .main) { [weak self] note in
+                guard let self, let userInfo = note.userInfo,
+                      let title = userInfo["title"] as? String else { return }
+                let message = userInfo["message"] as? String
+                let kindStr = userInfo["kind"] as? String ?? "info"
+                let kind = NotificationKind(rawValue: kindStr) ?? .info
+                self.notify(title: title, message: message, kind: kind)
+            }
+
             try await DatabaseManager.shared.start()
             try await DatabaseManager.shared.selfTest()
             isDatabaseReady = true
@@ -2368,7 +2432,7 @@ final class AppState {
             }
 
             for id in ids {
-                try? await DatabaseManager.shared.deleteObjectWithChunks(id: id)
+                try? await DatabaseManager.shared.markTombstone(id: id)
                 if let url = UploadEngine.thumbnailURL(for: id) {
                     try? FileManager.default.removeItem(at: url)
                 }
@@ -2385,7 +2449,7 @@ final class AppState {
             // silently resurrects. Uses force: true because the user intentionally
             // deleted these files — even if the catalog is now empty, that's correct.
             let remainingFiles = ((try? await DatabaseManager.shared.allObjects()) ?? [])
-                .filter { !$0.isFolder }.count
+                .filter { !$0.isFolder && $0.tombstoneAt == nil }.count
             print("Cascade deleteForever: publishing checkpoint with \(remainingFiles) remaining file(s)")
             if let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal(force: true) {
                 self.lastSyncDate = syncedAt

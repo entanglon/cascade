@@ -12,14 +12,45 @@ actor DatabaseManager {
     private var pool: DatabasePool?
     private let logger = Logger(subsystem: "com.cascade.app", category: "database")
 
-    func start() throws {
+    func start(customURL: URL? = nil) throws {
+        if let customURL {
+            let newPool = try DatabasePool(path: customURL.path(percentEncoded: false))
+            var migrator = DatabaseMigrator()
+            Self.registerMigrations(&migrator)
+            try migrator.migrate(newPool)
+            pool = newPool
+            logger.info("Cascade database ready (custom/test URL: \(customURL.path, privacy: .public))")
+            return
+        }
         guard pool == nil else { return }
 
         let url = try Self.databaseFileURL()
         let newPool = try DatabasePool(path: url.path(percentEncoded: false))
         
-        // Inline migration to avoid actor isolation issues
         var migrator = DatabaseMigrator()
+        Self.registerMigrations(&migrator)
+        try migrator.migrate(newPool)
+        pool = newPool
+
+        logger.info("Cascade database ready")
+    }
+
+    func resetForTesting() throws {
+        guard Self.isRunningTests else { return }
+        pool = nil
+        let url = try Self.databaseFileURL()
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: url.appendingPathExtension("wal"))
+        try? FileManager.default.removeItem(at: url.appendingPathExtension("shm"))
+        try start()
+    }
+
+    func databasePath() throws -> String {
+        guard let pool else { throw StorageError.notStarted }
+        return pool.path
+    }
+
+    private static func registerMigrations(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("create-v1") { db in
             try db.create(table: "accounts") { t in
                 t.column("id", .text).primaryKey()
@@ -384,21 +415,30 @@ actor DatabaseManager {
                 t.add(column: "thumbMessageID", .integer)
             }
         }
-        
-        try migrator.migrate(newPool)
-        pool = newPool
 
-        logger.info("Cascade database ready")
+        migrator.registerMigration("v27-tombstone") { db in
+            try db.alter(table: "objects") { t in
+                t.add(column: "tombstoneAt", .datetime)
+            }
+            try db.create(index: "idx_objects_tombstone", on: "objects", columns: ["tombstoneAt"])
+        }
+    }
+
+    private func ensureStarted() throws -> DatabasePool {
+        if let pool { return pool }
+        try start()
+        guard let pool else { throw StorageError.notStarted }
+        return pool
     }
 
     func read<T>(_ query: (Database) throws -> T) throws -> T {
-        guard let pool else { throw StorageError.notStarted }
-        return try pool.read(query)
+        let p = try ensureStarted()
+        return try p.read(query)
     }
 
     func write<T>(_ query: (Database) throws -> T) throws -> T {
-        guard let pool else { throw StorageError.notStarted }
-        return try pool.write(query)
+        let p = try ensureStarted()
+        return try p.write(query)
     }
 
     func save(_ account: AccountRecord) throws {
@@ -987,6 +1027,25 @@ actor DatabaseManager {
         }
     }
 
+    func markTombstone(id: String, at: Date = Date()) throws {
+        try write { db in
+            _ = try ChunkRecord.filter(Column("objectID") == id).deleteAll(db)
+            if var obj = try ObjectRecord.fetchOne(db, id: id) {
+                obj.tombstoneAt = at
+                obj.modifiedAt = at
+                obj.trashed = true
+                obj.isFavorite = false
+                try obj.save(db)
+            }
+        }
+    }
+
+    func purgeOldTombstones(olderThan cutoff: Date = Date().addingTimeInterval(-90 * 86400)) throws {
+        try write { db in
+            try db.execute(sql: "DELETE FROM objects WHERE tombstoneAt IS NOT NULL AND tombstoneAt < ?", arguments: [cutoff])
+        }
+    }
+
     /// Atomically replaces the entire catalog (objects + chunks) with the given
     /// rows — used by CatalogSnapshot.restore() to rebuild a fresh device's database
     /// from the snapshot document in one transaction.
@@ -1100,6 +1159,13 @@ actor DatabaseManager {
         logger.info("Database self-test passed")
     }
 
+    static var isRunningTests: Bool {
+        NSClassFromString("XCTestCase") != nil ||
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil ||
+        ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil ||
+        ProcessInfo.processInfo.environment["XCInjectBundleInto"] != nil
+    }
+
     private static func databaseFileURL() throws -> URL {
         let fm = FileManager.default
         let support = try fm.url(
@@ -1110,6 +1176,7 @@ actor DatabaseManager {
         )
         let folder = support.appendingPathComponent(AppPaths.dataFolder, isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appendingPathComponent("xcloud.sqlite")
+        let fileName = isRunningTests ? "xcloud-test.sqlite" : "xcloud.sqlite"
+        return folder.appendingPathComponent(fileName)
     }
 }

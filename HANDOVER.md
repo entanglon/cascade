@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (evening): Telegram API safety hardening: universal flood-wait, scan caching, pacing (item 120). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (night): Phase 0b Data Safety & Correctness completed (item 121). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2632,29 +2632,50 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       safety days 3-10 → features weeks 4+). Pending decisions: what to
       implement first (anti-ban package is the recommendation).
 
-## 5. Pending / next steps
-- **VERIFIED REVIEW IN HAND (2026-08-20):** Claude's architecture review is
-  checked and accurate (item 118). Awaiting the user's pick of what to
-  implement. Recommended order: (1) anti-ban package — universal
-  `withFloodWait` wrapper in TelegramClient, 200ms paging delays, one cached
-  startup scan, 500ms BackupDrainer inter-forward delay, ShareEngine
-  flood-wait + 300ms delay, channel-creation cooldown (~1 day); (2) data
-  safety — isolated test DB, delta nonce dedup, tombstones (migration v27),
-  error surfacing (~1 week); (3) features/scale.
-- **ARCHITECTURE CONSULTATION IN FLIGHT (2026-08-20):** Claude prompt delivered
-  to the user (self-contained architecture review, "Google Drive level"). When
-  the user pastes the reply back: verify suggestions against the code before
-  implementing (AGENTS.md rule 8). A decision on the **deletion-tombstone**
-  proposal below is the top architecture decision awaiting that review.
-- **PROPOSED (not yet implemented): deletion tombstones** — the remaining hole in
-  disaster restore. Delta payloads are append-only and permanently retain records
-  of permanently-deleted objects; a restore that replays deltas (vault checkpoint
-  gone AND backup stale — the double-failure path) resurrects them (the file1.txt
-  pattern). App-driven deletions are already safe (`deleteFromVaultAndBackup`
-  removes the messages, so VaultRepair can't rebuild). Tombstones
-  (`xcloud:dbdel:v1:` message type + merge/restore/VaultRepair honoring
-  deletedAt) would make delta replay deletion-safe and let restore drop the
-  freshness heuristic. Deferred — confirm scope with the user before building.
+121. **Phase 0b Data Safety & Correctness** (2026-08-20 — complete):
+    - **Item 7 (Isolated Test Database Harness)**: Decoupled test database operations to `xcloud-test.sqlite` when running under test harnesses (`NSClassFromString("XCTestCase") != nil` or `XCTestConfigurationFilePath`). Added lazy `ensureStarted()` to `DatabaseManager.read` and `DatabaseManager.write` so callers and tests always have an initialized database pool.
+    - **Item 8 (Delta Payload Nonce Deduplication)**: Added optional `nonce: String?` to `CatalogSnapshot.Payload`. Generated unique `UUID().uuidString` nonces on checkpoint and delta uploads; deduplicated delta payloads in `CatalogSnapshot.fetchChannelState` using `seenNonces` set across vault and backup channels.
+    - **Item 9 (Deletion Tombstones `tombstoneAt: Date?`)**: Migration `v27-tombstone` added `tombstoneAt` DATETIME column and `idx_objects_tombstone` index. Added `markTombstone(id:at:)` and `purgeOldTombstones(olderThan:)` (90-day retention) in `DatabaseManager`. Updated `CatalogSnapshot.merge` and `changedRecords` so deletion tombstones survive merges and publish in deltas, permanently preventing delta replay resurrection. Updated `AppState.loadFiles()` to filter `tombstoneAt == nil` for UI presentation. Hardened `VaultRepair.run()` to skip reconstructing objects that have an active local tombstone.
+    - **Item 10 (Structured Error Surfacing)**: Added `AppNotification` and `NotificationKind` (`info`, `warning`, `error`, `success`) to `AppState` with auto-dismiss timers. Implemented `NotificationBannerView` with sleek macOS ultraThinMaterial glassmorphic design and subtle spring animations in `RootView.swift`. Added `NotificationCenter` observer for `.cascadeAppNotification` so background engines can seamlessly post user-facing alerts. Added flood-wait toast warnings in `TelegramClient.withFloodWait` (for waits >= 3s) and sync result toasts in `AppState.forcePublishSnapshot()`.
+    - Verification: 65 tests passed (62 unit + 2 UI + 1 launch, 0 failures).
+
+## 5. Pending / next steps — Architecture Roadmap Todo List
+
+### Phase 0: Anti-Ban & Telegram API Safety (DONE ✅ — 2026-08-20, item 120)
+- [x] **Universal `withFloodWait`** on all TDLib call sites in `TelegramClient`.
+- [x] **Inter-page delay (200ms)** in `allChannelMessages` and paging loops.
+- [x] **Session scan cache**: 3 startup channel scans reduced to 1 shared scan, invalidated on writes.
+- [x] **BackupDrainer 500ms delay** between forwards.
+- [x] **ShareEngine 300ms delay** + `withFloodWait` on forwards.
+- [x] **Channel creation 3s cooldown** with thread-safe lock.
+
+### Phase 0b: Data Safety & Correctness (DONE ✅ — 2026-08-20, item 121)
+- [x] **Item 7: Isolated test database harness** — decouple unit tests from the live Debug DB (`~/Library/Application Support/xCloud/xCloud.sqlite`) so tests run in a clean isolated test database or in-memory DB, preventing real-DB pollution and delta leaks.
+- [x] **Item 8: Delta payload nonce for deduplication** — add `nonce: String` to `CatalogSnapshot` deltas and track recent nonces to reject duplicate delta replay.
+- [x] **Item 9: Deletion tombstones (`tombstoneAt: Date?`)** — migration v27, update `merge()`, `restore()`, and `VaultRepair` to make delta replay deletion-safe and permanently eliminate the resurrection bug.
+- [x] **Item 10: Structured error surfacing** — user-facing banner/toast notifications for background sync and transfer failures instead of silent catches.
+
+### Phase 1: Robustness (Weeks 4–8)
+- [ ] **Item 11: Global token-bucket rate limiter** — actor wrapping all TDLib writes (20 writes/min sustained, burst of 8).
+- [ ] **Item 12: API call metrics & telemetry** — counters per TDLib function per hour, log to file, warn at thresholds.
+- [ ] **Item 13: `sendCopy: true` backup option** — true independent document clone in backup channel (opt-in).
+- [ ] **Item 14: Checkpoint pagination** — multi-part checkpoint documents removing the single-message ceiling.
+- [ ] **Item 15: Structured logging subsystem** — file-backed rotating log engine.
+- [ ] **Item 16: Conditional post-auth heal** — skip O(n) dedupe if clean flag set.
+
+### Phase 2: Features & UX (Weeks 9–16)
+- [ ] **Item 17: FTS5 full-text search** — replace SQLite `LIKE '%query%'` with full-text search index on name, MIME, and path.
+- [ ] **Item 18: Version history & file recovery** — snapshot previous revisions on overwrite.
+- [ ] **Item 19: Local export engine** — one-click bulk decrypted export to local folder.
+- [ ] **Item 20: Share improvements** — viewer lists, revocable links, expiry notifications.
+- [ ] **Item 21: Multi-device conflict detection UI** — conflict warning and resolution dialogs instead of silent LWW.
+- [ ] **Item 22: Transfer priority management** — user-initiated downloads preempt background thumbnails.
+- [ ] **Sync status icon in sidebar** — real-time cloud sync indicator.
+
+### Phase 3: Scale (Weeks 17–26)
+- [ ] **Item 23: iOS companion app** (read-only / media player).
+- [ ] **Item 24: AppState decomposition** — separate navigation, playback, and transfer state machines.
+- [ ] **Item 25: Automated CI workflow** (`.github/workflows/ci.yml`).
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
   - Phase 1: Cryptographic Primitives & Key Management.
   - Phase 2: Encrypted Chunk Uploads & Caption Metadata Sanitization.

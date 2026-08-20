@@ -100,13 +100,17 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// ThumbnailService downloads + decrypts it to restore the preview after a
     /// local cache clear. nil → pre-sidecar uploads (attached thumbnail path).
     var thumbMessageID: Int64? = nil
+    /// Deletion tombstone timestamp: when an object is permanently deleted,
+    /// tombstoneAt is set. Deltas and checkpoints carry the tombstone to prevent
+    /// deleted objects from being resurrected on delta replay or multi-device sync.
+    var tombstoneAt: Date? = nil
 
     // Custom decoding so records missing newer fields (old catalog snapshots in the
     // channel, or rows read before a migration) still decode — every optional-ish
     // flag falls back to its default instead of throwing.
     enum CodingKeys: String, CodingKey {
         case id, vaultID, name, size, mime, state, rootHash, wrappedKey, createdAt, modifiedAt
-        case isFavorite, trashed, parentID, isFolder, isPrivate, sourcePath, chunkSize, isArchived, isInLibrary, coverObjectID, thumbMessageID
+        case isFavorite, trashed, parentID, isFolder, isPrivate, sourcePath, chunkSize, isArchived, isInLibrary, coverObjectID, thumbMessageID, tombstoneAt
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +136,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         isInLibrary = try c.decodeIfPresent(Bool.self, forKey: .isInLibrary) ?? false
         coverObjectID = try c.decodeIfPresent(String.self, forKey: .coverObjectID)
         thumbMessageID = try c.decodeIfPresent(Int64.self, forKey: .thumbMessageID)
+        tombstoneAt = try c.decodeIfPresent(Date.self, forKey: .tombstoneAt)
     }
 
     // Explicit memberwise init (matching the old synthesized one, in property
@@ -157,7 +162,8 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         isArchived: Bool = false,
         isInLibrary: Bool = false,
         coverObjectID: String? = nil,
-        thumbMessageID: Int64? = nil
+        thumbMessageID: Int64? = nil,
+        tombstoneAt: Date? = nil
     ) {
         self.id = id
         self.vaultID = vaultID
@@ -180,6 +186,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.isInLibrary = isInLibrary
         self.coverObjectID = coverObjectID
         self.thumbMessageID = thumbMessageID
+        self.tombstoneAt = tombstoneAt
     }
 }
 

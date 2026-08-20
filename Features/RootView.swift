@@ -75,10 +75,25 @@ struct RootView: View {
                     .transition(.opacity)
                     .zIndex(30)
             }
+
+            if let note = appState.currentNotification {
+                VStack {
+                    NotificationBannerView(notification: note) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            appState.dismissNotification()
+                        }
+                    }
+                    .padding(.top, 16)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(200)
+            }
         }
         .ignoresSafeArea(.all, edges: .top)
         .animation(.easeInOut(duration: 0.20), value: appState.theaterFile?.id)
         .animation(.easeInOut(duration: 0.20), value: appState.readerFile?.id)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.currentNotification)
         .animation(.easeOut(duration: 0.18), value: appState.isTheaterFullScreen)
         .animation(.easeOut(duration: 0.25), value: TelegramClient.shared.isAuthorized)
         .sheet(isPresented: Binding(
@@ -427,6 +442,76 @@ struct SharePasswordUnlockSheet: View {
                 isUnlocking = false
                 errorMessage = ShareEngine.describe(error)
             }
+        }
+    }
+}
+
+// MARK: - Toast / Banner Notification View
+
+struct NotificationBannerView: View {
+    let notification: AppState.AppNotification
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(iconColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notification.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+
+                if let message = notification.message, !message.isEmpty {
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white.opacity(0.6))
+                    .padding(5)
+                    .background(Color.white.opacity(0.1))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 420)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
+        )
+    }
+
+    private var iconName: String {
+        switch notification.kind {
+        case .info: return "info.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .error: return "xmark.octagon.fill"
+        case .success: return "checkmark.circle.fill"
+        }
+    }
+
+    private var iconColor: Color {
+        switch notification.kind {
+        case .info: return Color.blue
+        case .warning: return Color.orange
+        case .error: return Color.red
+        case .success: return Color.green
         }
     }
 }

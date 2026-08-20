@@ -2,9 +2,38 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Telegram API safety hardening: flood-wait coverage, session scan cache, inter-request pacing.
+> 2026-08-20 (night) — Phase 0b Data Safety & Correctness: test DB isolation, delta nonces, deletion tombstones, structured error toasts.
 
 ---
+
+## 2026-08-20 (night) — Phase 0b Data Safety & Correctness: test DB isolation, delta nonces, deletion tombstones, structured error toasts
+
+Implemented Phase 0b (Items 7, 8, 9, 10 from the Architecture Roadmap):
+
+### What was changed
+1. **Item 7: Isolated Test Database Harness** (`Storage/DatabaseManager.swift`, `xCloudTests/xCloudTests.swift`):
+   - Decoupled test database operations to `xcloud-test.sqlite` when running under test harnesses (`NSClassFromString("XCTestCase") != nil` or `XCTestConfigurationFilePath`).
+   - Added lazy `ensureStarted()` to `DatabaseManager.read` and `DatabaseManager.write` so callers and tests always have an initialized database pool without manual lifecycle coupling.
+   - Saved and restored catalog records in `replaceCatalogCreatesBackupSnapshot` to prevent inter-test mutation in the shared suite.
+2. **Item 8: Delta Payload Nonce Deduplication** (`Storage/CatalogSnapshot.swift`, `xCloudTests/xCloudTests.swift`):
+   - Added optional `nonce: String?` to `CatalogSnapshot.Payload` (Codable wire-compatible).
+   - Generated unique `UUID().uuidString` nonce on every checkpoint and delta upload.
+   - Deduplicated delta payloads in `CatalogSnapshot.fetchChannelState` using `seenNonces` set across vault and backup channels.
+3. **Item 9: Deletion Tombstones (`tombstoneAt: Date?`)** (`Storage/Models.swift`, `Storage/DatabaseManager.swift`, `Storage/CatalogSnapshot.swift`, `Storage/VaultRepair.swift`, `App/AppState.swift`, `xCloudTests/xCloudTests.swift`):
+   - Schema migration `v27-tombstone` added `tombstoneAt` DATETIME column and `idx_objects_tombstone` index.
+   - Added `markTombstone(id:at:)` and `purgeOldTombstones(olderThan:)` (90-day retention) in `DatabaseManager`.
+   - Updated `CatalogSnapshot.merge` and `changedRecords` so deletion tombstones survive merges and publish in deltas, permanently preventing delta replay resurrection.
+   - Updated `AppState.loadFiles()` to filter `tombstoneAt == nil` for UI presentation.
+   - Hardened `VaultRepair.run()` to skip reconstructing objects that have an active local tombstone.
+4. **Item 10: Structured Error Surfacing** (`App/AppState.swift`, `Features/RootView.swift`, `Telegram/TelegramClient.swift`, `xCloudTests/xCloudTests.swift`):
+   - Added `AppNotification` and `NotificationKind` (`info`, `warning`, `error`, `success`) to `AppState` with auto-dismiss timers.
+   - Implemented `NotificationBannerView` with sleek macOS ultraThinMaterial glassmorphic design and subtle spring animations in `RootView.swift`.
+   - Added `NotificationCenter` observer for `.cascadeAppNotification` so background engines can seamlessly post user-facing alerts.
+   - Added flood-wait toast warnings in `TelegramClient.withFloodWait` (for waits >= 3s) and sync result toasts in `AppState.forcePublishSnapshot()`.
+
+### Verification
+- `xcodebuild -configuration Debug build` succeeded.
+- `xcodebuild -configuration Debug test`: **TEST SUCCEEDED** (65 tests: 62 unit + 2 UI + 1 launch, 0 failures).
 
 ## 2026-08-20 (evening) — Telegram API safety hardening: flood-wait coverage, session scan cache, inter-request pacing
 

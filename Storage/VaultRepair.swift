@@ -116,6 +116,10 @@ enum VaultRepair {
 
                     // Restore or Update Object in SQLite
                     if let existing = objectDict[objectID] {
+                        if existing.tombstoneAt != nil {
+                            // Object was explicitly deleted/tombstoned; do not resurrect it from an old message
+                            continue
+                        }
                         let nameChanged = !name.isEmpty && existing.name != name
                         let mimeChanged = !mime.isEmpty && mime != "application/octet-stream" && existing.mime != mime
                         if existing.trashed != trashed || nameChanged || mimeChanged || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {

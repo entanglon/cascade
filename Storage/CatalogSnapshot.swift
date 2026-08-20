@@ -37,6 +37,8 @@ enum CatalogSnapshot {
         /// delta with a message ID greater than this. Nil for delta messages and for
         /// legacy checkpoints (which predate deltas).
         var baseMessageID: Int64? = nil
+        /// Unique random nonce to deduplicate delta/checkpoint messages if retried or re-sent.
+        var nonce: String? = nil
     }
 
     /// The complete state currently published in the channel.
@@ -111,6 +113,7 @@ enum CatalogSnapshot {
                 // Full catalog; base = the newest channel message we merged.
                 var checkpointPayload = merged
                 checkpointPayload.baseMessageID = channel.newestID
+                checkpointPayload.nonce = UUID().uuidString
                 let newID = try await publishDocument(
                     chatId: vault.channelID,
                     payload: checkpointPayload,
@@ -122,7 +125,12 @@ enum CatalogSnapshot {
                 // Only checkpoints are pruned (keep the newest) — deltas are never touched.
                 await pruneOldSnapshots(chatId: vault.channelID, keepingNewerThan: newID)
             } else {
-                let deltaPayload = Payload(version: 1, objects: changes.objects, chunks: changes.chunks)
+                let deltaPayload = Payload(
+                    version: 1,
+                    objects: changes.objects,
+                    chunks: changes.chunks,
+                    nonce: UUID().uuidString
+                )
                 _ = try await publishDocument(
                     chatId: vault.channelID,
                     payload: deltaPayload,
@@ -163,7 +171,17 @@ enum CatalogSnapshot {
         // Fold in local records: local wins strictly-newer; ties keep remote.
         for o in local.objects {
             if let remoteWinner = objectsByID[o.id] {
-                if o.modifiedAt > remoteWinner.modifiedAt {
+                // Tombstone resolution: if one side is tombstoned, the tombstone wins
+                // unless the untombstoned side has a newer modifiedAt edit timestamp.
+                if o.tombstoneAt != nil && remoteWinner.tombstoneAt == nil {
+                    if o.modifiedAt >= remoteWinner.modifiedAt {
+                        objectsByID[o.id] = o
+                    }
+                } else if remoteWinner.tombstoneAt != nil && o.tombstoneAt == nil {
+                    if o.modifiedAt > remoteWinner.modifiedAt {
+                        objectsByID[o.id] = o
+                    }
+                } else if o.modifiedAt > remoteWinner.modifiedAt {
                     objectsByID[o.id] = o
                 }
             } else {
@@ -231,14 +249,17 @@ enum CatalogSnapshot {
                         ?? candidates.first(where: { $0.messageID != nil })
                         ?? candidates[0]
                 } else {
-                    picked = candidates.first(where: { $0.size % slice == 0 })
+                    let full = candidates.filter { $0.size % slice == 0 }
+                    picked = full.first(where: { $0.messageID != nil })
+                        ?? full.first
                         ?? candidates.first(where: { $0.messageID != nil })
                         ?? candidates[0]
                 }
-                chosenIDs.insert(picked.id)
-                chosenSum += picked.size
+                if chosenIDs.insert(picked.id).inserted {
+                    chosenSum += picked.size
+                    kept.append(picked)
+                }
             }
-            kept.append(contentsOf: objectChunks.filter { chosenIDs.contains($0.id) })
         }
         return kept
     }
@@ -246,13 +267,13 @@ enum CatalogSnapshot {
     /// The records the LOCAL side changed relative to what the channel already knows
     /// — i.e. exactly what a delta message should carry. A record is "changed" when
     /// it exists only locally, or its local `modifiedAt` is strictly newer than the
-    /// remote copy's (ties mean the channel already knows it). Chunks are changed
-    /// only when the local copy has a Telegram messageID the remote copy lacks.
+    /// remote copy's (ties mean the channel already knows it), or when a tombstone is added.
+    /// Chunks are changed only when the local copy has a Telegram messageID the remote copy lacks.
     static func changedRecords(local: Payload, remote: Payload) -> (objects: [ObjectRecord], chunks: [ChunkRecord]) {
         let remoteObjects = Dictionary(uniqueKeysWithValues: remote.objects.map { ($0.id, $0) })
         let changedObjects = local.objects.filter { o in
             guard let r = remoteObjects[o.id] else { return true }
-            return o.modifiedAt > r.modifiedAt
+            return o.modifiedAt > r.modifiedAt || (o.tombstoneAt != nil && r.tombstoneAt == nil)
         }
 
         let remoteChunks = Dictionary(uniqueKeysWithValues: remote.chunks.map { ($0.id, $0) })
@@ -281,13 +302,24 @@ enum CatalogSnapshot {
             .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(deltaCaptionPrefix) }
             .sorted { $0.id < $1.id }
 
+        var seenNonces = Set<String>()
         if let newest = checkpoints.last, let payload = await decodeMessagePayload(newest, chatId: chatId) {
             state.checkpoint = payload
             state.checkpointID = newest.id
             state.deltaBase = payload.baseMessageID
+            if let nonce = payload.nonce {
+                seenNonces.insert(nonce)
+            }
         }
         for delta in deltas {
             if let payload = await decodeMessagePayload(delta, chatId: chatId) {
+                if let nonce = payload.nonce {
+                    guard !seenNonces.contains(nonce) else {
+                        print("Cascade fetchChannelState: skipping duplicate delta \(delta.id) (nonce \(nonce))")
+                        continue
+                    }
+                    seenNonces.insert(nonce)
+                }
                 state.deltas.append((delta.id, payload))
             }
         }
@@ -302,6 +334,9 @@ enum CatalogSnapshot {
             if let newest = backupCheckpoints.last, let payload = await decodeMessagePayload(newest, chatId: backupID) {
                 state.checkpoint = payload
                 state.checkpointID = newest.id
+                if let nonce = payload.nonce {
+                    seenNonces.insert(nonce)
+                }
                 print("Cascade fetchChannelState: vault channel had no usable checkpoint — using backup-channel forward \(newest.id) as restore base")
                 // Freshness: a backup forward is trustworthy only when no delta
                 // carries records NEWER than the checkpoint's newest record. If the
@@ -315,6 +350,13 @@ enum CatalogSnapshot {
                         .sorted { $0.id < $1.id }
                     for delta in backupDeltas {
                         if let payload = await decodeMessagePayload(delta, chatId: backupID) {
+                            if let nonce = payload.nonce {
+                                guard !seenNonces.contains(nonce) else {
+                                    print("Cascade fetchChannelState: skipping duplicate backup delta \(delta.id) (nonce \(nonce))")
+                                    continue
+                                }
+                                seenNonces.insert(nonce)
+                            }
                             state.deltas.append((delta.id, payload))
                         }
                     }

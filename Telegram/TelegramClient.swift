@@ -1034,6 +1034,17 @@ final class TelegramClient {
                     let numStr = msg[range].filter { $0.isNumber }
                     if let seconds = Int(numStr) {
                         logger.warning("Flood wait triggered, sleeping for \(seconds)s")
+                        if seconds >= 3 {
+                            NotificationCenter.default.post(
+                                name: .cascadeAppNotification,
+                                object: nil,
+                                userInfo: [
+                                    "title": "Telegram Rate Limited",
+                                    "message": "Waiting \(seconds) seconds for rate limit cooldown…",
+                                    "kind": "warning"
+                                ]
+                            )
+                        }
                         try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000 + 500_000_000)
                         continue
                     }

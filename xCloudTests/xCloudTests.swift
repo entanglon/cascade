@@ -15,6 +15,14 @@ import GRDB
 @Suite(.serialized)
 struct xCloudTests {
 
+    @Test func databaseIsolationUsesTestDatabase() async throws {
+        #expect(DatabaseManager.isRunningTests)
+        let path = try await DatabaseManager.shared.databasePath()
+        #expect(path.hasSuffix("xcloud-test.sqlite"))
+        let transfers = try await DatabaseManager.shared.loadTransfers()
+        #expect(transfers.count >= 0)
+    }
+
     @Test func transferPauseKeepsCardResumable() async {
         await MainActor.run {
             let center = TransferCenter.shared
@@ -523,6 +531,16 @@ struct xCloudTests {
         #expect(c.createdAt == now)
     }
 
+    @Test func payloadNonceRoundTripsAndIdentifiesPayload() throws {
+        let nonce = UUID().uuidString
+        let payload = CatalogSnapshot.Payload(version: 1, objects: [], chunks: [], baseMessageID: 12345, nonce: nonce)
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(CatalogSnapshot.Payload.self, from: data)
+
+        #expect(decoded.nonce == nonce)
+        #expect(decoded.baseMessageID == 12345)
+    }
+
     @Test func catalogSnapshotZlibCompressionAndDecompression() throws {
         let now = Date()
         var objects: [ObjectRecord] = []
@@ -694,6 +712,25 @@ struct xCloudTests {
 
         let changes = CatalogSnapshot.changedRecords(local: local, remote: remote)
         #expect(Set(changes.objects.map(\.id)) == ["x"], "the trash change must be publishable")
+    }
+
+    @Test func mergeTombstoneAtWinsOverOlderRemoteRecord() {
+        let t0 = Date(timeIntervalSince1970: 1_750_000_000)
+        let tDeleted = t0.addingTimeInterval(120)
+        var tombstonedObj = mergeTestObject(id: "del-1", name: "Deleted.mp4", modifiedAt: tDeleted, trashed: true)
+        tombstonedObj.tombstoneAt = tDeleted
+
+        let local = CatalogSnapshot.Payload(version: 1, objects: [tombstonedObj], chunks: [])
+        let remote = CatalogSnapshot.Payload(version: 1, objects: [
+            mergeTestObject(id: "del-1", name: "Deleted.mp4", modifiedAt: t0)
+        ], chunks: [])
+
+        let merged = CatalogSnapshot.merge(local: local, remote: remote, localVaultID: "vault-local")
+        let mergedObj = merged.objects.first { $0.id == "del-1" }
+        #expect(mergedObj?.tombstoneAt == tDeleted, "tombstone timestamp must survive the merge")
+
+        let changes = CatalogSnapshot.changedRecords(local: local, remote: remote)
+        #expect(changes.objects.contains { $0.id == "del-1" && $0.tombstoneAt != nil }, "tombstone record must be publishable in delta")
     }
 
     @Test func mergeNormalizesEmptyWrappedKeyToNil() {
@@ -1866,6 +1903,8 @@ struct xCloudTests {
     // MARK: - Data-Safety & Hardening Tests
 
     @Test func replaceCatalogCreatesBackupSnapshot() async throws {
+        let previousObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let previousChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
         let account = AccountRecord(
             id: "acc-test-replace-backup",
             telegramUserID: 999996,
@@ -1944,6 +1983,7 @@ struct xCloudTests {
         #expect(chunkBackupCount == 1, "chunks_backup must preserve previously replaced chunks")
 
         try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
+        try await DatabaseManager.shared.replaceCatalog(objects: previousObjects, chunks: previousChunks)
     }
 
     @Test func resetVaultRefusesUnconfirmedExecution() async throws {
@@ -2289,6 +2329,19 @@ struct xCloudTests {
         }
         #expect(meta.kind == ChunkCaption.kindThumb)
         #expect(meta.id == objectID)
+    }
+
+    @Test func appNotificationLifecycle() async {
+        let appState = await AppState()
+        await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)
+        let note = await appState.currentNotification
+        #expect(note?.title == "Upload Failed")
+        #expect(note?.message == "Network timeout")
+        #expect(note?.kind == .error)
+
+        await appState.dismissNotification()
+        let dismissed = await appState.currentNotification
+        #expect(dismissed == nil)
     }
 }
 
