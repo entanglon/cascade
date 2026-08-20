@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Phase 1 (Cryptographic Primitives) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Phase 2 (Encrypted Chunk Uploads & Caption Sanitization) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2439,10 +2439,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Full test suite green: **TEST SUCCEEDED** (67: 59 unit + 4 UI + 4 launch, 0 failures).
       Commit: `d69e46a`.
 
+99. **Phase 2: Encrypted chunk uploads & Telegram caption metadata sanitization (2026-08-20 — COMMITTED)**
+    (`Engine/UploadEngine.swift`, `Engine/ChunkCaption.swift`, `Storage/VaultRepair.swift`, `xCloudTests/xCloudTests.swift`)
+    - Uploads mint random 256-bit $K_{\text{file}}$, wrap with vault key, and store in `ObjectRecord.wrappedKey`.
+    - Chunk payloads are encrypted via `CryptoEngine.encryptChunk` with slice indexing (`offset / 1MB`), uploading opaque `.bin` documents.
+    - Message captions sanitized: `name = ""` and `mime = "application/octet-stream"`, preventing Telegram AI scanners from reading filenames and types. Added `cipherHash`.
+    - `VaultRepair` updated to preserve `plainHash`/`cipherHash` and avoid overwriting local names with empty strings.
+    - Full test suite green: **TEST SUCCEEDED** (68: 60 unit + 4 UI + 4 launch, 0 failures).
+
 ## 5. Pending / next steps
-- **NEXT: Phase 2 — Encrypted Uploads & Caption Metadata Sanitization** (see `implementation_plan.md`):
-  - Generate per-file $K_{\text{file}}$, encrypt chunks in `UploadEngine`, and sanitize `ChunkCaption` metadata.
-- **Phase 3: Media Streaming Decryption & Download Caching** (`VideoStreamingEngine`, `VaultStreamServer`, `DownloadEngine`).
+- **NEXT: Phase 3 — Media Streaming Decryption & Download Caching** (see `implementation_plan.md`):
+  - In-memory slice decryption in `VaultStreamServer` / `VideoStreamingEngine` for `mpv` HTTP range requests.
+  - Full-file background download decryption in `DownloadEngine`.
 - **Phase 4: Zero-Download Sharing & Password-Protected Links** (`ShareEngine`, `ShareManagerView`).
 - **Phase 5: Snapshot Compression & Vault Migration** (`CatalogSnapshot`, `DatabaseManager`).
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**

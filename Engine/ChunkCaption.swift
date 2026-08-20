@@ -35,6 +35,7 @@ enum ChunkCaption {
         var wrappedKey: String = ""
         var chunkSize: Int64? = nil
         var plainHash: String? = nil
+        var cipherHash: String? = nil
         var rootHash: String? = nil
 
         /// Chunk size to assume when the caption doesn't carry one (legacy
@@ -69,6 +70,7 @@ enum ChunkCaption {
         ]
         if let chunkSize = meta.chunkSize { dict["chunkSize"] = chunkSize }
         if let plainHash = meta.plainHash { dict["plainHash"] = plainHash }
+        if let cipherHash = meta.cipherHash { dict["cipherHash"] = cipherHash }
         if let rootHash = meta.rootHash { dict["rootHash"] = rootHash }
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return nil }
@@ -92,11 +94,11 @@ enum ChunkCaption {
         guard let data = json.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let id = dict["id"] as? String,
-              let name = dict["name"] as? String,
-              let mime = dict["mime"] as? String,
               let size = (dict["size"] as? Int64) ?? (dict["size"] as? Int).map(Int64.init) else {
             return nil
         }
+        let name = dict["name"] as? String ?? ""
+        let mime = dict["mime"] as? String ?? "application/octet-stream"
         // Legacy captions predate the index field (folder metadata messages
         // carry no index at all) — 0 is the correct fallback for those.
         let index = dict["index"] as? Int ?? 0
@@ -117,6 +119,7 @@ enum ChunkCaption {
             wrappedKey: dict["wrappedKey"] as? String ?? "",
             chunkSize: chunkSize,
             plainHash: dict["plainHash"] as? String,
+            cipherHash: dict["cipherHash"] as? String,
             rootHash: dict["rootHash"] as? String
         )
     }

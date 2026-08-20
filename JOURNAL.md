@@ -2,7 +2,32 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Phase 1: Cryptographic primitives (chunk encryption/decryption, slice seeking & link key derivation).
+> 2026-08-20 (morning) — Phase 2: Encrypted chunk uploads & Telegram caption metadata sanitization.
+
+---
+
+## 2026-08-20 (morning) — Phase 2: Encrypted chunk uploads & Telegram caption metadata sanitization
+
+Implemented automatic per-file 256-bit AES key generation, client-side chunk encryption before dispatch to TDLib, and metadata sanitization in message captions.
+
+### Changes
+
+- `Engine/UploadEngine.swift`:
+  - Mint fresh random 256-bit `SymmetricKey` ($K_{\text{file}}$) for every upload and wrap with vault key (`CryptoEngine.wrap`), saved in `ObjectRecord.wrappedKey`.
+  - On upload staging, encrypt chunks with `CryptoEngine.encryptChunk` using deterministic slice indexing (`item.offset / 1MB`), calculate `plainHash` and `cipherHash`, and send ciphertext documents (`<objectID>-<index>.bin`).
+  - Telegram message previews disabled for encrypted documents (preventing unencrypted thumbnail scans).
+- `Engine/ChunkCaption.swift`:
+  - Added `cipherHash` field to `Meta`, `encode`, and `parse`.
+  - Blanked `name` and set `mime` to `application/octet-stream` on chunk message captions to completely hide filenames and file types from Telegram scanners.
+  - Made `parse` robust to empty `name` and default `mime`.
+- `Storage/VaultRepair.swift`:
+  - Preserved `plainHash` and `cipherHash` when rebuilding chunk rows from messages.
+  - Guarded against blanking out existing local object names when scanning sanitized captions.
+- `xCloudTests/xCloudTests.swift`: Added `encryptedChunkCaptionWithSanitizedMetadataRoundTrips` unit test.
+
+### Build / test
+
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (68: 60 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
 ---
 

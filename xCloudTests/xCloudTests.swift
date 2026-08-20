@@ -1270,6 +1270,38 @@ struct xCloudTests {
                 "kind \"object\" metadata is never a chunk")
     }
 
+    @Test func encryptedChunkCaptionWithSanitizedMetadataRoundTrips() {
+        let wrappedKeyB64 = Data(repeating: 7, count: 60).base64EncodedString()
+        let meta = ChunkCaption.Meta(
+            kind: ChunkCaption.kindChunk,
+            id: "C1A729A4-2A4A-4835-9C49-E8C2B3C00A11",
+            name: "", // Sanitized
+            size: 104_857_600,
+            mime: "application/octet-stream", // Sanitized
+            parentID: nil,
+            isPrivate: false,
+            index: 1,
+            totalChunks: 3,
+            wrappedKey: wrappedKeyB64,
+            chunkSize: 33_554_432,
+            plainHash: "plain12345",
+            cipherHash: "cipher67890",
+            rootHash: "rootabcdef"
+        )
+        let encoded = ChunkCaption.encode(meta, kind: ChunkCaption.kindChunk)
+        #expect(encoded != nil)
+        let parsed = ChunkCaption.parse(encoded ?? "")
+        #expect(parsed != nil)
+        #expect(parsed?.id == meta.id)
+        #expect(parsed?.name == "")
+        #expect(parsed?.mime == "application/octet-stream")
+        #expect(parsed?.wrappedKey == wrappedKeyB64)
+        #expect(parsed?.cipherHash == "cipher67890")
+        #expect(parsed?.plainHash == "plain12345")
+        #expect(parsed?.chunkSize == 33_554_432)
+        #expect(ChunkCaption.isChunkCaption(encoded ?? ""))
+    }
+
     @Test func forwardShareLinkRoundTripsMessageIDsAndKey() {
         let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
         let link = ShareEngine.ShareLink(

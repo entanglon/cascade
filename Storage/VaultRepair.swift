@@ -115,9 +115,12 @@ enum VaultRepair {
 
                     // Restore or Update Object in SQLite
                     if let existing = objectDict[objectID] {
-                        if existing.trashed != trashed || existing.name != name || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {
+                        let nameChanged = !name.isEmpty && existing.name != name
+                        let mimeChanged = !mime.isEmpty && mime != "application/octet-stream" && existing.mime != mime
+                        if existing.trashed != trashed || nameChanged || mimeChanged || existing.parentID != cleanParentID || existing.isFavorite != isFavorite {
                             var updated = existing
-                            updated.name = name
+                            if nameChanged { updated.name = name }
+                            if mimeChanged { updated.mime = mime }
                             updated.parentID = cleanParentID
                             updated.trashed = trashed
                             updated.isFavorite = isFavorite
@@ -141,10 +144,11 @@ enum VaultRepair {
                             logger.info("VaultRepair: message \(message.id, privacy: .public) already cataloged under another object — skipping phantom object \(objectID)")
                             continue
                         }
+                        let resolvedName = name.isEmpty ? "File-\(objectID.prefix(8))" : name
                         let newObj = ObjectRecord(
                             id: objectID,
                             vaultID: vault.id,
-                            name: name,
+                            name: resolvedName,
                             size: size,
                             mime: mime,
                             state: "ready",
@@ -170,20 +174,11 @@ enum VaultRepair {
                     // Folders have no data chunks, but the folder's metadata
                     // message IS tracked by a size-0 chunk row (created by
                     // syncObjectMetadataToTelegram) so renames edit the same
-                    // message. Recreate that linkage row when it's missing —
-                    // otherwise a rebuilt folder would accumulate duplicate
-                    // metadata messages on every rename, and the stale
-                    // messages would resurrect the old name on every scan.
+                    // message. Recreate that linkage row when it's missing.
                     if !isFolder {
                         // Restore Chunk if missing or update messageID
                         let existingChunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
                         if let target = existingChunks.first(where: { $0.index == index }) {
-                            // Repair BOTH the message id and the recorded chunk size.
-                            // Sizes derived by dividing the object size by the chunk
-                            // count produce wrong per-chunk boundaries (real chunk
-                            // documents are the full plan size except the remainder
-                            // tail), which corrupts the byte-range layout streaming
-                            // relies on. The message's own document size is ground truth.
                             let realSize = fileSize > 0 ? fileSize : target.size
                             var repaired = false
                             if target.messageID != message.id {
@@ -204,11 +199,6 @@ enum VaultRepair {
                             }
                             changed = changed || repaired
                         } else {
-                            // Never fabricate missing chunk records for an existing object that is
-                            // still being uploaded (paused/failed/uploading). Those are resumable
-                            // partial uploads managed by the upload engine; adding records here
-                            // would make a cancelled upload look complete and resurrect it as a
-                            // phantom "ready" file in the folder.
                             let existingObject = objectDict[objectID]
                             let isResumablePartial = existingObject != nil && existingObject?.state != "ready"
                             if !isResumablePartial {
@@ -217,8 +207,8 @@ enum VaultRepair {
                                     objectID: objectID,
                                     index: index,
                                     size: fileSize > 0 ? fileSize : size / Int64(max(1, totalChunks)),
-                                    plainHash: nil,
-                                    cipherHash: nil,
+                                    plainHash: meta.plainHash,
+                                    cipherHash: meta.cipherHash,
                                     state: "uploaded",
                                     messageID: message.id,
                                     fileUniqueID: nil,

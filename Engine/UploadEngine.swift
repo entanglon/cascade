@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import os
 import UniformTypeIdentifiers
 import QuickLookThumbnailing
@@ -139,6 +140,25 @@ enum UploadEngine {
             throw UploadError.fileChanged
         }
 
+        let objectKey: SymmetricKey?
+        let wrappedKeyData: Data?
+        if let resumeObject {
+            if let existingWrapped = resumeObject.wrappedKey, !existingWrapped.isEmpty {
+                let vaultKey = try VaultManager.vaultKey(for: vault)
+                objectKey = try? CryptoEngine.unwrap(existingWrapped, with: vaultKey)
+                wrappedKeyData = existingWrapped
+            } else {
+                objectKey = nil
+                wrappedKeyData = nil
+            }
+        } else {
+            let key = SymmetricKey(size: .bits256)
+            let vaultKey = try VaultManager.vaultKey(for: vault)
+            let wrapped = try CryptoEngine.wrap(key, with: vaultKey)
+            objectKey = key
+            wrappedKeyData = wrapped
+        }
+
         var isParentPrivate = resumeObject?.isPrivate ?? isPrivate
         if resumeObject == nil, let parentID {
             let parentObj = (try? await DatabaseManager.shared.allObjects())?.first { $0.id == parentID }
@@ -161,7 +181,7 @@ enum UploadEngine {
                 mime: mime,
                 state: "uploading",
                 rootHash: rootHash,
-                wrappedKey: nil,
+                wrappedKey: wrappedKeyData,
                 createdAt: .now,
                 modifiedAt: .now,
                 isFavorite: false,
@@ -213,10 +233,10 @@ enum UploadEngine {
             }
         }
 
-        // Single-chunk media goes in as real Telegram photo/video (if not private)
+        // Single-chunk media goes in as real Telegram photo/video (if not private and unencrypted)
         let kind: TelegramClient.MediaKind
         let isSingleChunkVideo = mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm"].contains(fileURL.pathExtension.lowercased())
-        if !isParentPrivate && plan.items.count == 1 && isSingleChunkVideo {
+        if objectKey == nil && !isParentPrivate && plan.items.count == 1 && isSingleChunkVideo {
             kind = .video
         } else {
             kind = .document
@@ -251,24 +271,35 @@ enum UploadEngine {
                     let plainHash = FileHasher.sha256(of: plain)
 
                     let chunkFileName: String
-                    if isParentPrivate || plan.items.count > 1 {
+                    if objectKey != nil || isParentPrivate || plan.items.count > 1 {
                         chunkFileName = "\(objectID)-\(item.index).bin"
                     } else {
                         chunkFileName = displayName
                     }
                     let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
 
-                    // PLAINTEXT: Standard Telegram-native upload (all files — the
-                    // vault no longer encrypts anything).
-                    try plain.write(to: tmpURL)
+                    let chunkDataToUpload: Data
+                    let cipherHash: String?
+
+                    if let objectKey {
+                        let startSliceIndex = Int(item.offset / Int64(CryptoEngine.sliceSize))
+                        let encrypted = try CryptoEngine.encryptChunk(plain, objectKey: objectKey, startSliceIndex: startSliceIndex)
+                        cipherHash = FileHasher.sha256(of: encrypted)
+                        chunkDataToUpload = encrypted
+                    } else {
+                        cipherHash = nil
+                        chunkDataToUpload = plain
+                    }
+
+                    try chunkDataToUpload.write(to: tmpURL)
 
                     var captionString: String? = nil
                     let meta = ChunkCaption.Meta(
                         kind: ChunkCaption.kindChunk,
                         id: objectID,
-                        name: displayName,
+                        name: objectKey != nil ? "" : displayName,
                         size: fileSize,
-                        mime: mime,
+                        mime: objectKey != nil ? "application/octet-stream" : mime,
                         parentID: parentID,
                         isPrivate: isParentPrivate,
                         isFolder: false,
@@ -276,9 +307,10 @@ enum UploadEngine {
                         isFavorite: false,
                         index: item.index,
                         totalChunks: plan.items.count,
-                        wrappedKey: "",
+                        wrappedKey: wrappedKeyData?.base64EncodedString() ?? "",
                         chunkSize: plan.chunkSize,
                         plainHash: plainHash,
+                        cipherHash: cipherHash,
                         rootHash: rootHash
                     )
                     captionString = ChunkCaption.encode(meta, kind: ChunkCaption.kindChunk)
@@ -290,9 +322,9 @@ enum UploadEngine {
                     let messageId = try await TelegramClient.shared.sendFile(
                         chatId: vault.channelID,
                         path: tmpURL.path(percentEncoded: false),
-                        kind: kind,
+                        kind: objectKey != nil ? .document : kind,
                         caption: captionString,
-                        thumbnailPath: uploadThumbnailPath,
+                        thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath,
                         onProgress: { p in
                             progressState.setFraction(item.index, min(max(0.0, p), 1.0))
                             report("Uploading chunks…", min(progressState.overall, 0.99))
@@ -306,9 +338,9 @@ enum UploadEngine {
                         id: UUID().uuidString,
                         objectID: objectID,
                         index: item.index,
-                        size: item.size,
+                        size: Int64(chunkDataToUpload.count),
                         plainHash: plainHash,
-                        cipherHash: nil,
+                        cipherHash: cipherHash,
                         state: "uploaded",
                         messageID: messageId,
                         fileUniqueID: nil,
