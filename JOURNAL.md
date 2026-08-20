@@ -2,9 +2,55 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Player click fixes from Claude/Qwen consultation.
+> 2026-08-20 (evening) — Trash-restore bug + file1.txt test artifact.
 
 ---
+
+## 2026-08-20 (evening) — Trash-restore bug + file1.txt test artifact
+
+Two user-reported issues: (1) files moved to Trash came back after relaunching
+the app, (2) a mystery `file1.txt` appeared in the vault.
+
+### Trash-restore root cause
+- `bulkTrash()` / `bulkRestore()` (App/AppState.swift:1506-1610) only flipped
+  the LOCAL `trashed` flag via `updateObject`. The chunk captions in the channel
+  are immutable and still carried `trashed:false` from upload time.
+- `VaultRepair.run()` runs at EVERY launch (App/AppState.swift:743) and
+  re-adopts `trashed` from the caption — `existing.trashed != trashed` →
+  overwrite (Storage/VaultRepair.swift:120-125). So the next launch silently
+  restored every trashed file, then the heal republished a checkpoint with
+  `trashed:false`, losing the trash state for good.
+- Rename/favorite already solved this exact problem by rewriting captions via
+  `syncObjectMetadataToTelegram` (App/AppState.swift:1732-1737) →
+  `BackupSync.editAndMirror`. Trash/restore just never called it.
+- **Fix**: `bulkTrash`, `bulkRestore` and all four undo/redo closures now fetch
+  the updated object and call `syncObjectMetadataToTelegram` after each
+  `updateObject` — captions carry `trashed:true/false` and VaultRepair sees no
+  discrepancy at the next launch. (Explicit `self.` needed in undo/redo
+  closures — implicit capture is an error there.)
+- Commit: `ea2b65e`.
+
+### file1.txt root cause & cleanup
+- The object `obj-backup-1` / `file1.txt` (100 B) is a FIXTURE of the unit test
+  `replaceCatalogCreatesBackupSnapshot` (xCloudTests.swift:1887-1946), which
+  writes it into the REAL Debug DB (tests share the live DB by design).
+- On the earlier run when that test FAILED mid-way (the "20 columns but 21
+  values" schema bug, fixed in `4da98b9`), the row stayed in `objects`; the
+  app running alongside published a delta containing it to the channel. Even
+  after the test passed later (its own `deleteVaultAndData` cleanup runs), the
+  LWW merge in `CatalogSnapshot.upload()` (Storage/CatalogSnapshot.swift:142)
+  resurrected `obj-backup-1` from that stale channel delta on every merge.
+- **Cleanup**: killed the app, deleted the `objects`/`chunks`/backup rows, then
+  republished a fresh checkpoint via the hidden debug hook
+  `Cascade --repair-catalog obj-backup-1` (App/AppState.swift:373) — its
+  `baseMessageID = newest channel ID` makes restore skip every older delta, so
+  the stale delta can't resurrect the fixture again. Verified: after the full
+  test suite + app relaunch, `objects`/`chunks` contain 0 rows for
+  `obj-backup-1` (the inert `objects_backup` row is expected test residue).
+
+### Verification
+- Full suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch,
+  0 failures). Debug app relaunched.
 
 ## 2026-08-20 (evening) — Player click fixes from Claude/Qwen consultation
 

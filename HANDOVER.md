@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (afternoon): Real Audio Artwork Extraction, Mini Player Teardown on Delete/Trash & 3-Button Audio Player completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (evening): Trash-restore bug fixed, test artifact file1.txt removed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2692,12 +2692,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
   **Exception:** the current worktree session builds into
   `~/Library/Developer/Xcode/DerivedData/xCloud-wt` (its own folder — see §2). Don't
   mix: build each checkout into its own folder and launch the right binary.
-- **The app's REAL database** is `~/Library/Application Support/xCloud/xcloud.sqlite`
-  (the app is unsandboxed). The container paths
-  (`~/Library/Containers/com.nemesys.xcloud.xCloud/...`) and
-  `~/Library/Application Support/xCloud/xcloud.sqlite.bak-*` are STALE — don't query
-  them for live debugging (migrations only to v10 there). `sqlite3` reads work fine
-  while the app runs (WAL).
+- **The app's REAL database** is `~/Library/Application Support/Cascade/xcloud.sqlite`
+  (the app is unsandboxed; dev data dir is `Cascade`, prod is `Cascade-Prod`).
+  `~/Library/Application Support/Cascade/Cascade.sqlite` is a STALE leftover from an
+  older DB name, and `~/Library/Application Support/xCloud/` is the pre-rename data
+  dir — don't query either for live debugging. `sqlite3` reads work fine while the
+  app runs (WAL).
 - **Media pages aggregate across the cloud** — the Photos/Videos/Audio root views
   show every file of that type from ALL folders and NEVER render plain folders;
   only albums/playlists appear as collections. Do not "helpfully" add folder tiles
@@ -2810,3 +2810,9 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Harness "plain buttons dead" is partly a CGEvent coordinate/timing artifact — glass config alone isn't the mini cause (harness row D/F matched the real bar and still failed in-app).
     - If mini player is still dead after verification, remaining ranked fixes (both consultants): drop the sibling `.contentShape(Rectangle())`+`.onTapGesture` layer / move it to `.simultaneousGesture`, replace the nested `.glassEffect(.regular, in: .capsule)` container with `GlassEffectContainer`, and restructure the ZStack+Spacer wrapper to `.overlay(alignment: .bottom)`.
     - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures). Commit: `5f98797`.
+
+119. **Trash-restore-on-relaunch FIXED + `file1.txt` test artifact removed (2026-08-20 — COMMITTED)** (`App/AppState.swift`, live Debug DB)
+    - **Trash bug**: files moved to Trash reappeared after relaunch. `bulkTrash`/`bulkRestore` (+undo/redo) only flipped the local `trashed` flag; chunk captions in the channel are immutable and still said `trashed:false`. `VaultRepair.run()` runs at every launch (App/AppState.swift:743) and re-adopts `trashed` from the caption (Storage/VaultRepair.swift:120-125) — silently restoring files, then the heal republished a checkpoint with `trashed:false`. **Fix**: trash/restore now call `syncObjectMetadataToTelegram` after each `updateObject` (same pattern as rename/favorite, App/AppState.swift:1732-1737), rewriting captions via `BackupSync.editAndMirror` so VaultRepair sees no discrepancy. Commit: `ea2b65e`.
+    - **file1.txt**: a fixture of unit test `replaceCatalogCreatesBackupSnapshot` (xCloudTests.swift:1887) written into the REAL Debug DB. A mid-test failure in an earlier run (fixed in `4da98b9`) left the row in `objects`; the running app published a delta containing it to the channel, and the LWW merge (`CatalogSnapshot.upload`) kept resurrecting it. Removed the rows and republished a fresh checkpoint via the `--repair-catalog` debug hook (masks all older deltas via `baseMessageID`). Verified gone after full test suite + relaunch.
+    - **Lesson (gotcha)**: VaultRepair rebuilds `trashed` from immutable captions — ANY local-only flag change (trash/restore/favorite/rename) must rewrite the captions or the next launch reverts it. Tests polluting the real DB can leak into the channel via deltas — use `--repair-catalog` to republish an authoritative checkpoint.
+    - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched.
