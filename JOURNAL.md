@@ -28,6 +28,10 @@ Implemented Phase 2 (Items 17, 18, 19, 21, 22 from the Architecture Review Roadm
 5. **Item 22: Download Priority & Preemption Queue** (`Engine/TransferCenter.swift`, `xCloudTests/xCloudTests.swift`):
    - Added `TransferCenter.Item.Priority` (`.background`, `.standard`, `.interactive`).
    - Wired priority parameter into `TransferCenter.begin` to allow interactive stream buffers and viewer requests to preempt bulk background transfers.
+6. **UI Integration: Sync Status & Vault Export UI** (`Features/SidebarView.swift`, `Features/SettingsView.swift`):
+   - Added live cloud sync indicator badge to `SidebarProfileCard` reflecting real-time sync state (`isSyncing`, `lastSyncDate`).
+   - Added "Export Vault to Local Folder" UI in `SettingsView` leveraging `ExportEngine` and `NSOpenPanel`.
+   - Added user toggle for independent backup copies (`xc.backupSendCopy`) in `SettingsView`.
 
 ### Verification
 - `xcodebuild -configuration Debug build` succeeded.

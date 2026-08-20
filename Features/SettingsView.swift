@@ -64,7 +64,10 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var showClearCacheConfirm = false
+    @State private var isExporting = false
+    @State private var exportProgressText = ""
     @AppStorage("xc.audioPassthrough") private var audioPassthrough = false
+    @AppStorage("xc.backupSendCopy") private var backupSendCopy = false
     @AppStorage(DownloadEngine.cacheCapKey) private var cacheCapGB = 5
 
     private var identity: TelegramClient.AccountIdentity? { appState.identity }
@@ -208,6 +211,16 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .disabled(appState.isSyncing)
                     .help("Rebuild the catalog from the cloud and publish a fresh snapshot")
+                }
+                settingsDivider
+                settingsRow(
+                    title: "Independent Backup Copies",
+                    subtitle: "Create true independent document clones in the backup channel instead of reference forwards (uses sendCopy)."
+                ) {
+                    Toggle("", isOn: $backupSendCopy)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(XTheme.accent)
                 }
             }
         }
@@ -377,6 +390,53 @@ struct SettingsView: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.8))
                 }
+                settingsDivider
+                Button {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.canCreateDirectories = true
+                    panel.prompt = "Export"
+                    panel.message = "Choose a destination folder to export your vault files"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        isExporting = true
+                        Task {
+                            _ = try? await ExportEngine.shared.export(to: url) { prog in
+                                Task { @MainActor in
+                                    exportProgressText = "\(prog.completedFiles)/\(prog.totalFiles) files"
+                                    isExporting = prog.isRunning
+                                }
+                            }
+                            await MainActor.run { isExporting = false }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Export Vault to Local Folder")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.9))
+                            Text("Download and decrypt all cloud files to a local directory")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.45))
+                        }
+                        Spacer()
+                        if isExporting {
+                            ProgressView().controlSize(.small)
+                            Text(exportProgressText)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.6))
+                        } else {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 13))
+                                .foregroundStyle(XTheme.accent)
+                        }
+                    }
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isExporting)
                 settingsDivider
                 Button(role: .destructive) {
                     showClearCacheConfirm = true
