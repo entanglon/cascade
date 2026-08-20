@@ -5,6 +5,7 @@ import os
 enum TelegramError: Swift.Error, Sendable {
     case notInitialized
     case joinFailed(String)
+    case timedOut
 }
 
 enum TelegramAuthStep: String, Sendable {
@@ -378,19 +379,68 @@ final class TelegramClient {
     }
 
     /// Fetches message either from local TDLib cache or directly from Telegram server if not cached.
+    /// Races a TDLibKit async call against a deadline. TDLibKit's response
+    /// matching can silently drop a response when TDLib answers instantly from
+    /// its local cache (message/file database enabled): the receive thread hands
+    /// the JSON to the manager's query queue, which looks up the pending
+    /// completion by @extra — if that dispatch races the client's own registration
+    /// the continuation is never resumed and the caller parks forever. The timeout
+    /// turns the stall into a throwable error so the caller can retry with a fresh
+    /// @extra (a later attempt almost always lands).
+    private func withResponseTimeout<T: Sendable>(
+        _ seconds: Double,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TelegramError.timedOut
+            }
+            do {
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            } catch {
+                group.cancelAll()
+                throw error
+            }
+        }
+    }
+
     func getOrFetchMessage(chatId: Int64, messageId: Int64) async throws -> Message {
         guard let client else { throw TelegramError.notInitialized }
-        if let msg = try? await client.getMessage(chatId: chatId, messageId: messageId) {
-            return msg
-        }
-        if let res = try? await client.getMessages(chatId: chatId, messageIds: [messageId]),
-           let msgs = res.messages, let first = msgs.compactMap({ $0 }).first {
-            return first
-        }
-        // Force TDLib to sync recent channel history from server
-        _ = try? await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false)
-        if let msg = try? await client.getMessage(chatId: chatId, messageId: messageId) {
-            return msg
+        for attempt in 1...3 {
+            do {
+                let msg = try await withResponseTimeout(15) {
+                    try await client.getMessage(chatId: chatId, messageId: messageId)
+                }
+                return msg
+            } catch {
+                print("Cascade getOrFetchMessage msg \(messageId): attempt \(attempt) failed: \(error)")
+            }
+            do {
+                let res = try await withResponseTimeout(15) {
+                    try await client.getMessages(chatId: chatId, messageIds: [messageId])
+                }
+                if let msgs = res.messages, let first = msgs.compactMap({ $0 }).first {
+                    return first
+                }
+            } catch {
+                print("Cascade getOrFetchMessage msg \(messageId): attempt \(attempt) getMessages failed: \(error)")
+            }
+            do {
+                // Force TDLib to sync recent channel history from server
+                _ = try await withResponseTimeout(15) {
+                    try await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false)
+                }
+                let msg = try await withResponseTimeout(15) {
+                    try await client.getMessage(chatId: chatId, messageId: messageId)
+                }
+                return msg
+            } catch {
+                print("Cascade getOrFetchMessage msg \(messageId): attempt \(attempt) history+retry failed: \(error)")
+            }
         }
         throw DownloadError.fileNotFound
     }
@@ -567,6 +617,27 @@ final class TelegramClient {
 
         if let onProgress {
             syncLock { fileDownloadProgressHandlers[file.id] = onProgress }
+        }
+
+        // Fast path: TDLib already has the file locally (previous session's
+        // download cache). Skipping the downloadFile round-trip entirely —
+        // when TDLib returns an already-completed file, it answers the request
+        // synchronously WITHOUT emitting an updateFile event, and TDLibKit's
+        // async response matching can drop that response, leaving the caller
+        // parked forever (the watchdog below never covers this because the
+        // continuation is only registered after the downloadFile call).
+        let cached = file.local.path
+        if !cached.isEmpty, FileManager.default.fileExists(atPath: cached) {
+            onProgress?(1.0)
+            if onProgress != nil {
+                syncLock { fileDownloadProgressHandlers.removeValue(forKey: file.id) }
+            }
+            let dest = destination.path(percentEncoded: false)
+            if FileManager.default.fileExists(atPath: dest) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: cached), to: destination)
+            return
         }
 
         let updated = try await client?.downloadFile(

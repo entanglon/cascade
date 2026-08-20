@@ -987,12 +987,22 @@ actor DatabaseManager {
             try db.execute(sql: "DROP TABLE IF EXISTS chunks_backup")
             try db.execute(sql: "CREATE TABLE chunks_backup AS SELECT * FROM chunks WHERE 0")
             try db.execute(sql: "INSERT INTO chunks_backup SELECT * FROM chunks")
+            // FK safety: a chunk whose object row is missing (orphan — the object was
+            // deleted from the catalog but its size-0 folder-linkage chunk rows still
+            // float in channel deltas) would violate chunks.objectID → objects.id and
+            // roll back the ENTIRE replace, silently leaving the DB empty. Orphan
+            // chunks are dead data, so drop them instead of failing.
+            let objectIDs = Set(objects.map(\.id))
+            let validChunks = chunks.filter { objectIDs.contains($0.objectID) }
+            if validChunks.count != chunks.count {
+                print("Cascade replaceCatalog: dropping \(chunks.count - validChunks.count) orphan chunk(s) referencing deleted objects")
+            }
             _ = try ChunkRecord.deleteAll(db)
             _ = try ObjectRecord.deleteAll(db)
             for object in objects {
                 try object.save(db)
             }
-            for chunk in chunks {
+            for chunk in validChunks {
                 try chunk.save(db)
             }
         }

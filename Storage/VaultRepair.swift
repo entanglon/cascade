@@ -16,6 +16,7 @@ enum VaultRepair {
 
         // 1. Fetch channel messages from Telegram
         let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        print("Cascade VaultRepair.run: channel \(vault.channelID) returned \(messages.count) messages")
         logger.info("Repair scan: channel \(vault.channelID, privacy: .public) returned \(messages.count, privacy: .public) messages")
         // TEMP DIAGNOSTIC: enumerate the real channel contents so we can compare
         // against the local catalog and find which message IDs fail to resolve.

@@ -447,10 +447,19 @@ enum CatalogSnapshot {
         if !((try? await DatabaseManager.shared.allObjects()) ?? []).isEmpty { return false }
 
         let channel = await fetchChannelState(chatId: vault.channelID)
-        guard channel.checkpoint != nil || !channel.deltas.isEmpty else { return false }
+        print("Cascade restore: channel checkpoint=\(channel.checkpoint != nil) deltas=\(channel.deltas.count)")
+        guard channel.checkpoint != nil || !channel.deltas.isEmpty else {
+            print("Cascade restore: no decodable channel state — falling through to VaultRepair")
+            return false
+        }
         let merged = mergedChannelState(channel, vaultID: vault.id)
-        try? await DatabaseManager.shared.replaceCatalog(objects: merged.objects, chunks: merged.chunks)
-        print("Cascade snapshot restored: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
-        return true
+        do {
+            try await DatabaseManager.shared.replaceCatalog(objects: merged.objects, chunks: merged.chunks)
+            print("Cascade snapshot restored: \(merged.objects.count) objects, \(merged.chunks.count) chunks")
+            return true
+        } catch {
+            print("Cascade snapshot restore FAILED: \(error.localizedDescription)")
+            return false
+        }
     }
 }

@@ -7,6 +7,9 @@ struct CascadeApp: App {
     @State private var appState = AppState()
 
     init() {
+        // Line-buffer stdout so `print` diagnostics survive redirection to a
+        // file (launch via `> log 2>&1` otherwise block-buffers and hides them).
+        setvbuf(stdout, nil, _IOLBF, 0)
         // The fullscreen transition gate must observe every window's
         // transition from the very first frame (Swift globals are lazy —
         // touching it here guarantees registration before any window exists).
