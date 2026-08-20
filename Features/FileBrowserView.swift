@@ -1965,7 +1965,7 @@ struct FileItemContextMenu: View {
                 Label(actionTargets.count > 1 ? "Restore \(actionTargets.count) Items" : "Restore", systemImage: "arrow.uturn.backward")
             }
             Button(role: .destructive) {
-                for target in actionTargets { appState.deleteForever(target) }
+                appState.deleteForever(actionTargets)
             } label: {
                 Label(actionTargets.count > 1 ? "Delete \(actionTargets.count) Items Forever" : "Delete Forever", systemImage: "trash.slash")
             }
@@ -1976,7 +1976,7 @@ struct FileItemContextMenu: View {
                 Label(actionTargets.count > 1 ? "Move \(actionTargets.count) Items to Trash" : "Move to Trash", systemImage: "trash")
             }
             Button(role: .destructive) {
-                for target in actionTargets { appState.deleteForever(target) }
+                appState.deleteForever(actionTargets)
             } label: {
                 Label(actionTargets.count > 1 ? "Delete \(actionTargets.count) Items Permanently" : "Delete Permanently", systemImage: "trash.slash")
             }

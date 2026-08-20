@@ -2,9 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Fix: Prevent VaultRepair from overwriting newer local folder placement/metadata with stale Telegram captions.
+> 2026-08-20 (night) — Fix: Atomic batch deletion for Empty Trash and Delete Forever.
 
 ---
+
+## 2026-08-20 (night) — Fix: Atomic batch deletion for Empty Trash and Delete Forever
+
+### Root Cause
+`emptyTrash()`, `bulkDeleteForever()`, and context menus were iterating over trashed items in a non-async loop and firing individual un-awaited `deleteForever(file)` `Task` blocks concurrently. Each individual call was waiting for Telegram network message deletions (`deleteFromVaultAndBackup`) and share revocation before setting `markTombstone` and calling `loadFiles()`. This caused simultaneous TDLib request floods, race conditions between multiple `publishCheckpointFromLocal` calls, and left the items visible in Trash until all network calls finished.
+
+### What was changed
+1. **`Storage/DatabaseManager.swift`**:
+   - Added `markTombstones(ids: [String], at: Date)` to atomically mark tombstones and clear chunks for an entire batch of objects in a single SQLite write transaction.
+2. **`App/AppState.swift`**:
+   - Implemented `deleteForever(_ files: [ObjectRecord])` to batch all deletions:
+     - Optimistically marks tombstones and calls `loadFiles()` immediately so items vanish from Trash instantly.
+     - Performs batch share revocation and batch Telegram chunk message deletion (`stride(by: 100)`).
+     - Executes a single `VaultRepair.purgeOrphanedMessages()` and a single `publishCheckpointFromLocal(force: true)` for the entire batch.
+   - Updated `emptyTrash()` and `bulkDeleteForever()` to pass the array of targets directly to `deleteForever(targets)`.
+3. **`Features/FileBrowserView.swift`**:
+   - Updated context menu "Delete Forever" / "Delete Permanently" buttons to call `appState.deleteForever(actionTargets)` in batch.
+
+### Verification
+- Headless test execution: `xcodebuild -configuration Debug -scheme xCloud -destination 'platform=macOS' -only-testing:xCloudTests test`
+- **Result**: `** TEST SUCCEEDED **` (70 unit tests passed, 0 failures, 2.0s).
 
 ## 2026-08-20 (night) — Fix: Prevent VaultRepair from overwriting newer local folder placement/metadata with stale Telegram captions
 

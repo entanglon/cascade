@@ -1138,14 +1138,21 @@ actor DatabaseManager {
     }
 
     func markTombstone(id: String, at: Date = Date()) throws {
+        try markTombstones(ids: [id], at: at)
+    }
+
+    func markTombstones(ids: [String], at: Date = Date()) throws {
+        guard !ids.isEmpty else { return }
         try write { db in
-            _ = try ChunkRecord.filter(Column("objectID") == id).deleteAll(db)
-            if var obj = try ObjectRecord.fetchOne(db, id: id) {
-                obj.tombstoneAt = at
-                obj.modifiedAt = at
-                obj.trashed = true
-                obj.isFavorite = false
-                try obj.save(db)
+            for id in ids {
+                _ = try ChunkRecord.filter(Column("objectID") == id).deleteAll(db)
+                if var obj = try ObjectRecord.fetchOne(db, id: id) {
+                    obj.tombstoneAt = at
+                    obj.modifiedAt = at
+                    obj.trashed = true
+                    obj.isFavorite = false
+                    try obj.save(db)
+                }
             }
         }
     }

@@ -1672,11 +1672,8 @@ final class AppState {
     func bulkDeleteForever() {
         let ids = selectedFiles
         selectedFiles.removeAll()
-        for id in ids {
-            if let file = files.first(where: { $0.id == id }) {
-                deleteForever(file)
-            }
-        }
+        let targets = files.filter { ids.contains($0.id) }
+        deleteForever(targets)
     }
 
     @MainActor
@@ -2373,7 +2370,18 @@ final class AppState {
     @MainActor
     func emptyTrash() {
         let trashed = files.filter { $0.trashed }
-        for file in trashed {
+        deleteForever(trashed)
+    }
+
+    @MainActor
+    func deleteForever(_ file: ObjectRecord) {
+        deleteForever([file])
+    }
+
+    @MainActor
+    func deleteForever(_ files: [ObjectRecord]) {
+        guard !files.isEmpty else { return }
+        for file in files {
             if AudioPlayerEngine.shared.currentTrack?.id == file.id {
                 AudioPlayerEngine.shared.stop()
             }
@@ -2381,75 +2389,53 @@ final class AppState {
                 theaterFile = nil
             }
         }
-        Task {
-            for file in trashed {
-                deleteForever(file)
-            }
-            await VaultRepair.purgeOrphanedMessages()
-        }
-    }
 
-    @MainActor
-    func deleteForever(_ file: ObjectRecord) {
-        if AudioPlayerEngine.shared.currentTrack?.id == file.id {
-            AudioPlayerEngine.shared.stop()
-        }
-        if theaterFile?.id == file.id {
-            theaterFile = nil
-        }
         Task {
-            let all = (try? await DatabaseManager.shared.allObjects()) ?? []
-            var ids = [file.id]
-            var stack = [file.id]
+            let all = (try? await DatabaseManager.shared.allObjects()) ?? self.files
+            var allIDs: [String] = []
+            var stack = files.map(\.id)
+            var seen = Set<String>()
             while let id = stack.popLast() {
+                guard seen.insert(id).inserted else { continue }
+                allIDs.append(id)
                 for child in all where child.parentID == id {
-                    ids.append(child.id)
                     stack.append(child.id)
                 }
             }
 
-            // Share links die with the file: revoke every outgoing share of these
-            // objects — delete the share channel (the link's payload) and mark the
-            // record revoked so the expiry cleanup doesn't double-handle. The link
-            // stops working the moment the file is gone.
-            await revokeShares(for: ids)
-
-            if let vault = try? await DatabaseManager.shared.firstVault() {
-                var allMsgIDs: [Int64] = []
-                for id in ids {
-                    let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
-                    allMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))
-                }
-                // Safety: never delete a channel message that ANOTHER object's chunk
-                // still references. A phantom duplicate (VaultRepair fabricating the
-                // sender's id from a forwarded share caption) shares the real file's
-                // message — deleting it here would break the surviving file.
-                let allChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
-                let deleteIDs = allMsgIDs.filter { mid in
-                    !allChunks.contains { $0.messageID == mid && !ids.contains($0.objectID) }
-                }
-                // Deletes from the vault channel AND the backup channel's forwarded
-                // copies — permanent deletion means gone from both mirrors.
-                await BackupSync.deleteFromVaultAndBackup(messageIDs: deleteIDs)
-            }
-
-            for id in ids {
-                try? await DatabaseManager.shared.markTombstone(id: id)
+            // 1. Optimistically mark tombstones in SQLite and update UI immediately
+            let now = Date()
+            try? await DatabaseManager.shared.markTombstones(ids: allIDs, at: now)
+            for id in allIDs {
                 if let url = UploadEngine.thumbnailURL(for: id) {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
 
-            selectedFiles.subtract(ids)
-            if let cur = currentFolderID, ids.contains(cur) { currentFolderID = nil }
+            self.selectedFiles.subtract(allIDs)
+            if let cur = self.currentFolderID, allIDs.contains(cur) { self.currentFolderID = nil }
             await self.loadFiles()
+
+            // 2. Share links die with the file: revoke every outgoing share of these objects
+            await self.revokeShares(for: allIDs)
+
+            // 3. Batch delete channel messages from vault and backup mirrors
+            if let vault = try? await DatabaseManager.shared.firstVault() {
+                var allMsgIDs: [Int64] = []
+                for id in allIDs {
+                    let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
+                    allMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))
+                }
+                let allChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+                let deleteIDs = allMsgIDs.filter { mid in
+                    !allChunks.contains { $0.messageID == mid && !allIDs.contains($0.objectID) }
+                }
+                await BackupSync.deleteFromVaultAndBackup(messageIDs: deleteIDs)
+            }
+
+            // 4. Purge orphans and publish checkpoint once for the entire batch
             await VaultRepair.purgeOrphanedMessages()
-            // Publish the post-deletion catalog as a fresh checkpoint (no reconcile,
-            // which would merge the deleted records back in from the channel's older
-            // checkpoint). Without this, the next refresh's upload() reconciles the
-            // channel state — which still lists the deleted object — and the file
-            // silently resurrects. Uses force: true because the user intentionally
-            // deleted these files — even if the catalog is now empty, that's correct.
+
             let remainingFiles = ((try? await DatabaseManager.shared.allObjects()) ?? [])
                 .filter { !$0.isFolder && $0.tombstoneAt == nil }.count
             print("Cascade deleteForever: publishing checkpoint with \(remainingFiles) remaining file(s)")
