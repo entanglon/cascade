@@ -2553,7 +2553,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **REVERTED at user request**: the first attempt also extended step 6 (last-resort thumbnail-only download) to audio. User rejected it — quietly downloading every audio file just to rebuild a preview could pull hundreds of GB on a large library. Audio stays excluded from step 6; previews must come from Telegram's attached thumbnail or the local cache. Re-uploading the test files is acceptable.
     - **Guard test added**: `uploadThumbnailJPEGIsGeneratedAndReturnedForAttachment` — synthesizes a PNG, runs `UploadEngine.generateThumbnails`, asserts the `<id>-up.jpg` exists and is ≤320px (TDLib inputThumbnail limit).
     - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
-      Commit: `84194cb` (upload attach + audio recovery v1), followed by `TBD2` (revert audio step-6 + guard test).
+      Commit: `84194cb` (upload attach + audio recovery v1), followed by `6f17351` (revert audio step-6 + guard test).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

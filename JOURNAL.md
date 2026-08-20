@@ -25,7 +25,7 @@ User reported: uploaded audio files show thumbnails, but after "Clear Cache" the
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched.
 
-Commit: `TBD2` — `Restore upload thumbnail attachment; drop audio thumbnail re-download (keep photos-only) + guard test`.
+Commit: `6f17351` — `Restore upload thumbnail attachment; drop audio thumbnail re-download (keep photos-only) + guard test`.
 
 ---
 
