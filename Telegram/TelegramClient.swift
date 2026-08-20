@@ -413,7 +413,9 @@ final class TelegramClient {
         for attempt in 1...3 {
             do {
                 let msg = try await withResponseTimeout(15) {
-                    try await client.getMessage(chatId: chatId, messageId: messageId)
+                    try await self.withFloodWait {
+                        try await client.getMessage(chatId: chatId, messageId: messageId)
+                    }
                 }
                 return msg
             } catch {
@@ -421,7 +423,9 @@ final class TelegramClient {
             }
             do {
                 let res = try await withResponseTimeout(15) {
-                    try await client.getMessages(chatId: chatId, messageIds: [messageId])
+                    try await self.withFloodWait {
+                        try await client.getMessages(chatId: chatId, messageIds: [messageId])
+                    }
                 }
                 if let msgs = res.messages, let first = msgs.compactMap({ $0 }).first {
                     return first
@@ -432,10 +436,14 @@ final class TelegramClient {
             do {
                 // Force TDLib to sync recent channel history from server
                 _ = try await withResponseTimeout(15) {
-                    try await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false)
+                    try await self.withFloodWait {
+                        try await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false)
+                    }
                 }
                 let msg = try await withResponseTimeout(15) {
-                    try await client.getMessage(chatId: chatId, messageId: messageId)
+                    try await self.withFloodWait {
+                        try await client.getMessage(chatId: chatId, messageId: messageId)
+                    }
                 }
                 return msg
             } catch {
@@ -789,15 +797,18 @@ final class TelegramClient {
 
     func createVaultChannel(title: String) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
-        let chat = try await client.createNewSupergroupChat(
-            description: "Cascade storage",
-            forImport: false,
-            isChannel: true,
-            isForum: false,
-            location: nil as ChatLocation?,
-            messageAutoDeleteTime: 0,
-            title: title
-        )
+        await enforceChannelCreationCooldown()
+        let chat = try await withFloodWait {
+            try await client.createNewSupergroupChat(
+                description: "Cascade storage",
+                forImport: false,
+                isChannel: true,
+                isForum: false,
+                location: nil as ChatLocation?,
+                messageAutoDeleteTime: 0,
+                title: title
+            )
+        }
         return chat.id
     }
 
@@ -809,7 +820,9 @@ final class TelegramClient {
     func archiveVaultChannel(chatId: Int64) async {
         guard let client else { return }
         do {
-            try await client.addChatToList(chatId: chatId, chatList: .chatListArchive)
+            try await withFloodWait {
+                try await client.addChatToList(chatId: chatId, chatList: .chatListArchive)
+            }
             let muted = ChatNotificationSettings(
                 disableMentionNotifications: true,
                 disablePinnedMessageNotifications: true,
@@ -829,10 +842,12 @@ final class TelegramClient {
                 useDefaultSound: false,
                 useDefaultStorySound: false
             )
-            try await client.setChatNotificationSettings(
-                chatId: chatId,
-                notificationSettings: muted
-            )
+            try await withFloodWait {
+                try await client.setChatNotificationSettings(
+                    chatId: chatId,
+                    notificationSettings: muted
+                )
+            }
             logger.info("Vault channel \(chatId) archived and muted")
         } catch {
             logger.info("Vault channel archive failed: \(error.localizedDescription)")
@@ -847,12 +862,14 @@ final class TelegramClient {
         guard NSClassFromString("XCTestCase") == nil else { return }
         guard let url = ChannelAvatar.makeJPEG(label: label, hue: hue) else { return }
         do {
-            try await client.setChatPhoto(
-                chatId: chatId,
-                photo: .inputChatPhotoStatic(
-                    InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: url.path)))
+            try await withFloodWait {
+                try await client.setChatPhoto(
+                    chatId: chatId,
+                    photo: .inputChatPhotoStatic(
+                        InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: url.path)))
+                    )
                 )
-            )
+            }
             logger.info("Channel photo set for \(chatId) (\(label))")
         } catch {
             logger.info("Channel photo failed for \(chatId): \(error.localizedDescription)")
@@ -905,7 +922,9 @@ final class TelegramClient {
             return id
         }
         if let id = await findChannel(title: "Cascade Restore") {
-            try? await client?.setChatTitle(chatId: id, title: "Cascade Backup")
+            if let client {
+                try? await withFloodWait { try await client.setChatTitle(chatId: id, title: "Cascade Backup") }
+            }
             return id
         }
         return nil
@@ -1167,7 +1186,9 @@ final class TelegramClient {
             )
         }
 
-        return try await resolveConfirmedMessageID(message)
+        let confirmedID = try await resolveConfirmedMessageID(message)
+        invalidateChannelScanCache(chatId: chatId)
+        return confirmedID
     }
 
     /// Resolves a message to its final, server-confirmed id. TDLib hands back a
@@ -1210,26 +1231,71 @@ final class TelegramClient {
 
     // MARK: - Channel maintenance
 
-    func allChannelMessages(chatId: Int64) async -> [Message] {
+    /// Session cache of full channel scans, keyed by chat id. Startup consumers
+    /// (pruneOldSnapshots, fetchChannelState, VaultRepair) share ONE scan instead
+    /// of each paging the whole channel. Invalidated by any write to that chat so
+    /// a later scan always sees new messages.
+    private static let scanCacheLock = NSLock()
+    nonisolated(unsafe) private static var channelScanCache: [Int64: [Message]] = [:]
+
+    private static func withScanCache<T>(_ work: () -> T) -> T {
+        scanCacheLock.lock()
+        defer { scanCacheLock.unlock() }
+        return work()
+    }
+
+    /// Pre-populates the session scan cache for a channel (the single scan all
+    /// startup consumers then share). Returns the cached message list.
+    @discardableResult
+    func prewarmChannelScan(chatId: Int64) async -> [Message] {
+        let messages = await fetchAllChannelMessages(chatId: chatId)
+        Self.withScanCache {
+            Self.channelScanCache[chatId] = messages
+        }
+        return messages
+    }
+
+    private func invalidateChannelScanCache(chatId: Int64) {
+        Self.withScanCache {
+            Self.channelScanCache.removeValue(forKey: chatId)
+        }
+    }
+
+    func allChannelMessages(chatId: Int64, usingCache: Bool = false) async -> [Message] {
+        if usingCache {
+            if let cached = Self.withScanCache({ Self.channelScanCache[chatId] }) {
+                return cached
+            }
+        }
+        return await fetchAllChannelMessages(chatId: chatId)
+    }
+
+    private func fetchAllChannelMessages(chatId: Int64) async -> [Message] {
         guard let client else { return [] }
         var result: [Message] = []
         var from: Int64 = 0
         var page = 0
         while page < 2000 {
             page += 1
+            // 200ms inter-page delay keeps sustained reads well under Telegram's
+            // flood limits (a 10k-message scan pages at ~5 req/s instead of a
+            // 30-40 req/s burst).
+            if page > 1 { try? await Task.sleep(nanoseconds: 200_000_000) }
             // TDLib may return FEWER than the limit even when older messages exist
             // ("the number of returned messages is chosen by TDLib"), so we must not
             // stop on a short page — keep paging until no strictly-older messages
             // come back. A negative offset on later pages asks for messages preceding
             // the last one we received.
             let offset = page == 1 ? 0 : -1
-            guard let history = try? await client.getChatHistory(
-                chatId: chatId,
-                fromMessageId: from,
-                limit: 100,
-                offset: offset,
-                onlyLocal: false
-            ), let msgs = history.messages, !msgs.isEmpty else { break }
+            guard let history = try? await withFloodWait({
+                try await client.getChatHistory(
+                    chatId: chatId,
+                    fromMessageId: from,
+                    limit: 100,
+                    offset: offset,
+                    onlyLocal: false
+                )
+            }), let msgs = history.messages, !msgs.isEmpty else { break }
 
             // Dedup in case a page overlaps the previous one.
             let minSeen = result.last?.id ?? Int64.max
@@ -1243,26 +1309,32 @@ final class TelegramClient {
         return result
     }
 
-    func allChannelMessageIDs(chatId: Int64) async -> [Int64] {
-        let msgs = await allChannelMessages(chatId: chatId)
+    func allChannelMessageIDs(chatId: Int64, usingCache: Bool = false) async -> [Int64] {
+        let msgs = await allChannelMessages(chatId: chatId, usingCache: usingCache)
         return msgs.map(\.id)
     }
 
     func deleteMessages(chatId: Int64, messageIds: [Int64]) async throws {
         guard let client else { throw TelegramError.notInitialized }
-        try await client.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: true)
+        try await withFloodWait {
+            try await client.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: true)
+        }
+        invalidateChannelScanCache(chatId: chatId)
     }
 
-    func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async throws {
+func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async throws {
         guard let client else { throw TelegramError.notInitialized }
         let formattedText = FormattedText(entities: [], text: caption)
-        try await client.editMessageCaption(
-            caption: formattedText,
-            chatId: chatId,
-            messageId: messageId,
-            replyMarkup: nil,
-            showCaptionAboveMedia: false
-        )
+        try await withFloodWait {
+            try await client.editMessageCaption(
+                caption: formattedText,
+                chatId: chatId,
+                messageId: messageId,
+                replyMarkup: nil,
+                showCaptionAboveMedia: false
+            )
+        }
+        invalidateChannelScanCache(chatId: chatId)
     }
 
     func sendMetadataMessage(chatId: Int64, text: String) async throws -> Int64? {
@@ -1272,44 +1344,80 @@ final class TelegramClient {
             linkPreviewOptions: nil,
             text: FormattedText(entities: [], text: text)
         ))
-        let msg = try await client.sendMessage(
-            chatId: chatId,
-            inputMessageContent: content,
-            options: MessageSendOptions(
-                allowPaidBroadcast: false,
-                disableNotification: true,
-                effectId: 0,
-                fromBackground: false,
-                onlyPreview: false,
-                paidMessageStarCount: 0,
-                protectContent: true,
-                schedulingState: nil as MessageSchedulingState?,
-                sendingId: 0,
-                suggestedPostInfo: nil as InputSuggestedPostInfo?,
-                updateOrderOfInstalledStickerSets: false
-            ),
-            replyMarkup: nil as ReplyMarkup?,
-            replyTo: nil as InputMessageReplyTo?,
-            topicId: nil as MessageTopic?
-        )
+        let msg = try await withFloodWait {
+            try await client.sendMessage(
+                chatId: chatId,
+                inputMessageContent: content,
+                options: MessageSendOptions(
+                    allowPaidBroadcast: false,
+                    disableNotification: true,
+                    effectId: 0,
+                    fromBackground: false,
+                    onlyPreview: false,
+                    paidMessageStarCount: 0,
+                    protectContent: true,
+                    schedulingState: nil as MessageSchedulingState?,
+                    sendingId: 0,
+                    suggestedPostInfo: nil as InputSuggestedPostInfo?,
+                    updateOrderOfInstalledStickerSets: false
+                ),
+                replyMarkup: nil as ReplyMarkup?,
+                replyTo: nil as InputMessageReplyTo?,
+                topicId: nil as MessageTopic?
+            )
+        }
+        invalidateChannelScanCache(chatId: chatId)
         return msg.id
     }
 
     // MARK: - Cloud sharing (channels)
 
+    /// Enforces a 3s gap between channel creations so a share-pool init burst
+    /// (vault + backup + 5 share channels in quick succession) never fires rapid
+    /// createNewSupergroupChat + config calls at Telegram.
+    private static let channelCooldownLock = NSLock()
+    nonisolated(unsafe) private static var lastChannelCreatedAt: Foundation.Date?
+
+    private static func withCooldownLock<T>(_ work: () -> T) -> T {
+        channelCooldownLock.lock()
+        defer { channelCooldownLock.unlock() }
+        return work()
+    }
+
+    private func enforceChannelCreationCooldown() async {
+        let now = Foundation.Date()
+        let wait: TimeInterval = Self.withCooldownLock {
+            let wait: TimeInterval
+            if let last = Self.lastChannelCreatedAt {
+                wait = max(0, 3 - now.timeIntervalSince(last))
+            } else {
+                wait = 0
+            }
+            Self.lastChannelCreatedAt = now.addingTimeInterval(max(0, wait))
+            return wait
+        }
+        if wait > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+        }
+    }
+
     /// Creates a private channel (joinable only via its invite link) that carries
     /// one shared file, and returns its chat id.
     func createShareChannel(title: String) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
-        let chat = try await client.createNewSupergroupChat(
-            description: nil,
-            forImport: false,
-            isChannel: true,
-            isForum: false,
-            location: nil as ChatLocation?,
-            messageAutoDeleteTime: 0,
-            title: title
-        )
+        await enforceChannelCreationCooldown()
+        let chat = try await withFloodWait {
+            try await client.createNewSupergroupChat(
+                description: nil,
+                forImport: false,
+                isChannel: true,
+                isForum: false,
+                location: nil as ChatLocation?,
+                messageAutoDeleteTime: 0,
+                title: title
+            )
+        }
+        invalidateChannelScanCache(chatId: chat.id)
         return chat.id
     }
 
@@ -1433,8 +1541,11 @@ final class TelegramClient {
     func messagesByIds(chatId: Int64, messageIds: [Int64]) async throws -> [(messageId: Int64, caption: String?)] {
         guard let client else { throw TelegramError.notInitialized }
         var result: [(messageId: Int64, caption: String?)] = []
-        for id in messageIds {
-            let message = try await client.getMessage(chatId: chatId, messageId: id)
+        for (index, id) in messageIds.enumerated() {
+            if index > 0 { try? await Task.sleep(nanoseconds: 200_000_000) }
+            let message = try await withFloodWait {
+                try await client.getMessage(chatId: chatId, messageId: id)
+            }
             result.append((message.id, messageCaption(message)))
         }
         return result
@@ -1519,31 +1630,35 @@ final class TelegramClient {
     /// failed. Not Found." — the sender had persisted TDLib local ids.)
     func forwardMessage(chatId: Int64, fromChatId: Int64, messageId: Int64) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
-        let result = try await client.forwardMessages(
-            chatId: chatId,
-            fromChatId: fromChatId,
-            messageIds: [messageId],
-            options: MessageSendOptions(
-                allowPaidBroadcast: false,
-                disableNotification: true,
-                effectId: 0,
-                fromBackground: false,
-                onlyPreview: false,
-                paidMessageStarCount: 0,
-                protectContent: true,
-                schedulingState: nil as MessageSchedulingState?,
-                sendingId: 0,
-                suggestedPostInfo: nil as InputSuggestedPostInfo?,
-                updateOrderOfInstalledStickerSets: false
-            ),
-            removeCaption: false,
-            sendCopy: false,
-            topicId: nil as MessageTopic?
-        )
+        let result = try await withFloodWait {
+            try await client.forwardMessages(
+                chatId: chatId,
+                fromChatId: fromChatId,
+                messageIds: [messageId],
+                options: MessageSendOptions(
+                    allowPaidBroadcast: false,
+                    disableNotification: true,
+                    effectId: 0,
+                    fromBackground: false,
+                    onlyPreview: false,
+                    paidMessageStarCount: 0,
+                    protectContent: true,
+                    schedulingState: nil as MessageSchedulingState?,
+                    sendingId: 0,
+                    suggestedPostInfo: nil as InputSuggestedPostInfo?,
+                    updateOrderOfInstalledStickerSets: false
+                ),
+                removeCaption: false,
+                sendCopy: false,
+                topicId: nil as MessageTopic?
+            )
+        }
         guard let message = result.messages?.first else {
             throw TelegramError.joinFailed("Forward returned no message")
         }
-        return try await resolveConfirmedMessageID(message)
+        let confirmedID = try await resolveConfirmedMessageID(message)
+        invalidateChannelScanCache(chatId: chatId)
+        return confirmedID
     }
 
     func leaveChat(chatId: Int64) async throws {

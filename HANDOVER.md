@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (evening): Claude architecture review received + verified against the code (item 118). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (evening): Telegram API safety hardening: universal flood-wait, scan caching, pacing (item 120). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2908,3 +2908,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **file1.txt**: a fixture of unit test `replaceCatalogCreatesBackupSnapshot` (xCloudTests.swift:1887) written into the REAL Debug DB. A mid-test failure in an earlier run (fixed in `4da98b9`) left the row in `objects`; the running app published a delta containing it to the channel, and the LWW merge (`CatalogSnapshot.upload`) kept resurrecting it. Removed the rows and republished a fresh checkpoint via the `--repair-catalog` debug hook (masks all older deltas via `baseMessageID`). Verified gone after full test suite + relaunch.
     - **Lesson (gotcha)**: VaultRepair rebuilds `trashed` from immutable captions — ANY local-only flag change (trash/restore/favorite/rename) must rewrite the captions or the next launch reverts it. Tests polluting the real DB can leak into the channel via deltas — use `--repair-catalog` to republish an authoritative checkpoint.
     - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched.
+
+120. **Telegram API safety hardening — Phase 0 Anti-Ban (2026-08-20 — COMMITTED)** (`Telegram/TelegramClient.swift`, `App/AppState.swift`, `Engine/BackupSync.swift`, `Engine/ShareEngine.swift`, `Storage/CatalogSnapshot.swift`, `Storage/VaultRepair.swift`)
+    - **Why**: An API safety audit revealed that 31 of 33 TDLib call sites were unprotected from FLOOD_WAIT, startup triggered 3 redundant full-channel scans, and backup/share forwards lacked inter-request pacing.
+    - **Universal flood-wait**: Wrapped `deleteMessages`, `editMessageCaption`, `sendMetadataMessage`, `createShareChannel`, `createVaultChannel`, `archiveVaultChannel`, `setChannelPhoto`, `getOrFetchMessage` (all 3 fallback steps), `messagesByIds`, and `forwardMessage` inside `withFloodWait`.
+    - **Session channel scan cache**: Added `prewarmChannelScan(chatId:)` and `allChannelMessages(chatId:usingCache: true)`. Prewarmed at `completePostAuthSetup()`: `pruneOldSnapshots`, `restore()` / `fetchChannelState()`, and `VaultRepair.run()` now share a single startup scan (3 scans → 1). Writes automatically invalidate the cache for that chat ID.
+    - **Inter-request pacing & rate limits**:
+      - `BackupDrainer`: 500ms sleep between forwards.
+      - `ShareEngine`: 300ms sleep between chunk forwards.
+      - `TelegramClient.fetchAllChannelMessages`: 200ms inter-page delay during history scans.
+      - `TelegramClient.messagesByIds`: 200ms delay between message lookups.
+      - `TelegramClient.enforceChannelCreationCooldown()`: 3s lock-backed cooldown between channel creations.
+    - Full test suite green: **TEST SUCCEEDED** (62: 59 unit + 3 UI/launch, 0 failures).

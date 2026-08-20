@@ -273,7 +273,7 @@ enum CatalogSnapshot {
     /// (BackupSync mirrors every vault message there and never prunes it).
     private static func fetchChannelState(chatId: Int64, allowBackupFallback: Bool = false) async -> ChannelState {
         var state = ChannelState()
-        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId)
+        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId, usingCache: true)
         let checkpoints = messages
             .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
             .sorted { $0.id < $1.id }
@@ -295,7 +295,7 @@ enum CatalogSnapshot {
         if state.checkpoint == nil, allowBackupFallback,
            let vault = try? await DatabaseManager.shared.firstVault(),
            let backupID = vault.backupChannelID {
-            let backupMessages = await TelegramClient.shared.allChannelMessages(chatId: backupID)
+            let backupMessages = await TelegramClient.shared.allChannelMessages(chatId: backupID, usingCache: true)
             let backupCheckpoints = backupMessages
                 .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
                 .sorted { $0.id < $1.id }
@@ -473,7 +473,7 @@ enum CatalogSnapshot {
     /// BACKUP CHANNEL COPIES ARE NEVER DELETED — the backup channel maintains an immutable
     /// historical record of all snapshots, deltas, and vault keys for disaster recovery.
     static func pruneOldSnapshots(chatId: Int64, keepingNewerThan anchor: Int64? = nil) async {
-        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId)
+        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId, usingCache: true)
         let snapshots = messages.filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
         let toDelete: [Int64]
         if let anchor {

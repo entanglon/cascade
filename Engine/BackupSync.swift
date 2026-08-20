@@ -149,6 +149,10 @@ actor BackupDrainer {
                 )
                 forwarded += 1
                 BackupSync.mirrorLog("forwarded \(pending.messageID) → backup message \(newID)")
+                // 500ms between forwards: a full 50-message drain takes ~25s
+                // instead of <10s — still fast, but stays well clear of
+                // sustained FLOOD_WAIT on write operations.
+                try? await Task.sleep(nanoseconds: 500_000_000)
             } catch {
                 // Non-flood failure: back off and retry on the next drain trigger
                 // (next upload, next launch). Flood waits are already handled inside

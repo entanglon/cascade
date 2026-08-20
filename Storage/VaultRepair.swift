@@ -15,7 +15,7 @@ enum VaultRepair {
         var changed = false
 
         // 1. Fetch channel messages from Telegram
-        let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
         print("Cascade VaultRepair.run: channel \(vault.channelID) returned \(messages.count) messages")
         logger.info("Repair scan: channel \(vault.channelID, privacy: .public) returned \(messages.count, privacy: .public) messages")
         // TEMP DIAGNOSTIC: enumerate the real channel contents so we can compare
@@ -353,7 +353,7 @@ enum VaultRepair {
     /// the real channel state can be compared against the local catalog.
     static func dumpChannelToFile() async {
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
-        let msgs = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        let msgs = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
         var out = "channel messages: \(msgs.count)\n"
         for m in msgs {
             let text = caption(of: m) ?? ""
@@ -394,7 +394,7 @@ enum VaultRepair {
     static func legacyFolderPurgeCandidates(chatId: Int64) async -> ([Int64], [String]) {
         let local = (try? await DatabaseManager.shared.allObjects()) ?? []
         let parentIDs = Set(local.compactMap(\.parentID))
-        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId)
+        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId, usingCache: true)
         var messageIDs: [Int64] = []
         var objectIDs: [String] = []
         for msg in messages {
@@ -427,7 +427,7 @@ enum VaultRepair {
         guard TelegramClient.shared.isAuthorized else { return 0 }
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return 0 }
 
-        let allMessages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+        let allMessages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
         guard !allMessages.isEmpty else { return 0 }
 
         let validChunks = (try? await DatabaseManager.shared.allChunks()) ?? []

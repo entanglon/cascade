@@ -414,8 +414,13 @@ enum ShareEngine {
         do {
             for (object, chunks) in perFileChunks {
                 var fileIDs: [Int64] = []
-                for chunk in chunks {
+                for (chunkIndex, chunk) in chunks.enumerated() {
                     guard let messageID = chunk.messageID else { continue }
+                    // 300ms between forwards keeps multi-chunk / multi-file shares
+                    // under Telegram's write flood limits.
+                    if chunkIndex > 0 || forwardedPerFile.count > 0 {
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                    }
                     let mid = try await TelegramClient.shared.forwardMessage(
                         chatId: channelID,
                         fromChatId: vault.channelID,

@@ -742,6 +742,10 @@ final class AppState {
             // Keep the channel tidy: snapshots older than the newest are stale now
             // that upload() replaces the previous snapshot automatically — this
             // cleans up any accumulation from before that behavior existed.
+            // ONE shared channel scan for the whole startup sequence: prewarm the
+            // session cache here, and pruneOldSnapshots / restore / VaultRepair all
+            // reuse it instead of each paging the full channel (3 scans → 1).
+            await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
             await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
             // iCloud-style instant restore: if this device has no catalog yet, fetch
             // the newest `xcloud:dbsnapshot:v1:` document and rebuild the DB from it
@@ -1065,7 +1069,7 @@ final class AppState {
             await self.loadFiles()
             alertMessage = "Sync complete — catalog restored instantly from the cloud snapshot."
         } else {
-            let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID)
+            let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
             let v1Captions = messages.filter { ChunkCaption.isChunkCaption(VaultRepair.caption(of: $0) ?? "") }.count
             let changed = await VaultRepair.run()
             let after = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
@@ -2423,7 +2427,7 @@ final class AppState {
             try? await DatabaseManager.shared.deleteShareChannel(id: state.id)
         }
 
-        let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: vault.channelID)
+        let ids = await TelegramClient.shared.allChannelMessageIDs(chatId: vault.channelID, usingCache: true)
         await BackupSync.deleteFromVaultAndBackup(messageIDs: ids)
         // The backup mirror is wiped entirely too — a reset means a clean slate.
         await BackupSync.wipeBackupChannel()

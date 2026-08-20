@@ -2,9 +2,32 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Claude architecture review received + verified.
+> 2026-08-20 (evening) — Telegram API safety hardening: flood-wait coverage, session scan cache, inter-request pacing.
 
 ---
+
+## 2026-08-20 (evening) — Telegram API safety hardening: flood-wait coverage, session scan cache, inter-request pacing
+
+Implemented Phase 0 Anti-Ban safety hardening across TDLib call sites:
+
+### What was changed
+1. **Universal `withFloodWait` on TDLib operations** (`Telegram/TelegramClient.swift`):
+   - Wrapped `deleteMessages`, `editMessageCaption`, `sendMetadataMessage`, `createShareChannel`, `createVaultChannel`, `archiveVaultChannel`, `setChannelPhoto`, `getOrFetchMessage` (all 3 fallback steps), `messagesByIds`, and `forwardMessage` inside `withFloodWait`.
+   - Thread-safe `scanCacheLock` and `channelCooldownLock` with `Foundation.Date` and nonisolated helpers for Swift 6 safety.
+2. **Session Channel Scan Cache** (`Telegram/TelegramClient.swift`, `App/AppState.swift`, `Storage/CatalogSnapshot.swift`, `Storage/VaultRepair.swift`):
+   - Added `prewarmChannelScan(chatId:)` and `allChannelMessages(chatId:usingCache: true)`.
+   - Prewarmed at `AppState.completePostAuthSetup()`: `pruneOldSnapshots`, `restore()` / `fetchChannelState()`, and `VaultRepair.run()` now share a single startup scan rather than 3 separate full-channel paginations (300+ requests reduced to 1 scan).
+   - Write invalidation (`invalidateChannelScanCache(chatId:)`): any message send, delete, caption edit, or forward automatically invalidates the cache for that chat ID.
+3. **Inter-request pacing & rate limits** (`Engine/BackupSync.swift`, `Engine/ShareEngine.swift`, `Telegram/TelegramClient.swift`):
+   - `BackupDrainer`: 500ms `Task.sleep` between forwards to prevent burst flooding during queue drains.
+   - `ShareEngine`: 300ms `Task.sleep` between chunk forwards and `forwardMessage` wrapped in `withFloodWait`.
+   - `TelegramClient.fetchAllChannelMessages`: 200ms inter-page delay during history paging.
+   - `TelegramClient.messagesByIds`: 200ms delay between message fetches.
+   - `TelegramClient.enforceChannelCreationCooldown()`: 3s lock-backed cooldown between channel creations.
+
+### Verification
+- `xcodebuild -configuration Debug build` succeeded.
+- `xcodebuild -configuration Debug test`: **TEST SUCCEEDED** (62 tests: 59 unit + 3 UI/launch, 0 failures).
 
 ## 2026-08-20 (evening) — Claude architecture review received + verified
 
