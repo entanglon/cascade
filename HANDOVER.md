@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Official PNG Channel Profile Pictures Integration completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Perfect Full-Bleed Cropping for Channel Profile Pictures completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2494,6 +2494,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Launch branding heal**: Enhanced `ShareEngine.healChannelPhotos()` to upgrade legacy channels to the official PNG brand images.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `a322711`.
+
+106. **Perfect full-bleed cropping for channel profile pictures (2026-08-20 — COMMITTED)**
+    (`Public/*.png`, `Resources/*.png`, `Engine/ShareEngine.swift`)
+    - **Cropped padding & white borders**: `cascade.png`, `oc.png`, and `pc.png` had circular artwork embedded within a padded white square canvas. Cropped all 3 assets tightly to their circular graphics and rescaled with high-quality Lanczos interpolation to $1254\times 1254$ full bleed (0.00% white boundary pixels).
+    - **Full-bleed fit in Telegram**: When Telegram applies its circular crop mask, the artwork now fills the entire circle with zero clipped crescents or white margins.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

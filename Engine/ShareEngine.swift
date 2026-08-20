@@ -818,7 +818,7 @@ enum ShareEngine {
     /// Runs at every launch after auth.
     static func healChannelPhotos(force: Bool = false) async {
         guard !underXCTest else { return }
-        let shouldForce = force || !UserDefaults.standard.bool(forKey: "xc_hasAppliedBrandedPNGPhotosV5")
+        let shouldForce = force || !UserDefaults.standard.bool(forKey: "xc_hasAppliedBrandedPNGPhotosV6")
         if let vault = try? await DatabaseManager.shared.firstVault() {
             let hasVaultPhoto = await TelegramClient.shared.hasChannelPhoto(chatId: vault.channelID)
             if shouldForce || !hasVaultPhoto {
@@ -852,7 +852,7 @@ enum ShareEngine {
                 await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "oc")
             }
         }
-        UserDefaults.standard.set(true, forKey: "xc_hasAppliedBrandedPNGPhotosV5")
+        UserDefaults.standard.set(true, forKey: "xc_hasAppliedBrandedPNGPhotosV6")
     }
 
     /// Idempotent launch heal: ensures every PRIVATE pool channel has the 24h

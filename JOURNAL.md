@@ -2,7 +2,21 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Official PNG channel profile pictures integration.
+> 2026-08-20 (morning) — Perfect full-bleed cropping for channel profile pictures.
+
+---
+
+## 2026-08-20 (morning) — Perfect full-bleed cropping for channel profile pictures
+
+Cropped `cascade.png`, `oc.png`, and `pc.png` so their circular artwork aligns edge-to-edge with full bleed, eliminating white borders/crescents when Telegram applies its circular crop mask.
+
+### Root cause & Solution
+- `cascade.png`, `oc.png`, and `pc.png` had circular badges centered on a square canvas with padding/white margins ($x \in [48, 1204], y \in [32, 1204]$), causing Telegram's circular crop to show uneven white borders.
+- Re-cropped and rendered all assets with subpixel Lanczos resampling to edge-to-edge $1254\times 1254$ full bleed (zero white boundary ring pixels).
+- Updated `healChannelPhotos` to force-reapply the fresh cropped avatars to live channels on launch.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 
