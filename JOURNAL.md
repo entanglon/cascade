@@ -26,6 +26,7 @@
 ### Verification
 - Headless test execution: `xcodebuild -configuration Debug -scheme xCloud -destination 'platform=macOS' -only-testing:xCloudTests test`
 - **Result**: `** TEST SUCCEEDED **` (70 unit tests passed, 0 failures, 2.0s).
+- Commit: `7ad25bf`.
 
 ## 2026-08-20 (night) — Fix: Prevent VaultRepair from overwriting newer local folder placement/metadata with stale Telegram captions
 
@@ -40,6 +41,7 @@ During startup post-auth setup, `VaultRepair.run()` scanned Telegram document me
 ### Verification
 - Headless test execution: `xcodebuild -configuration Debug -scheme xCloud -destination 'platform=macOS' -only-testing:xCloudTests test`
 - **Result**: `** TEST SUCCEEDED **` (70 unit tests passed, 0 failures, 2.0s).
+- Commit: `56a5e0f`.
 
 ## 2026-08-20 (night) — Phase 3 CI: GitHub Actions automated workflow for build and headless unit test execution
 
