@@ -1516,17 +1516,29 @@ final class AppState {
         Task {
             for id in ids {
                 try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
+                // Rewrite the chunk captions with trashed=true: VaultRepair rebuilds
+                // trashed from captions at every launch, so a stale caption would
+                // silently restore trashed files on the next launch.
+                if let updated = try? await DatabaseManager.shared.object(id) {
+                    syncObjectMetadataToTelegram(updated)
+                }
             }
             selectedFiles.removeAll()
             await self.loadFiles()
             registerUndo("Move \(ids.count) Items to Trash") {
                 for id in ids {
                     try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
+                    if let updated = try? await DatabaseManager.shared.object(id) {
+                        self.syncObjectMetadataToTelegram(updated)
+                    }
                 }
                 await self.loadFiles()
             } redo: {
                 for id in ids {
                     try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
+                    if let updated = try? await DatabaseManager.shared.object(id) {
+                        self.syncObjectMetadataToTelegram(updated)
+                    }
                 }
                 await self.loadFiles()
             }
@@ -1593,16 +1605,27 @@ final class AppState {
         Task {
             for id in ids {
                 try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
+                // Captions must carry trashed=false again or the next launch's
+                // VaultRepair would re-trash the restored files.
+                if let updated = try? await DatabaseManager.shared.object(id) {
+                    syncObjectMetadataToTelegram(updated)
+                }
             }
             await self.loadFiles()
             registerUndo("Restore \(ids.count) Items") {
                 for id in ids {
                     try? await DatabaseManager.shared.updateObject(id) { $0.trashed = true }
+                    if let updated = try? await DatabaseManager.shared.object(id) {
+                        self.syncObjectMetadataToTelegram(updated)
+                    }
                 }
                 await self.loadFiles()
             } redo: {
                 for id in ids {
                     try? await DatabaseManager.shared.updateObject(id) { $0.trashed = false }
+                    if let updated = try? await DatabaseManager.shared.object(id) {
+                        self.syncObjectMetadataToTelegram(updated)
+                    }
                 }
                 await self.loadFiles()
             }
