@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (afternoon): Audio Thumbnail Extraction, Telegram Attachment & Cache-Cleared Retrieval completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (afternoon): Pure-Swift Audio Artwork Parser, Default Artwork Generator & Smooth Streaming Loading States completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2530,6 +2530,13 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Cache clear resilience & streaming probe**: Added `generateAndSaveAudioThumbnail` in `ThumbnailService` and wired streaming probe/cache reload; audio thumbnails reload cleanly from Telegram or local stream even after cache clears.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `e542116`.
+
+111. **Pure-Swift audio artwork parser, default artwork generator & smooth streaming loading states (2026-08-20 — COMMITTED)**
+    (`Engine/AudioArtworkParser.swift`, `Engine/VideoFrameExtractor.swift`, `Engine/UploadEngine.swift`, `Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`)
+    - **Pure-Swift binary parser**: Added `AudioArtworkParser` for ID3v2 (v2.2, v2.3, v2.4 APIC/PIC frames), M4A/MP4 `covr` atoms, and FLAC `METADATA_BLOCK_PICTURE` blocks with 0ms overhead and zero external dependencies.
+    - **Default high-res audio artwork**: Added `AudioArtworkParser.defaultAudioArtwork` generating 640x640 vinyl disc art for audio files without embedded art.
+    - **Smooth zero-flash media loading**: Fixed `TheaterView` to present `contentView` immediately for video and audio (eliminating the flashing `downloadingView` "Preparing... 0%" card); added glass container with `"Connecting to stream…"` in `VideoPlaybackView` and spinner overlay in `TheaterAudioPlayerView`.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

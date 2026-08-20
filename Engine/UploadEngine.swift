@@ -520,7 +520,7 @@ enum UploadEngine {
               let dir = try? thumbnailsDirectory() else { return nil }
         var uploadPath: String? = nil
         // Single Vision pass at 2x; the JPEG is a cheap downscale of the same crop.
-        if let square = ThumbnailCrop.subjectSquare(source, target: 640) {
+        if let square = ThumbnailCrop.subjectSquare(source, target: 640) ?? ThumbnailCrop.aspectFit(source, maxDimension: 640) {
             if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: dir.appendingPathComponent("\(objectID).png"))

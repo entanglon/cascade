@@ -91,7 +91,7 @@ struct TheaterView: View {
                             detailsView
                         } else if let errorMessage {
                             errorView(errorMessage)
-                        } else if url != nil {
+                        } else if previewKind == .video || previewKind == .audio || url != nil {
                             contentView
                         } else {
                             downloadingView
@@ -1438,10 +1438,16 @@ struct TheaterAudioPlayerView: View {
                             ZStack {
                                 Circle()
                                     .fill(Color.black.opacity(0.001)) // glass renders over the backdrop
-                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 26, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .offset(x: isPlaying ? 0 : 2)
+                                if audioEngine.isLoading && isCurrent {
+                                    ProgressView()
+                                        .controlSize(.regular)
+                                        .tint(.white)
+                                } else {
+                                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                        .font(.system(size: 26, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .offset(x: isPlaying ? 0 : 2)
+                                }
                             }
                             .frame(width: 68, height: 68)
                             .contentShape(Circle())

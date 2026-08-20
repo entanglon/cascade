@@ -2,7 +2,32 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (afternoon) — Fix audio thumbnail extraction, Telegram attachment & cache-cleared retrieval.
+> 2026-08-20 (afternoon) — Pure-Swift audio artwork parser, default artwork generator & smooth streaming loading states.
+
+---
+
+## 2026-08-20 (afternoon) — Pure-Swift audio artwork parser, default artwork generator & smooth streaming loading states
+
+Implemented pure-Swift embedded album artwork parsing (MP3 ID3v2 APIC, M4A/MP4 covr, FLAC picture blocks), added high-res default audio artwork generation for plain audio files, and eliminated the flashing/frozen half-opened player glitch during media streaming.
+
+### Root cause & Solution
+1. **Audio Artwork Parsing & Fallback**:
+   - `VideoFrameExtractor`'s FFmpeg demuxer seeking loop was seeking to `targetTs = duration * 0.08` (e.g. 14s) which skipped past 1-frame cover art streams at timestamp 0, and some demuxers didn't populate `attached_pic` for M4A/FLAC/MP3 files.
+   - Files with no embedded cover art (e.g. voice memos) produced nil thumbnails and lacked Telegram-attached thumbnails.
+   - **Fix**:
+     - `Engine/AudioArtworkParser.swift`: Added zero-dependency pure-Swift binary parser for ID3v2 (v2.2, v2.3, v2.4 APIC/PIC frames), M4A/MP4 `covr` atoms, and FLAC `METADATA_BLOCK_PICTURE` blocks.
+     - Added `AudioArtworkParser.defaultAudioArtwork` generating a high-res 640x640 vinyl disc artwork for audio files without embedded art.
+     - `Engine/VideoFrameExtractor.swift`: Prioritizes `AudioArtworkParser` for local audio files and decodes static single-frame streams at timestamp 0 without seeking.
+2. **Smooth Streaming & Zero-Flash Player Loading**:
+   - In `Features/TheaterView.swift`, `body` had `else if url != nil { contentView } else { downloadingView }`. When media streaming began, `url` was briefly `nil` before `loadFile()` resolved, causing the `downloadingView` ("Preparing... 0%") card to flash open in the center before swapping to the player.
+   - In `Features/VideoPlaybackView.swift` and `TheaterAudioPlayerView`, connecting to the stream server lacked explicit glass loading feedback.
+   - **Fix**:
+     - `Features/TheaterView.swift`: Displays `contentView` immediately for `previewKind == .video || previewKind == .audio`.
+     - `Features/VideoPlaybackView.swift`: Polished `loadingView` with a glass container and `"Connecting to stream…"` indicator.
+     - `TheaterAudioPlayerView`: Added loading state in the play button and hero artwork disc overlay while `audioEngine.isLoading`.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 

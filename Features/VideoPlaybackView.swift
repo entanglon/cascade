@@ -112,10 +112,22 @@ struct VideoPlaybackView: View {
     }
 
     private var loadingView: some View {
-        ProgressView()
-            .progressViewStyle(.circular)
-            .controlSize(.large)
-            .tint(.white.opacity(0.7))
+        VStack(spacing: 14) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .controlSize(.large)
+                .tint(.white)
+            Text("Connecting to stream…")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 20)
+        .background(
+            .black.opacity(0.45),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

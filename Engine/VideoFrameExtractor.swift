@@ -74,12 +74,17 @@ enum VideoFrameExtractor {
     // MARK: - Pipeline
 
     private static func extract(url: URL) -> NSImage? {
-        // Local file OR the loopback stream server (never-downloaded videos):
-        // libavformat opens "http://127.0.0.1:.../stream/<id>" directly and seeks
-        // via byte-range requests — no whole-file download needed.
         let isRemote = url.scheme == "http" || url.scheme == "https"
         let path = isRemote ? url.absoluteString : url.path(percentEncoded: false)
         if !isRemote, !FileManager.default.fileExists(atPath: path) { return nil }
+
+        let ext = url.pathExtension.lowercased()
+        let isAudio = ["mp3", "m4a", "flac", "wav", "aac", "ogg", "wma", "aiff", "opus", "alac", "dsf", "ape"].contains(ext)
+
+        // 1. Pure-Swift embedded artwork parser for local audio files (0ms, no FFmpeg decode overhead)
+        if !isRemote, isAudio, let art = AudioArtworkParser.extractArtwork(from: url) {
+            return art
+        }
 
         var fmt: UnsafeMutablePointer<AVFormatContext>? = nil
         var options: OpaquePointer? = nil
@@ -93,13 +98,15 @@ enum VideoFrameExtractor {
         guard path.withCString({ avformat_open_input(&fmt, $0, nil, &options) }) >= 0,
               let fmtCtx = fmt else {
             logger.warning("thumbnail: cannot open \(url.lastPathComponent, privacy: .public)")
-            return nil
+            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
         }
         defer { avformat_close_input(&fmt) }
 
-        guard avformat_find_stream_info(fmtCtx, nil) >= 0 else { return nil }
+        guard avformat_find_stream_info(fmtCtx, nil) >= 0 else {
+            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+        }
 
-        // 1. Check for attached pictures across all streams (embedded album art in MP3, FLAC, M4A, OGG, etc.)
+        // 2. Check for attached pictures across all streams (embedded album art in MP3, FLAC, M4A, OGG, etc.)
         if let streams = fmtCtx.pointee.streams {
             for i in 0..<Int(fmtCtx.pointee.nb_streams) {
                 guard let st = streams[i] else { continue }
@@ -119,21 +126,32 @@ enum VideoFrameExtractor {
         let videoIdx = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0)
         guard videoIdx >= 0, let codec, let streams = fmtCtx.pointee.streams,
               let stream = streams[Int(videoIdx)], let codecpar = stream.pointee.codecpar else {
-            return nil
+            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
         }
 
         var dec: UnsafeMutablePointer<AVCodecContext>? = avcodec_alloc_context3(codec)
-        guard let decCtx = dec else { return nil }
+        guard let decCtx = dec else {
+            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+        }
         defer { avcodec_free_context(&dec) }
         guard avcodec_parameters_to_context(decCtx, codecpar) >= 0,
-              avcodec_open2(decCtx, codec, nil) >= 0 else { return nil }
+              avcodec_open2(decCtx, codec, nil) >= 0 else {
+            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
+        }
         // Best-effort timestamps become meaningful with the real timebase set.
         decCtx.pointee.pkt_timebase = stream.pointee.time_base
 
         let duration = mediaDuration(fmt: fmtCtx, stream: stream)
-        guard duration > 0 else {
-            logger.warning("thumbnail: no duration for \(url.lastPathComponent, privacy: .public)")
-            return nil
+        if duration <= 0.05 || isAudio {
+            // Single-frame cover art or very short stream: decode frame 0 without seeking
+            if let decoded = decodeFrame(at: 0, fmt: fmtCtx, dec: decCtx, streamIndex: Int32(videoIdx), stream: stream) {
+                var frame: UnsafeMutablePointer<AVFrame>? = decoded
+                defer { av_frame_free(&frame) }
+                if let rgba = convertToRGBA(frame: decoded) {
+                    return image(fromRGBA: rgba, rotationDegrees: displayRotation(frame: decoded))
+                }
+            }
+            return isAudio ? AudioArtworkParser.defaultAudioArtwork(title: url.deletingPathExtension().lastPathComponent) : nil
         }
 
         // Sample each candidate; keep the frame with the most visual content.
