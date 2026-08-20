@@ -2543,6 +2543,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Teardown on delete/trash**: `bulkTrash()`, `emptyTrash()`, `deleteForever(_:)`, and `loadFiles()` automatically stop `AudioPlayerEngine` and dismiss `theaterFile` if the deleted track was active or floating in the mini-player.
     - **3 Iconic Buttons & Direct Hit-Testing**: Removed side chevron arrows and the overlapping `HStack` container from `TheaterAudioPlayerView`, simplifying to 3 iconic transport buttons and fixing play/pause mouse clickability.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `4e3d8b0`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

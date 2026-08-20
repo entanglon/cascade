@@ -31,6 +31,8 @@ Fixed audio album art extraction to extract ONLY real embedded artwork via a lay
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `4e3d8b0` — `Fix real audio artwork extraction, mini player teardown on delete, and streamline 3 iconic audio buttons`.
+
 ---
 
 ## 2026-08-20 (afternoon) — Pure-Swift audio artwork parser, default artwork generator & smooth streaming loading states
