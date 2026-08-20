@@ -72,13 +72,7 @@ enum VaultManager {
         // Keep the channel out of the Telegram chat list: archive + mute it so
         // nobody (the user included) opens it and messes up the storage messages.
         Task { await TelegramClient.shared.archiveVaultChannel(chatId: chatID) }
-        // Brand the channel: profile photo only when it has none yet (adopted
-        // vaults keep whatever photo they already have).
-        Task {
-            if !(await TelegramClient.shared.hasChannelPhoto(chatId: chatID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: chatID, pngNamed: "cascade")
-            }
-        }
+        // Photo is set by ShareEngine.healChannelPhotos() at every launch.
         // Same-device fresh container: if the channel's v2 key record carries a seal
         // made with THIS device's Keychain master key, adopt the real vault key
         // silently — private files work again without re-entering the PIN.
@@ -287,11 +281,7 @@ enum VaultManager {
             return nil
         }
         await TelegramClient.shared.archiveVaultChannel(chatId: backupID)
-        Task {
-            if !(await TelegramClient.shared.hasChannelPhoto(chatId: backupID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: backupID, pngNamed: "backup")
-            }
-        }
+        // Photo is set by ShareEngine.healChannelPhotos() at every launch.
         var updated = vault
         updated.backupChannelID = backupID
         try? await DatabaseManager.shared.save(updated)

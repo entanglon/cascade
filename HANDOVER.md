@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (night): Atomic batch deletion for Empty Trash completed (item 126). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-21 (night): Full xCloud → Cascade rename, backup drainer race fix, permanent delete channel cleanup fix (items 127–131). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -31,7 +31,7 @@ Telegram account into a private cloud drive:
   self-healing thumbnail pipeline (incl. videos).
 
 Stack: Swift 6.3, SwiftUI + AppKit, macOS 26.5 deployment target (all PQ color spaces
-available). Uses `Logger(subsystem: "com.xcloud.app", ...)` for app logging.
+available). Uses `Logger(subsystem: "com.cascade.app", ...)` for app logging.
 
 ---
 
@@ -45,22 +45,22 @@ gone, and every agent fix looked invisible. The main folder was missing whole fi
 (BookReaderView, MediaGridShared, Photos/VideosGridView, BookLoader, FaceEngine,
 ShareEngine) and its pbxproj didn't reference them. FIXED by rsync'ing worktree → main.
 
-**RULE: after ANY agent edit, sync the changed files worktree → main, and build the
-MAIN folder** (that is the build the user actually runs):
+**RULE: after ANY agent edit, build from the project root:**
 
 ```bash
-WT=/Users/zainulnazir/Projects/xCloud/.freebuff/worktrees/b32b5e13-4ff7-4e37-924e-76f15c4c2d98
-MAIN=~/Projects/xCloud
-rsync -a --exclude '.git' --exclude '.freebuff' --exclude 'xcuserdata' --exclude 'DerivedData' \
-      --exclude '*.dmg' --exclude '*.profraw' --exclude '.swiftpm' "$WT/" "$MAIN/"
-cd "$MAIN" && xcodebuild -project xCloud.xcodeproj -scheme xCloud -configuration Debug \
-  -derivedDataPath ~/Library/Developer/Xcode/DerivedData/xCloud-cdpcjcegyfsbheeztqhmjnnukgcv build
+cd ~/Projects/Cascade
+xcodebuild -project Cascade.xcodeproj -scheme Cascade build
 ```
 
-The user's Xcode / Dock launch uses the MAIN folder's DerivedData
-`xCloud-cdpcjcegyfsbheeztqhmjnnukgcv`. The worktree DerivedData `xCloud-wt` is only for
-agent-side typecheck/test runs. If you ever `open` an app binary for the user, open the
-MAIN folder's build, not the worktree's.
+To run tests:
+```bash
+xcodebuild test -project Cascade.xcodeproj -scheme Cascade -destination 'platform=macOS' \
+  -only-testing:CascadeTests
+```
+
+The user's Xcode / Dock launch uses DerivedData
+`Cascade-ezedzhfojrwwyhefeufajkbrtlll`. If you ever `open` an app binary for the user,
+open this DerivedData's build.
 
 **IMPORTANT — launching the app:** when the agent (`open ...` or direct binary) launches
 the app, the window often comes up invisible (ordered out; TCC/agent-context quirk on
@@ -157,7 +157,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     v22-forward-shares) — cloud-to-cloud sharing is **forward-based** (v2): the sender
     forwards the file's vault chunk messages into ONE reusable "xCloud Shares" channel
     (server-side copy, no re-upload, no size cap; channel archived+muted, tracked in
-    `share_state`); the link is an obfuscated `xcloud://share#...` blob carrying
+    `share_state`); the link is an obfuscated `cascade://share#...` blob carrying
     channel + invite + key + expiry (default 7 days) + the forwarded message IDs (`m`)
     and, for private files, the object key re-wrapped under a fresh share key (`w`).
     Re-sharing the same file reuses the live link (byte-identical stored `linkBlob`;
@@ -171,7 +171,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     channelID); recipient import (`importForwarded`) re-forwards the chunks into the
     vault and re-wraps the object key under their own master key. Legacy v1
     disposable-channel links still import (`importLegacy`); legacy share captions
-    (`xcloud:share:v1:`, `ChunkMeta`, no id) parse only via
+    (`cascade:share:v1:`, `ChunkMeta`, no id) parse only via
     `ShareEngine.parseChunkMeta`. Import errors are wrapped with real messages (no
     more bare `TDLibKit.Error error 1`). **Verified live (2026-08-16)**: first v2
     share created the reusable channel + forwarded chunks; the `xcloud://` self-open
@@ -524,7 +524,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       libs opened an HTTP byte-range server, seeked, and decoded 3840×2160 frames —
       variance 552.7 @ 60% (identical to the local-file result), scoring picks it over
       the black 8% opening. New debug hook: `--video-thumb <objectID>` runs the real
-      thumbnail-service path and writes `/tmp/xcloud-vidthumb-result.txt` (stdout is
+      thumbnail-service path and writes `/tmp/cascade-vidthumb-result.txt` (stdout is
       block-buffered in agent launches — results go to a file).
     - **Background playback gap**: videos play through `MPVVideoView` INSIDE the
       TheaterView; closing/minimizing the theater (`theaterFile = nil`) dismantles the
@@ -575,7 +575,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       DB (`/tmp/appdata-check/`) + channel deltas into a recovered catalog (18 files +
       3 folders, LWW-safe baseline = backup + Dolby only); new debug hook
       `--recover-upload <objectID|all>` re-uploads cached bytes with their ORIGINAL
-      object IDs/keys (resumable across runs, logs to `/tmp/xcloud-recover-progress.txt`).
+      object IDs/keys (resumable across runs, logs to `/tmp/cascade-recover-progress.txt`).
       Run completed: 15/18 files re-uploaded, fresh checkpoint published to the channel
       (18 files + 3 folders, 26 chunks). VERIFIED: channel dump shows the re-uploaded
       chunk documents; the newest snapshot `snapshot-53D9276F-...json` carries the full
@@ -591,7 +591,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       tool for any "files missing" report — check it BEFORE touching the DB.
 33. **Post-recovery state + open issues (2026-08-15, user: "the database is still not
     updated, the app isn't showing actually what's in the cloud").**
-    - **Ground truth verified**: main DB (`~/Library/Application Support/xCloud/xcloud.sqlite`,
+    - **Ground truth verified**: main DB (`~/Library/Application Support/Cascade/cascade.sqlite`,
       app is UNSANDBOXED — `ENABLE_APP_SANDBOX = NO`) = 18 files + 3 folders + 26 chunks,
       all `ready`, and chunk messageIDs match the published checkpoint
       (`snapshot-53D9276F-…json`, 26/26) exactly. The container DB
@@ -1018,7 +1018,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       `findBackupChannel` adopts a legacy "xCloud Restore" channel and renames it
       via `setChatTitle`.
     - Debug infrastructure: `BackupSync.mirrorLog` appends to
-      `/tmp/xcloud-backup.log` (the unified log is unreadable on this machine and
+      `/tmp/cascade-backup.log` (the unified log is unreadable on this machine and
       stdout is lost when launching via `open`); drainer logs each forward, failure,
       and per-drain summary. Drainer now caps at 50 messages per drain so a stuck
       TDLib request can't wedge the queue permanently.
@@ -1042,13 +1042,13 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Empty-catalog incident**: `sourceUnavailable` on share attempt because the
       local DB had 0 objects/0 chunks — the previous session's
       `CatalogSnapshot.restore()` never completed its write. Relaunch under a pty
-      (`script -q /tmp/xcloud-app.log <binary>` — stdout prints are block-buffered
+      (`script -q /tmp/cascade-app.log <binary>` — stdout prints are block-buffered
       when redirected to a plain file, invisible; the pty makes them line-buffered)
       → restore succeeded: "19 objects, 22 chunks", all chunk message IDs present.
       No re-upload was needed — the files were in the channel all along.
     - **Stale-binary incident**: an earlier "nothing happened" trace was the
       pre-rewrite binary still running (started 14:44; its log showed
-      `xcloud:share:v1:` captions + share-tmp uploads). Always relaunch on a fresh
+      `cascade:share:v1:` captions + share-tmp uploads). Always relaunch on a fresh
       build before judging behavior.
     - Deferred: real two-account E2E (user: "wait for the testing") + the
       protectContent **second hop** (recipient re-forwarding protected copies).
@@ -1062,7 +1062,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       same bundle id as the running dev app) plus long-gone DMG-check copies — the
       "two instances fight over the window" trap. Cleaned: stale paths unregistered,
       current build re-registered (`lsregister -f`). Verified via
-      `open xcloud://share#…` → running app receives the URL, self-opens (reveals +
+      `open cascade://share#…` → running app receives the URL, self-opens (reveals +
       flashes the file), window stays.
     - **Hardening**: URL delivery now `deminiaturize`s a minimized main window
       before ordering it front; zero-window recovery posts `recreateMainWindow`
@@ -1860,7 +1860,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
         launch; re-opening the same link re-presents instead of double-
         forwarding. New file added to the pbxproj (explicit Features group).
       - Security model confirmed in code: links are AES-GCM-obfuscated with a
-        RANDOM per-link key riding in the blob (`xcloud://share#key‖cipher`),
+        RANDOM per-link key riding in the blob (`cascade://share#key‖cipher`),
         no hardcoded key; private links embed a one-use invite (memberLimit 1)
         — the 7-day→1-day expiry is the share lifetime (recipient window +
         cleanup trigger), orthogonal to one-time use.
@@ -2850,7 +2850,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       captions are now `xcloud:{"kind":"chunk"|"object","v":1,...}` (id, name, size,
       mime, parentID, isPrivate, isFolder, trashed, isFavorite, index, totalChunks,
       wrappedKey, chunkSize, plainHash, rootHash). `encode` emits SORTED keys
-      (deterministic across processes). Legacy `xcloud:v1:` / `xcloud:share:v1:`
+      (deterministic across processes). Legacy `xcloud:v1:` / `cascade:share:v1:`
       captions are still parsed forever; writers are unified only. Legacy share
       captions (`ChunkMeta`, no id) parse via `ShareEngine.parseChunkMeta` only.
     - **v2 share link**: `xcloud://share?v=2&…&m=<comma msgIDs>&w=<wrapped>`;
@@ -2858,7 +2858,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       channel; `w` is the object key re-wrapped under a fresh share key, EMPTY for
       non-private files. `ShareLink.parse` accepts an empty `key` for v2 (only
       demands it when `w` is non-empty, or for v1). Transported obfuscated as
-      `xcloud://share#<blob>`; re-sharing a live share returns the IDENTICAL link.
+      `cascade://share#<blob>`; re-sharing a live share returns the IDENTICAL link.
     - **Shares are forward-based**: sender forwards each vault chunk message into
       the share channel (server-side copy, no re-upload, no size cap). The chunks
       stay the SENDER's vault ciphertext — the caption `wrappedKey` is useless on
@@ -2981,3 +2981,37 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Root Cause**: `emptyTrash()` and `bulkDeleteForever()` iterated over trashed files in a non-async loop, spawning separate un-awaited `deleteForever(file)` Tasks in parallel. Each Task was performing individual Telegram chunk deletions, individual share revocations, and individual checkpoint snapshot uploads before updating SQLite and reloading files. This caused TDLib network request floods, race conditions, and left items in Trash while network requests were pending.
     - **Fix**: Added `DatabaseManager.markTombstones(ids:at:)` for single-transaction SQLite tombstone writes and chunk deletions. Updated `AppState.deleteForever(_ files: [ObjectRecord])` to optimistically mark tombstones and reload files immediately (so items vanish from Trash instantly), followed by single-batch Telegram deletions (`stride(by: 100)`), single orphan scan, and single checkpoint snapshot publish for the whole batch.
     - Headless unit test suite green: **TEST SUCCEEDED** (70 unit tests passed, 0 failures). Commit: `7ad25bf`.
+
+127. **Full xCloud → Cascade Rename (2026-08-21 — COMMITTED)** (all Swift files, `project.pbxproj`, source folders, test folders)
+    - **Project file**: `xCloud.xcodeproj` → `Cascade.xcodeproj`, target `Cascade`, module `Cascade`.
+    - **Source folders**: `xCloud/` → `Cascade/`, `xCloudTests/` → `CascadeTests/`, `XCloudUITests/` → `CascadeUITests/`.
+    - **Module import**: `@testable import xCloud` → `@testable import Cascade`.
+    - **Caption prefixes**: `xcloud:` → `cascade:` (chunks, snapshots, deltas, vault keys, share captions).
+    - **MIME types**: `xcloud/folder` → `cascade/folder`, `xcloud/album-photo` → `cascade/album-photo`, etc.
+    - **Crypto salts**: `xcloud-slice-v1:` → `cascade-slice-v1:`, `xcloud-salt-v1` → `cascade-salt-v1`, `xcloud-recovery-v1` → `cascade-recovery-v1`.
+    - **URL scheme**: `cascade://share#...` → `cascade://share#...`.
+    - **Database filename**: `xcloud.sqlite` → `cascade.sqlite`.
+    - **Debug paths**: `/tmp/xcloud-*` → `/tmp/cascade-*`.
+    - **Data folder**: Already `Cascade` (from earlier rename).
+    - All legacy `xcloud:` backward-compat prefix constants, URL scheme fallbacks, and legacy test cases removed.
+    - Zero `xcloud` references remain in Swift source. Commits: `5525aeb`, `075c0fd`, `460562f`, `c38d7c7`.
+
+128. **Backup Drainer Race Condition Fix (2026-08-21 — COMMITTED)** (`Telegram/TelegramClient.swift`)
+    - **Root Cause**: `resolveConfirmedMessageID` had a TOCTOU race between checking `completedSends` (line 1339) and registering the continuation in `pendingSendContinuations` (line 1351). If `updateMessageSendSucceeded` arrived in that window, the result was stored in `completedSends` but the continuation was registered and never resolved — hanging the entire backup drainer (actor serialized, so all subsequent forwards blocked).
+    - **Fix**: Re-check `completedSends` inside the same `syncLock` that registers the continuation. If the update arrived, the continuation resolves immediately. Eliminates the race window.
+    - **Impact**: Backup drainer now reliably forwards all queued messages (chunks, thumbnails, checkpoints) without getting stuck.
+
+129. **Permanent Delete Channel Cleanup Fix (2026-08-21 — COMMITTED)** (`App/AppState.swift`)
+    - **Root Cause**: `deleteForever` called `markTombstones()` (which deletes chunk records from SQLite) BEFORE gathering Telegram message IDs via `chunks(for:)`. The chunk records were gone, so `allMsgIDs` was always empty, and `BackupSync.deleteFromVaultAndBackup` received an empty array — nothing was deleted from Telegram.
+    - **Secondary Bug**: `thumbMessageID` (encrypted thumbnail sidecar in Telegram) was never gathered for deletion — only chunk `messageID`s were collected.
+    - **Fix**: Gather all Telegram message IDs (chunks + thumbnail sidecars) BEFORE calling `markTombstones`. Filter out chunks shared with non-deleted objects. Pass the gathered IDs to `deleteFromVaultAndBackup` after tombstoning.
+    - **Impact**: Permanent delete now correctly removes files from both vault and backup channels, including thumbnail sidecars. Dbsnapshot is updated via `publishCheckpointFromLocal(force: true)` at the end.
+
+130. **Duplicate Channel Photo Update Fix (2026-08-21 — COMMITTED)** (`Storage/VaultManager.swift`)
+    - **Root Cause**: Both `ensureVault()` and `ensureBackupChannel()` fired fire-and-forget `Task { setChannelPhoto }` calls, and `ShareEngine.healChannelPhotos()` also set photos at every launch. Two independent paths setting the same photo concurrently caused duplicate "Channel photo updated" messages.
+    - **Fix**: Removed the `setChannelPhoto` calls from `ensureVault()` and `ensureBackupChannel()`. `healChannelPhotos()` is now the single source of truth for all channel photos.
+
+131. **Test Suite & Build Status (2026-08-21)**
+    - Build: **BUILD SUCCEEDED** with `xcodebuild -project Cascade.xcodeproj -scheme Cascade build`.
+    - Tests: **TEST SUCCEEDED** (all CascadeTests pass, 0 failures).
+    - All items 127–130 committed on `main`.

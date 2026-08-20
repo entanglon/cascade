@@ -1348,7 +1348,19 @@ final class TelegramClient {
 
         let finalId = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                syncLock { pendingSendContinuations[message.id] = continuation }
+                syncLock {
+                    // Re-check inside the same lock that registers the continuation
+                    // to close the race window where updateMessageSendSucceeded
+                    // arrives between our earlier completedSends check and here.
+                    if let cached = completedSends.removeValue(forKey: message.id) {
+                        switch cached {
+                        case .success(let id): continuation.resume(returning: id)
+                        case .failure(let err): continuation.resume(throwing: err)
+                        }
+                    } else {
+                        pendingSendContinuations[message.id] = continuation
+                    }
+                }
             }
         } onCancel: {
             // Abort immediately: if the message hasn't been confirmed yet, drop the

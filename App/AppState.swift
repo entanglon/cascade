@@ -2403,7 +2403,26 @@ final class AppState {
                 }
             }
 
-            // 1. Optimistically mark tombstones in SQLite and update UI immediately
+            // 1. Gather all Telegram message IDs BEFORE markTombstones deletes
+            //    chunk records from SQLite. Include both chunk messages and
+            //    encrypted thumbnail sidecar messages.
+            var channelMsgIDs: [Int64] = []
+            for id in allIDs {
+                if let obj = try? await DatabaseManager.shared.object(id) {
+                    if let thumbMsg = obj.thumbMessageID {
+                        channelMsgIDs.append(thumbMsg)
+                    }
+                }
+                let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
+                channelMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))
+            }
+            // Filter out chunks shared with objects we're NOT deleting
+            let survivingChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+            let safeMsgIDs = channelMsgIDs.filter { mid in
+                !survivingChunks.contains { $0.messageID == mid && !allIDs.contains($0.objectID) }
+            }
+
+            // 2. Optimistically mark tombstones in SQLite and update UI immediately
             let now = Date()
             try? await DatabaseManager.shared.markTombstones(ids: allIDs, at: now)
             for id in allIDs {
@@ -2416,24 +2435,13 @@ final class AppState {
             if let cur = self.currentFolderID, allIDs.contains(cur) { self.currentFolderID = nil }
             await self.loadFiles()
 
-            // 2. Share links die with the file: revoke every outgoing share of these objects
+            // 3. Share links die with the file: revoke every outgoing share of these objects
             await self.revokeShares(for: allIDs)
 
-            // 3. Batch delete channel messages from vault and backup mirrors
-            if let vault = try? await DatabaseManager.shared.firstVault() {
-                var allMsgIDs: [Int64] = []
-                for id in allIDs {
-                    let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
-                    allMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))
-                }
-                let allChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
-                let deleteIDs = allMsgIDs.filter { mid in
-                    !allChunks.contains { $0.messageID == mid && !allIDs.contains($0.objectID) }
-                }
-                await BackupSync.deleteFromVaultAndBackup(messageIDs: deleteIDs)
-            }
+            // 4. Batch delete channel messages from vault and backup mirrors
+            await BackupSync.deleteFromVaultAndBackup(messageIDs: safeMsgIDs)
 
-            // 4. Purge orphans and publish checkpoint once for the entire batch
+            // 5. Purge orphans and publish checkpoint once for the entire batch
             await VaultRepair.purgeOrphanedMessages()
 
             let remainingFiles = ((try? await DatabaseManager.shared.allObjects()) ?? [])
