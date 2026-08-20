@@ -77,8 +77,8 @@ enum VaultRepair {
                     break
                 }
 
-                // Ignore database snapshot messages
-                if let caption = captionText, caption.hasPrefix("xcloud:dbsnapshot:") {
+                // Ignore database snapshot and delta messages
+                if let caption = captionText, caption.hasPrefix("xcloud:dbsnapshot:") || caption.hasPrefix("xcloud:dbdelta:") {
                     continue
                 }
 

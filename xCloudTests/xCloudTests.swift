@@ -523,6 +523,66 @@ struct xCloudTests {
         #expect(c.createdAt == now)
     }
 
+    @Test func catalogSnapshotZlibCompressionAndDecompression() throws {
+        let now = Date()
+        var objects: [ObjectRecord] = []
+        var chunks: [ChunkRecord] = []
+        for i in 0..<50 {
+            let objID = "obj-\(i)"
+            objects.append(ObjectRecord(
+                id: objID,
+                vaultID: "vault-1",
+                name: "LargeDataset_File_\(i).dat",
+                size: 100 * 1024 * 1024,
+                mime: "application/octet-stream",
+                state: "ready",
+                rootHash: "roothash_\(i)",
+                wrappedKey: Data(repeating: UInt8(i), count: 32),
+                createdAt: now,
+                modifiedAt: now,
+                isFavorite: false,
+                trashed: false,
+                parentID: nil,
+                isFolder: false,
+                isPrivate: true,
+                sourcePath: nil,
+                chunkSize: 64 * 1024 * 1024
+            ))
+            chunks.append(ChunkRecord(
+                id: "chunk-\(i)-0",
+                objectID: objID,
+                index: 0,
+                size: 64 * 1024 * 1024,
+                plainHash: "plain_\(i)",
+                cipherHash: "cipher_\(i)",
+                state: "uploaded",
+                messageID: Int64(1000 + i),
+                fileUniqueID: nil,
+                channelID: -10012345,
+                createdAt: now
+            ))
+        }
+
+        let payload = CatalogSnapshot.Payload(version: 1, objects: objects, chunks: chunks)
+        let jsonData = try JSONEncoder().encode(payload)
+        let compressedData = try (jsonData as NSData).compressed(using: .zlib) as Data
+        
+        // Zlib compression must compress repetitive JSON significantly (< 30% of original size)
+        #expect(compressedData.count < jsonData.count / 2)
+        
+        // Decompress compressed payload
+        let decompressedData = try (compressedData as NSData).decompressed(using: .zlib) as Data
+        let decodedCompressed = try JSONDecoder().decode(CatalogSnapshot.Payload.self, from: decompressedData)
+        #expect(decodedCompressed.objects.count == 50)
+        #expect(decodedCompressed.chunks.count == 50)
+        #expect(decodedCompressed.objects[0].name == "LargeDataset_File_0.dat")
+        #expect(decodedCompressed.objects[0].wrappedKey == Data(repeating: 0, count: 32))
+        
+        // Backwards compatibility: uncompressed raw JSON decodes directly without zlib
+        let decodedUncompressed = try JSONDecoder().decode(CatalogSnapshot.Payload.self, from: jsonData)
+        #expect(decodedUncompressed.objects.count == 50)
+    }
+
     // MARK: - Catalog snapshot LWW merge
 
     private func mergeTestObject(

@@ -320,14 +320,22 @@ enum CatalogSnapshot {
 
     /// Downloads and decodes a checkpoint/delta document message. Returns nil on any
     /// failure — a corrupt or undecodable message is skipped, never fatal.
+    /// Transparently decompresses zlib-compressed payloads with fallback to raw JSON.
     private static func decodeMessagePayload(_ message: Message, chatId: Int64) async -> Payload? {
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("snap-fetch-\(UUID().uuidString).json")
+            .appendingPathComponent("snap-fetch-\(UUID().uuidString).bin")
         do {
             try await TelegramClient.shared.downloadMessageFile(messageId: message.id, chatId: chatId, to: tempURL)
-            let data = try Data(contentsOf: tempURL)
+            let rawData = try Data(contentsOf: tempURL)
             try? FileManager.default.removeItem(at: tempURL)
-            return try JSONDecoder().decode(Payload.self, from: data)
+            
+            let jsonData: Data
+            if let decompressed = try? (rawData as NSData).decompressed(using: .zlib) as Data {
+                jsonData = decompressed
+            } else {
+                jsonData = rawData
+            }
+            return try JSONDecoder().decode(Payload.self, from: jsonData)
         } catch {
             print("Cascade snapshot decode failed (msg \(message.id)): \(error.localizedDescription)")
             try? FileManager.default.removeItem(at: tempURL)
@@ -336,10 +344,11 @@ enum CatalogSnapshot {
     }
 
     private static func publishDocument(chatId: Int64, payload: Payload, caption: String, backupObjectID: String) async throws -> Int64 {
-        let data = try JSONEncoder().encode(payload)
+        let jsonData = try JSONEncoder().encode(payload)
+        let compressedData = (try? (jsonData as NSData).compressed(using: .zlib) as Data) ?? jsonData
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("snapshot-\(UUID().uuidString).json")
-        try data.write(to: tempURL)
+            .appendingPathComponent("snapshot-\(UUID().uuidString).bin")
+        try compressedData.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
         let messageID = try await TelegramClient.shared.sendFile(
             chatId: chatId,
@@ -404,12 +413,9 @@ enum CatalogSnapshot {
 
     // MARK: - Pruning
 
-    /// Deletes stale CHECKPOINT messages from the channel so it never accumulates
-    /// (deltas are never pruned — they are the durable change log). With
-    /// `keepingNewerThan` set, only messages OLDER than that id are removed (the
-    /// just-posted checkpoint replaces the previous one). Without it, everything
-    /// except the single newest checkpoint is removed — used at post-auth to clean
-    /// up any accumulation from older builds.
+    /// Deletes stale CHECKPOINT messages from the active vault channel so it never accumulates.
+    /// BACKUP CHANNEL COPIES ARE NEVER DELETED — the backup channel maintains an immutable
+    /// historical record of all snapshots, deltas, and vault keys for disaster recovery.
     static func pruneOldSnapshots(chatId: Int64, keepingNewerThan anchor: Int64? = nil) async {
         let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId)
         let snapshots = messages.filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
@@ -417,20 +423,16 @@ enum CatalogSnapshot {
         if let anchor {
             toDelete = snapshots.filter { $0.id < anchor }.map(\.id)
         } else {
-            // Keep only the single newest checkpoint.
+            // Keep only the single newest checkpoint in the active vault channel.
             let newestFirst = snapshots.sorted { $0.id > $1.id }
             toDelete = Array(newestFirst.dropFirst().map(\.id))
         }
         guard !toDelete.isEmpty else { return }
-        do {
-            // Old checkpoints are pruned from the main channel; their forwarded
-            // backup copies go too (the newest checkpoint's copy is forwarded last,
-            // leaving it as the single checkpoint in the backup channel).
-            await BackupSync.deleteFromVaultAndBackup(messageIDs: toDelete)
-            print("Cascade snapshot pruned \(toDelete.count) old checkpoint message(s)")
-        } catch {
-            print("Cascade snapshot prune failed: \(error.localizedDescription)")
+        for i in stride(from: 0, to: toDelete.count, by: 100) {
+            let batch = Array(toDelete[i..<min(i + 100, toDelete.count)])
+            try? await TelegramClient.shared.deleteMessages(chatId: chatId, messageIds: batch)
         }
+        print("Cascade snapshot pruned \(toDelete.count) old checkpoint message(s) from vault channel (backup copies preserved)")
     }
 
     /// Rebuilds the local catalog from the channel's published state: newest

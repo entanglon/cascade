@@ -56,6 +56,8 @@ enum BackupSync {
 
     /// Deletes messages from the vault channel plus their forwarded backup copies,
     /// then drops the mapping rows. Batches like the call sites it replaces did.
+    /// SAFEGUARD: Checkpoints, deltas, and vault key records are NEVER deleted
+    /// from the backup channel — the backup channel remains an immutable audit log.
     static func deleteFromVaultAndBackup(messageIDs: [Int64]) async {
         guard !messageIDs.isEmpty,
               let vault = try? await DatabaseManager.shared.firstVault() else { return }
@@ -66,11 +68,13 @@ enum BackupSync {
             try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: batch)
         }
 
-        // Backup copies, then mapping rows.
+        // Backup copies, then mapping rows. Protect critical database/key records.
+        let protectedObjectIDs: Set<String> = [checkpointObjectID, deltaObjectID, keyRecordObjectID]
         if let backupID = vault.backupChannelID,
            let targets = try? await DatabaseManager.shared.backupTargets(for: messageIDs),
            !targets.isEmpty {
-            let backupIDs = targets.compactMap(\.backupMessageID)
+            let safeTargets = targets.filter { !protectedObjectIDs.contains($0.objectID) }
+            let backupIDs = safeTargets.compactMap(\.backupMessageID)
             for i in stride(from: 0, to: backupIDs.count, by: 100) {
                 let batch = Array(backupIDs[i..<min(i + 100, backupIDs.count)])
                 try? await TelegramClient.shared.deleteMessages(chatId: backupID, messageIds: batch)

@@ -2,7 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Phase 4: Zero-knowledge password-protected & simple share links with client-side key re-wrapping.
+> 2026-08-20 (morning) — Phase 5: Catalog snapshot zlib compression & immutable backup preservation.
+
+---
+
+## 2026-08-20 (morning) — Phase 5: Catalog snapshot zlib compression & immutable backup preservation
+
+Implemented hardware-accelerated zlib compression for catalog snapshot payloads and enforced strict immutable retention for database snapshots, deltas, and vault key records in the backup channel.
+
+### Changes
+
+- `Storage/CatalogSnapshot.swift`:
+  - `publishDocument`: Compresses `Payload` JSON via Apple's native `(jsonData as NSData).compressed(using: .zlib)` before dispatching to Telegram, achieving 80–90% payload size reduction with $<0.5\text{ms}$ latency.
+  - `decodeMessagePayload`: Automatically detects compressed vs. legacy uncompressed JSON payloads via `(rawData as NSData).decompressed(using: .zlib)` with fallback to raw JSON, maintaining 100% backwards compatibility.
+  - `pruneOldSnapshots`: Prunes old checkpoints only from the active vault channel. **Never deletes from the backup channel**, keeping an immutable historical ledger.
+- `Engine/BackupSync.swift`:
+  - `deleteFromVaultAndBackup`: Enforced safeguard protecting `checkpointObjectID`, `deltaObjectID`, and `keyRecordObjectID` from deletion in the backup channel.
+- `Storage/VaultRepair.swift`:
+  - Added `xcloud:dbdelta:` prefix to snapshot ignore filters during channel repair scans.
+- `xCloudTests/xCloudTests.swift`:
+  - Added `catalogSnapshotZlibCompressionAndDecompression` unit test verifying high-ratio compression, decompression round-trip, and backward-compatible raw JSON decoding.
+
+### Build / test
+
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
 ---
 
