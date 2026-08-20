@@ -76,7 +76,7 @@ enum VaultManager {
         // vaults keep whatever photo they already have).
         Task {
             if !(await TelegramClient.shared.hasChannelPhoto(chatId: chatID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: chatID, label: "Vault", hue: 0.58)
+                await TelegramClient.shared.setChannelPhoto(chatId: chatID, pngNamed: "cascade")
             }
         }
         // Same-device fresh container: if the channel's v2 key record carries a seal
@@ -289,7 +289,7 @@ enum VaultManager {
         await TelegramClient.shared.archiveVaultChannel(chatId: backupID)
         Task {
             if !(await TelegramClient.shared.hasChannelPhoto(chatId: backupID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: backupID, label: "Backup", hue: 0.35)
+                await TelegramClient.shared.setChannelPhoto(chatId: backupID, pngNamed: "backup")
             }
         }
         var updated = vault

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Telegram Setup View Transition Fix & High-DPI Country Flags completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Official PNG Channel Profile Pictures Integration completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2486,6 +2486,13 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **High-DPI Country Flags**: Upgraded `CountryFlagView` to render official Unicode regional indicator emoji sequences (Apple Color Emoji) with crisp vector graphics on Retina displays. Updated phone number field to render the selected country flag inside the dial code button.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `db553bc`.
+
+105. **Official PNG channel profile pictures integration (2026-08-20 — COMMITTED)**
+    (`Engine/ChannelAvatar.swift`, `Storage/VaultManager.swift`, `Engine/ShareEngine.swift`, `Telegram/TelegramClient.swift`)
+    - **Replaced legacy avatars**: Routed all channel avatar generation to use official PNG graphics from `Public/` and `Resources/` (`cascade.png` for vault, `backup.png` for backup, `pc.png` for private pool channels, `oc.png` for public share channel).
+    - **Multi-path image loader**: Added multi-candidate asset search (`Bundle.main`, `Resources/`, `Public/`, bundle resources) in `ChannelAvatar.makeJPEG(fromPNG:)` with on-the-fly conversion to TDLib-compatible JPEG.
+    - **Launch branding heal**: Enhanced `ShareEngine.healChannelPhotos()` to upgrade legacy channels to the official PNG brand images.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

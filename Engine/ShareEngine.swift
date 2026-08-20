@@ -706,8 +706,7 @@ enum ShareEngine {
                 if !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
                     await TelegramClient.shared.setChannelPhoto(
                         chatId: state.channelID,
-                        label: poolAvatarLabel(id: state.id, kind: .private),
-                        hue: poolAvatarHue(id: state.id, kind: .private)
+                        pngNamed: "pc"
                     )
                 }
                 return state
@@ -731,8 +730,7 @@ enum ShareEngine {
                     if !(await TelegramClient.shared.hasChannelPhoto(chatId: existing.channelID)) {
                         await TelegramClient.shared.setChannelPhoto(
                             chatId: existing.channelID,
-                            label: poolAvatarLabel(id: existing.id, kind: .private),
-                            hue: poolAvatarHue(id: existing.id, kind: .private)
+                            pngNamed: "pc"
                         )
                     }
                     return existing
@@ -750,8 +748,7 @@ enum ShareEngine {
                 if !(await TelegramClient.shared.hasChannelPhoto(chatId: joined)) {
                     await TelegramClient.shared.setChannelPhoto(
                         chatId: joined,
-                        label: poolAvatarLabel(id: existing.id, kind: .private),
-                        hue: poolAvatarHue(id: existing.id, kind: .private)
+                        pngNamed: "pc"
                     )
                 }
                 return adopted
@@ -817,31 +814,45 @@ enum ShareEngine {
 
     /// One-time branding pass for channels created before profile pictures
     /// existed (legacy vault/backup/pool channels): sets a branded photo on
-    /// every recorded channel that has none. Idempotent — channels that
-    /// already carry a photo are never touched, and channels with no DB row
-    /// get branded when they're next created. Runs at every launch after auth.
-    static func healChannelPhotos() async {
+    /// every recorded channel that has none or updates to official PNG assets.
+    /// Runs at every launch after auth.
+    static func healChannelPhotos(force: Bool = false) async {
         guard !underXCTest else { return }
+        let shouldForce = force || !UserDefaults.standard.bool(forKey: "xc_hasAppliedBrandedPNGPhotosV5")
         if let vault = try? await DatabaseManager.shared.firstVault() {
-            if !(await TelegramClient.shared.hasChannelPhoto(chatId: vault.channelID)) {
+            let hasVaultPhoto = await TelegramClient.shared.hasChannelPhoto(chatId: vault.channelID)
+            if shouldForce || !hasVaultPhoto {
                 await TelegramClient.shared.setChannelPhoto(chatId: vault.channelID, pngNamed: "cascade")
             }
-            if let backupID = vault.backupChannelID,
-               !(await TelegramClient.shared.hasChannelPhoto(chatId: backupID)) {
-                await TelegramClient.shared.setChannelPhoto(chatId: backupID, pngNamed: "backup")
+            let backupID: Int64?
+            if let bid = vault.backupChannelID {
+                backupID = bid
+            } else {
+                backupID = await TelegramClient.shared.findBackupChannel()
+            }
+            if let backupID {
+                let hasBackupPhoto = await TelegramClient.shared.hasChannelPhoto(chatId: backupID)
+                if shouldForce || !hasBackupPhoto {
+                    await TelegramClient.shared.setChannelPhoto(chatId: backupID, pngNamed: "backup")
+                }
             }
         }
         for slot in 1...Int64(privatePoolSize) {
             guard let state = try? await DatabaseManager.shared.shareChannelState(id: slot),
-                  await TelegramClient.shared.chatExists(chatId: state.channelID),
-                  !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) else { continue }
-            await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "pc")
+                  await TelegramClient.shared.chatExists(chatId: state.channelID) else { continue }
+            let hasPhoto = await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)
+            if shouldForce || !hasPhoto {
+                await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "pc")
+            }
         }
         if let state = try? await DatabaseManager.shared.shareChannelState(id: publicChannelRowID),
-           await TelegramClient.shared.chatExists(chatId: state.channelID),
-           !(await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)) {
-            await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "oc")
+           await TelegramClient.shared.chatExists(chatId: state.channelID) {
+            let hasPhoto = await TelegramClient.shared.hasChannelPhoto(chatId: state.channelID)
+            if shouldForce || !hasPhoto {
+                await TelegramClient.shared.setChannelPhoto(chatId: state.channelID, pngNamed: "oc")
+            }
         }
+        UserDefaults.standard.set(true, forKey: "xc_hasAppliedBrandedPNGPhotosV5")
     }
 
     /// Idempotent launch heal: ensures every PRIVATE pool channel has the 24h

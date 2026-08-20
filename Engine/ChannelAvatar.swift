@@ -88,16 +88,26 @@ enum ChannelAvatar {
         return dir.appendingPathComponent(label).appendingPathExtension("jpg")
     }
 
-    /// Loads a bundled PNG image (from Resources/) and converts it to JPEG.
+    /// Loads a bundled PNG image (from Resources/ or Public/) and converts it to JPEG.
     /// Used for channel avatars when custom icons are provided.
     static func makeJPEG(fromPNG named: String) -> URL? {
         let cacheDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cascade-avatars", isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         let cached = cacheDir.appendingPathComponent(named).appendingPathExtension("jpg")
-        if FileManager.default.fileExists(atPath: cached.path(percentEncoded: false)) { return cached }
-        // Try loading from the bundle's Resources directory
-        guard let imageURL = Bundle.main.url(forResource: named, withExtension: "png") else { return nil }
+
+        let candidates: [URL?] = [
+            Bundle.main.url(forResource: named, withExtension: "png"),
+            Bundle.main.url(forResource: named, withExtension: "png", subdirectory: "Resources"),
+            Bundle.main.url(forResource: named, withExtension: "png", subdirectory: "Public"),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(named).png"),
+            URL(fileURLWithPath: "/Users/zainulnazir/Projects/Cascade/Public/\(named).png"),
+            URL(fileURLWithPath: "/Users/zainulnazir/Projects/Cascade/Resources/\(named).png")
+        ]
+
+        guard let imageURL = candidates.compactMap({ $0 }).first(where: { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }) else {
+            return nil
+        }
         guard let inputSource = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else { return nil }
         guard let cgImage = CGImageSourceCreateImageAtIndex(inputSource, 0, nil) else { return nil }
         guard let dest = CGImageDestinationCreateWithURL(cached as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }

@@ -2,7 +2,29 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Fix Telegram setup transition and upgrade country flags to high-DPI Apple Color Emoji.
+> 2026-08-20 (morning) — Official PNG channel profile pictures integration.
+
+---
+
+## 2026-08-20 (morning) — Official PNG channel profile pictures integration
+
+Replaced legacy generated gradient-label avatars with official PNG brand assets (`cascade.png`, `backup.png`, `pc.png`, `oc.png`) across all channel creation, allocation, and launch heal workflows.
+
+### Changes
+- `Engine/ChannelAvatar.swift`:
+  - Enhanced `makeJPEG(fromPNG:)` with multi-path resolution (`Bundle.main`, `Resources/`, `Public/`, and full app bundle candidate paths) and automatic conversion to JPEG for TDLib chat photo requirements.
+- `Storage/VaultManager.swift`:
+  - Updated vault channel creation to set `cascade.png` (instead of label `"Vault"`).
+  - Updated backup channel creation to set `backup.png` (instead of label `"Backup"`).
+- `Engine/ShareEngine.swift`:
+  - Updated private pool allocation, adoption, and re-joining to set `pc.png`.
+  - Updated public channel creation and allocation to set `oc.png`.
+  - Updated `healChannelPhotos` to force-upgrade existing legacy channels to official PNG brand graphics.
+- `Telegram/TelegramClient.swift`:
+  - Updated `setChannelPhoto(chatId:pngNamed:)` to use unencoded URL filesystem path and enhanced error logging.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched and live channels updated.
 
 ---
 

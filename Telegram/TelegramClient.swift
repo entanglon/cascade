@@ -790,17 +790,20 @@ final class TelegramClient {
     /// Sets a channel's profile photo from a bundled PNG image file.
     func setChannelPhoto(chatId: Int64, pngNamed: String) async {
         guard let client else { return }
-        guard let url = ChannelAvatar.makeJPEG(fromPNG: pngNamed) else { return }
+        guard let url = ChannelAvatar.makeJPEG(fromPNG: pngNamed) else {
+            logger.error("Channel photo failed: could not load PNG '\(pngNamed)'")
+            return
+        }
         do {
             try await client.setChatPhoto(
                 chatId: chatId,
                 photo: .inputChatPhotoStatic(
-                    InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: url.path)))
+                    InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: url.path(percentEncoded: false))))
                 )
             )
             logger.info("Channel photo set for \(chatId) (\(pngNamed))")
         } catch {
-            logger.info("Channel photo failed for \(chatId): \(error.localizedDescription)")
+            logger.error("Channel photo failed for \(chatId) (\(pngNamed)): \(error.localizedDescription)")
         }
     }
 
