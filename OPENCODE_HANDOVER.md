@@ -1,9 +1,9 @@
-# Cascade — Handover for opencode (2026-08-17, updated 2026-08-19)
+# Cascade — Handover for opencode (2026-08-17, updated 2026-08-20)
 
 > Read this first. This document is written for a fresh agent (opencode) to pick up
-> the work without any prior conversation context. It explains the project, the
-> exact state of the repo, the **v3 share upgrade** (the important work in flight),
-> what is already built vs. pending, and every gotcha that has burned agents before.
+> the work without any prior conversation context. It captures the latest repo state,
+> all completed work through Round 112 (2026-08-20), how to build/run/test, known gotchas,
+> and the pending tasks.
 
 ---
 
@@ -390,5 +390,13 @@ private vault), streaming replay-buffering fix (TDLib ranged-download starvation
 player polish (F7/F8/F9, glass, share-in-player). 2026-08-17: share-import "Not
 Found" fix (real server message IDs), re-import dedup + Finder-style name dedup,
 VaultRepair phantom-object fix, Shared-page semantics + stale-link reuse guard,
-**group shares** (v23 migration), then the **v3 share upgrade design** — where the
-work stopped. Build + 51 unit tests green; items 66–67 uncommitted on main.
+**group shares** (v23 migration), v3 share upgrade, and Zero-Knowledge End-to-End
+Encryption (ChaCha20-Poly1305 + Argon2id / HKDF-SHA256, in-memory slice decryption).
+2026-08-20 (Rounds 108–112):
+- Channel avatar cropping & assignment for main, backup, public share, and private share channels (`Engine/ChannelAvatar.swift`).
+- Floating transfers button collective batch progress ($0\% \to 100\%$) and individual queued transfer cards (`App/AppState.swift`, `Engine/TransferCenter.swift`).
+- Pure-Swift embedded audio album artwork parsing (`Engine/AudioArtworkParser.swift` for ID3v2, M4A/MP4 `covr`, and FLAC picture blocks) with layered fallback to QuickLook and FFmpeg.
+- Smooth zero-flash media streaming transitions (`Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`).
+- Audio player teardown on file trash/delete (`App/AppState.swift`, `Engine/AudioPlayerEngine.swift`).
+- 3 iconic audio player buttons with fixed click hit-testing (`Features/TheaterView.swift`).
+Full test suite green (72/72 tests passing). Debug app running.
