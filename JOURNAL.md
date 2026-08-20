@@ -25,6 +25,8 @@ Implemented on-the-fly random-access in-memory slice decryption for `mpv` byte-r
 
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (69: 61 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
+Commit: `146d9a8` — `Phase 3: Media streaming decryption and download caching`.
+
 ---
 
 ## 2026-08-20 (morning) — Phase 2: Encrypted chunk uploads & Telegram caption metadata sanitization

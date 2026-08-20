@@ -2453,6 +2453,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - `VideoStreamingEngine`: Unwraps $K_{\text{file}}$, calculates sealed slice offsets (`localSlice * (1MB + 28B)`), fetches exact slices from Telegram, and decrypts in-memory via `CryptoEngine.decryptSlice` with $O(1)$ seek latency for `mpv` loopback HTTP range streaming.
     - `DownloadEngine`: Unwraps $K_{\text{file}}$, verifies ciphertext integrity against `cipherHash`, decrypts chunks via `CryptoEngine.decryptChunk`, verifies plaintext hash, and writes decrypted files to cache.
     - Full test suite green: **TEST SUCCEEDED** (69: 61 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `146d9a8`.
 
 ## 5. Pending / next steps
 - **NEXT: Phase 4 — Zero-Download Sharing & Password-Protected Links** (see `implementation_plan.md`):
