@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Dynamic Share Channel Full-Bleed Branding Verification completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Floating Transfers Button Collective Progress & Individual Cards completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2515,6 +2515,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Legacy public adoption**: Added photo check in `publicChannel()` to brand existing public channels if unbranded.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `d5687ba`.
+
+109. **Floating transfers button collective progress & individual queued cards (2026-08-20 — COMMITTED)**
+    (`App/AppState.swift`, `Engine/UploadEngine.swift`, `Engine/TransferCenter.swift`)
+    - **Collective progress on FAB**: When multiple files are queued for upload, `AppState.startUpload` registers their work in `TransferCenter` upfront with `"Queued…"`. `LiquidMorphingFAB.overallProgress` tracks the entire batch continuously via `batchProgress` (0% to 100% across the whole batch without per-file stutter/reset).
+    - **Individual cards on Transfers**: Every queued file gets its own card immediately visible in `TransfersView` and `MiniTransfersView` popover, transitioning smoothly from `"Queued…"` to active uploading to `"Uploaded ✅"`.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

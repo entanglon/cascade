@@ -20,7 +20,7 @@ final class TransferCenter {
         // reassigned from an extension initializer.
         var id = UUID().uuidString
         let direction: Direction
-        let objectID: String
+        var objectID: String
         let name: String
         var progress: Double = 0
         var statusText: String = "Starting…"
@@ -167,6 +167,11 @@ final class TransferCenter {
             }
         }
         return item.id
+    }
+
+    func bindObjectID(_ id: String, objectID: String) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        items[i].objectID = objectID
     }
 
     func registerCancel(_ id: String, handler: @escaping () -> Void) {

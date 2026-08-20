@@ -168,6 +168,7 @@ final class AppState {
     private struct PendingUpload {
         let url: URL
         let resumeObject: ObjectRecord?
+        let transferID: String?
     }
 
     @MainActor private var uploadQueue: [PendingUpload] = []
@@ -827,9 +828,22 @@ final class AppState {
                 try? await DatabaseManager.shared.updateObject(object.id) { $0.state = "failed" }
                 continue
             }
+            let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
+            let total = max(1, ChunkPlanner.plan(fileSize: object.size).items.count)
+            let done = chunks.filter { ($0.messageID ?? 0) > 0 }.count
+            let transferID = TransferCenter.shared.begin(
+                .upload,
+                objectID: object.id,
+                name: object.name,
+                initialProgress: Double(done) / Double(total),
+                statusText: "Queued…",
+                state: .active,
+                totalWork: Double(total),
+                reuseExisting: true
+            )
             // Same serial queue as user-initiated uploads — resumed files go one
             // at a time too, so a launch-time pileup can't congest TDLib again.
-            uploadQueue.append(PendingUpload(url: URL(fileURLWithPath: path), resumeObject: object))
+            uploadQueue.append(PendingUpload(url: URL(fileURLWithPath: path), resumeObject: object, transferID: transferID))
         }
         drainUploadQueue()
         await self.loadFiles()
@@ -866,7 +880,21 @@ final class AppState {
 
     @MainActor
     func startUpload(url: URL) {
-        uploadQueue.append(PendingUpload(url: url, resumeObject: nil))
+        let path = url.path(percentEncoded: false)
+        let fileName = url.lastPathComponent
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+        let chunks = max(1, ChunkPlanner.plan(fileSize: fileSize).items.count)
+        let isFirst = uploadQueue.isEmpty && !isDrainingUploadQueue
+        let transferID = TransferCenter.shared.begin(
+            .upload,
+            objectID: UUID().uuidString,
+            name: fileName,
+            initialProgress: 0,
+            statusText: isFirst ? "Starting…" : "Queued…",
+            state: .active,
+            totalWork: Double(chunks)
+        )
+        uploadQueue.append(PendingUpload(url: url, resumeObject: nil, transferID: transferID))
         drainUploadQueue()
     }
 
@@ -886,6 +914,12 @@ final class AppState {
 
     @MainActor
     private func performUpload(_ pending: PendingUpload) async {
+        if let transferID = pending.transferID,
+           let item = TransferCenter.shared.items.first(where: { $0.id == transferID }),
+           item.state == .paused || item.state == .failed {
+            // Upload was cancelled or discarded while waiting in queue
+            return
+        }
         let url = pending.url
         isUploading = true
         uploadStatus = "Preparing…"
@@ -914,31 +948,47 @@ final class AppState {
                                 self?.uploadProgress = p
                             }
                         },
+                        existingTransferID: pending.transferID,
                         resumeObject: existing
                     )
                 } else {
                     // Source file is gone: discard the stale partial, then upload fresh
                     await UploadEngine.cleanupPartialUpload(objectID: existing.id)
                     TransferCenter.shared.removeItems(forObjectID: existing.id)
-                    try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
-                        Task { @MainActor in
-                            self?.uploadStatus = status
-                            self?.uploadProgress = p
-                        }
-                    }
+                    try await UploadEngine.upload(
+                        fileURL: url,
+                        parentID: parent,
+                        isPrivate: isPrivate,
+                        progress: { [weak self] status, p in
+                            Task { @MainActor in
+                                self?.uploadStatus = status
+                                self?.uploadProgress = p
+                            }
+                        },
+                        existingTransferID: pending.transferID
+                    )
                 }
             } else if all.contains(where: {
                 $0.sourcePath == path && !$0.trashed && $0.state == "uploading"
             }) {
                 uploadStatus = "Already uploading this file"
                 didUpload = false
-            } else {
-                try await UploadEngine.upload(fileURL: url, parentID: parent, isPrivate: isPrivate) { [weak self] status, p in
-                    Task { @MainActor in
-                        self?.uploadStatus = status
-                        self?.uploadProgress = p
-                    }
+                if let transferID = pending.transferID {
+                    TransferCenter.shared.removeItems(forObjectID: transferID)
                 }
+            } else {
+                try await UploadEngine.upload(
+                    fileURL: url,
+                    parentID: parent,
+                    isPrivate: isPrivate,
+                    progress: { [weak self] status, p in
+                        Task { @MainActor in
+                            self?.uploadStatus = status
+                            self?.uploadProgress = p
+                        }
+                    },
+                    existingTransferID: pending.transferID
+                )
             }
             if didUpload {
                 uploadStatus = "Upload complete ✅"

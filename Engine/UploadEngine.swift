@@ -86,6 +86,7 @@ enum UploadEngine {
         parentID: String? = nil,
         isPrivate: Bool = false,
         progress: @escaping @Sendable (String, Double) -> Void,
+        existingTransferID: String? = nil,
         resumeObject: ObjectRecord? = nil
     ) async throws {
         guard TelegramClient.shared.isAuthorized else {
@@ -203,14 +204,21 @@ enum UploadEngine {
             initialProgress = Double(doneIndexes.count) / Double(max(1, plan.items.count))
         }
 
-        let transferID = await TransferCenter.shared.begin(
-            .upload,
-            objectID: objectID,
-            name: displayName,
-            initialProgress: initialProgress,
-            totalWork: Double(max(1, plan.items.count)),
-            reuseExisting: resumeObject != nil
-        )
+        let transferID: String
+        if let existingID = existingTransferID, await TransferCenter.shared.items.contains(where: { $0.id == existingID }) {
+            transferID = existingID
+            await TransferCenter.shared.bindObjectID(transferID, objectID: objectID)
+            await TransferCenter.shared.update(transferID, progress: initialProgress, text: "Starting…")
+        } else {
+            transferID = await TransferCenter.shared.begin(
+                .upload,
+                objectID: objectID,
+                name: displayName,
+                initialProgress: initialProgress,
+                totalWork: Double(max(1, plan.items.count)),
+                reuseExisting: resumeObject != nil
+            )
+        }
         func report(_ s: String, _ p: Double) {
             progress(s, p)
             Task { @MainActor in TransferCenter.shared.update(transferID, progress: p, text: s) }

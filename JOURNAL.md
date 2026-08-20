@@ -2,7 +2,26 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Verify and wire full-bleed profile pictures into dynamic share channel creation.
+> 2026-08-20 (morning) — Fix floating transfers button collective progress & individual queued cards.
+
+---
+
+## 2026-08-20 (morning) — Fix floating transfers button collective progress & individual queued cards
+
+Restored collective progress tracking on the floating transfers button (`LiquidMorphingFAB`) and ensured all queued uploads immediately appear as individual cards on the Transfers page and popover.
+
+### Root cause & Solution
+- Serial upload queue (`uploadQueue` in `AppState`) was only creating a transfer card in `TransferCenter` when each individual file actually started uploading.
+- As a result, when File 1 completed, `TransferCenter` had zero active transfers, causing the next file to reset `settledWork` and show individual (0% -> 100%) progress per file instead of collective progress across the whole batch. Furthermore, queued files didn't appear on the Transfers page until their turn arrived.
+- **Fix**:
+  - `AppState.startUpload`: Pre-registers all queued files in `TransferCenter` upfront with their chunk work (`totalWork`) and status `"Queued…"`.
+  - `Engine/UploadEngine.swift`: Added `existingTransferID` support to bind to the pre-registered transfer card, smoothly transitioning from `"Queued…"` to `"Uploading chunk X/Y…"` to `"Uploaded ✅"`.
+  - `Engine/TransferCenter.swift`: Added `bindObjectID` and kept `Item.objectID` mutable for deferred object binding.
+  - `LiquidMorphingFAB`: `overallProgress` now continuously aggregates the entire batch's work via `batchProgress` (0% to 100% smoothly across all files in the batch).
+  - `TransfersView` / `MiniTransfersView`: Shows individual cards for every queued, active, and completed file in the batch.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
 ---
 
