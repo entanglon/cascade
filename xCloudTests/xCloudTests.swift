@@ -2192,6 +2192,47 @@ struct xCloudTests {
 
         try await DatabaseManager.shared.deleteShare(id: share.id)
     }
+
+    // MARK: - Upload-time thumbnail pipeline
+
+    @Test func uploadThumbnailJPEGIsGeneratedAndReturnedForAttachment() async throws {
+        // A real upload attaches `<id>-up.jpg` to every chunk message — that is
+        // the ONLY permanent preview Telegram stores for document uploads, and
+        // the guarantee that thumbnails survive local cache clears. This test
+        // guards the pipeline end-to-end: subject thumbnail → subject crop →
+        // ≤320px JPEG on disk → path returned (non-nil = attached on upload).
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("thumb-test-\(UUID().uuidString).png")
+        let size = NSSize(width: 800, height: 600)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        image.unlockFocus()
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            Issue.record("failed to synthesize test PNG")
+            return
+        }
+        try png.write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let objectID = "thumb-test-obj-\(UUID().uuidString)"
+        let uploadPath = await UploadEngine.generateThumbnails(for: tmp, objectID: objectID)
+
+        #expect(uploadPath != nil, "upload pipeline must return the -up.jpg path")
+        if let uploadPath {
+            let url = URL(fileURLWithPath: uploadPath)
+            #expect(FileManager.default.fileExists(atPath: uploadPath), "-up.jpg must exist on disk")
+            #expect(url.lastPathComponent == "\(objectID)-up.jpg")
+            #expect(url.pathExtension == "jpg")
+            // Must satisfy TDLib's inputThumbnail limit (≤320px).
+            if let src = NSImage(contentsOf: url) {
+                #expect(max(src.size.width, src.size.height) <= 320, "attached JPEG must be ≤320px for TDLib")
+            }
+        }
+    }
 }
 
 

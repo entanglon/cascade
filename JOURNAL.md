@@ -8,24 +8,24 @@
 
 ## 2026-08-20 (evening) — Fix: audio thumbnails vanish after cache clear (encrypted-era upload stopped attaching previews)
 
-User reported: uploaded audio files show thumbnails, but after "Clear Cache" the thumbnails disappear and never come back (images still recover). Root-caused the encrypted-upload regression and restored audio thumbnail recovery end-to-end.
+User reported: uploaded audio files show thumbnails, but after "Clear Cache" the thumbnails disappear and never come back (images still recover). Root-caused the encrypted-upload regression and restored thumbnail attachment at upload time. **User decision mid-session**: do NOT add a whole-file re-download to regenerate audio thumbnails (could download hundreds of GB just for previews on a large library); re-uploading the test files is acceptable. The quiet thumbnail-only download stays photos-only.
 
 ### Root cause & Solution
-1. **Uploads stopped attaching thumbnail previews to Telegram (Bug 1)**:
+1. **Uploads stopped attaching thumbnail previews to Telegram (root cause)**:
    - `Engine/UploadEngine.swift:335` had `thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath`. Since Phase 2 encrypted chunk uploads (commit `c7d8e2d`), every upload mints an `objectKey` (never nil), so the `<id>-up.jpg` preview was NEVER attached to chunk messages — for any file type.
    - Images masked the bug: photos regenerate locally (cached → `generateAndSaveThumbnail`; uncached → step-6 thumbnail-only download). Audio had zero recovery paths: `fetchFromTelegram` found no attached preview and step 6 was photos-only.
-   - **Fix**: `Engine/UploadEngine.swift:335` — always pass `uploadThumbnailPath` (private files still pass nil since `uploadThumbnailPath` is nil for them; encrypted uploads work because `TelegramClient.thumbnailFileId` handles `.messageDocument` → `doc.document.thumbnail?.file.id`).
-2. **No last-resort recovery for audio (Bug 2)**:
-   - `Engine/ThumbnailService.swift` step 6 ("LAST RESORT — thumbnail-only download") was gated `object.isPhoto` only; audio files already uploaded during the encrypted era (no attached preview) could never heal.
-   - **Fix**: `thumbnailURL` step 6 now includes `isAudio(object)`; `ensureThumbnailByDownload` dispatches photos → `generateAndSaveThumbnail`, audio → `generateAndSaveAudioThumbnail` (both cached and freshly-downloaded branches). Videos stay excluded (can be gigabytes).
-3. **Audio without embedded art couldn't regenerate (Bug 3)**:
+   - **Fix**: `Engine/UploadEngine.swift:335` — always pass `uploadThumbnailPath` (private files still pass nil since `uploadThumbnailPath` is nil for them; encrypted uploads work because `TelegramClient.thumbnailFileId` handles `.messageDocument` → `doc.document.thumbnail?.file.id`). New uploads now permanently store the preview on Telegram.
+2. **Audio without embedded art couldn't regenerate (follow-up fix)**:
    - `generateAndSaveAudioThumbnail` returned nil for art-less audio (e.g. voice memos), while the upload-time pipeline fell back to QuickLook's generic icon — recovered thumbs would differ from originals.
-   - **Fix**: `Engine/ThumbnailService.swift` — `generateAndSaveAudioThumbnail` falls back to `QLThumbnailGenerator` (640×640) for local files when FFmpeg/parser find no artwork (added `import QuickLookThumbnailing`).
+   - **Fix**: `Engine/ThumbnailService.swift` — `generateAndSaveAudioThumbnail` falls back to `QLThumbnailGenerator` (640×640) for LOCAL files when FFmpeg/parser find no artwork (added `import QuickLookThumbnailing`). No download involved — only reads the cached file.
+3. **Proposed (then REVERTED at user request): audio step-6 recovery**:
+   - First attempt extended the photos-only last-resort thumbnail-only download to audio (`ensureThumbnailByDownload` dispatching to `generateAndSaveAudioThumbnail`). User rejected it: quietly downloading every audio file just to rebuild a preview would backfire on a large library (hundreds of GB). Audio stays excluded from step 6 — previews must come from Telegram's attached thumbnail or the local cache.
+4. **Guard test added**: `xCloudTests/uploadThumbnailJPEGIsGeneratedAndReturnedForAttachment` — synthesizes an 800×600 PNG, runs `UploadEngine.generateThumbnails`, asserts the returned `<id>-up.jpg` exists on disk and is ≤320px (TDLib inputThumbnail limit). Locks in the upload-time attachment pipeline.
 
 ### Build / test
-- Build green (Debug). Full test suite **TEST SUCCEEDED** (67: 63 unit + 2 UI + 2 launch, 0 failures).
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched.
 
-Commit: `84194cb` — `Fix audio thumbnails after cache clear: restore upload thumbnail attachment + audio recovery paths`.
+Commit: `TBD2` — `Restore upload thumbnail attachment; drop audio thumbnail re-download (keep photos-only) + guard test`.
 
 ---
 

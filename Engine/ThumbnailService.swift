@@ -308,16 +308,17 @@ actor ThumbnailService {
             return url
         }
 
-        // 6. LAST RESORT — thumbnail-only download for PHOTOS AND AUDIO:
-        //    quietly pull the file down, generate a thumbnail, then delete the
-        //    cached copy so we never hold the whole file. Photos and audio are
-        //    small; videos are deliberately excluded (a video can be gigabytes).
-        //    This is the guarantee that every photo AND audio file — including
-        //    uploads that predate Telegram thumbnail attachment (the encrypted
-        //    era sent chunks without the attached preview) — eventually gets a
-        //    preview. Single-flight so a grid of placeholders never starts a
-        //    download storm.
-        if !object.isFolder, !object.isPrivate, object.isPhoto || isAudio(object) {
+        // 6. LAST RESORT — thumbnail-only download for PHOTOS ONLY: quietly pull
+        //    the file down, generate a thumbnail, then delete the cached copy so
+        //    we never hold the whole file. Photos are small; videos are
+        //    deliberately excluded (a video can be gigabytes). Audio is excluded
+        //    too: audio previews must come from Telegram's attached thumbnail or
+        //    the local cache — a whole-file download just to produce a preview is
+        //    wasteful (an audio library can be hundreds of GB). This is the
+        //    guarantee that every photo — including uploads that predate Telegram
+        //    thumbnail attachment — eventually gets a preview. Single-flight so a
+        //    grid of placeholders never starts a download storm.
+        if !object.isFolder, !object.isPrivate, object.isPhoto {
             await ensureThumbnailByDownload(object)
             if let thumb = localThumbnailOnDisk(for: object.id) {
                 cache[object.id] = thumb
@@ -364,8 +365,8 @@ actor ThumbnailService {
     private var failedIDs: [String: Date] = [:]
 
     /// Downloads a file purely to produce its thumbnail, then removes the
-    /// download so the cache holds no more than a few seconds of it. Photos use
-    /// the local image generator; audio uses the embedded-artwork extractor.
+    /// download so the cache holds no more than a few seconds of it. Photos only
+    /// (audio/video previews must never trigger a whole-file download).
     private func ensureThumbnailByDownload(_ object: ObjectRecord) async {
         // Single-flight: one thumbnail-only download at a time.
         if generatingIDs.contains(object.id) { return }
@@ -376,21 +377,13 @@ actor ThumbnailService {
         if let lastFail = failedIDs[object.id], Date().timeIntervalSince(lastFail) < 600 { return }
         if DownloadEngine.isCached(object) {
             // Cached but generation failed earlier — try once more from disk.
-            if object.isPhoto {
-                generateAndSaveThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
-            } else {
-                await generateAndSaveAudioThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
-            }
+            generateAndSaveThumbnail(for: object, from: DownloadEngine.cacheURL(for: object))
         } else {
             generatingIDs.insert(object.id)
             defer { generatingIDs.remove(object.id) }
             do {
                 let url = try await DownloadEngine.download(object: object, progress: { _, _ in }, quiet: true)
-                if object.isPhoto {
-                    generateAndSaveThumbnail(for: object, from: url)
-                } else {
-                    await generateAndSaveAudioThumbnail(for: object, from: url)
-                }
+                generateAndSaveThumbnail(for: object, from: url)
                 // The file was only needed for its preview — drop it.
                 try? FileManager.default.removeItem(at: url)
             } catch {
