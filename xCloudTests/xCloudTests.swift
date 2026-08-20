@@ -1903,8 +1903,14 @@ struct xCloudTests {
     // MARK: - Data-Safety & Hardening Tests
 
     @Test func replaceCatalogCreatesBackupSnapshot() async throws {
-        let previousObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
-        let previousChunks = (try? await DatabaseManager.shared.allChunks()) ?? []
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDBURL = tempDir.appendingPathComponent("test-replace.sqlite")
+
+        let testDB = DatabaseManager()
+        try await testDB.start(customURL: tempDBURL)
+
         let account = AccountRecord(
             id: "acc-test-replace-backup",
             telegramUserID: 999996,
@@ -1920,8 +1926,8 @@ struct xCloudTests {
             wrappedKey: Data(),
             createdAt: Date()
         )
-        try await DatabaseManager.shared.save(account)
-        try await DatabaseManager.shared.save(vault)
+        try await testDB.save(account)
+        try await testDB.save(vault)
 
         let obj1 = ObjectRecord(
             id: "obj-backup-1",
@@ -1948,8 +1954,8 @@ struct xCloudTests {
             channelID: 999996,
             createdAt: Date()
         )
-        try await DatabaseManager.shared.save(obj1)
-        try await DatabaseManager.shared.save(chunk1)
+        try await testDB.save(obj1)
+        try await testDB.save(chunk1)
 
         // Now perform replaceCatalog with new data
         let obj2 = ObjectRecord(
@@ -1964,26 +1970,23 @@ struct xCloudTests {
             createdAt: Date(),
             modifiedAt: Date()
         )
-        try await DatabaseManager.shared.replaceCatalog(objects: [obj2], chunks: [])
+        try await testDB.replaceCatalog(objects: [obj2], chunks: [])
 
         // Verify current catalog has obj2
-        let currentObjects = try await DatabaseManager.shared.allObjects()
+        let currentObjects = try await testDB.allObjects()
         #expect(currentObjects.contains { $0.id == "obj-backup-2" })
         #expect(!currentObjects.contains { $0.id == "obj-backup-1" })
 
         // Verify backup tables hold the previous catalog (obj1 and chunk1)
-        let backupCount = try await DatabaseManager.shared.read { db in
+        let backupCount = try await testDB.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM objects_backup WHERE id = 'obj-backup-1'") ?? 0
         }
         #expect(backupCount == 1, "objects_backup must preserve previously replaced objects")
 
-        let chunkBackupCount = try await DatabaseManager.shared.read { db in
+        let chunkBackupCount = try await testDB.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM chunks_backup WHERE id = 'chunk-backup-1'") ?? 0
         }
         #expect(chunkBackupCount == 1, "chunks_backup must preserve previously replaced chunks")
-
-        try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
-        try await DatabaseManager.shared.replaceCatalog(objects: previousObjects, chunks: previousChunks)
     }
 
     @Test func resetVaultRefusesUnconfirmedExecution() async throws {
