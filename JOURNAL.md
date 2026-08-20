@@ -21,6 +21,8 @@ Investigated why the main vault channel received multiple duplicate photo update
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
+Commit: `d4c77ed` — `Prevent unit tests from triggering real Telegram channel photo updates`.
+
 ---
 
 ## 2026-08-20 (morning) — Perfect full-bleed cropping for channel profile pictures

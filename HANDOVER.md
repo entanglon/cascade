@@ -2507,6 +2507,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Root cause of duplicate main channel updates**: Unit tests in `xCloudTests` run against the Debug database and invoke `VaultManager.ensureVault()`. Inside `ensureVault()`, an unshielded `Task { await TelegramClient.shared.setChannelPhoto(...) }` was running without checking `underXCTest`, triggering 6 live photo uploads to the main vault channel during the test run.
     - **Fix**: Added `guard NSClassFromString("XCTestCase") == nil else { return }` directly into `TelegramClient.setChannelPhoto` overloads, ensuring tests never issue live photo changes.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `d4c77ed`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
