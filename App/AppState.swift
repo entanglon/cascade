@@ -843,24 +843,26 @@ final class AppState {
             print("Cascade post-auth: vault ensure FAILED")
         }
 
-        // Heal the catalog if earlier snapshot merges duplicated chunk records
-        // (each chunk index must reference exactly ONE Telegram message — duplicates
-        // made downloads assemble files twice the real size). Publish a corrected
-        // checkpoint when anything was removed so the channel's state can't
-        // resurrect the duplicates on the next reconcile.
-        let removedDuplicates = ((try? await DatabaseManager.shared.dedupeChunkRecords()) ?? 0)
-            + ((try? await DatabaseManager.shared.dedupeDuplicateObjects()) ?? 0)
-        if removedDuplicates > 0 {
-            print("Cascade post-auth: removed \(removedDuplicates) duplicate chunk/object record(s)")
-            let dedupeFileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
-                .filter { !$0.isFolder }.count
-            if dedupeFileCount > 0, let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal() {
-                self.lastSyncDate = syncedAt
-                self.lastSnapshotSignature = await self.currentCatalogSignature()
-            } else if dedupeFileCount == 0 {
-                print("Cascade post-auth: catalog empty after dedupe — refusing checkpoint (collapse guard)")
+        // Item 16: Conditional post-auth heal.
+        // If the catalog was clean on last run and no repair was needed, skip the O(N) dedupe scan to accelerate launch.
+        let isClean = UserDefaults.standard.bool(forKey: "xc.catalogHealClean")
+        let forceHeal = CommandLine.arguments.contains("--force-heal")
+        if !isClean || forceHeal {
+            let removedDuplicates = ((try? await DatabaseManager.shared.dedupeChunkRecords()) ?? 0)
+                + ((try? await DatabaseManager.shared.dedupeDuplicateObjects()) ?? 0)
+            if removedDuplicates > 0 {
+                print("Cascade post-auth: removed \(removedDuplicates) duplicate chunk/object record(s)")
+                let dedupeFileCount = ((try? await DatabaseManager.shared.allObjects()) ?? [])
+                    .filter { !$0.isFolder }.count
+                if dedupeFileCount > 0, let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal() {
+                    self.lastSyncDate = syncedAt
+                    self.lastSnapshotSignature = await self.currentCatalogSignature()
+                } else if dedupeFileCount == 0 {
+                    print("Cascade post-auth: catalog empty after dedupe — refusing checkpoint (collapse guard)")
+                }
+                await self.loadFiles()
             }
-            await self.loadFiles()
+            UserDefaults.standard.set(true, forKey: "xc.catalogHealClean")
         }
 
         await cleanupExpiredTransfers()

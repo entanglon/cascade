@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (night): Phase 0b Data Safety & Correctness completed (item 121). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (night): Phase 1 Robustness & Telemetry completed (item 122). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2940,4 +2940,20 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       - `TelegramClient.fetchAllChannelMessages`: 200ms inter-page delay during history scans.
       - `TelegramClient.messagesByIds`: 200ms delay between message lookups.
       - `TelegramClient.enforceChannelCreationCooldown()`: 3s lock-backed cooldown between channel creations.
-    - Full test suite green: **TEST SUCCEEDED** (62: 59 unit + 3 UI/launch, 0 failures).
+    - Full test suite green: **TEST SUCCEEDED** (62: 59 unit + 3 UI/launch, 0 failures). Commit: `12338af`.
+
+121. **Data Safety & Correctness — Phase 0b (2026-08-20 — COMMITTED)** (`Storage/DatabaseManager.swift`, `Storage/CatalogSnapshot.swift`, `Storage/VaultRepair.swift`, `Storage/Models.swift`, `App/AppState.swift`, `Features/RootView.swift`, `Telegram/TelegramClient.swift`, `xCloudTests/xCloudTests.swift`)
+    - **Item 7 (Isolated Test Database Harness)**: Decoupled test database operations to `xcloud-test.sqlite` when running under test harnesses. Added lazy `ensureStarted()` to `DatabaseManager.read` and `DatabaseManager.write`.
+    - **Item 8 (Delta Payload Nonce Deduplication)**: Added optional `nonce: String?` to `CatalogSnapshot.Payload`. Deduplicated delta payloads in `CatalogSnapshot.fetchChannelState` using `seenNonces` set across vault and backup channels.
+    - **Item 9 (Deletion Tombstones `tombstoneAt: Date?`)**: Added migration `v27-tombstone`, `markTombstone(id:at:)`, `purgeOldTombstones(olderThan:)` (90-day retention). LWW merge preserves tombstones and prevents delta replay resurrection. Guarded `VaultRepair.run()` against resurrecting tombstoned objects.
+    - **Item 10 (Structured Error Surfacing)**: Added `AppNotification` and `NotificationBannerView` floating toast component with spring animation in `RootView.swift`. Posted notifications on flood-wait delays $\ge 3\text{s}$.
+    - Full test suite green: **TEST SUCCEEDED** (65: 62 unit + 2 UI + 1 launch, 0 failures). Commit: `df43855`.
+
+122. **Robustness & Telemetry — Phase 1 (2026-08-20 — COMMITTED)** (`Telegram/TelegramClient.swift`, `Engine/BackupSync.swift`, `Storage/CatalogSnapshot.swift`, `App/AppPaths.swift`, `App/AppState.swift`, `xCloudTests/xCloudTests.swift`)
+    - **Item 11 (Token-Bucket Rate Limiter `RateLimiter`)**: Created `actor RateLimiter` with leaky token-bucket algorithm (8-token burst capacity, sustained 20 writes/min = 1 token/3s). Integrated token acquisition into `withFloodWait(isWrite: true)` for write operations (`deleteMessages`, `editMessageCaption`, `sendMetadataMessage`, `forwardMessage`).
+    - **Item 12 (API Metrics & Telemetry `APIMetrics`)**: Created `actor APIMetrics` tracking hourly and cumulative call frequencies per TDLib method. Integrated with `withFloodWait`, emitting warning logs on high volume (>1000 calls/hr).
+    - **Item 13 (`sendCopy: true` Backup Setting)**: Supported `xc.backupSendCopy` preference in `BackupDrainer` and `TelegramClient.forwardMessage`, creating true independent copies instead of reference forwards when enabled.
+    - **Item 14 (Multi-Part Checkpoint Pagination)**: Added `xcloud:dbpart:v1:<index>:<total>:<nonce>:<base>` format and partition slicing in `CatalogSnapshot.publishCheckpointFromLocal` for catalogs exceeding `maxObjectsPerPart = 50_000`. Reassembles parts by nonce in `fetchChannelState`.
+    - **Item 15 (File-Backed Structured Logging `LogManager`)**: Created `actor LogManager` maintaining rotating log files (`cascade.log`, up to 3 rotations of 5 MB each) in Application Support.
+    - **Item 16 (Conditional Post-Auth Heal)**: Added `xc.catalogHealClean` flag tracking to skip $O(N)$ chunk/object dedupe scans at launch when the catalog was clean, speeding up cold startup.
+    - Full test suite green: **TEST SUCCEEDED** (69: 66 unit + 2 UI + 1 launch, 0 failures).

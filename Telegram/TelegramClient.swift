@@ -17,6 +17,119 @@ enum TelegramAuthStep: String, Sendable {
     case unknown
 }
 
+// MARK: - Token Bucket Rate Limiter
+
+actor RateLimiter {
+    static let shared = RateLimiter()
+
+    /// Maximum tokens that can accumulate for burst operations (default: 8).
+    private let maxTokens: Double
+    /// Refill rate in tokens per second (default: 20/min = 0.333 tokens/sec).
+    private let refillRate: Double
+
+    private var availableTokens: Double
+    private var lastRefillDate: Foundation.Date
+
+    init(burstCapacity: Double = 8.0, sustainedPerMinute: Double = 20.0) {
+        self.maxTokens = burstCapacity
+        self.refillRate = sustainedPerMinute / 60.0
+        self.availableTokens = burstCapacity
+        self.lastRefillDate = Foundation.Date()
+    }
+
+    private func refill() {
+        let now = Foundation.Date()
+        let elapsed = now.timeIntervalSince(lastRefillDate)
+        if elapsed > 0 {
+            availableTokens = min(maxTokens, availableTokens + elapsed * refillRate)
+            lastRefillDate = now
+        }
+    }
+
+    /// Acquires a write token, automatically sleeping if insufficient tokens exist.
+    func acquireWriteToken() async {
+        while true {
+            refill()
+            if availableTokens >= 1.0 {
+                availableTokens -= 1.0
+                return
+            }
+            let deficit = 1.0 - availableTokens
+            let waitSeconds = deficit / refillRate
+            let waitNanos = UInt64(max(0.05, min(waitSeconds, 3.0)) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: waitNanos)
+        }
+    }
+
+    /// Tries to acquire a token immediately without blocking (returns true if token was acquired).
+    func tryAcquire() -> Bool {
+        refill()
+        if availableTokens >= 1.0 {
+            availableTokens -= 1.0
+            return true
+        }
+        return false
+    }
+
+    func currentTokens() -> Double {
+        refill()
+        return availableTokens
+    }
+
+    func reset() {
+        availableTokens = maxTokens
+        lastRefillDate = Foundation.Date()
+    }
+}
+
+// MARK: - API Call Metrics & Telemetry
+
+actor APIMetrics {
+    static let shared = APIMetrics()
+
+    private var callCounts: [String: Int] = [:]
+    private var hourlyCalls: [Int: [String: Int]] = [:] // key: hour since epoch
+    private let logger = Logger(subsystem: "com.cascade.app", category: "api_metrics")
+
+    private var currentHourKey: Int {
+        Int(Foundation.Date().timeIntervalSince1970 / 3600.0)
+    }
+
+    func recordCall(_ functionName: String) {
+        callCounts[functionName, default: 0] += 1
+        let hour = currentHourKey
+        var hourDict = hourlyCalls[hour, default: [:]]
+        hourDict[functionName, default: 0] += 1
+        hourlyCalls[hour] = hourDict
+
+        // Purge hours older than 24h
+        let cutoff = hour - 24
+        hourlyCalls = hourlyCalls.filter { $0.key >= cutoff }
+
+        let totalThisHour = hourlyCalls[hour]?.values.reduce(0, +) ?? 0
+        if totalThisHour > 1000 && totalThisHour % 250 == 0 {
+            logger.warning("High API call volume: \(totalThisHour) calls in current hour")
+        }
+    }
+
+    func totalCallCount(for functionName: String) -> Int {
+        callCounts[functionName, default: 0]
+    }
+
+    func currentHourTotal() -> Int {
+        hourlyCalls[currentHourKey]?.values.reduce(0, +) ?? 0
+    }
+
+    func summary() -> [String: Int] {
+        callCounts
+    }
+
+    func reset() {
+        callCounts.removeAll()
+        hourlyCalls.removeAll()
+    }
+}
+
 @Observable
 final class TelegramClient {
     static let shared = TelegramClient()
@@ -501,8 +614,8 @@ final class TelegramClient {
         var file = try await client.downloadFile(
             fileId: fileId, limit: 0, offset: 0, priority: 32, synchronous: true
         )
-        let startTime = Date()
-        while !file.local.isDownloadingCompleted && Date().timeIntervalSince(startTime) < 5.0 {
+        let startTime = Foundation.Date()
+        while !file.local.isDownloadingCompleted && Foundation.Date().timeIntervalSince(startTime) < 5.0 {
             try await Task.sleep(nanoseconds: 100_000_000)
             if let updated = try? await client.getFile(fileId: fileId) {
                 file = updated
@@ -1023,7 +1136,15 @@ final class TelegramClient {
         try? await client.setChatTitle(chatId: chatId, title: title)
     }
 
-    func withFloodWait<T>(_ action: @escaping () async throws -> T) async throws -> T {
+    func withFloodWait<T>(
+        function: String = #function,
+        isWrite: Bool = false,
+        _ action: @escaping () async throws -> T
+    ) async throws -> T {
+        await APIMetrics.shared.recordCall(function)
+        if isWrite {
+            await RateLimiter.shared.acquireWriteToken()
+        }
         while true {
             do {
                 return try await action()
@@ -1033,7 +1154,7 @@ final class TelegramClient {
                 if let range = msg.range(of: "flood_wait_(\\d+)", options: .regularExpression) {
                     let numStr = msg[range].filter { $0.isNumber }
                     if let seconds = Int(numStr) {
-                        logger.warning("Flood wait triggered, sleeping for \(seconds)s")
+                        logger.warning("Flood wait triggered on \(function), sleeping for \(seconds)s")
                         if seconds >= 3 {
                             NotificationCenter.default.post(
                                 name: .cascadeAppNotification,
@@ -1327,16 +1448,16 @@ final class TelegramClient {
 
     func deleteMessages(chatId: Int64, messageIds: [Int64]) async throws {
         guard let client else { throw TelegramError.notInitialized }
-        try await withFloodWait {
+        try await withFloodWait(function: "deleteMessages", isWrite: true) {
             try await client.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: true)
         }
         invalidateChannelScanCache(chatId: chatId)
     }
 
-func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async throws {
+    func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async throws {
         guard let client else { throw TelegramError.notInitialized }
         let formattedText = FormattedText(entities: [], text: caption)
-        try await withFloodWait {
+        try await withFloodWait(function: "editMessageCaption", isWrite: true) {
             try await client.editMessageCaption(
                 caption: formattedText,
                 chatId: chatId,
@@ -1355,7 +1476,7 @@ func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async 
             linkPreviewOptions: nil,
             text: FormattedText(entities: [], text: text)
         ))
-        let msg = try await withFloodWait {
+        let msg = try await withFloodWait(function: "sendMetadataMessage", isWrite: true) {
             try await client.sendMessage(
                 chatId: chatId,
                 inputMessageContent: content,
@@ -1438,7 +1559,7 @@ func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async 
         let link = try await client.createChatInviteLink(
             chatId: chatId,
             createsJoinRequest: false,
-            expirationDate: Int(Date().timeIntervalSince1970) + Int(expiresIn),
+            expirationDate: Int(Foundation.Date().timeIntervalSince1970) + Int(expiresIn),
             memberLimit: 1,
             name: "Cascade share"
         )
@@ -1639,9 +1760,9 @@ func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async 
     /// stored in share records actually exists on Telegram and recipients can
     /// getMessage it. (This was the root cause of "Importing the shared file
     /// failed. Not Found." — the sender had persisted TDLib local ids.)
-    func forwardMessage(chatId: Int64, fromChatId: Int64, messageId: Int64) async throws -> Int64 {
+    func forwardMessage(chatId: Int64, fromChatId: Int64, messageId: Int64, sendCopy: Bool = false) async throws -> Int64 {
         guard let client else { throw TelegramError.notInitialized }
-        let result = try await withFloodWait {
+        let result = try await withFloodWait(function: "forwardMessages", isWrite: true) {
             try await client.forwardMessages(
                 chatId: chatId,
                 fromChatId: fromChatId,
@@ -1660,7 +1781,7 @@ func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async 
                     updateOrderOfInstalledStickerSets: false
                 ),
                 removeCaption: false,
-                sendCopy: false,
+                sendCopy: sendCopy,
                 topicId: nil as MessageTopic?
             )
         }

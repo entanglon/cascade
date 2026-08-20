@@ -22,6 +22,24 @@ import TDLibKit
 enum CatalogSnapshot {
     static let captionPrefix = "xcloud:dbsnapshot:v1:"
     static let deltaCaptionPrefix = "xcloud:dbdelta:v1:"
+    static let partCaptionPrefix = "xcloud:dbpart:v1:"
+    static let maxObjectsPerPart = 50_000
+
+    static func parsePartCaption(_ caption: String) -> (index: Int, total: Int, nonce: String, baseMessageID: Int64?)? {
+        guard caption.hasPrefix(partCaptionPrefix) else { return nil }
+        let rest = String(caption.dropFirst(partCaptionPrefix.count))
+        let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count >= 3,
+              let index = Int(parts[0]),
+              let total = Int(parts[1]) else { return nil }
+        let nonce = String(parts[2])
+        let baseMessageID = parts.count >= 4 ? Int64(parts[3]) : nil
+        return (index, total, nonce, baseMessageID)
+    }
+
+    static func makePartCaption(index: Int, total: Int, nonce: String, baseMessageID: Int64?) -> String {
+        "\(partCaptionPrefix)\(index):\(total):\(nonce):\(baseMessageID ?? 0)"
+    }
 
     /// Above this many changed records, publish a full checkpoint instead of a delta.
     static let checkpointRecordThreshold = 200
@@ -301,6 +319,9 @@ enum CatalogSnapshot {
         let deltas = messages
             .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(deltaCaptionPrefix) }
             .sorted { $0.id < $1.id }
+        let partMessages = messages
+            .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(partCaptionPrefix) }
+            .sorted { $0.id < $1.id }
 
         var seenNonces = Set<String>()
         if let newest = checkpoints.last, let payload = await decodeMessagePayload(newest, chatId: chatId) {
@@ -311,6 +332,41 @@ enum CatalogSnapshot {
                 seenNonces.insert(nonce)
             }
         }
+
+        // Reassemble multi-part checkpoints
+        var partGroups: [String: [Int: (msgId: Int64, payload: Payload, total: Int, base: Int64?)]] = [:]
+        for msg in partMessages {
+            guard let cap = VaultRepair.caption(of: msg),
+                  let parsed = parsePartCaption(cap),
+                  let payload = await decodeMessagePayload(msg, chatId: chatId) else { continue }
+            var group = partGroups[parsed.nonce, default: [:]]
+            group[parsed.index] = (msg.id, payload, parsed.total, parsed.baseMessageID)
+            partGroups[parsed.nonce] = group
+        }
+
+        for (nonce, group) in partGroups {
+            guard let first = group.values.first, group.count == first.total else { continue }
+            let sortedParts = (1...first.total).compactMap { group[$0] }
+            guard sortedParts.count == first.total else { continue }
+
+            let allObjects = sortedParts.flatMap { $0.payload.objects }
+            let allChunks = sortedParts.flatMap { $0.payload.chunks }
+            let newestMsgId = sortedParts.map(\.msgId).max() ?? 0
+
+            if state.checkpointID == nil || newestMsgId > (state.checkpointID ?? 0) {
+                state.checkpoint = Payload(
+                    version: 1,
+                    objects: allObjects,
+                    chunks: allChunks,
+                    baseMessageID: first.base,
+                    nonce: nonce
+                )
+                state.checkpointID = newestMsgId
+                state.deltaBase = first.base
+                seenNonces.insert(nonce)
+            }
+        }
+
         for delta in deltas {
             if let payload = await decodeMessagePayload(delta, chatId: chatId) {
                 if let nonce = payload.nonce {
@@ -484,11 +540,41 @@ enum CatalogSnapshot {
                 return nil
             }
             let channel = await fetchChannelState(chatId: vault.channelID)
+            let totalParts = Int(ceil(Double(local.objects.count) / Double(maxObjectsPerPart)))
+
+            if totalParts > 1 {
+                let nonce = UUID().uuidString
+                var lastMsgID: Int64 = 0
+                for partIndex in 1...totalParts {
+                    let start = (partIndex - 1) * maxObjectsPerPart
+                    let end = min(start + maxObjectsPerPart, local.objects.count)
+                    let partObjects = Array(local.objects[start..<end])
+                    let partObjIDs = Set(partObjects.map(\.id))
+                    let partChunks = local.chunks.filter { partObjIDs.contains($0.objectID) }
+                    let partPayload = Payload(
+                        version: 1,
+                        objects: partObjects,
+                        chunks: partChunks,
+                        baseMessageID: channel.newestID,
+                        nonce: "\(nonce)-p\(partIndex)"
+                    )
+                    let caption = makePartCaption(index: partIndex, total: totalParts, nonce: nonce, baseMessageID: channel.newestID)
+                    lastMsgID = try await publishDocument(
+                        chatId: vault.channelID,
+                        payload: partPayload,
+                        caption: caption,
+                        backupObjectID: BackupSync.checkpointObjectID
+                    )
+                }
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: checkpointDateKey(vault.channelID))
+                print("Cascade multi-part checkpoint published: \(totalParts) parts for \(local.objects.count) objects")
+                await pruneOldSnapshots(chatId: vault.channelID, keepingNewerThan: lastMsgID)
+                return Foundation.Date()
+            }
+
             var payload = local
-            // All existing deltas are at or below the newest channel message ID, so a
-            // restore replays only deltas published after this checkpoint — the
-            // deleted records can't leak back in from an older delta.
             payload.baseMessageID = channel.newestID
+            payload.nonce = UUID().uuidString
             let newID = try await publishDocument(
                 chatId: vault.channelID,
                 payload: payload,

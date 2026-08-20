@@ -137,13 +137,13 @@ actor BackupDrainer {
               let pending = try? await DatabaseManager.shared.nextPendingBackup() {
             do {
                 BackupSync.mirrorLog("forward \(pending.messageID) → \(backupID)")
-                let newID = try await TelegramClient.shared.withFloodWait {
-                    try await TelegramClient.shared.forwardMessage(
-                        chatId: backupID,
-                        fromChatId: vault.channelID,
-                        messageId: pending.messageID
-                    )
-                }
+                let sendCopy = UserDefaults.standard.bool(forKey: "xc.backupSendCopy")
+                let newID = try await TelegramClient.shared.forwardMessage(
+                    chatId: backupID,
+                    fromChatId: vault.channelID,
+                    messageId: pending.messageID,
+                    sendCopy: sendCopy
+                )
                 try? await DatabaseManager.shared.markBackupForwarded(
                     messageID: pending.messageID, backupMessageID: newID
                 )

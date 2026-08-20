@@ -2,9 +2,38 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Phase 0b Data Safety & Correctness: test DB isolation, delta nonces, deletion tombstones, structured error toasts.
+> 2026-08-20 (night) — Phase 1 Robustness: token-bucket rate limiter, API metrics telemetry, conditional heal, backup sendCopy, checkpoint pagination, file-backed log manager.
 
 ---
+
+## 2026-08-20 (night) — Phase 1 Robustness: token-bucket rate limiter, API metrics telemetry, conditional heal, backup sendCopy, checkpoint pagination, file-backed log manager
+
+Implemented Phase 1 (Items 11, 12, 13, 14, 15, 16 from the Architecture Review Roadmap):
+
+### What was changed
+1. **Item 11: Global Token-Bucket Rate Limiter (`RateLimiter`)** (`Telegram/TelegramClient.swift`, `xCloudTests/xCloudTests.swift`):
+   - Created `actor RateLimiter` with leaky token-bucket algorithm: 8-token burst capacity, sustained 20 writes/min (1 token every 3.0s).
+   - Added `acquireWriteToken()` with automatic delay calculation, integrated directly into write operations via `withFloodWait(isWrite: true)`.
+2. **Item 12: API Call Metrics & Telemetry (`APIMetrics`)** (`Telegram/TelegramClient.swift`, `xCloudTests/xCloudTests.swift`):
+   - Created `actor APIMetrics` tracking rolling hourly and lifetime call frequencies by TDLib function name.
+   - Wired automatic metric recording into `withFloodWait`, emitting warning logs on abnormal volume (>1000 calls/hr).
+3. **Item 13: `sendCopy: true` Backup Option** (`Engine/BackupSync.swift`, `Telegram/TelegramClient.swift`):
+   - Added user setting `xc.backupSendCopy` in `UserDefaults`.
+   - Updated `TelegramClient.forwardMessage` and `BackupDrainer.drain()` to support `sendCopy: true`, creating true independent document clones in the backup channel when configured.
+4. **Item 14: Multi-Part Checkpoint Pagination** (`Storage/CatalogSnapshot.swift`, `xCloudTests/xCloudTests.swift`):
+   - Added `partCaptionPrefix` (`xcloud:dbpart:v1:`) and codec functions `makePartCaption` / `parsePartCaption`.
+   - Added automatic partition slicing in `publishCheckpointFromLocal` for large catalogs (`maxObjectsPerPart = 50_000`).
+   - Implemented part reassembly in `fetchChannelState` to gather all parts by nonce and reconstruct the unified catalog payload.
+5. **Item 15: File-Backed Structured Log Manager (`LogManager`)** (`App/AppPaths.swift`, `xCloudTests/xCloudTests.swift`):
+   - Created `actor LogManager` maintaining rotating log files (`cascade.log`, `cascade.1.log`, up to 3 rotations of 5 MB each) in Application Support logs directory.
+   - Structured timestamped log format (`YYYY-MM-DD HH:mm:ss.SSS [LEVEL] [subsystem] message`) with `readRecentLogs` helper.
+6. **Item 16: Conditional Post-Auth Heal** (`App/AppState.swift`):
+   - Added `xc.catalogHealClean` flag tracking.
+   - Skips expensive $O(N)$ chunk/object dedupe scan at launch when the catalog was clean and no crash recovery is needed, accelerating app launch.
+
+### Verification
+- `xcodebuild -configuration Debug build` succeeded.
+- `xcodebuild -configuration Debug test`: **TEST SUCCEEDED** (69 tests: 66 unit + 2 UI + 1 launch, 0 failures).
 
 ## 2026-08-20 (night) — Phase 0b Data Safety & Correctness: test DB isolation, delta nonces, deletion tombstones, structured error toasts
 

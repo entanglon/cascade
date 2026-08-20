@@ -2352,6 +2352,48 @@ struct xCloudTests {
         let dismissed = await appState.currentNotification
         #expect(dismissed == nil)
     }
+
+    @Test func rateLimiterBurstAndRefill() async {
+        let limiter = RateLimiter(burstCapacity: 3.0, sustainedPerMinute: 60.0) // 1 token/sec
+        #expect(await limiter.tryAcquire() == true)
+        #expect(await limiter.tryAcquire() == true)
+        #expect(await limiter.tryAcquire() == true)
+        #expect(await limiter.tryAcquire() == false) // burst depleted
+
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        #expect(await limiter.tryAcquire() == true) // refilled at least 1 token
+    }
+
+    @Test func apiMetricsCallCounting() async {
+        let metrics = APIMetrics()
+        await metrics.recordCall("sendMessage")
+        await metrics.recordCall("sendMessage")
+        await metrics.recordCall("deleteMessages")
+        #expect(await metrics.totalCallCount(for: "sendMessage") == 2)
+        #expect(await metrics.totalCallCount(for: "deleteMessages") == 1)
+        #expect(await metrics.currentHourTotal() == 3)
+    }
+
+    @Test func logManagerStructuredLogging() async {
+        let logger = LogManager.shared
+        await logger.log("Test log entry for unit test", level: .info, subsystem: "test")
+        let recent = await logger.readRecentLogs(limit: 10)
+        #expect(recent.contains { $0.contains("Test log entry for unit test") && $0.contains("[INFO]") && $0.contains("[test]") })
+    }
+
+    @Test func partCaptionCodecRoundTrip() {
+        let nonce = "test-nonce-\(UUID().uuidString)"
+        let caption = CatalogSnapshot.makePartCaption(index: 2, total: 5, nonce: nonce, baseMessageID: 1048576)
+        #expect(caption.hasPrefix(CatalogSnapshot.partCaptionPrefix))
+        guard let parsed = CatalogSnapshot.parsePartCaption(caption) else {
+            Issue.record("part caption must parse")
+            return
+        }
+        #expect(parsed.index == 2)
+        #expect(parsed.total == 5)
+        #expect(parsed.nonce == nonce)
+        #expect(parsed.baseMessageID == 1048576)
+    }
 }
 
 
