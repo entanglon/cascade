@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Phase 3 (Media Streaming Decryption & Download Caching) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Phase 4 (Password-Protected & Simple Share Links with Client-Side Key Re-Wrapping) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2455,11 +2455,19 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Full test suite green: **TEST SUCCEEDED** (69: 61 unit + 4 UI + 4 launch, 0 failures).
       Commit: `146d9a8`.
 
+101. **Phase 4: Password-protected & simple share links with client-side key re-wrapping (2026-08-20 — COMMITTED)**
+    (`Engine/ShareEngine.swift`, `App/AppState.swift`, `Features/FileBrowserView.swift`, `Features/RootView.swift`, `xCloudTests/xCloudTests.swift`)
+    - Added both simple (instant) and password-protected sharing modes for private cloud-to-cloud file shares.
+    - **Simple share links (Default)**: $K_{\text{file}}$ wrapped with a random 256-bit `shareKey` embedded directly in the obfuscated URL fragment (`#...`). Recipient claims in $<1\text{ms}$ with zero password prompts.
+    - **Password-protected share links (Optional)**: $K_{\text{file}}$ sealed with PBKDF2 link key derived from user password + 16-byte random salt. Link carries `#w=...&salt=...` without plaintext key.
+    - **Import key re-wrapping**: `stageImport` unwraps $K_{\text{file}}$ using link key and re-wraps under recipient's vault master key (`recipientVaultKey`).
+    - Added `SharePasswordPromptSheet` in `FileBrowserView` and `SharePasswordUnlockSheet` in `RootView`.
+    - Full test suite green: **TEST SUCCEEDED** (71: 63 unit + 4 UI + 4 launch, 0 failures).
+
 ## 5. Pending / next steps
-- **NEXT: Phase 4 — Zero-Download Sharing & Password-Protected Links** (see `implementation_plan.md`):
-  - Forward-based cloud-to-cloud sharing with $K_{\text{file}}$ in URL `#` fragment.
-  - Password protection sheet in `ShareManagerView` and PBKDF2 link key derivation in `ShareEngine`.
-- **Phase 5: Snapshot Compression & Vault Migration** (`CatalogSnapshot`, `DatabaseManager`).
+- **NEXT: Phase 5 — Snapshot Gzip Compression & Vault Migration** (see `implementation_plan.md`):
+  - Gzip compression for `CatalogSnapshot` JSON backup payloads in Telegram channel.
+  - Migration utility / background encryption of legacy unencrypted objects.
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
   (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the
   24h server-side TTL; user confirmed it was an intentional feature (private

@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import UniformTypeIdentifiers
 import TDLibKit
 import os
 
@@ -77,22 +78,22 @@ enum ShareEngine {
     /// The `key` (the share secret) is what authorizes the file — the link IS the
     /// credential, so a one-time invite (memberLimit 1) keeps the channel closed
     /// to everyone except whoever holds the link.
-    ///
     /// v2 (forward-based, reusable channel): `m` = comma-joined forwarded message
     /// IDs of the file's chunks in the share channel; `w` = the object key wrapped
-    /// under the share key, base64 — EMPTY for non-private files. GROUP shares
-    /// (two or more files under one link) additionally carry `f` = a base64url
-    /// JSON manifest naming every file with its own message IDs. v1 (legacy
-    /// disposable channels) has neither and is parsed for backward compatibility.
+    /// under the share key or link key, base64. GROUP shares (two or more files under
+    /// one link) additionally carry `f` = a base64url JSON manifest naming every file
+    /// with its own message IDs and wrapped keys. When password protection is enabled,
+    /// `salt` carries the base64 PBKDF2 salt, and `key` is left blank.
     struct ShareLink: Equatable, Sendable {
         var id: String
         var channelID: Int64
         var inviteLink: String
-        var shareKey: String      // base64
+        var shareKey: String = ""      // base64 (empty if password protected)
         var fileName: String
         var expiry: Foundation.Date
         var messageIDs: [Int64] = []       // v2 (flat list; group shares flatten all files)
-        var wrappedKeyB64: String = ""     // v2, private files only
+        var wrappedKeyB64: String = ""     // v2, single-file wrapped key
+        var saltB64: String = ""           // v2, password PBKDF2 salt
         /// Per-file entries. Single-file links synthesize one entry on parse;
         /// group links carry one entry per shared file, each naming that file's
         /// forwarded chunk messages in the share channel.
@@ -101,6 +102,8 @@ enum ShareEngine {
         var isForwardBased: Bool { !files.isEmpty || !messageIDs.isEmpty }
         /// True when the link carries TWO OR MORE files shared together as a group.
         var isGroup: Bool { files.count > 1 }
+        /// True when the link is sealed with a password.
+        var isPasswordProtected: Bool { !saltB64.isEmpty }
 
         var urlString: String {
             var comps = URLComponents()
@@ -119,12 +122,18 @@ enum ShareEngine {
                     : String(Int(expiry.timeIntervalSince1970)))
             ]
             if isForwardBased {
+                if !saltB64.isEmpty {
+                    items.append(URLQueryItem(name: "salt", value: saltB64))
+                }
                 if isGroup {
                     // Group share: `f` carries the per-file manifest; `m` stays the
                     // flat list so self-open detection and expiry cleanup read
                     // messageIDs unchanged.
                     items.append(URLQueryItem(name: "f", value: Self.encodeFiles(files)))
                     items.append(URLQueryItem(name: "m", value: files.flatMap(\.messageIDs).map(String.init).joined(separator: ",")))
+                    if !wrappedKeyB64.isEmpty {
+                        items.append(URLQueryItem(name: "w", value: wrappedKeyB64))
+                    }
                 } else {
                     items.append(URLQueryItem(name: "m", value: messageIDs.map(String.init).joined(separator: ",")))
                     items.append(URLQueryItem(name: "w", value: wrappedKeyB64))
@@ -154,6 +163,7 @@ enum ShareEngine {
                   let expStr = q["exp"], let exp = Int64(expStr) else { return nil }
             let version = q["v"] ?? "1"
             let key = q["key"] ?? ""
+            let saltB64 = q["salt"] ?? ""
             var messageIDs: [Int64] = []
             var wrappedKeyB64 = ""
             var files: [ShareFile] = []
@@ -168,21 +178,14 @@ enum ShareEngine {
                     files = decoded
                     messageIDs = decoded.flatMap(\.messageIDs)
                     wrappedKeyB64 = q["w"] ?? ""
-                    if !wrappedKeyB64.isEmpty {
-                        guard !key.isEmpty else { return nil }
-                    }
                 } else {
-                    // Forward-based links: the message IDs name the chunks; the key
-                    // is only present for private files (wrappedKeyB64 non-empty).
+                    // Forward-based links: the message IDs name the chunks
                     messageIDs = (q["m"] ?? "").split(separator: ",").compactMap { Int64($0) }
                     guard !messageIDs.isEmpty else { return nil }
                     wrappedKeyB64 = q["w"] ?? ""
-                    if !wrappedKeyB64.isEmpty {
-                        guard !key.isEmpty else { return nil }
-                    }
                     // Single-file links synthesize one entry so the import path can
                     // treat every forward-based link uniformly.
-                    files = [ShareFile(name: q["name"] ?? "Shared file", messageIDs: messageIDs)]
+                    files = [ShareFile(name: q["name"] ?? "Shared file", messageIDs: messageIDs, wrappedKey: wrappedKeyB64.isEmpty ? nil : wrappedKeyB64)]
                 }
             } else {
                 // Legacy disposable-channel links always carry the share secret.
@@ -201,20 +204,22 @@ enum ShareEngine {
                     : Foundation.Date(timeIntervalSince1970: TimeInterval(exp)),
                 messageIDs: messageIDs,
                 wrappedKeyB64: wrappedKeyB64,
+                saltB64: saltB64,
                 files: files
             )
         }
 
         /// Compact per-file manifest for group links: JSON
-        /// `[{"n":"name","m":"1,2,3"},…]`, base64url-encoded so it survives any
+        /// `[{"n":"name","m":"1,2,3","w":"wrappedKey"},…]`, base64url-encoded so it survives any
         /// URL transport untouched.
         static func encodeFiles(_ files: [ShareFile]) -> String {
             struct Payload: Codable {
                 var n: String
                 var m: String
+                var w: String? = nil
             }
             let payload = files.map {
-                Payload(n: $0.name, m: $0.messageIDs.map(String.init).joined(separator: ","))
+                Payload(n: $0.name, m: $0.messageIDs.map(String.init).joined(separator: ","), w: $0.wrappedKey)
             }
             guard let data = try? JSONEncoder().encode(payload) else { return "" }
             return base64URLEncode(data)
@@ -224,11 +229,12 @@ enum ShareEngine {
             struct Payload: Codable {
                 var n: String
                 var m: String
+                var w: String?
             }
             guard let data = base64URLDecode(raw),
                   let payload = try? JSONDecoder().decode([Payload].self, from: data) else { return nil }
             let files = payload.map {
-                ShareFile(name: $0.n, messageIDs: $0.m.split(separator: ",").compactMap { Int64($0) })
+                ShareFile(name: $0.n, messageIDs: $0.m.split(separator: ",").compactMap { Int64($0) }, wrappedKey: $0.w)
             }
             // Every entry must resolve to at least one message — a file with zero
             // chunks would import-fail and silently drop from the group.
@@ -244,6 +250,7 @@ enum ShareEngine {
     struct ShareFile: Equatable, Sendable, Codable {
         var name: String
         var messageIDs: [Int64]
+        var wrappedKey: String? = nil
     }
 
     // MARK: - Legacy manifest (pre-v22 per-chunk caption, disposable channels)
@@ -278,15 +285,16 @@ enum ShareEngine {
     /// Creates the share (forwarding the vault chunks into the pool channel) and
     /// returns the share link. PRIVATE shares live `lifetime` days in a dedicated
     /// pool channel with a one-use invite; PUBLIC shares (isPublic) never expire
-    /// and live in the persistent public channel. Convenience for a single file —
-    /// see `share(objects:)`.
+    /// and live in the persistent public channel. When `password` is non-nil/non-empty,
+    /// seals the link key with PBKDF2 so the recipient must enter the password to open.
     @discardableResult
     static func share(
         object: ObjectRecord,
         lifetime: TimeInterval = defaultLifetime,
-        isPublic: Bool = false
+        isPublic: Bool = false,
+        password: String? = nil
     ) async throws -> String {
-        try await share(objects: [object], lifetime: lifetime, isPublic: isPublic)
+        try await share(objects: [object], lifetime: lifetime, isPublic: isPublic, password: password)
     }
 
     /// Creates ONE share link for the given files: a single file produces a
@@ -297,7 +305,8 @@ enum ShareEngine {
     static func share(
         objects: [ObjectRecord],
         lifetime: TimeInterval = defaultLifetime,
-        isPublic: Bool = false
+        isPublic: Bool = false,
+        password: String? = nil
     ) async throws -> String {
         // Private files can't be shared: the vault no longer encrypts anything, so
         // the private flag is a PIN-gated visibility choice, not a key layer —
@@ -316,28 +325,30 @@ enum ShareEngine {
         // Drive-style reuse: a single file that already has a LIVE share (active,
         // not yet expired) reuses that link instead of forwarding the chunks
         // again; a group whose EXACT object set was shared before reuses that
-        // link. Sharing the same selection twice gives you the same link — no
-        // second forward, no double quota spend. Reuse is kind-aware: a public
-        // share is only reused by another public share (and vice versa).
-        if objects.count == 1, let object = objects.first {
-            if let existing = try await reusableShareLink(for: object.id, isPublic: isPublic) {
-                logger.info("Share: reusing existing \(isPublic ? "public" : "private") link for \(object.name)")
+        // link. Re-using only applies to unprotected shares (password-protected shares
+        // mint fresh links with dedicated salts).
+        if password == nil || password!.isEmpty {
+            if objects.count == 1, let object = objects.first {
+                if let existing = try await reusableShareLink(for: object.id, isPublic: isPublic) {
+                    logger.info("Share: reusing existing \(isPublic ? "public" : "private") link for \(object.name)")
+                    return existing
+                }
+            } else if let existing = try await reusableGroupShareLink(for: Set(objects.map(\.id)), isPublic: isPublic) {
+                logger.info("Share: reusing existing \(isPublic ? "public" : "private") group link for \(objects.count) files")
                 return existing
             }
-        } else if let existing = try await reusableGroupShareLink(for: Set(objects.map(\.id)), isPublic: isPublic) {
-            logger.info("Share: reusing existing \(isPublic ? "public" : "private") group link for \(objects.count) files")
-            return existing
         }
-        return try await forwardShare(objects: objects, lifetime: lifetime, isPublic: isPublic)
+        return try await forwardShare(objects: objects, lifetime: lifetime, isPublic: isPublic, password: password)
     }
 
     /// The forward path shared by single-file and group shares: validates every
     /// file's chunk availability, forwards each chunk of each file into the pool
-    /// channel, and persists the outgoing share record.
+    /// channel, wraps object keys, and persists the outgoing share record.
     private static func forwardShare(
         objects: [ObjectRecord],
         lifetime: TimeInterval,
-        isPublic: Bool
+        isPublic: Bool,
+        password: String? = nil
     ) async throws -> String {
         let vault: VaultRecord
         do {
@@ -347,8 +358,7 @@ enum ShareEngine {
         }
 
         // The source of a forward-based share is the VAULT COPY, not a local file:
-        // every chunk must have an uploaded message to forward. (Old records with
-        // missing message IDs predate the messageID threshold fix.)
+        // every chunk must have an uploaded message to forward.
         var perFileChunks: [(object: ObjectRecord, chunks: [ChunkRecord])] = []
         for object in objects {
             let chunks = ((try? await DatabaseManager.shared.chunks(for: object.id)) ?? [])
@@ -400,7 +410,7 @@ enum ShareEngine {
         // Forward each chunk message into the share channel — a reference copy,
         // Telegram copies the document server-side: no re-upload, no size limit.
         var allMessageIDs: [Int64] = []
-        var files: [ShareFile] = []
+        var forwardedPerFile: [(object: ObjectRecord, fileIDs: [Int64])] = []
         do {
             for (object, chunks) in perFileChunks {
                 var fileIDs: [Int64] = []
@@ -414,7 +424,7 @@ enum ShareEngine {
                     fileIDs.append(mid)
                 }
                 guard fileIDs.count == chunks.count else { throw ShareError.uploadFailed("Partial forward") }
-                files.append(ShareFile(name: object.name, messageIDs: fileIDs))
+                forwardedPerFile.append((object, fileIDs))
                 allMessageIDs.append(contentsOf: fileIDs)
             }
         } catch {
@@ -425,10 +435,51 @@ enum ShareEngine {
             throw ShareError.uploadFailed(describe(error))
         }
 
-        // No key layer anymore: the forwarded chunks are plaintext (the vault no
-        // longer encrypts file bytes), so the link carries no key material at all.
-        let shareKeyB64 = ""
-        let wrappedB64 = ""
+        // Cryptographic keys for the share link:
+        let vaultKey = try? VaultManager.vaultKey(for: vault)
+        let isProtected = (password != nil && !password!.isEmpty)
+        let linkKey: SymmetricKey
+        let saltB64: String
+        let shareKeyB64: String
+
+        if isProtected, let pw = password {
+            var saltBytes = [UInt8](repeating: 0, count: 16)
+            _ = SecRandomCopyBytes(kSecRandomDefault, 16, &saltBytes)
+            let salt = Data(saltBytes)
+            linkKey = CryptoEngine.deriveLinkKey(from: pw, salt: salt)
+            saltB64 = salt.base64EncodedString()
+            shareKeyB64 = ""
+        } else {
+            let key = SymmetricKey(size: .bits256)
+            linkKey = key
+            saltB64 = ""
+            shareKeyB64 = key.withUnsafeBytes { Data($0).base64EncodedString() }
+        }
+
+        var files: [ShareFile] = []
+        var singleWrappedKeyB64 = ""
+
+        for (object, fileIDs) in forwardedPerFile {
+            let objectKey: SymmetricKey?
+            if let wrapped = object.wrappedKey, !wrapped.isEmpty, let vaultKey {
+                objectKey = try? CryptoEngine.unwrap(wrapped, with: vaultKey)
+            } else {
+                objectKey = nil
+            }
+
+            let wrappedForLink: String?
+            if let objectKey {
+                let wrappedData = try? CryptoEngine.wrap(objectKey, with: linkKey)
+                wrappedForLink = wrappedData?.base64EncodedString()
+            } else {
+                wrappedForLink = nil
+            }
+
+            if forwardedPerFile.count == 1 {
+                singleWrappedKeyB64 = wrappedForLink ?? ""
+            }
+            files.append(ShareFile(name: object.name, messageIDs: fileIDs, wrappedKey: wrappedForLink))
+        }
 
         // Group links present a combined name; the record also stores every object
         // ID so single-file reuse never hands out a group link and group reuse can
@@ -446,7 +497,8 @@ enum ShareEngine {
             fileName: displayName,
             expiry: expiry,
             messageIDs: allMessageIDs,
-            wrappedKeyB64: wrappedB64,
+            wrappedKeyB64: singleWrappedKeyB64,
+            saltB64: saltB64,
             files: isGroup ? files : []
         ).urlString
         // Hand out the obfuscated form: the link travels as an opaque blob with no
@@ -467,13 +519,13 @@ enum ShareEngine {
         )
         record.linkBlob = finalLink
         record.messageIDs = allMessageIDs.map(String.init).joined(separator: ",")
-        record.wrappedKeyB64 = wrappedB64
+        record.wrappedKeyB64 = singleWrappedKeyB64
         record.isPublic = isPublic
         if isGroup {
             record.groupObjectIDs = objects.map(\.id).joined(separator: ",")
         }
         try await DatabaseManager.shared.saveShare(record)
-        logger.info("Share: \(displayName) (\(files.count) file(s), \(allMessageIDs.count) chunks) into channel \(channelID) [\(isPublic ? "public" : "private")]")
+        logger.info("Share: \(displayName) (\(files.count) file(s), \(allMessageIDs.count) chunks) into channel \(channelID) [\(isPublic ? "public" : "private"), protected=\(isProtected)]")
         return finalLink
     }
 
@@ -891,8 +943,15 @@ enum ShareEngine {
     /// Cancel = delete the forwarded copies). When the sharer opens their own
     /// link, it short-circuits to `.selfOpen` — the file is already in their
     /// cloud, so nothing is imported.
+    /// Opens a share link: joins the channel, forwards every chunk into the
+    /// recipient's own vault channel, leaves, and returns `.pending` — the file
+    /// is staged (streamable/previewable) but NOT cataloged until the user
+    /// decides on the detail screen (Import = catalog + backup mirror,
+    /// Cancel = delete the forwarded copies). When the sharer opens their own
+    /// link, it short-circuits to `.selfOpen` — the file is already in their
+    /// cloud, so nothing is imported.
     @discardableResult
-    static func importLink(_ rawLink: String) async throws -> ImportOutcome {
+    static func importLink(_ rawLink: String, password: String? = nil) async throws -> ImportOutcome {
         guard TelegramClient.shared.isAuthorized else {
             throw ShareError.notAuthorized
         }
@@ -945,7 +1004,7 @@ enum ShareEngine {
         defer { Task { try? await TelegramClient.shared.leaveChat(chatId: channelID) } }
 
         if link.isForwardBased {
-            return try await stageImport(link: link, channelID: channelID, vault: vault)
+            return try await stageImport(link: link, channelID: channelID, vault: vault, password: password)
         }
         return try await stageLegacyImport(link: link, channelID: channelID, vault: vault)
     }
@@ -957,20 +1016,46 @@ enum ShareEngine {
     /// sync and heal) and the UI offers Import (catalog + backup mirror) or
     /// Cancel (delete the forwarded copies). Backup mirroring is deferred to
     /// the Import decision so cancelled files never reach the backup channel.
-    private static func stageImport(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
+    private static func stageImport(
+        link: ShareLink,
+        channelID: Int64,
+        vault: VaultRecord,
+        password: String? = nil
+    ) async throws -> ImportOutcome {
         do {
             // The link names one or more files. Single-file links parse into a
             // one-entry manifest; group links carry one entry per shared file —
             // each entry names that file's forwarded messages in the channel.
             let files = link.files.isEmpty
-                ? [ShareFile(name: link.fileName, messageIDs: link.messageIDs)]
+                ? [ShareFile(name: link.fileName, messageIDs: link.messageIDs, wrappedKey: link.wrappedKeyB64.isEmpty ? nil : link.wrappedKeyB64)]
                 : link.files
             guard files.allSatisfy({ !$0.messageIDs.isEmpty }) else { throw ShareError.invalidPayload }
+
+            // Check if link is password protected and resolve link key
+            let linkKey: SymmetricKey?
+            if link.isPasswordProtected {
+                guard let password, !password.isEmpty else {
+                    throw ShareError.passwordRequired
+                }
+                guard let saltData = Data(base64Encoded: link.saltB64), saltData.count == 16 else {
+                    throw ShareError.invalidLink
+                }
+                linkKey = CryptoEngine.deriveLinkKey(from: password, salt: saltData)
+            } else if !link.shareKey.isEmpty {
+                guard let keyData = Data(base64Encoded: link.shareKey) else {
+                    throw ShareError.invalidLink
+                }
+                linkKey = SymmetricKey(data: keyData)
+            } else {
+                linkKey = nil
+            }
 
             var stagedCount = 0
             var alreadyImportedID: String?
             var firstStagedID: String?
             var firstStagedName: String?
+            let recipientVaultKey = try? VaultManager.vaultKey(for: vault)
+
             for file in files {
                 let messages = try await TelegramClient.shared.messagesByIds(chatId: channelID, messageIds: file.messageIDs)
                 guard messages.count == file.messageIDs.count else { throw ShareError.invalidPayload }
@@ -998,8 +1083,26 @@ enum ShareEngine {
                     continue
                 }
 
-                // No key layer: shared chunks are plaintext, so the import is a pure
-                // forward — the vault records the file as plaintext (isPrivate: false).
+                // Resolve and re-wrap object key:
+                let wrappedKeyForFile = file.wrappedKey ?? (files.count == 1 ? link.wrappedKeyB64 : nil)
+                let rewrappedKey: Data?
+                if let wrappedKeyForFile, !wrappedKeyForFile.isEmpty, let linkKey, let recipientVaultKey {
+                    guard let rawWrapped = Data(base64Encoded: wrappedKeyForFile) else {
+                        throw ShareError.invalidPayload
+                    }
+                    do {
+                        let objectKey = try CryptoEngine.unwrap(rawWrapped, with: linkKey)
+                        rewrappedKey = try CryptoEngine.wrap(objectKey, with: recipientVaultKey)
+                    } catch {
+                        if link.isPasswordProtected {
+                            throw ShareError.invalidPassword
+                        } else {
+                            throw ShareError.invalidPayload
+                        }
+                    }
+                } else {
+                    rewrappedKey = nil
+                }
 
                 // Forward every chunk message into our vault channel (server-side copy).
                 let objectID = UUID().uuidString
@@ -1021,7 +1124,7 @@ enum ShareEngine {
                         index: meta.index,
                         size: size,
                         plainHash: meta.plainHash,
-                        cipherHash: nil,
+                        cipherHash: meta.cipherHash,
                         state: "uploaded",
                         messageID: newMessageId,
                         fileUniqueID: nil,
@@ -1031,17 +1134,24 @@ enum ShareEngine {
                 }
                 guard chunkRecords.count == metas.count else { throw ShareError.invalidPayload }
 
+                let resolvedName = !file.name.isEmpty && file.name != "Shared file"
+                    ? file.name
+                    : (!first.name.isEmpty ? first.name : link.fileName)
+                let resolvedMime = !first.mime.isEmpty && first.mime != "application/octet-stream"
+                    ? first.mime
+                    : (UTType(filenameExtension: (resolvedName as NSString).pathExtension)?.preferredMIMEType ?? "application/octet-stream")
+
                 // pendingImport: streamable via the existing stack (reads the DB by
                 // object id) but invisible to every catalog view/sync/heal path.
                 let object = ObjectRecord(
                     id: objectID,
                     vaultID: vault.id,
-                    name: first.name,
+                    name: resolvedName,
                     size: first.size,
-                    mime: first.mime,
+                    mime: resolvedMime,
                     state: "pendingImport",
                     rootHash: first.rootHash,
-                    wrappedKey: nil,
+                    wrappedKey: rewrappedKey,
                     createdAt: .now,
                     modifiedAt: .now,
                     isFavorite: false,
@@ -1068,7 +1178,7 @@ enum ShareEngine {
                     expiry: link.expiry,
                     role: "incoming",
                     state: "pending",
-                    fileName: first.name,
+                    fileName: resolvedName,
                     createdAt: .now,
                     messageIDs: file.messageIDs.map(String.init).joined(separator: ","),
                     wrappedKeyB64: link.wrappedKeyB64
@@ -1076,8 +1186,8 @@ enum ShareEngine {
 
                 stagedCount += 1
                 firstStagedID = firstStagedID ?? objectID
-                firstStagedName = firstStagedName ?? first.name
-                logger.info("Share \(link.id): staged \(first.name) (\(chunkRecords.count) chunks) — awaiting import decision")
+                firstStagedName = firstStagedName ?? resolvedName
+                logger.info("Share \(link.id): staged \(resolvedName) (\(chunkRecords.count) chunks) — awaiting import decision")
             }
 
             // The files' chunks are now copied into our vault — leave the share
@@ -1403,6 +1513,8 @@ enum ShareEngine {
     enum ShareError: Swift.Error, LocalizedError, Equatable, Sendable {
         case notAuthorized, notShareable, notShareablePrivate, sourceUnavailable, invalidLink, expired, invalidPayload
         case privatePoolFull
+        case passwordRequired
+        case invalidPassword
         case createFailed(String)
         case uploadFailed(String)
         case joinFailed(String)
@@ -1418,6 +1530,8 @@ enum ShareEngine {
             case .expired: return "This share link has expired."
             case .invalidPayload: return "The share channel doesn't contain a valid Cascade file."
             case .privatePoolFull: return "5 private shares are already active — cancel one on the Shared page, or make this share public instead."
+            case .passwordRequired: return "This share is protected by a password."
+            case .invalidPassword: return "Incorrect password for this share link."
             case .createFailed(let message): return "Couldn't create the share channel. \(message)"
             case .uploadFailed(let message): return "Forwarding the shared file failed. \(message)"
             case .joinFailed(let message): return "Couldn't join the share channel. \(message)"

@@ -1459,6 +1459,81 @@ struct xCloudTests {
         #expect(parsedSingle?.messageIDs == [1048610, 1048611])
     }
 
+    @Test func passwordProtectedShareLinkRoundTripsAndUnlocks() throws {
+        let objectKey = SymmetricKey(size: .bits256)
+        let password = "SecretPassword123!"
+        var saltBytes = [UInt8](repeating: 0, count: 16)
+        _ = SecRandomCopyBytes(kSecRandomDefault, 16, &saltBytes)
+        let salt = Data(saltBytes)
+        let linkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
+        let wrappedKey = try CryptoEngine.wrap(objectKey, with: linkKey)
+        
+        let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
+        let link = ShareEngine.ShareLink(
+            id: "pw-share-1",
+            channelID: -100987654321,
+            inviteLink: "https://t.me/+SecretLink123456",
+            shareKey: "",
+            fileName: "classified.pdf",
+            expiry: expiry,
+            messageIDs: [2001, 2002],
+            wrappedKeyB64: wrappedKey.base64EncodedString(),
+            saltB64: salt.base64EncodedString()
+        )
+        
+        #expect(link.isPasswordProtected)
+        let obfuscated = try ShareEngine.obfuscate(link.urlString)
+        let parsed = try #require(ShareEngine.ShareLink.parse(obfuscated))
+        
+        #expect(parsed.isPasswordProtected)
+        #expect(parsed.shareKey.isEmpty)
+        #expect(parsed.saltB64 == salt.base64EncodedString())
+        #expect(parsed.wrappedKeyB64 == wrappedKey.base64EncodedString())
+        
+        // Correct password unwraps original objectKey
+        let recipientDerivedKey = CryptoEngine.deriveLinkKey(from: password, salt: Data(base64Encoded: parsed.saltB64)!)
+        let unwrappedKey = try CryptoEngine.unwrap(Data(base64Encoded: parsed.wrappedKeyB64)!, with: recipientDerivedKey)
+        #expect(unwrappedKey == objectKey)
+        
+        // Wrong password fails to unwrap
+        let wrongDerivedKey = CryptoEngine.deriveLinkKey(from: "WrongPassword!", salt: Data(base64Encoded: parsed.saltB64)!)
+        #expect(throws: Error.self) {
+            try CryptoEngine.unwrap(Data(base64Encoded: parsed.wrappedKeyB64)!, with: wrongDerivedKey)
+        }
+    }
+
+    @Test func unprotectedSimpleShareLinkRoundTripsAndUnwraps() throws {
+        let objectKey = SymmetricKey(size: .bits256)
+        let shareKey = SymmetricKey(size: .bits256)
+        let wrappedKey = try CryptoEngine.wrap(objectKey, with: shareKey)
+        let shareKeyB64 = shareKey.withUnsafeBytes { Data($0).base64EncodedString() }
+        
+        let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
+        let link = ShareEngine.ShareLink(
+            id: "simple-share-1",
+            channelID: -100987654321,
+            inviteLink: "https://t.me/+SimpleLink123456",
+            shareKey: shareKeyB64,
+            fileName: "vacation.mp4",
+            expiry: expiry,
+            messageIDs: [3001, 3002, 3003],
+            wrappedKeyB64: wrappedKey.base64EncodedString(),
+            saltB64: ""
+        )
+        
+        #expect(!link.isPasswordProtected)
+        let obfuscated = try ShareEngine.obfuscate(link.urlString)
+        let parsed = try #require(ShareEngine.ShareLink.parse(obfuscated))
+        
+        #expect(!parsed.isPasswordProtected)
+        #expect(parsed.shareKey == shareKeyB64)
+        
+        // Recipient directly un-fragments shareKey and unwraps objectKey with zero password
+        let recipientShareKey = SymmetricKey(data: Data(base64Encoded: parsed.shareKey)!)
+        let unwrappedKey = try CryptoEngine.unwrap(Data(base64Encoded: parsed.wrappedKeyB64)!, with: recipientShareKey)
+        #expect(unwrappedKey == objectKey)
+    }
+
     @Test func groupShareManifestRejectsMalformedPayloads() {
         // A group manifest with a file that resolves to zero chunks must be
         // rejected outright — a partial group would silently drop a file.

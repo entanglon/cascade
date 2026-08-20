@@ -2,7 +2,37 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Phase 3: In-memory media streaming slice decryption & download engine caching.
+> 2026-08-20 (morning) — Phase 4: Zero-knowledge password-protected & simple share links with client-side key re-wrapping.
+
+---
+
+## 2026-08-20 (morning) — Phase 4: Zero-knowledge password-protected & simple share links with client-side key re-wrapping
+
+Implemented zero-knowledge client-side encryption and key management for cloud-to-cloud serverless file sharing, offering both instant simple shares and password-protected shares.
+
+### Changes
+
+- `Engine/ShareEngine.swift`:
+  - `ShareFile` & `ShareLink`: Added per-file `wrappedKey` support in group/single link manifests, `saltB64` and `isPasswordProtected` fields.
+  - `share` / `forwardShare`:
+    - **Simple share links (Default)**: $K_{\text{file}}$ wrapped with a random 256-bit `shareKey` embedded directly in the obfuscated URL fragment (`#...`). Recipient claims in $<1\text{ms}$ with zero password prompts.
+    - **Password-protected share links (Optional)**: $K_{\text{file}}$ sealed with PBKDF2 link key derived from user password + 16-byte random salt. Link carries `#w=...&salt=...` without plaintext key.
+  - `stageImport`: Resolves `linkKey` (via PBKDF2 with salt if password-protected or via `shareKey` if simple link), unwraps $K_{\text{file}}$, and re-wraps under recipient's vault master key (`recipientVaultKey`).
+  - Added `ShareError.passwordRequired` and `ShareError.invalidPassword`.
+- `App/AppState.swift`:
+  - Added `promptPasswordShare` and updated `shareFiles` / `shareFile` to accept optional `password: String?`.
+  - Updated `importShareLink` to handle password-protected links and trigger password prompt on `ShareError.passwordRequired`.
+- `Features/FileBrowserView.swift`:
+  - Context menu updated with `Private (Simple)`, `Private (Password Protected…)`, and `Public`.
+  - Added `SharePasswordPromptSheet` for setting password on share creation.
+- `Features/RootView.swift`:
+  - Added `SharePasswordUnlockSheet` for unlocking and claiming password-protected shares.
+- `xCloudTests/xCloudTests.swift`:
+  - Added `passwordProtectedShareLinkRoundTripsAndUnlocks` and `unprotectedSimpleShareLinkRoundTripsAndUnwraps` unit tests.
+
+### Build / test
+
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (71: 63 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
 ---
 

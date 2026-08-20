@@ -103,6 +103,15 @@ struct RootView: View {
                     .environment(appState)
             }
         }
+        .sheet(isPresented: Binding(
+            get: { appState.passwordUnlockLink != nil },
+            set: { if !$0 { appState.passwordUnlockLink = nil } }
+        )) {
+            if let link = appState.passwordUnlockLink {
+                SharePasswordUnlockSheet(link: link)
+                    .environment(appState)
+            }
+        }
         .background(WindowChromeFixer())
         .onReceive(NotificationCenter.default.publisher(for: .cascadeUploadFinished)) { _ in
             // Refresh the file list the moment an upload completes so files appear
@@ -256,6 +265,168 @@ final class WindowChromeView: NSView {
                 x: visible.midX - frame.width / 2,
                 y: visible.midY - frame.height / 2
             ))
+        }
+    }
+}
+
+/// Prompt modal for entering a password to unlock and import a password-protected share link.
+struct SharePasswordUnlockSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    let link: String
+    @State private var password = ""
+    @State private var errorMessage: String? = nil
+    @State private var isUnlocking = false
+
+    private var shareName: String {
+        ShareEngine.ShareLink.parse(link)?.fileName ?? "Shared File"
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(XTheme.accent)
+                .padding(.top, 6)
+
+            Text("Password Required")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("This link for '\(shareName)' is password protected.\nEnter the password to unlock and import it.")
+                .font(.system(size: 12))
+                .foregroundStyle(XTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+
+            SecureField("Password", text: $password)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                )
+                .foregroundStyle(.white)
+                .frame(maxWidth: 300)
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.red)
+            }
+
+            if isUnlocking {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(XTheme.accent)
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        appState.passwordUnlockLink = nil
+                        dismiss()
+                    } label: {
+                        Text("Cancel")
+                            .foregroundStyle(.white.opacity(0.75))
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(Color.white.opacity(0.07))
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        submit()
+                    } label: {
+                        Text("Unlock & Import")
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(password.isEmpty ? Color.gray.opacity(0.4) : XTheme.accent)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(password.isEmpty)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(30)
+        .frame(width: 420)
+        .background(Color(red: 0.055, green: 0.07, blue: 0.11))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .preferredColorScheme(.dark)
+    }
+
+    private func submit() {
+        guard !password.isEmpty else { return }
+        isUnlocking = true
+        errorMessage = nil
+        Task {
+            let pw = password
+            do {
+                switch try await ShareEngine.importLink(link, password: pw) {
+                case .pending(let objectID):
+                    appState.passwordUnlockLink = nil
+                    appState.pendingImportID = objectID
+                    appState.pendingImportObject = try? await DatabaseManager.shared.object(objectID)
+                    await appState.loadFiles()
+                    dismiss()
+                case .imported:
+                    appState.passwordUnlockLink = nil
+                    let isGroup = ShareEngine.ShareLink.parse(link)?.isGroup ?? false
+                    let before = Set(appState.incomingShares.map(\.objectID))
+                    await appState.loadShares()
+                    let fresh = appState.incomingShares.filter { !before.contains($0.objectID) }
+                    let freshObjects = fresh.isEmpty ? nil : ((try? await DatabaseManager.shared.allObjects()) ?? [])
+                        .first { $0.id == fresh.first?.objectID }
+                    TransferCenter.shared.begin(
+                        .inbound,
+                        objectID: fresh.first?.objectID ?? "",
+                        name: isGroup
+                            ? "\(fresh.count) files"
+                            : (freshObjects?.name ?? "Shared file"),
+                        statusText: "Imported",
+                        state: .complete
+                    )
+                    appState.alertMessage = isGroup
+                        ? "Shared files imported — find them in Transfers."
+                        : "Shared file imported — find it in Transfers."
+                    await appState.loadFiles()
+                    dismiss()
+                case .selfOpen(let objectID):
+                    appState.passwordUnlockLink = nil
+                    await appState.loadFiles()
+                    if let object = appState.files.first(where: { $0.id == objectID }) {
+                        appState.revealObject(object)
+                    }
+                    dismiss()
+                case .alreadyImported(let objectID):
+                    appState.passwordUnlockLink = nil
+                    await appState.loadFiles()
+                    if let object = appState.files.first(where: { $0.id == objectID }) {
+                        appState.revealObject(object)
+                    }
+                    dismiss()
+                }
+            } catch ShareEngine.ShareError.invalidPassword {
+                isUnlocking = false
+                errorMessage = "Incorrect password. Please try again."
+            } catch {
+                isUnlocking = false
+                errorMessage = ShareEngine.describe(error)
+            }
         }
     }
 }

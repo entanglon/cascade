@@ -75,6 +75,10 @@ final class AppState {
     /// group share) — lets the "Share Link Ready" sheet word itself correctly.
     var shareResultFileCount = 1
     var isSharingFile = false
+    /// Targets queued for password-protected share link creation.
+    var sharePasswordTargets: [ObjectRecord]? = nil
+    /// Share link awaiting password unlock before import.
+    var passwordUnlockLink: String? = nil
     /// True when the "Import Shared Link…" dialog should appear (File menu).
     var importShareLinkPrompt = false
     /// A share file staged in the vault channel (pendingImport) awaiting the
@@ -1174,8 +1178,23 @@ final class AppState {
     /// recipient imports them all together. Only someone holding the link can
     /// import the files. `isPublic` mints a never-expiring public link in the
     /// persistent public channel (default: private, expiring, dedicated channel).
+    /// `password` optionally protects the link with a client-side derived password key.
     @MainActor
-    func shareFiles(_ objects: [ObjectRecord], isPublic: Bool = false) {
+    func promptPasswordShare(_ objects: [ObjectRecord]) {
+        let shareable = objects.filter { !$0.isFolder && !$0.isPrivate }
+        guard !shareable.isEmpty else {
+            alertMessage = ShareEngine.describe(
+                objects.contains(where: { $0.isPrivate })
+                    ? ShareEngine.ShareError.notShareablePrivate
+                    : ShareEngine.ShareError.notShareable
+            )
+            return
+        }
+        sharePasswordTargets = shareable
+    }
+
+    @MainActor
+    func shareFiles(_ objects: [ObjectRecord], isPublic: Bool = false, password: String? = nil) {
         guard !isSharingFile else { return }
         // Folders and private files can't be shared — drop them from the request
         // (the context menu already hides the action for folder-only selections).
@@ -1195,7 +1214,7 @@ final class AppState {
         Task {
             defer { isSharingFile = false }
             do {
-                shareResultLink = try await ShareEngine.share(objects: shareable, isPublic: isPublic)
+                shareResultLink = try await ShareEngine.share(objects: shareable, isPublic: isPublic, password: password)
                 await loadShares()
             } catch {
                 // describe() pulls the real reason out of TDLibKit errors instead of
@@ -1208,8 +1227,8 @@ final class AppState {
     /// Sender side: creates the share link for a single file (single selection,
     /// player). Convenience wrapper over `shareFiles`.
     @MainActor
-    func shareFile(_ object: ObjectRecord, isPublic: Bool = false) {
-        shareFiles([object], isPublic: isPublic)
+    func shareFile(_ object: ObjectRecord, isPublic: Bool = false, password: String? = nil) {
+        shareFiles([object], isPublic: isPublic, password: password)
     }
 
     /// Revokes ONE active outgoing share (private: dedicated channel dies;
@@ -1256,19 +1275,21 @@ final class AppState {
     /// sharer opens their own link, the original file is revealed instead (no
     /// duplicate import — Drive/iCloud behavior).
     @MainActor
-    func importShareLink(_ raw: String) {
+    func importShareLink(_ raw: String, password: String? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         Task {
             do {
-                switch try await ShareEngine.importLink(trimmed) {
+                switch try await ShareEngine.importLink(trimmed, password: password) {
                 case .pending(let objectID):
                     print("Cascade URL: staged for import decision (object \(objectID))")
+                    self.passwordUnlockLink = nil
                     pendingImportID = objectID
                     pendingImportObject = try? await DatabaseManager.shared.object(objectID)
                     await self.loadFiles()
                 case .imported:
                     print("Cascade URL: imported via link")
+                    self.passwordUnlockLink = nil
                     let isGroup = ShareEngine.ShareLink.parse(trimmed)?.isGroup ?? false
                     // An import is a transfer: the card shows in Transfers
                     // (history like uploads/downloads), not on the Shared page —
@@ -1293,6 +1314,7 @@ final class AppState {
                     await self.loadFiles()
                 case .selfOpen(let objectID):
                     print("Cascade URL: self-open, revealing object \(objectID)")
+                    self.passwordUnlockLink = nil
                     // Quiet, Drive-style behavior: reveal + select the original.
                     // No modal alert — the reveal highlight IS the feedback.
                     // A trashed original is revealed inside the Trash itself.
@@ -1311,6 +1333,7 @@ final class AppState {
                     }
                 case .alreadyImported(let objectID):
                     print("Cascade URL: already imported, revealing object \(objectID)")
+                    self.passwordUnlockLink = nil
                     // The same exact file was imported before (content hash match) —
                     // reveal + blink the existing copy instead of a duplicate import.
                     await self.loadFiles()
@@ -1318,6 +1341,8 @@ final class AppState {
                         revealObject(object)
                     }
                 }
+            } catch ShareEngine.ShareError.passwordRequired {
+                self.passwordUnlockLink = trimmed
             } catch {
                 print("Cascade URL: import failed: \(error)")
                 alertMessage = ShareEngine.describe(error)

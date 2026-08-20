@@ -271,6 +271,15 @@ struct FileBrowserView: View {
                     ShareLinkSheet(link: link, fileCount: appState.shareResultFileCount)
                 }
             }
+            .sheet(isPresented: Binding(
+                get: { appState.sharePasswordTargets != nil },
+                set: { if !$0 { appState.sharePasswordTargets = nil } }
+            )) {
+                if let targets = appState.sharePasswordTargets {
+                    SharePasswordPromptSheet(targets: targets)
+                        .environment(appState)
+                }
+            }
     }
 
     /// The destination's content area: Transfers and Shared have their own pages;
@@ -1805,7 +1814,12 @@ struct FileItemContextMenu: View {
                         Button {
                             appState.shareFiles(shareTargets)
                         } label: {
-                            Label("Private", systemImage: "lock.fill")
+                            Label("Private (Simple)", systemImage: "lock.fill")
+                        }
+                        Button {
+                            appState.promptPasswordShare(shareTargets)
+                        } label: {
+                            Label("Private (Password Protected…)", systemImage: "key.fill")
                         }
                         Button {
                             appState.shareFiles(shareTargets, isPublic: true)
@@ -3228,5 +3242,127 @@ struct ShareProgressSheet: View {
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
         .preferredColorScheme(.dark)
+    }
+}
+
+/// Prompt modal for setting a password on a newly created share link.
+struct SharePasswordPromptSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    let targets: [ObjectRecord]
+    @State private var password = ""
+    @State private var confirmPassword = ""
+    @State private var errorMessage: String? = nil
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "key.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(XTheme.accent)
+                .padding(.top, 6)
+
+            Text("Password Protected Share")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("Set a password to protect this share link. The recipient will need this password to unlock and import the file(s).")
+                .font(.system(size: 12))
+                .foregroundStyle(XTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+
+            VStack(spacing: 10) {
+                SecureField("Enter password", text: $password)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .foregroundStyle(.white)
+
+                SecureField("Confirm password", text: $confirmPassword)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: 320)
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.red)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    appState.sharePasswordTargets = nil
+                    dismiss()
+                } label: {
+                    Text("Cancel")
+                        .foregroundStyle(.white.opacity(0.75))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    submit()
+                } label: {
+                    Text("Create Protected Link")
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(password.isEmpty ? Color.gray.opacity(0.4) : XTheme.accent)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(password.isEmpty)
+            }
+            .padding(.top, 4)
+        }
+        .padding(30)
+        .frame(width: 420)
+        .background(Color(red: 0.055, green: 0.07, blue: 0.11))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .preferredColorScheme(.dark)
+    }
+
+    private func submit() {
+        guard !password.isEmpty else {
+            errorMessage = "Password cannot be empty."
+            return
+        }
+        guard password == confirmPassword else {
+            errorMessage = "Passwords do not match."
+            return
+        }
+        let pw = password
+        appState.sharePasswordTargets = nil
+        appState.shareFiles(targets, isPublic: false, password: pw)
+        dismiss()
     }
 }
