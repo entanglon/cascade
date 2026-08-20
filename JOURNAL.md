@@ -2,10 +2,28 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Mini player buttons dead (keyboard works): interactive glass capsule over the bar swallows clicks.
+> 2026-08-20 (evening) — Mini player transport clicks + app-wide media keys.
 
 ---
 
+## 2026-08-20 (evening) — Mini player transport clicks + app-wide media keys
+
+User reported: (a) mini player transport buttons still dead on mouse clicks, (b) keyboard media keys (F7/F8/F9 / NX play-next-prev) don't control the app, (c) thumbnails visible in plaintext in the Telegram channel (design question).
+
+### Root cause & Solution (clicks)
+- Empirical hit-test harness (standalone SwiftUI app in /tmp/opencode/hittest) clicked 6 structural variants at exact convertToScreen coordinates: rows whose buttons (or container) carry `.glassEffect` received clicks; plain buttons with only `.contentShape(Circle())` did NOT — macOS 26 needs an interactive material on the button itself.
+- The mini player's prev/next/expand/close buttons had NO glass (only play did). Added `.glassEffect(.regular.interactive(), in: .circle)` to every transport button, matching the working theater/BookReader pattern. Outer bar keeps `.regular` capsule.
+- Harness findings (for future work): CGEvent clicks posted from within a process don't reach its own windows (external posting + activate works); the harness window's position was unstable between layouts (moves during settle).
+
+### Root cause & Solution (media keys)
+- Media keys were handled ONLY by the theater's KeyView (monitor installed while the fullscreen window is open); with the mini player up they went to the OS. Added F7/F8/F9 keyDown cases (98/100/101) + an NX systemDefined monitor (subtype 8: PLAY=16, NEXT/FAST=17/19, PREV/REWIND=18/20) to FileBrowserKeyView, gated on `currentTrack != nil` + theater closed; volume/mute codes pass through (system volume = app volume).
+
+### Build / test
+- Build green (Debug). Full suite **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures). Debug app relaunched for user verification.
+
+Commit: `cc63030` (code), `7504ca0` (docs). Thumbnail-encryption design pending user decision.
+
+---
 ## 2026-08-20 (evening) — Mini player buttons dead (keyboard works): interactive glass capsule over the bar swallows clicks
 
 User reported the mini music player's buttons don't respond to clicks while space bar and other keyboard controls work fine.
