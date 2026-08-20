@@ -2590,7 +2590,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     2. **Tests run against the LIVE Debug DB** — the destructive `replaceCatalogCreatesBackupSnapshot` test is the exact wipe that caused the 2026-08-20 incident. Tests are baseline-relative by design; no isolated test DB.
     3. **TDLibKit dropped-response bug** — patched with timeout+retry (`withResponseTimeout`, TelegramClient.swift:390) — workaround, not a fix in the TDLibKit layer itself.
     4. **LWW-by-modifiedAt is the ONLY cross-device conflict resolution** — no version history, no undo, no per-file conflict UI.
-    5. **Chunks are Telegram-channel plaintext** (per-file encryption dropped by user decision 2026-08-16; 1 MiB slices, CryptoEngine.swift:16). Access control = Telegram account + app gate (vault key seal, PIN/device).
+    5. **Encryption is mixed, NOT absent** (correction to an earlier draft of
+       this entry, which wrongly claimed per-file encryption was dropped):
+       private files ARE encrypted — AES-GCM per 1 MiB slice
+       (`CryptoEngine.encryptChunk`, Crypto/CryptoEngine.swift:93), object key
+       wrapped with the Keychain master key and carried as `wrappedKey` in the
+       caption, name/mime/thumbnail stripped (Engine/UploadEngine.swift:282-341).
+       BUT public files are **plaintext by design** (`wrappedKey: ""`,
+       Storage/CatalogSnapshot.swift:158) and single-chunk videos in
+       non-private folders skip encryption entirely
+       (Engine/UploadEngine.swift:247) — share recipients and anyone with the
+       channel's message history can read them. Access control = Telegram
+       account + local vault-key seal (PIN/device).
     6. **Single-platform macOS app, single account**; no CI, no error reporting/observability, no user-facing backup/export beyond the two Telegram channels (vault + immutable backup mirror).
     7. **Google-Drive-level gaps** (per the consultation): real multi-device sync + version history, sharing permission model, cross-platform clients, full-text search, resumable uploads at scale, observability.
     This round changed no code. The Claude prompt is saved in the chat; pending items updated. Repo clean, app running, DB healthy (25/25).

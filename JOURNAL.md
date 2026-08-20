@@ -29,6 +29,18 @@ single-account; (7) no CI, no observability/error reporting, no real backup
 beyond the two Telegram channels themselves.
 
 ### What was done
+- **CORRECTION (same session, user challenged the prompt's encryption claim):**
+  the first draft of the Claude prompt (and the docs) said "per-file encryption
+  dropped 2026-08-16". FALSE — verified against the code: private files ARE
+  AES-GCM encrypted per 1 MiB slice (Crypto/CryptoEngine.swift:93
+  `encryptChunk`, UploadEngine.swift:282-341), object key wrapped with the
+  Keychain master key, carried as `wrappedKey` in captions. What is actually
+  true: **public files are plaintext by design** (`wrappedKey: ""`,
+  CatalogSnapshot.swift:158) and single-chunk videos in non-private folders
+  skip encryption (UploadEngine.swift:247). Lesson: never state an
+  encryption/security fact in docs or consultant prompts without grepping the
+  upload path first. HANDOVER item 117 corrected; the corrected Claude prompt
+  was given to the user.
 - HANDOVER updated with item 117 (this round) + expanded known-weaknesses list
   for the consultation; Pending updated (consultation in flight; tombstone
   proposal still the top architecture decision awaiting the user).
