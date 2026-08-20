@@ -2,7 +2,28 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (late night) — Client-side zero-knowledge encryption & secure sharing architecture design.
+> 2026-08-20 (morning) — Phase 1: Cryptographic primitives (chunk encryption/decryption, slice seeking & link key derivation).
+
+---
+
+## 2026-08-20 (morning) — Phase 1: Cryptographic primitives (chunk encryption/decryption, slice seeking & link key derivation)
+
+Implemented foundational chunk-level encryption, multi-slice serialization, and password-protected link key derivation in `CryptoEngine.swift`.
+
+### Changes
+
+- `Crypto/CryptoEngine.swift`:
+  - `encryptChunk(_:objectKey:startSliceIndex:)`: Encrypts arbitrary chunk data spanning multiple 1 MB slices into concatenated AES-GCM sealed slices (with 28-byte nonce+tag overhead per slice).
+  - `decryptChunk(_:objectKey:startSliceIndex:)`: Decrypts concatenated sealed slices back into original plaintext data.
+  - `deriveLinkKey(from:salt:)`: PBKDF2-SHA256 (100,000 iterations) derivation for password-protected share links.
+- `xCloudTests/xCloudTests.swift`: Added 3 unit tests:
+  - `chunkEncryptionDecryptionMultiSliceRoundTrip`: Verifies multi-slice round trip on 2.5 MB payload.
+  - `randomAccessSliceDecryptionMatchesSubrange`: Verifies random-access $O(1)$ individual slice decryption matches exact sub-ranges for streaming.
+  - `passwordDerivedLinkKeySealsAndUnlocks`: Verifies password-protected link key wrapping, correct unlock, and wrong-password rejection.
+
+### Build / test
+
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (67: 59 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
 ---
 

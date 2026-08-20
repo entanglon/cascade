@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (late night): Client-side zero-knowledge encryption & secure sharing architecture designed (see implementation_plan.md). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): Phase 1 (Cryptographic Primitives) completed & tested. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2421,7 +2421,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       4 UI + 4 launch), Debug app relaunched. **No Release build** — user policy.
       Commit: `fb5484f`.
 
-97. **Client-side zero-knowledge encryption & secure sharing architecture (2026-08-20 — PLANNED)**
+97. **Client-side zero-knowledge encryption & secure sharing architecture (2026-08-20 — COMPLETED)**
     (`Crypto/CryptoEngine.swift`, `Engine/UploadEngine.swift`, `Engine/DownloadEngine.swift`,
     `Engine/ShareEngine.swift`, `Engine/VaultStreamServer.swift`, `Storage/CatalogSnapshot.swift`)
     - Designed full serverless zero-knowledge architecture to eliminate Telegram AI/content-scan risks.
@@ -2431,13 +2431,19 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Metadata/caption sanitization and gzip-compressed snapshot backups.
     - Detailed blueprint saved in `implementation_plan.md`.
 
+98. **Phase 1: Cryptographic primitives (chunk encryption/decryption, slice seeking & link key derivation) (2026-08-20 — COMMITTED)**
+    (`Crypto/CryptoEngine.swift`, `xCloudTests/xCloudTests.swift`)
+    - Added `CryptoEngine.encryptChunk` and `CryptoEngine.decryptChunk` for multi-slice chunk serialization.
+    - Added `CryptoEngine.deriveLinkKey` (PBKDF2-SHA256, 100k iterations) for password-protected sharing.
+    - Verified random-access $O(1)$ individual slice decryption against sub-ranges.
+    - Full test suite green: **TEST SUCCEEDED** (67: 59 unit + 4 UI + 4 launch, 0 failures).
+
 ## 5. Pending / next steps
-- **NEXT (Planned): Client-Side Encryption & Secure Sharing Pipeline** (HANDOVER item 97, see `implementation_plan.md`):
-  - Phase 1: `CryptoEngine` slice encryption/decryption + link key derivation.
-  - Phase 2: `UploadEngine` encrypted chunk uploads + `ChunkCaption` metadata sanitization.
-  - Phase 3: `VideoStreamingEngine` + `VaultStreamServer` in-memory slice decryption for `mpv`.
-  - Phase 4: `ShareEngine` zero-download key exchange + password-protected links.
-  - Phase 5: `CatalogSnapshot` gzip compression + snapshot encryption.
+- **NEXT: Phase 2 — Encrypted Uploads & Caption Metadata Sanitization** (see `implementation_plan.md`):
+  - Generate per-file $K_{\text{file}}$, encrypt chunks in `UploadEngine`, and sanitize `ChunkCaption` metadata.
+- **Phase 3: Media Streaming Decryption & Download Caching** (`VideoStreamingEngine`, `VaultStreamServer`, `DownloadEngine`).
+- **Phase 4: Zero-Download Sharing & Password-Protected Links** (`ShareEngine`, `ShareManagerView`).
+- **Phase 5: Snapshot Compression & Vault Migration** (`CatalogSnapshot`, `DatabaseManager`).
 - **DONE 2026-08-19 (night): TTL restored + launch heal added**
   (HANDOVER item 92) — the previous commit (8920745) mistakenly removed the
   24h server-side TTL; user confirmed it was an intentional feature (private

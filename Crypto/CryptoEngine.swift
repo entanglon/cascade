@@ -85,6 +85,70 @@ enum CryptoEngine {
         let box = try AES.GCM.SealedBox(combined: combined)
         return try AES.GCM.open(box, using: key)
     }
+
+    // MARK: - Chunk encryption / decryption
+
+    /// Encrypts an arbitrary chunk payload (which may span multiple 1 MB slices)
+    /// into concatenated AES-GCM sealed slices.
+    static func encryptChunk(
+        _ plaintext: Data,
+        objectKey: SymmetricKey,
+        startSliceIndex: Int
+    ) throws -> Data {
+        var encrypted = Data()
+        var offset = 0
+        var currentSliceIndex = startSliceIndex
+        
+        while offset < plaintext.count {
+            let length = min(sliceSize, plaintext.count - offset)
+            let sliceData = plaintext.subdata(in: offset ..< offset + length)
+            let sealed = try encryptSlice(sliceData, objectKey: objectKey, index: currentSliceIndex)
+            encrypted.append(sealed)
+            offset += length
+            currentSliceIndex += 1
+        }
+        return encrypted
+    }
+
+    /// Decrypts concatenated AES-GCM sealed slices back into the original plaintext.
+    static func decryptChunk(
+        _ ciphertext: Data,
+        objectKey: SymmetricKey,
+        startSliceIndex: Int
+    ) throws -> Data {
+        var decrypted = Data()
+        var offset = 0
+        var currentSliceIndex = startSliceIndex
+        
+        while offset < ciphertext.count {
+            let remaining = ciphertext.count - offset
+            let sliceCipherLength = min(sealedSliceSize, remaining)
+            let sealedSliceData = ciphertext.subdata(in: offset ..< offset + sliceCipherLength)
+            let plain = try decryptSlice(sealedSliceData, objectKey: objectKey, index: currentSliceIndex)
+            decrypted.append(plain)
+            offset += sliceCipherLength
+            currentSliceIndex += 1
+        }
+        return decrypted
+    }
+
+    // MARK: - Password-derived link key
+
+    /// Derives a 256-bit key from a user-supplied share password using PBKDF2-SHA256 (100k iterations).
+    static func deriveLinkKey(from password: String, salt: Data) -> SymmetricKey {
+        let pw = Array(password.utf8)
+        let sl = [UInt8](salt)
+        var derived = [UInt8](repeating: 0, count: 32)
+        CCKeyDerivationPBKDF(
+            CCPBKDFAlgorithm(kCCPBKDF2),
+            pw, pw.count,
+            sl, sl.count,
+            CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+            100_000,
+            &derived, derived.count
+        )
+        return SymmetricKey(data: Data(derived))
+    }
     
     // MARK: - Password-derived vault key (v2)
 

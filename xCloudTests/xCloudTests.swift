@@ -1482,6 +1482,74 @@ struct xCloudTests {
         #expect(decUnwrapped == plain)
     }
 
+    @Test func chunkEncryptionDecryptionMultiSliceRoundTrip() throws {
+        let objectKey = SymmetricKey(size: .bits256)
+        // 2.5 MB payload spans 3 slices: [1 MB, 1 MB, 512 KB]
+        let size = 2 * 1024 * 1024 + 512 * 1024
+        var plaintext = Data(count: size)
+        _ = plaintext.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, size, $0.baseAddress!)
+        }
+        
+        let startSlice = 12
+        let encrypted = try CryptoEngine.encryptChunk(plaintext, objectKey: objectKey, startSliceIndex: startSlice)
+        // Overhead should be 3 * 28 = 84 bytes
+        #expect(encrypted.count == plaintext.count + 3 * 28)
+        
+        let decrypted = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: startSlice)
+        #expect(decrypted == plaintext)
+    }
+
+    @Test func randomAccessSliceDecryptionMatchesSubrange() throws {
+        let objectKey = SymmetricKey(size: .bits256)
+        let size = 2 * 1024 * 1024 + 512 * 1024
+        var plaintext = Data(count: size)
+        _ = plaintext.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, size, $0.baseAddress!)
+        }
+        
+        let startSlice = 4
+        let encrypted = try CryptoEngine.encryptChunk(plaintext, objectKey: objectKey, startSliceIndex: startSlice)
+        
+        // Random access to slice 1 within the chunk (global slice index 5):
+        // Slice 0 in chunk: offset 0 ..< sealedSliceSize (1 MB + 28)
+        // Slice 1 in chunk: offset sealedSliceSize ..< 2 * sealedSliceSize
+        let s0 = 0
+        let s1 = CryptoEngine.sealedSliceSize
+        let s2 = 2 * CryptoEngine.sealedSliceSize
+        
+        let slice1Cipher = encrypted.subdata(in: s1 ..< s2)
+        let slice1Plain = try CryptoEngine.decryptSlice(slice1Cipher, objectKey: objectKey, index: startSlice + 1)
+        let expectedSlice1 = plaintext.subdata(in: 1024 * 1024 ..< 2 * 1024 * 1024)
+        #expect(slice1Plain == expectedSlice1)
+        
+        // Random access to slice 2 (remainder 512 KB):
+        let slice2Cipher = encrypted.subdata(in: s2 ..< encrypted.count)
+        let slice2Plain = try CryptoEngine.decryptSlice(slice2Cipher, objectKey: objectKey, index: startSlice + 2)
+        let expectedSlice2 = plaintext.subdata(in: 2 * 1024 * 1024 ..< size)
+        #expect(slice2Plain == expectedSlice2)
+    }
+
+    @Test func passwordDerivedLinkKeySealsAndUnlocks() throws {
+        let objectKey = SymmetricKey(size: .bits256)
+        let salt = Data("cascade-link-salt-42".utf8)
+        let password = "SecretPassphrase2026!"
+        
+        let linkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
+        let wrapped = try CryptoEngine.wrap(objectKey, with: linkKey)
+        
+        // Unlock with correct password
+        let correctLinkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
+        let unlocked = try CryptoEngine.unwrap(wrapped, with: correctLinkKey)
+        #expect(unlocked.withUnsafeBytes { Data($0) } == objectKey.withUnsafeBytes { Data($0) })
+        
+        // Attempt unlock with wrong password throws
+        let wrongLinkKey = CryptoEngine.deriveLinkKey(from: "WrongPassword123", salt: salt)
+        #expect(throws: Error.self) {
+            _ = try CryptoEngine.unwrap(wrapped, with: wrongLinkKey)
+        }
+    }
+
     @Test func shareReusesLiveLinkInsteadOfMintingNewOne() async throws {
         // Re-sharing a file that already has an active, unexpired outgoing share
         // returns that SAME link (same id/channel/key/expiry) instead of minting a
