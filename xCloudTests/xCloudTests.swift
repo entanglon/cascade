@@ -447,7 +447,7 @@ struct xCloudTests {
         )
 
         let caption = VaultManager.v2Caption(record)
-        #expect(caption.hasPrefix("xcloud:vaultkey:v2:"))
+        #expect(caption.hasPrefix(VaultManager.v2Prefix))
         let parsed = try VaultManager.parseV2Record(caption: caption)
         #expect(parsed.salt == salt)
         #expect(parsed.deviceID == "test-device")
@@ -1029,7 +1029,7 @@ struct xCloudTests {
         // Builds a minimal EPUB (zip with container/OPF/spine/NCX), extracts it and
         // verifies the reader gets ordered chapters + TOC titles mapped to indexes.
         let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("xcloud-booktest-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cascade-booktest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
@@ -1117,7 +1117,7 @@ struct xCloudTests {
         // into ONE document — and keep images/stylesheets resolving by rewriting
         // relative URLs to absolute file URLs.
         let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("xcloud-flatten-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cascade-flatten-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 

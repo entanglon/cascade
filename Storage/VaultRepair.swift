@@ -79,7 +79,7 @@ enum VaultRepair {
                 }
 
                 // Ignore database snapshot and delta messages
-                if let caption = captionText, caption.hasPrefix("xcloud:dbsnapshot:") || caption.hasPrefix("xcloud:dbdelta:") {
+                if let caption = captionText, caption.hasPrefix(CatalogSnapshot.captionPrefix) || caption.hasPrefix(CatalogSnapshot.legacyCaptionPrefix) || caption.hasPrefix(CatalogSnapshot.deltaCaptionPrefix) || caption.hasPrefix(CatalogSnapshot.legacyDeltaCaptionPrefix) {
                     continue
                 }
 
@@ -97,7 +97,7 @@ enum VaultRepair {
                     let isPrivate = meta.isPrivate
                     let trashed = meta.trashed
                     let isFavorite = meta.isFavorite
-                    let isFolder = meta.isFolder || meta.mime == "xcloud/folder"
+                    let isFolder = meta.isFolder || meta.mime == "cascade/folder"
                     let totalChunks = meta.totalChunks
                     let wrappedKeyStr = meta.wrappedKey
                     // Empty base64 string (public/unencrypted files carry "") must
@@ -356,7 +356,7 @@ enum VaultRepair {
         return changed
     }
 
-    /// Debug hook: dump the full channel message list to /tmp/xcloud-channel.txt so
+    /// Debug hook: dump the full channel message list to /tmp/cascade-channel.txt so
     /// the real channel state can be compared against the local catalog.
     static func dumpChannelToFile() async {
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
@@ -375,7 +375,7 @@ enum VaultRepair {
             }
             out += "id=\(m.id) kind=\(kind) cap=\(String(text.prefix(70))) file=\(fileName)\n"
         }
-        try? out.write(toFile: "/tmp/xcloud-channel.txt", atomically: true, encoding: .utf8)
+        try? out.write(toFile: "/tmp/cascade-channel.txt", atomically: true, encoding: .utf8)
         logger.info("Channel dump written: \(msgs.count) messages")
     }
 
@@ -406,8 +406,9 @@ enum VaultRepair {
         var objectIDs: [String] = []
         for msg in messages {
             guard let cap = caption(of: msg),
-                  cap.hasPrefix("xcloud:v1:"),
-                  let data = cap.dropFirst("xcloud:v1:".count).data(using: .utf8),
+                  (cap.hasPrefix(ChunkCaption.legacyVaultPrefix) || cap.hasPrefix(ChunkCaption.unifiedPrefix)) else { continue }
+            let prefixLen = cap.hasPrefix(ChunkCaption.legacyVaultPrefix) ? ChunkCaption.legacyVaultPrefix.count : ChunkCaption.unifiedPrefix.count
+            guard let data = cap.dropFirst(prefixLen).data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let id = json["id"] as? String,
                   (json["isFolder"] as? Bool) == true,
@@ -484,7 +485,12 @@ enum VaultRepair {
             let text = caption(of: msg) ?? ""
             // Cascade's own metadata (key records, the delta log,
             // checkpoints) — protected regardless of what the local DB contains.
-            if text.hasPrefix("xcloud:vaultkey:") || text.hasPrefix("xcloud:dbdelta:") || text.hasPrefix("xcloud:dbsnapshot:") {
+            let isProtectedMeta = [
+                VaultManager.v2Prefix, VaultManager.legacyV2Prefix,
+                CatalogSnapshot.deltaCaptionPrefix, CatalogSnapshot.legacyDeltaCaptionPrefix,
+                CatalogSnapshot.captionPrefix, CatalogSnapshot.legacyCaptionPrefix
+            ].contains { text.hasPrefix($0) }
+            if isProtectedMeta {
                 return false
             }
             // Only CHUNK messages are ever candidates — documents (new format,

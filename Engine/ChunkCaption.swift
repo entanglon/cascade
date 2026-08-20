@@ -13,7 +13,8 @@ import Foundation
 /// be rewritten): `xcloud:v1:` (chunk/object, no kind) and `xcloud:share:v1:`
 /// (share chunk). Writers use the unified format only.
 enum ChunkCaption {
-    static let unifiedPrefix = "xcloud:"
+    static let unifiedPrefix = "cascade:"
+    static let legacyUnifiedPrefix = "xcloud:"
     static let legacyVaultPrefix = "xcloud:v1:"
     static let legacySharePrefix = "xcloud:share:v1:"
     static let kindChunk = "chunk"

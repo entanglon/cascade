@@ -108,8 +108,10 @@ enum VaultManager {
         var deviceID: String
     }
 
-    static let v2Prefix = "xcloud:vaultkey:v2:"
-    private static let v1Prefix = "xcloud:vaultkey:"
+    static let v2Prefix = "cascade:vaultkey:v2:"
+    private static let v1Prefix = "cascade:vaultkey:"
+    static let legacyV2Prefix = "xcloud:vaultkey:v2:"
+    static let legacyV1Prefix = "xcloud:vaultkey:"
 
     static func v2Caption(_ record: VaultKeyRecordV2) -> String {
         v2Prefix + (try! JSONEncoder().encode(record)).base64EncodedString()

@@ -669,7 +669,7 @@ final class TelegramClient {
     /// what Telegram actually stores for each chunk message. A mismatch means the
     /// catalog points at the wrong document/size and streamed bytes will be garbage.
     func debugChunkInfo(objectID: String) async {
-        let logURL = URL(fileURLWithPath: "/tmp/xcloud-chunkinfo.txt")
+        let logURL = URL(fileURLWithPath: "/tmp/cascade-chunkinfo.txt")
         func log(_ s: String) {
             print(s)
             if let h = try? FileHandle(forWritingTo: logURL) {
@@ -1111,7 +1111,7 @@ final class TelegramClient {
             case .messageDocument(let doc): text = doc.caption.text
             default: text = nil
             }
-            if let text, text.hasPrefix("xcloud:vaultkey:") {
+            if let text, text.hasPrefix(VaultManager.v2Prefix) || text.hasPrefix(VaultManager.legacyV2Prefix) || text.hasPrefix(VaultManager.legacyV1Prefix) {
                 latest = message
             }
         }
@@ -1702,7 +1702,7 @@ final class TelegramClient {
     }
 
     /// Debug hook: writes any chat's full message list (id, kind, caption) to
-    /// /tmp/xcloud-chat-<id>.txt so real channel state can be inspected.
+    /// /tmp/cascade-chat-<id>.txt so real channel state can be inspected.
     func debugDumpChat(chatId: Int64) async throws {
         guard let client else { throw TelegramError.notInitialized }
         var lines: [String] = []
@@ -1747,7 +1747,7 @@ final class TelegramClient {
             fromMessageId = oldest - 1
         }
         try? lines.joined(separator: "\n").write(
-            toFile: "/tmp/xcloud-chat-\(chatId).txt",
+            toFile: "/tmp/cascade-chat-\(chatId).txt",
             atomically: true,
             encoding: .utf8
         )

@@ -19,22 +19,25 @@ import GRDB
 ///   are picked up automatically (the forward copies the current caption).
 enum BackupSync {
     /// Sentinel `objectID`s for non-chunk vault messages.
-    static let checkpointObjectID = "xcloud:checkpoint"
-    static let deltaObjectID = "xcloud:delta"
-    static let keyRecordObjectID = "xcloud:vaultkey"
+    static let checkpointObjectID = "cascade:checkpoint"
+    static let deltaObjectID = "cascade:delta"
+    static let keyRecordObjectID = "cascade:vaultkey"
+    static let legacyCheckpointObjectID = "xcloud:checkpoint"
+    static let legacyDeltaObjectID = "xcloud:delta"
+    static let legacyKeyRecordObjectID = "xcloud:vaultkey"
 
-    /// File-based mirror log (/tmp/xcloud-backup.log) — the unified log is not
+    /// File-based mirror log (/tmp/cascade-backup.log) — the unified log is not
     /// reliably readable on this machine, and the app's stdout goes nowhere when
     /// launched via `open`.
     static func mirrorLog(_ line: String) {
         let stamp = ISO8601DateFormatter().string(from: .now)
         let entry = Data("\(stamp) \(line)\n".utf8)
-        if let handle = FileHandle(forWritingAtPath: "/tmp/xcloud-backup.log") {
+        if let handle = FileHandle(forWritingAtPath: "/tmp/cascade-backup.log") {
             handle.seekToEndOfFile()
             handle.write(entry)
             try? handle.close()
         } else {
-            try? entry.write(to: URL(fileURLWithPath: "/tmp/xcloud-backup.log"))
+            try? entry.write(to: URL(fileURLWithPath: "/tmp/cascade-backup.log"))
         }
     }
 

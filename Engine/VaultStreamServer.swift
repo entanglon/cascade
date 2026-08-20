@@ -15,7 +15,7 @@ import Network
 final class VaultStreamServer {
     static let shared = VaultStreamServer()
 
-    private static let queue = DispatchQueue(label: "com.xcloud.vaultstream", qos: .userInitiated)
+    private static let queue = DispatchQueue(label: "com.cascade.vaultstream", qos: .userInitiated)
 
     private let lock = NSLock()
     private var listener: NWListener?

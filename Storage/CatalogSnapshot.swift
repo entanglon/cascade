@@ -20,14 +20,33 @@ import TDLibKit
 /// or reordering can never corrupt anything. The per-message scan remains as the
 /// catastrophic fallback.
 enum CatalogSnapshot {
-    static let captionPrefix = "xcloud:dbsnapshot:v1:"
-    static let deltaCaptionPrefix = "xcloud:dbdelta:v1:"
-    static let partCaptionPrefix = "xcloud:dbpart:v1:"
+    static let captionPrefix = "cascade:dbsnapshot:v1:"
+    static let deltaCaptionPrefix = "cascade:dbdelta:v1:"
+    static let partCaptionPrefix = "cascade:dbpart:v1:"
+    static let legacyCaptionPrefix = "xcloud:dbsnapshot:v1:"
+    static let legacyDeltaCaptionPrefix = "xcloud:dbdelta:v1:"
+    static let legacyPartCaptionPrefix = "xcloud:dbpart:v1:"
     static let maxObjectsPerPart = 50_000
 
+    /// True when a caption is a snapshot, delta, or part message (new or legacy prefix).
+    static func isSnapshotMessage(_ caption: String) -> Bool {
+        caption.hasPrefix(captionPrefix) || caption.hasPrefix(legacyCaptionPrefix)
+    }
+    static func isDeltaMessage(_ caption: String) -> Bool {
+        caption.hasPrefix(deltaCaptionPrefix) || caption.hasPrefix(legacyDeltaCaptionPrefix)
+    }
+    static func isPartMessage(_ caption: String) -> Bool {
+        caption.hasPrefix(partCaptionPrefix) || caption.hasPrefix(legacyPartCaptionPrefix)
+    }
+
     static func parsePartCaption(_ caption: String) -> (index: Int, total: Int, nonce: String, baseMessageID: Int64?)? {
-        guard caption.hasPrefix(partCaptionPrefix) else { return nil }
-        let rest = String(caption.dropFirst(partCaptionPrefix.count))
+        let prefix: String
+        if caption.hasPrefix(partCaptionPrefix) {
+            prefix = partCaptionPrefix
+        } else if caption.hasPrefix(legacyPartCaptionPrefix) {
+            prefix = legacyPartCaptionPrefix
+        } else { return nil }
+        let rest = String(caption.dropFirst(prefix.count))
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count >= 3,
               let index = Int(parts[0]),
@@ -362,13 +381,13 @@ enum CatalogSnapshot {
         var state = ChannelState()
         let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId, usingCache: true)
         let checkpoints = messages
-            .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
+            .filter { CatalogSnapshot.isSnapshotMessage(VaultRepair.caption(of: $0) ?? "") }
             .sorted { $0.id < $1.id }
         let deltas = messages
-            .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(deltaCaptionPrefix) }
+            .filter { CatalogSnapshot.isDeltaMessage(VaultRepair.caption(of: $0) ?? "") }
             .sorted { $0.id < $1.id }
         let partMessages = messages
-            .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(partCaptionPrefix) }
+            .filter { CatalogSnapshot.isPartMessage(VaultRepair.caption(of: $0) ?? "") }
             .sorted { $0.id < $1.id }
 
         var seenNonces = Set<String>()
@@ -433,7 +452,7 @@ enum CatalogSnapshot {
            let backupID = vault.backupChannelID {
             let backupMessages = await TelegramClient.shared.allChannelMessages(chatId: backupID, usingCache: true)
             let backupCheckpoints = backupMessages
-                .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
+                .filter { CatalogSnapshot.isSnapshotMessage(VaultRepair.caption(of: $0) ?? "") }
                 .sorted { $0.id < $1.id }
             if let newest = backupCheckpoints.last, let payload = await decodeMessagePayload(newest, chatId: backupID) {
                 state.checkpoint = payload
@@ -450,7 +469,7 @@ enum CatalogSnapshot {
                 // checkpoint's own base filter).
                 if messages.isEmpty {
                     let backupDeltas = backupMessages
-                        .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(deltaCaptionPrefix) }
+                        .filter { CatalogSnapshot.isDeltaMessage(VaultRepair.caption(of: $0) ?? "") }
                         .sorted { $0.id < $1.id }
                     for delta in backupDeltas {
                         if let payload = await decodeMessagePayload(delta, chatId: backupID) {
@@ -650,7 +669,7 @@ enum CatalogSnapshot {
     /// historical record of all snapshots, deltas, and vault keys for disaster recovery.
     static func pruneOldSnapshots(chatId: Int64, keepingNewerThan anchor: Int64? = nil) async {
         let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId, usingCache: true)
-        let snapshots = messages.filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
+        let snapshots = messages.filter { CatalogSnapshot.isSnapshotMessage(VaultRepair.caption(of: $0) ?? "") }
         let toDelete: [Int64]
         if let anchor {
             toDelete = snapshots.filter { $0.id < anchor }.map(\.id)

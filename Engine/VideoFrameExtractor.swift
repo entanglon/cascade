@@ -47,7 +47,7 @@ enum VideoFrameExtractor {
     /// dedicated queue explicitly. The semaphore caps concurrent extractions so
     /// a grid re-key (e.g. after a cache purge) can't start an unbounded FFmpeg
     /// stampede.
-    private static let extractionQueue = DispatchQueue(label: "com.xcloud.thumbnail-extract", qos: .utility)
+    private static let extractionQueue = DispatchQueue(label: "com.cascade.thumbnail-extract", qos: .utility)
     private static let extractionSlots = DispatchSemaphore(value: 2)
 
     // MARK: - Public API

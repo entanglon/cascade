@@ -433,7 +433,7 @@ final class AppState {
                 // undo the surgery. Operations: (1) drop the given object IDs and
                 // their chunk rows, (2) re-sync every chunk's recorded size to the
                 // actual document size Telegram stores, (3) publish checkpoint.
-                // Result goes to /tmp/xcloud-repair-catalog.txt.
+                // Result goes to /tmp/cascade-repair-catalog.txt.
                 if let idx = CommandLine.arguments.firstIndex(of: "--repair-catalog"),
                    CommandLine.arguments.indices.contains(idx + 1) {
                     let dropIDs = CommandLine.arguments[idx + 1].split(separator: ",").map(String.init)
@@ -476,7 +476,7 @@ final class AppState {
                     } else {
                         log += "checkpoint publish FAILED\n"
                     }
-                    try? log.write(toFile: "/tmp/xcloud-repair-catalog.txt", atomically: true, encoding: .utf8)
+                    try? log.write(toFile: "/tmp/cascade-repair-catalog.txt", atomically: true, encoding: .utf8)
                     NSApp.terminate(nil)
                     return
                 }
@@ -549,7 +549,7 @@ final class AppState {
                 if let idx = CommandLine.arguments.firstIndex(of: "--video-thumb"),
                    CommandLine.arguments.indices.contains(idx + 1) {
                     let id = CommandLine.arguments[idx + 1]
-                    let resultPath = "/tmp/xcloud-vidthumb-result.txt"
+                    let resultPath = "/tmp/cascade-vidthumb-result.txt"
                     let out = { (text: String) in try? text.write(toFile: resultPath, atomically: true, encoding: .utf8) }
                     if let obj = try? await DatabaseManager.shared.object(id) {
                         let url = await ThumbnailService.shared.thumbnailURL(for: obj)
@@ -566,12 +566,12 @@ final class AppState {
                 // documents from Telegram; the local cache still holds the plaintext).
                 // Reuses each object's ID/name/parent/chunk-size via resumeObject, so
                 // folder memberships survive. Chunk rows are cleared first so nothing
-                // is skipped. Progress + result go to /tmp/xcloud-recover-progress.txt.
+                // is skipped. Progress + result go to /tmp/cascade-recover-progress.txt.
                 // Resumable: run repeatedly until all files report uploaded.
                 if let idx = CommandLine.arguments.firstIndex(of: "--recover-upload"),
                    CommandLine.arguments.indices.contains(idx + 1) {
                     let cacheDir = URL(fileURLWithPath: CommandLine.arguments[idx + 1], isDirectory: true)
-                    let resultPath = "/tmp/xcloud-recover-progress.txt"
+                    let resultPath = "/tmp/cascade-recover-progress.txt"
                     let log = { (text: String) in
                         if var cur = try? String(contentsOfFile: resultPath, encoding: .utf8) {
                             cur += text + "\n"
@@ -630,7 +630,7 @@ final class AppState {
                 }
 
                 // Hidden debug hook: `--dump-channel` writes the full channel message
-                // list (id, kind, caption, file name) to /tmp/xcloud-channel.txt, so
+                // list (id, kind, caption, file name) to /tmp/cascade-channel.txt, so
                 // the real channel state can be compared against the local catalog.
                 if CommandLine.arguments.contains("--dump-channel") {
                     await VaultRepair.dumpChannelToFile()
@@ -638,7 +638,7 @@ final class AppState {
                 }
 
                 // Hidden debug hook: `--dump-chat <chatID>` writes any chat's message
-                // list (id, kind, caption) to /tmp/xcloud-chat-<id>.txt, then quits —
+                // list (id, kind, caption) to /tmp/cascade-chat-<id>.txt, then quits —
                 // used to inspect share channels directly.
                 if let idx = CommandLine.arguments.firstIndex(of: "--dump-chat"),
                    CommandLine.arguments.indices.contains(idx + 1),
@@ -660,13 +660,13 @@ final class AppState {
                     } catch {
                         result = "FAILED: \(error.localizedDescription)"
                     }
-                    try? result.write(toFile: "/tmp/xcloud-import-result.txt", atomically: true, encoding: .utf8)
+                    try? result.write(toFile: "/tmp/cascade-import-result.txt", atomically: true, encoding: .utf8)
                     NSApp.terminate(nil)
                 }
 
                 // Hidden debug hook: `--create-share <objectID>` runs the full sender
                 // share path (forward chunks into the reusable channel) and writes
-                // the minted link to /tmp/xcloud-share-link.txt, then quits — lets
+                // the minted link to /tmp/cascade-share-link.txt, then quits — lets
                 // the forward/serve side be tested headlessly.
                 if let idx = CommandLine.arguments.firstIndex(of: "--create-share"),
                    CommandLine.arguments.indices.contains(idx + 1) {
@@ -681,13 +681,13 @@ final class AppState {
                     } catch {
                         result = "FAILED: \(ShareEngine.describe(error))"
                     }
-                    try? result.write(toFile: "/tmp/xcloud-share-link.txt", atomically: true, encoding: .utf8)
+                    try? result.write(toFile: "/tmp/cascade-share-link.txt", atomically: true, encoding: .utf8)
                     NSApp.terminate(nil)
                 }
 
                 // Hidden debug hook: `--delete-messages <chatID> <comma,ids>` deletes
                 // the given messages from a chat (vault cleanup / test data removal)
-                // and writes the count to /tmp/xcloud-deleted.txt, then quits.
+                // and writes the count to /tmp/cascade-deleted.txt, then quits.
                 if let idx = CommandLine.arguments.firstIndex(of: "--delete-messages"),
                    CommandLine.arguments.indices.contains(idx + 2),
                    let chatID = Int64(CommandLine.arguments[idx + 1]) {
@@ -700,7 +700,7 @@ final class AppState {
                         deleted = ids.count
                     }
                     try? "deleted \(deleted) message(s)".write(
-                        toFile: "/tmp/xcloud-deleted.txt", atomically: true, encoding: .utf8
+                        toFile: "/tmp/cascade-deleted.txt", atomically: true, encoding: .utf8
                     )
                     NSApp.terminate(nil)
                 }
@@ -710,7 +710,7 @@ final class AppState {
                 // exist only in the channel, not in the local catalog: deletes those
                 // messages, deletes the matching local records, publishes a fresh
                 // checkpoint (base = newest channel message) so old deltas can never
-                // resurrect them, writes a summary to /tmp/xcloud-purge.txt, then quits.
+                // resurrect them, writes a summary to /tmp/cascade-purge.txt, then quits.
                 if CommandLine.arguments.contains("--purge-legacy-folders") {
                     var summary = ""
                     if let vault = try? await DatabaseManager.shared.firstVault() {
@@ -737,14 +737,14 @@ final class AppState {
                         }
                     }
                     try? summary.isEmpty
-                        ? "nothing to purge".write(toFile: "/tmp/xcloud-purge.txt", atomically: true, encoding: .utf8)
-                        : summary.write(toFile: "/tmp/xcloud-purge.txt", atomically: true, encoding: .utf8)
+                        ? "nothing to purge".write(toFile: "/tmp/cascade-purge.txt", atomically: true, encoding: .utf8)
+                        : summary.write(toFile: "/tmp/cascade-purge.txt", atomically: true, encoding: .utf8)
                     NSApp.terminate(nil)
                 }
 
                 // Hidden debug hook: `--revoke-shares` deletes every outgoing share
                 // channel (revoking their links) so stale test channels can be
-                // cleaned up, writes the count to /tmp/xcloud-revoke.txt, then quits.
+                // cleaned up, writes the count to /tmp/cascade-revoke.txt, then quits.
                 if CommandLine.arguments.contains("--revoke-shares") {
                     let shares = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
                     var revoked = 0
@@ -756,7 +756,7 @@ final class AppState {
                         revoked += 1
                     }
                     try? "revoked \(revoked) share(s) (of \(shares.count) total)".write(
-                        toFile: "/tmp/xcloud-revoke.txt", atomically: true, encoding: .utf8
+                        toFile: "/tmp/cascade-revoke.txt", atomically: true, encoding: .utf8
                     )
                     NSApp.terminate(nil)
                 }
@@ -1543,7 +1543,7 @@ final class AppState {
     @MainActor
     func handleIncomingURL(_ url: URL) {
         print("Cascade URL: AppState.handleIncomingURL \(url.absoluteString.prefix(80))")
-        guard url.scheme == "xcloud" else { return }
+        guard url.scheme == "cascade" || url.scheme == "xcloud" else { return }
         importShareLink(url.absoluteString)
     }
 
@@ -1761,7 +1761,7 @@ final class AppState {
                 vaultID: vault?.id ?? "local",
                 name: trimmed,
                 size: 0,
-                mime: "xcloud/folder",
+                mime: "cascade/folder",
                 state: "ready",
                 rootHash: nil,
                 wrappedKey: nil,
@@ -1796,7 +1796,7 @@ final class AppState {
                 vaultID: vault?.id ?? "local",
                 name: trimmed,
                 size: 0,
-                mime: kind == "video" ? "xcloud/playlist-video" : (kind == "photo" ? "xcloud/album-photo" : "xcloud/playlist-audio"),
+                mime: kind == "video" ? "cascade/playlist-video" : (kind == "photo" ? "cascade/album-photo" : "cascade/playlist-audio"),
                 state: "ready",
                 rootHash: nil,
                 wrappedKey: nil,
@@ -1840,7 +1840,7 @@ final class AppState {
                 // becomes its cover, matching the drag-drop path.
                 if updated.isPhoto,
                    let album = self.files.first(where: { $0.id == playlistID }),
-                   album.isFolder, album.mime == "xcloud/album-photo", album.coverObjectID == nil {
+                   album.isFolder, album.mime == "cascade/album-photo", album.coverObjectID == nil {
                     try? await DatabaseManager.shared.updateObject(album.id) { $0.coverObjectID = updated.id }
                     if let albumUpdated = try? await DatabaseManager.shared.object(album.id) {
                         syncObjectMetadataToTelegram(albumUpdated)
@@ -1875,7 +1875,7 @@ final class AppState {
                 vaultID: vault?.id ?? "local",
                 name: trimmed,
                 size: 0,
-                mime: "xcloud/private-folder",
+                mime: "cascade/private-folder",
                 state: "ready",
                 rootHash: nil,
                 wrappedKey: nil,

@@ -901,7 +901,7 @@ struct TheaterView: View {
                 // Matches the browser grid: albums first, then EVERY photo in the
                 // cloud (no parentID filter — photos living inside folders still
                 // appear on the Photos page and must stay navigable in the viewer).
-                let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/album-photo" }
+                let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "cascade/album-photo" }
                 let photoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                     $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
                 ) }
@@ -913,7 +913,7 @@ struct TheaterView: View {
             } else {
                 // Playlists first, then every video in the cloud (extension fallback
                 // included, mirroring the browser grid).
-                let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-video" }
+                let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "cascade/playlist-video" }
                 let videoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                     $0.mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp", "mpg", "mpeg"].contains(($0.name as NSString).pathExtension.lowercased())
                 ) }
@@ -924,7 +924,7 @@ struct TheaterView: View {
                 base = files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
             } else {
                 // Playlists first, then every audio file in the cloud.
-                let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-audio" }
+                let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "cascade/playlist-audio" }
                 let audioFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                     $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
                 ) }
@@ -1113,7 +1113,7 @@ struct TheaterView: View {
     }
 
     private var activeLocalURL: URL? {
-        // The xcloud-stream:// URL is not a real file — only expose real local files
+        // The cascade-stream:// URL is not a real file — only expose real local files
         // to "Open With" / "Open Externally".
         if let url, url.isFileURL { return url }
         if DownloadEngine.isCached(file) {
@@ -1246,7 +1246,7 @@ struct TheaterView: View {
         // wait. No layout await here, no separate download gate: play() owns the
         // fallback (a second download path here would double-download).
         if previewKind == .video || previewKind == .audio {
-            url = URL(string: "xcloud-stream://object-\(file.id)")
+            url = URL(string: "cascade-stream://object-\(file.id)")
             return
         }
 

@@ -799,7 +799,7 @@ struct BookReaderView: View {
                 let text = try String(contentsOf: cacheURL, encoding: .utf8)
                 let html = BookLoader.htmlDocument(fromText: text)
                 let dir = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("xcloud-books", isDirectory: true)
+                    .appendingPathComponent("cascade-books", isDirectory: true)
                     .appendingPathComponent(file.id, isDirectory: true)
                 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 let docURL = dir.appendingPathComponent("reader.html")

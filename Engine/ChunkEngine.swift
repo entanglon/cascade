@@ -32,7 +32,7 @@ enum ChunkEngine {
     private static func runSelfTest() throws {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory
-            .appendingPathComponent("xcloud-selftest", isDirectory: true)
+            .appendingPathComponent("cascade-selftest", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let fileURL = dir.appendingPathComponent("sample.bin")
         let path = fileURL.path(percentEncoded: false)

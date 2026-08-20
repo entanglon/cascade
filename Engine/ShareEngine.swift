@@ -23,7 +23,8 @@ import os
 /// re-encrypted copies and `xcloud:share:v1:` captions — still imported, forever.
 enum ShareEngine {
     /// Legacy share-channel caption prefix (pre-v22 disposable channels).
-    static let captionPrefix = "xcloud:share:v1:"
+    static let captionPrefix = "cascade:share:v1:"
+    static let legacyCaptionPrefix = "xcloud:share:v1:"
     /// How long a private share lives (link expiry + server-side message TTL).
     /// Recipient has this window to open the link; after it, the share revokes
     /// itself and the channel copies are removed.
@@ -107,7 +108,7 @@ enum ShareEngine {
 
         var urlString: String {
             var comps = URLComponents()
-            comps.scheme = "xcloud"
+            comps.scheme = "cascade"
             comps.host = "share"
             var items = [
                 URLQueryItem(name: "v", value: isForwardBased ? "2" : "1"),
@@ -153,7 +154,7 @@ enum ShareEngine {
                 return parse(plain)
             }
             guard let comps = URLComponents(string: trimmed),
-                  comps.scheme == "xcloud", comps.host == "share" else { return nil }
+                  (comps.scheme == "cascade" || comps.scheme == "xcloud"), comps.host == "share" else { return nil }
             let q = Dictionary(uniqueKeysWithValues: (comps.queryItems ?? []).compactMap { item in
                 item.value.map { (item.name, $0) }
             })

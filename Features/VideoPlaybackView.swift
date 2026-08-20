@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 extension Notification.Name {
-    static let toggleVideoPlayback = Notification.Name("xcloud_toggleVideoPlayback")
+    static let toggleVideoPlayback = Notification.Name("cascade_toggleVideoPlayback")
 }
 
 /// Apple-TV-style button hover: a slight white tint fills the button's shape

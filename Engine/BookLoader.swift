@@ -21,7 +21,7 @@ enum BookLoader {
     /// non-sandboxed, so spawning it is fine.
     static func extractArchive(fileURL: URL, fileID: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("xcloud-books", isDirectory: true)
+            .appendingPathComponent("cascade-books", isDirectory: true)
             .appendingPathComponent(fileID, isDirectory: true)
         try? FileManager.default.removeItem(at: dir)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -195,7 +195,7 @@ enum BookLoader {
         let html = """
         <!DOCTYPE html><html><head><meta charset="utf-8">\(headContent)\n\(extraStyles.joined(separator: "\n"))</head><body>\(sections.joined(separator: "\n"))</body></html>
         """
-        let out = extractedDir.appendingPathComponent("xcloud-combined.html")
+        let out = extractedDir.appendingPathComponent("cascade-combined.html")
         try html.write(to: out, atomically: true, encoding: .utf8)
         return out
     }

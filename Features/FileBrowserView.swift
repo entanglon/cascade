@@ -94,7 +94,7 @@ struct FileBrowserView: View {
                 } else {
                     // The Photos page is a single place for EVERY photo in the cloud,
                     // wherever it lives — folders don't appear here, only albums.
-                    let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/album-photo" }
+                    let albums = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "cascade/album-photo" }
                     let photoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                         $0.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(($0.name as NSString).pathExtension.lowercased())
                     ) }
@@ -104,7 +104,7 @@ struct FileBrowserView: View {
                 if let currentID = appState.currentFolderID {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
                 } else {
-                    let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-video" }
+                    let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "cascade/playlist-video" }
                     let videoFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                         $0.mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp", "mpg", "mpeg"].contains(($0.name as NSString).pathExtension.lowercased())
                     ) }
@@ -114,7 +114,7 @@ struct FileBrowserView: View {
                 if let currentID = appState.currentFolderID {
                     return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == currentID }
                 } else {
-                    let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "xcloud/playlist-audio" }
+                    let playlists = files.filter { !$0.trashed && !$0.isPrivate && $0.isFolder && $0.mime == "cascade/playlist-audio" }
                     let audioFiles = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && (
                         $0.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains(($0.name as NSString).pathExtension.lowercased())
                     ) }
@@ -1884,7 +1884,7 @@ struct FileItemContextMenu: View {
             let isAudio = file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((file.name as NSString).pathExtension.lowercased())
             let isVideo = file.mime.hasPrefix("video/")
             let isPhoto = file.mime.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains((file.name as NSString).pathExtension.lowercased())
-            let targetPlaylistMime = isAudio ? "xcloud/playlist-audio" : (isVideo ? "xcloud/playlist-video" : (isPhoto ? "xcloud/album-photo" : nil))
+            let targetPlaylistMime = isAudio ? "cascade/playlist-audio" : (isVideo ? "cascade/playlist-video" : (isPhoto ? "cascade/album-photo" : nil))
 
             if let targetPlaylistMime {
                 let collections = appState.files.filter { $0.isFolder && !$0.trashed && $0.mime == targetPlaylistMime }
@@ -2240,15 +2240,15 @@ struct FileGridItem: View {
     private var folderCard: some View {
         HStack(spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
-                if file.mime == "xcloud/playlist-audio" {
+                if file.mime == "cascade/playlist-audio" {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(XTheme.accent)
-                } else if file.mime == "xcloud/playlist-video" {
+                } else if file.mime == "cascade/playlist-video" {
                     Image(systemName: "film.stack")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(XTheme.categoryCyan)
-                } else if file.mime == "xcloud/album-photo" {
+                } else if file.mime == "cascade/album-photo" {
                     Image(systemName: "photo.stack.fill")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(XTheme.categoryPink)
@@ -2726,17 +2726,17 @@ struct FileListRow: View {
     @ViewBuilder
     private var rowIcon: some View {
         if file.isFolder {
-            if file.mime == "xcloud/playlist-audio" {
+            if file.mime == "cascade/playlist-audio" {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(XTheme.accent)
                     .frame(width: 32, height: 32)
-            } else if file.mime == "xcloud/playlist-video" {
+            } else if file.mime == "cascade/playlist-video" {
                 Image(systemName: "film.stack")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(XTheme.categoryCyan)
                     .frame(width: 32, height: 32)
-            } else if file.mime == "xcloud/album-photo" {
+            } else if file.mime == "cascade/album-photo" {
                 Image(systemName: "photo.stack.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(XTheme.categoryPink)

@@ -1014,7 +1014,7 @@ final class MPVLayerView: NSView {
         }
 
         mpv_set_property_string(mpv, "user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        mpv_set_property_string(mpv, "referrer", "https://xcloud.app/")
+        mpv_set_property_string(mpv, "referrer", "https://cascade.app/")
 
         // Capture mpv's warnings+ (demuxer/codec/render failures). NOT verbose:
         // at "v" mpv emits per-frame timing lines that flood the unified log
@@ -1405,11 +1405,11 @@ final class MPVLayerView: NSView {
         }
     }
 
-    /// Appends a line to /tmp/xcloud-mpv-telemetry.log so playback stats survive
+    /// Appends a line to /tmp/cascade-mpv-telemetry.log so playback stats survive
     /// no matter how the app was launched (open(1) swallows stdout, and the
     /// unified log can drop high-frequency lines under mpv's message load).
     private func appendTelemetryFile(_ line: String) {
-        let path = "/tmp/xcloud-mpv-telemetry.log"
+        let path = "/tmp/cascade-mpv-telemetry.log"
         let text = line + "\n"
         if let handle = FileHandle(forWritingAtPath: path) {
             defer { handle.closeFile() }
@@ -2096,7 +2096,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
             playerView.animator().alphaValue = 1
         } completionHandler: { [weak self, weak container] in
             // The live layer is opaque at the correct size now — drop the ghost.
-            for sub in container?.layer?.sublayers ?? [] where sub.name == "xcloudGhostSnapshot" {
+            for sub in container?.layer?.sublayers ?? [] where sub.name == "cascadeGhostSnapshot" {
                 sub.removeFromSuperlayer()
             }
             self?.snapshotImage = nil
@@ -2294,7 +2294,7 @@ private struct MPVLayerHost: NSViewRepresentable {
         window.playerContainer = container
         if let snap = window.snapshotImage {
             let snapLayer = CALayer()
-            snapLayer.name = "xcloudGhostSnapshot"
+            snapLayer.name = "cascadeGhostSnapshot"
             snapLayer.contents = snap
             snapLayer.contentsGravity = .resizeAspect
             snapLayer.frame = container.bounds

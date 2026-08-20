@@ -51,13 +51,13 @@ enum CryptoEngine {
     // MARK: - Slice key derivation (HKDF-SHA256)
     
     static func sliceKey(objectKey: SymmetricKey, index: Int) -> SymmetricKey {
-        var info = Data("xcloud-slice-v1:".utf8)
+        var info = Data("cascade-slice-v1:".utf8)
         let idx = UInt64(index).bigEndian
         withUnsafeBytes(of: idx) { info.append(contentsOf: $0) }
         
         return HKDF<SHA256>.deriveKey(
             inputKeyMaterial: objectKey,
-            salt: Data("xcloud-salt-v1".utf8),
+            salt: Data("cascade-salt-v1".utf8),
             info: info,
             outputByteCount: 32
         )
@@ -179,7 +179,7 @@ enum CryptoEngine {
     /// blobs posted by older builds can still be unwrapped during migration.
     static func recoveryKey(from pin: String) -> SymmetricKey {
         let password = Array(pin.utf8)
-        let salt = Array("xcloud-recovery-v1".utf8)
+        let salt = Array("cascade-recovery-v1".utf8)
         var derived = [UInt8](repeating: 0, count: 32)
         CCKeyDerivationPBKDF(
             CCPBKDFAlgorithm(kCCPBKDF2),
