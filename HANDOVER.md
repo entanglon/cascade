@@ -2775,3 +2775,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
      placeholder when fullscreen is active (`PlayerFullScreenWindow.shared.isActive`).
    - **Stamp/bar alignment finalized**: `.frame(width: 76, height: 28)` — pixel-perfect.
    - **Debug build only**. Tests NOT rerun. **No Release build** — user policy.
+
+
+114. **Mini player buttons dead — FIXED (2026-08-20 — COMMITTED)**
+    (`Features/MiniPlayerView.swift`)
+    - **Root cause**: the whole mini bar was wrapped in `.glassEffect(.regular.interactive(), in: .capsule)` while each button inside had its own `.interactive()` circle glass. The interactive material over the entire bar swallows child hit-testing on macOS 26 (same quirk as the DMG login gate). Keyboard controls still worked because they're engine-level.
+    - **Fix**: outer bar material → `.glassEffect(.regular, in: .capsule)` (non-interactive); each button keeps its `.interactive()` circle. Same pattern as the working BookReader containers.
+    - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `66b1681`.
+
+115. **Mini player transport clicks + app-wide media keys (2026-08-20 — COMMITTED, awaiting user click verification)**
+    - **Click fix**: an empirical hit-test harness (standalone SwiftUI app, /tmp/opencode/hittest) proved macOS 26 needs an interactive material ON the button: plain `.contentShape(Circle())` buttons never received clicks, any `.glassEffect` on the button (or its container) made them clickable. The mini player's prev/next/expand/close had NO glass → dead. Now every transport button carries `.glassEffect(.regular.interactive(), in: .circle)` (matches working theater/BookReader pattern). Outer bar keeps `.regular` capsule.
+    - **Media keys**: previously handled ONLY while the theater window was open (KeyView). Now FileBrowserKeyView handles F7/F8/F9 keyDown (98/100/101) AND NX systemDefined media events (PLAY=16, NEXT/FAST=17/19, PREV/REWIND=18/20) whenever a track is loaded and the theater is closed; volume/mute pass through. Theater's own monitor still wins while open (newest-first).
+    - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `cc63030`.
