@@ -2,9 +2,47 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Architecture review + Claude consultation prompt.
+> 2026-08-20 (evening) — Claude architecture review received + verified.
 
 ---
+
+## 2026-08-20 (evening) — Claude architecture review received + verified
+
+The user's external consultant (Claude, per AGENTS.md rule 8) delivered a
+335-line architecture review (`~/.gemini/antigravity/brain/a27536af-…/architecture_review.md`).
+Per rule 8, every headline claim was verified against the code before accepting.
+
+### Verification verdict (all spot-checks passed)
+- **Flood-wait coverage "2 of 33 call sites"** — TRUE. `rg "withFloodWait"`
+  finds exactly 2 protected paths: chunk upload sendMessage (TelegramClient.swift:1147)
+  and BackupDrainer forward (BackupSync.swift:142). `allChannelMessages`
+  (TelegramClient.swift:1213) pages up to 2000×100 messages with ZERO delay and
+  no flood-wait; `deleteMessages` (:1253), `editMessageCaption` (:1259),
+  `searchChatMessages`, `messagesByIds` all unprotected — confirmed.
+- **BackupDrainer forwards without delay** — TRUE. The `Task.sleep(5s)` sits in
+  the catch (error) branch only (BackupSync.swift:168); successful forwards run
+  back-to-back up to `maxPerDrain` (50). It survives flood-waits (wrapped) but
+  hits FLOOD_WAIT constantly during batch drains.
+- **ShareEngine forwards: no flood-wait, no delay** — TRUE. Tight loop at
+  ShareEngine.swift:415-429 (rolls back on failure, but the share fails).
+- **3 redundant full-channel scans at startup** — TRUE. `completePostAuthSetup`
+  (AppState.swift:710): `pruneOldSnapshots` → `restore()`/`fetchChannelState` →
+  `VaultRepair.run()`, each independently calling `allChannelMessages`.
+- **Tombstone design** — Claude recommends a `tombstoneAt: Date?` FIELD on
+  ObjectRecord (migration v27) instead of my earlier `xcloud:dbdel:v1:` message
+  type: deleteForever sets it, merge lets it win, restore filters it, VaultRepair
+  skips matching chunks, GC after 90 days. Simpler than my proposal — endorsed.
+- **Small nits**: Claude says "59 unit + 4 UI tests" — actual is 70 total
+  (66 unit + 2 UI + 2 launch). File paths in the review use a stale
+  `xCloud/` prefix — cosmetic only.
+
+### What this means
+The review's headline conclusion is correct: **the #1 real risk is Telegram
+account safety (ban), fixable in ~1 day** (universal `withFloodWait` wrapper +
+200ms paging delays + one shared startup scan + forward delays + channel
+creation cooldown). The known-correctness gaps (test-DB isolation, delta nonce
+dedup, tombstones, error surfacing) are the next layer. No code changed this
+round; decisions on what to implement are with the user.
 
 ## 2026-08-20 (evening) — Architecture review + Claude consultation prompt
 

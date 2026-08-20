@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (evening): architecture-review round — honest gap assessment + Claude consultation prompt (item 117). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (evening): Claude architecture review received + verified against the code (item 118). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2606,7 +2606,41 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     7. **Google-Drive-level gaps** (per the consultation): real multi-device sync + version history, sharing permission model, cross-platform clients, full-text search, resumable uploads at scale, observability.
     This round changed no code. The Claude prompt is saved in the chat; pending items updated. Repo clean, app running, DB healthy (25/25).
 
+118. **Claude architecture review received + verified (2026-08-20 — DOCS ONLY)**
+    External review (335 lines) delivered; every headline claim spot-checked
+    against the code and CONFIRMED accurate:
+    - **Flood-wait coverage = 2 of 33 TDLib call sites** (the #1 finding): only
+      chunk upload (TelegramClient.swift:1147) and BackupDrainer forwards
+      (BackupSync.swift:142) are wrapped. `allChannelMessages` pages up to
+      2000×100 messages with zero delay; `deleteMessages` (:1253),
+      `editMessageCaption` (:1259), `searchChatMessages`, `messagesByIds`,
+      ShareEngine forwards (ShareEngine.swift:415, no delay, no wrap) all
+      unprotected. Ban risk is real and fixable in ~1 day.
+    - **BackupDrainer**: `Task.sleep(5s)` is error-branch only — successful
+      forwards run back-to-back (50 in <10s) → constant FLOOD_WAIT during batch
+      drains. Fix: 500ms inter-forward delay.
+    - **Startup**: `completePostAuthSetup` (AppState.swift:710) fires 3
+      independent full-channel scans (pruneOldSnapshots / restore /
+      VaultRepair). Fix: one shared cached scan.
+    - **Tombstones**: review endorses a `tombstoneAt: Date?` FIELD on
+      ObjectRecord (migration v27) over my earlier `xcloud:dbdel:v1:` message
+      type — merge: tombstone wins; restore: filter; VaultRepair: skip matching
+      chunks; GC after 90 days. ENDORSED — simpler, same guarantees.
+    - Nits: review says 59+4 tests (actual 70), paths use stale `xCloud/`
+      prefix (cosmetic).
+    - Review's full roadmap is in the user's copy (anti-ban day 1-2 → data
+      safety days 3-10 → features weeks 4+). Pending decisions: what to
+      implement first (anti-ban package is the recommendation).
+
 ## 5. Pending / next steps
+- **VERIFIED REVIEW IN HAND (2026-08-20):** Claude's architecture review is
+  checked and accurate (item 118). Awaiting the user's pick of what to
+  implement. Recommended order: (1) anti-ban package — universal
+  `withFloodWait` wrapper in TelegramClient, 200ms paging delays, one cached
+  startup scan, 500ms BackupDrainer inter-forward delay, ShareEngine
+  flood-wait + 300ms delay, channel-creation cooldown (~1 day); (2) data
+  safety — isolated test DB, delta nonce dedup, tombstones (migration v27),
+  error surfacing (~1 week); (3) features/scale.
 - **ARCHITECTURE CONSULTATION IN FLIGHT (2026-08-20):** Claude prompt delivered
   to the user (self-contained architecture review, "Google Drive level"). When
   the user pastes the reply back: verify suggestions against the code before
