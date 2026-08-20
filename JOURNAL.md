@@ -2,11 +2,75 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Catalog restore hang + silent empty-DB incident.
+> 2026-08-20 (evening) — Bulletproof restore: backup-channel fallback + backup drainer wedge fix.
 
 ---
 
-## 2026-08-20 (evening) — Catalog restore hang + silent empty-DB incident
+## 2026-08-20 (evening) — Bulletproof restore: backup-channel fallback + backup drainer wedge fix
+
+Follow-up to the restore incident (commit `024523b`). User asked: why did restore
+not use the BACKUP channel's snapshot copy, and made "the app must restore the DB
+easily" a requirement. Found and fixed two more real gaps, plus one design flaw
+in my own first attempt (verified empirically before shipping).
+
+### Gap 1 — restore never read the backup channel (fixed)
+- `fetchChannelState` only ever read the vault channel; the backup channel (an
+  immutable audit log of forwards — `pruneOldSnapshots` never touches it,
+  CatalogSnapshot.swift:417) was designed for disaster recovery but never wired
+  to restore (BackupSync.swift:6-9 says "a future restore from backup phase").
+- **Fix (kept)**: `fetchChannelState(chatId:allowBackupFallback:)` —
+  RESTORE ONLY (never upload/reconcile/publish: a stale backup must not clobber
+  a populated local catalog, and `newestID`-based `baseMessageID` computations
+  must stay in vault id-space). When the vault channel yields no usable
+  checkpoint, the newest checkpoint FORWARD in the backup channel is decoded
+  and used as the restore base; the vault channel's deltas still apply on top
+  (their ids are what the checkpoint's `baseMessageID` references).
+- **Freshness guard**: a backup forward is only trusted when no delta carries
+  records NEWER than the checkpoint's newest record (max `modifiedAt`
+  comparison). A stale forward (published by a device with a stale catalog)
+  sets `deltaBase = -1` → every delta is replayed and LWW merge keeps the
+  newest records — a stale base can never hide uploads that exist only in
+  deltas. Live-verified both branches.
+- Also handles the vault-channel-entirely-gone case (backup delta forwards).
+
+### Gap 2 — the backup mirror queue wedges permanently on one dead message (fixed)
+- The drainer `return`ed on the FIRST forward failure (BackupSync.swift:153).
+  A message deleted/pruned from the vault channel before its mirror completed
+  ("The data couldn't be read because it is missing", e.g. `81788928` after a
+  checkpoint prune) sat at the head of the FIFO queue FOREVER — every drain
+  cycle bumped attempts, returned, and 67 real messages (including a clean
+  checkpoint forward) never reached the backup channel. That is why the backup
+  was stale during the incident recovery.
+- **Fix (kept)**: after `maxForwardAttempts` (5) failed attempts a message is
+  marked `status='failed'` and SKIPPED so the queue progresses
+  (`markBackupFailed` + `backupAttempts` in DatabaseManager.swift; drainer
+  `continue` at BackupSync.swift:164).
+
+### Gap 3 — local-only drops resurrect via VaultRepair (fixed)
+- The `--repair-catalog` hook dropped objects LOCALLY only; the object's chunk
+  FILE MESSAGE stayed in the channel, and the next launch's VaultRepair rebuilt
+  the object from its caption — the real "file1.txt keeps coming back" loop.
+  (The app's own deleteForever never had this problem: `deleteFromVaultAndBackup`
+  removes the messages too.)
+- **Fix (kept)**: the hook now captures the chunk message IDs before the rows
+  go and calls `deleteFromVaultAndBackup` (+ queue rows) — verified: after the
+  drop + a VaultRepair run, file1.txt stays gone.
+
+### Verification (all live, on the real test account)
+- Restore-from-backup fallback fired with the vault channel's checkpoints
+  deleted (fresh backup forward → 25 objects, no file1.txt; stale forward →
+  delta replay). The 25-object state survives a wipe+relaunch after the test
+  suite wiped the catalog: "restore: channel checkpoint=true deltas=23" →
+  "snapshot restored: 25 objects, 25 chunks" → "reconciled, nothing new".
+- Final DB: 25 objects / 25 chunks (10 active + 12 trashed + 3 folders), no
+  file1.txt. Backup queue fully drained (dead messages skipped).
+- Full suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch).
+- Remaining gap (deferred — see HANDOVER pending): deletion TOMBSTONES. Without
+  them, a restore that replays deltas (vault checkpoint gone AND backup stale)
+  resurrects permanently-deleted objects whose records still live in old delta
+  payloads. Deferred: not needed for app-driven deletions (messages get
+  deleted), only for the double-failure disaster path.
+- Commit: `9d27481` (code).
 
 User reported "everything is gone now": the local catalog was empty at launch.
 The chain: the unit test `replaceCatalogCreatesBackupSnapshot` (xCloudTests.swift
