@@ -1097,7 +1097,7 @@ final class TelegramClient {
         return nil
     }
 
-    /// Finds the latest `xcloud:vaultkey:` recovery message in the channel. Its
+    /// Finds the latest `cascade:vaultkey:` recovery message in the channel. Its
     /// caption carries the vault key sealed with the PIN-derived key, enabling
     /// cross-device recovery of private files.
     func findRecoveryBlob(chatId: Int64) async -> Message? {
@@ -1111,7 +1111,7 @@ final class TelegramClient {
             case .messageDocument(let doc): text = doc.caption.text
             default: text = nil
             }
-            if let text, text.hasPrefix(VaultManager.v2Prefix) || text.hasPrefix(VaultManager.legacyV2Prefix) || text.hasPrefix(VaultManager.legacyV1Prefix) {
+            if let text, text.hasPrefix(VaultManager.v2Prefix) {
                 latest = message
             }
         }

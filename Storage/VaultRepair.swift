@@ -79,12 +79,12 @@ enum VaultRepair {
                 }
 
                 // Ignore database snapshot and delta messages
-                if let caption = captionText, caption.hasPrefix(CatalogSnapshot.captionPrefix) || caption.hasPrefix(CatalogSnapshot.legacyCaptionPrefix) || caption.hasPrefix(CatalogSnapshot.deltaCaptionPrefix) || caption.hasPrefix(CatalogSnapshot.legacyDeltaCaptionPrefix) {
+                if let caption = captionText, CatalogSnapshot.isSnapshotMessage(caption) || CatalogSnapshot.isDeltaMessage(caption) {
                     continue
                 }
 
                 // A. Reconstruct from a chunk/object metadata caption (unified
-                // xcloud:{...} or legacy xcloud:v1:...). Uses the unified codec so
+                // cascade:{...} or legacy cascade:{...}). Uses the unified codec so
                 // Cascade caption variant parses through one path.
                 if let caption = captionText, let meta = ChunkCaption.parse(caption) {
                     let objectID = meta.id
@@ -392,7 +392,7 @@ enum VaultRepair {
         }
     }
 
-    /// Finds legacy (old-format "xcloud:v1:" text metadata) folder messages whose
+    /// Finds legacy (old-format "cascade:{...}ext metadata) folder messages whose
     /// folder is EMPTY locally (no children, or not present in the local catalog at
     /// all) — these are old-version artifact folders (e.g. "Video"/"Audio") that can
     /// never hold files again. Returns (messageIDs, objectIDs) for the
@@ -406,9 +406,8 @@ enum VaultRepair {
         var objectIDs: [String] = []
         for msg in messages {
             guard let cap = caption(of: msg),
-                  (cap.hasPrefix(ChunkCaption.legacyVaultPrefix) || cap.hasPrefix(ChunkCaption.unifiedPrefix)) else { continue }
-            let prefixLen = cap.hasPrefix(ChunkCaption.legacyVaultPrefix) ? ChunkCaption.legacyVaultPrefix.count : ChunkCaption.unifiedPrefix.count
-            guard let data = cap.dropFirst(prefixLen).data(using: .utf8),
+                  cap.hasPrefix(ChunkCaption.unifiedPrefix) else { continue }
+            guard let data = cap.dropFirst(ChunkCaption.unifiedPrefix.count).data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let id = json["id"] as? String,
                   (json["isFolder"] as? Bool) == true,
@@ -486,9 +485,9 @@ enum VaultRepair {
             // Cascade's own metadata (key records, the delta log,
             // checkpoints) — protected regardless of what the local DB contains.
             let isProtectedMeta = [
-                VaultManager.v2Prefix, VaultManager.legacyV2Prefix,
-                CatalogSnapshot.deltaCaptionPrefix, CatalogSnapshot.legacyDeltaCaptionPrefix,
-                CatalogSnapshot.captionPrefix, CatalogSnapshot.legacyCaptionPrefix
+                VaultManager.v2Prefix,
+                CatalogSnapshot.deltaCaptionPrefix,
+                CatalogSnapshot.captionPrefix
             ].contains { text.hasPrefix($0) }
             if isProtectedMeta {
                 return false

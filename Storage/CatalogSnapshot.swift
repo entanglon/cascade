@@ -4,12 +4,12 @@ import TDLibKit
 /// The "database imaging" feature. The catalog (every file/folder record and every
 /// chunk's Telegram message ID) lives in TWO message types in the vault channel:
 ///
-///  - **Checkpoint** (`xcloud:dbsnapshot:v1:`): the full catalog in one JSON document,
+///  - **Checkpoint** (`cascade:dbsnapshot:v1:`): the full catalog in one JSON document,
 ///    published when the catalog first exists, when many records changed at once, or
 ///    periodically (every 24h) to bound restore cost. A fresh device fetches the
 ///    newest checkpoint and is instantly up to date — iCloud style. Older checkpoints
 ///    are auto-pruned; exactly one is kept.
-///  - **Delta** (`xcloud:dbdelta:v1:`): only the RECORDS that changed since the last
+///  - **Delta** (`cascade:dbdelta:v1:`): only the RECORDS that changed since the last
 ///    publish (a few KB per change-burst), published for routine changes so a huge
 ///    catalog never requires re-uploading the whole snapshot. Deltas are append-only
 ///    and never pruned — they are the durable change log.
@@ -23,30 +23,21 @@ enum CatalogSnapshot {
     static let captionPrefix = "cascade:dbsnapshot:v1:"
     static let deltaCaptionPrefix = "cascade:dbdelta:v1:"
     static let partCaptionPrefix = "cascade:dbpart:v1:"
-    static let legacyCaptionPrefix = "xcloud:dbsnapshot:v1:"
-    static let legacyDeltaCaptionPrefix = "xcloud:dbdelta:v1:"
-    static let legacyPartCaptionPrefix = "xcloud:dbpart:v1:"
     static let maxObjectsPerPart = 50_000
 
-    /// True when a caption is a snapshot, delta, or part message (new or legacy prefix).
     static func isSnapshotMessage(_ caption: String) -> Bool {
-        caption.hasPrefix(captionPrefix) || caption.hasPrefix(legacyCaptionPrefix)
+        caption.hasPrefix(captionPrefix)
     }
     static func isDeltaMessage(_ caption: String) -> Bool {
-        caption.hasPrefix(deltaCaptionPrefix) || caption.hasPrefix(legacyDeltaCaptionPrefix)
+        caption.hasPrefix(deltaCaptionPrefix)
     }
     static func isPartMessage(_ caption: String) -> Bool {
-        caption.hasPrefix(partCaptionPrefix) || caption.hasPrefix(legacyPartCaptionPrefix)
+        caption.hasPrefix(partCaptionPrefix)
     }
 
     static func parsePartCaption(_ caption: String) -> (index: Int, total: Int, nonce: String, baseMessageID: Int64?)? {
-        let prefix: String
-        if caption.hasPrefix(partCaptionPrefix) {
-            prefix = partCaptionPrefix
-        } else if caption.hasPrefix(legacyPartCaptionPrefix) {
-            prefix = legacyPartCaptionPrefix
-        } else { return nil }
-        let rest = String(caption.dropFirst(prefix.count))
+        guard caption.hasPrefix(partCaptionPrefix) else { return nil }
+        let rest = String(caption.dropFirst(partCaptionPrefix.count))
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count >= 3,
               let index = Int(parts[0]),

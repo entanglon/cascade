@@ -1386,32 +1386,8 @@ struct CascadeTests {
         let parsed = ChunkCaption.parse(caption ?? "")
         #expect(parsed == meta, "unified caption must round-trip")
 
-        // Legacy vault caption (pre-unified uploads — the user's real one).
-        let legacyVault = "xcloud:v1:{\"isPrivate\":false,\"isFolder\":false,\"totalChunks\":4,\"wrappedKey\":\"\",\"mime\":\"video/x-matroska\",\"size\":507814337,\"name\":\"Rings - Dolby Atmos - 16-9.mkv\",\"trashed\":false,\"isFavorite\":false,\"index\":0,\"parentID\":\"069584F2-331B-46B8-8BE9-54FAA65EB52E\",\"id\":\"26326FD2-AAF4-4D49-8F2E-286872D02E8E\"}"
-        let legacyParsed = ChunkCaption.parse(legacyVault)
-        #expect(legacyParsed != nil, "legacy vault captions must stay readable")
-        #expect(legacyParsed?.id == "26326FD2-AAF4-4D49-8F2E-286872D02E8E")
-        #expect(legacyParsed?.name == "Rings - Dolby Atmos - 16-9.mkv")
-        #expect(legacyParsed?.size == 507_814_337)
-        #expect(legacyParsed?.index == 0)
-        #expect(legacyParsed?.totalChunks == 4)
-        #expect(legacyParsed?.wrappedKey == "")
-        #expect(legacyParsed?.chunkSize == nil, "legacy captions carry no chunk size")
-        #expect(legacyParsed?.effectiveChunkSize == ChunkPlanner.streamingChunkSize,
-                "media files assume the streaming chunk size when the caption lacks one")
-
-        // Legacy share caption (pre-v22 disposable channels) — different keys, no id.
-        let legacyShare = ShareEngine.caption(for: ShareEngine.ChunkMeta(
-            index: 1, totalChunks: 2, name: "f.zip", size: 1000, mime: "application/zip",
-            wrappedKey: "wk", rootHash: "rh", chunkSize: 500, plainHash: "ph"
-        ))
-        #expect(ChunkCaption.parse(legacyShare) == nil, "legacy share captions have no object id — parsed by ShareEngine only")
-        #expect(ShareEngine.parseChunkMeta(legacyShare) != nil)
-
         // Chunk classification for the orphan purge.
         #expect(ChunkCaption.isChunkCaption(caption ?? ""))
-        #expect(ChunkCaption.isChunkCaption(legacyVault))
-        #expect(ChunkCaption.isChunkCaption(legacyShare))
         let objectMeta = ChunkCaption.encode(ChunkCaption.Meta(
             kind: ChunkCaption.kindObject,
             id: "folder-1", name: "Folder", size: 0, mime: "text/plain",

@@ -706,7 +706,7 @@ final class AppState {
                 }
 
                 // Hidden debug hook: `--purge-legacy-folders` permanently removes
-                // legacy (old-format "xcloud:v1:" text metadata) folder records that
+                // legacy folder metadata folder records that
                 // exist only in the channel, not in the local catalog: deletes those
                 // messages, deletes the matching local records, publishes a fresh
                 // checkpoint (base = newest channel message) so old deltas can never
@@ -812,7 +812,7 @@ final class AppState {
             await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
             await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
             // iCloud-style instant restore: if this device has no catalog yet, fetch
-            // the newest `xcloud:dbsnapshot:v1:` document and rebuild the DB from it
+            // the newest `cascade:dbsnapshot:v1:` document and rebuild the DB from it
             // in one shot — no slow per-message scan. Falls back to the full scan.
             let restored = await CatalogSnapshot.restore()
             if restored {
@@ -1543,7 +1543,7 @@ final class AppState {
     @MainActor
     func handleIncomingURL(_ url: URL) {
         print("Cascade URL: AppState.handleIncomingURL \(url.absoluteString.prefix(80))")
-        guard url.scheme == "cascade" || url.scheme == "xcloud" else { return }
+        guard url.scheme == "cascade" else { return }
         importShareLink(url.absoluteString)
     }
 

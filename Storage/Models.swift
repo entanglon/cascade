@@ -24,7 +24,7 @@ struct VaultRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, S
     var name: String
     var wrappedKey: Data
     var createdAt: Date
-    /// Message ID of the `xcloud:vaultkey:v2:` key record in the channel — the vault
+    /// Message ID of the `cascade:vaultkey:v2:` key record in the channel — the vault
     /// key sealed with a password-derived key (and this device's master key), which
     /// lets any device recover private files by entering the vault PIN.
     var recoveryMessageID: Int64? = nil

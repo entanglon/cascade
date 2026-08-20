@@ -20,11 +20,10 @@ import os
 /// copies the document server-side — no re-upload), catalogs the file, and leaves.
 ///
 /// Legacy shares (created before v22) used per-share disposable channels with
-/// re-encrypted copies and `xcloud:share:v1:` captions — still imported, forever.
+/// re-encrypted copies and `cascade:share:v1:` captions — still imported, forever.
 enum ShareEngine {
     /// Legacy share-channel caption prefix (pre-v22 disposable channels).
     static let captionPrefix = "cascade:share:v1:"
-    static let legacyCaptionPrefix = "xcloud:share:v1:"
     /// How long a private share lives (link expiry + server-side message TTL).
     /// Recipient has this window to open the link; after it, the share revokes
     /// itself and the channel copies are removed.
@@ -154,7 +153,7 @@ enum ShareEngine {
                 return parse(plain)
             }
             guard let comps = URLComponents(string: trimmed),
-                  (comps.scheme == "cascade" || comps.scheme == "xcloud"), comps.host == "share" else { return nil }
+                  comps.scheme == "cascade", comps.host == "share" else { return nil }
             let q = Dictionary(uniqueKeysWithValues: (comps.queryItems ?? []).compactMap { item in
                 item.value.map { (item.name, $0) }
             })
@@ -1282,7 +1281,7 @@ enum ShareEngine {
     }
 
     /// v1 (legacy) import staging: the share channel is a per-share disposable
-    /// channel whose messages carry `xcloud:share:v1:` captions with a
+    /// channel whose messages carry `cascade:share:v1:` captions with a
     /// per-chunk manifest. Kept forever — old links and channels must keep
     /// working. Same stage-then-decide semantics as the v2 path.
     private static func stageLegacyImport(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {

@@ -93,7 +93,7 @@ enum VaultManager {
 
     // MARK: - Cross-device recovery (password-derived vault key, v2)
 
-    /// The canonical key record posted to the channel (`xcloud:vaultkey:v2:` caption).
+    /// The canonical key record posted to the channel (`cascade:vaultkey:v2:` caption).
     /// It carries the vault key sealed TWICE:
     ///  - `passwordSeal`: with the password-derived key (PBKDF2(pin, per-vault salt)) —
     ///    ANY device that knows the PIN can unwrap it. This is the single source of
@@ -110,8 +110,6 @@ enum VaultManager {
 
     static let v2Prefix = "cascade:vaultkey:v2:"
     private static let v1Prefix = "cascade:vaultkey:"
-    static let legacyV2Prefix = "xcloud:vaultkey:v2:"
-    static let legacyV1Prefix = "xcloud:vaultkey:"
 
     static func v2Caption(_ record: VaultKeyRecordV2) -> String {
         v2Prefix + (try! JSONEncoder().encode(record)).base64EncodedString()
@@ -175,7 +173,7 @@ enum VaultManager {
         }
     }
 
-    /// True when the channel carries a `xcloud:vaultkey:` key record (v2 or legacy
+    /// True when the channel carries a `cascade:vaultkey:` key record (v2 or legacy
     /// v1) — i.e. the account's private files can be recovered by entering the PIN
     /// on this device.
     static func hasRecoveryBlob() async -> Bool {

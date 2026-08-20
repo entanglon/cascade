@@ -175,7 +175,7 @@ enum CryptoEngine {
     // MARK: - PIN recovery key (v1, legacy)
 
     /// Derives a deterministic key from the vault PIN (PBKDF2-SHA256) using the v1
-    /// fixed salt and iteration count. Kept EXACTLY as-is so legacy `xcloud:vaultkey:`
+    /// fixed salt and iteration count. Kept EXACTLY as-is so legacy `cascade:vaultkey:`
     /// blobs posted by older builds can still be unwrapped during migration.
     static func recoveryKey(from pin: String) -> SymmetricKey {
         let password = Array(pin.utf8)

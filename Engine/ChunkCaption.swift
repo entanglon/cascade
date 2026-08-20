@@ -1,22 +1,15 @@
 import Foundation
 
-// Cascade caption codec.
+/// Cascade caption codec.
 ///
-// Cascade payload caption shares ONE prefix (`xcloud:`) followed by JSON
+/// Cascade payload caption uses ONE prefix (`cascade:`) followed by JSON
 /// that self-describes its `kind` — so a vault chunk, a share-channel copy and a
 /// forwarded message are all the SAME message type, and any reader can parse any
 /// copy:
 ///   - `"chunk"`  — one byte-chunk of a file (vault + share channels)
 ///   - `"object"` — a file/folder's metadata record (vault channel)
-///
-/// Legacy formats are still read forever (captions on already-sent messages can't
-/// be rewritten): `xcloud:v1:` (chunk/object, no kind) and `xcloud:share:v1:`
-/// (share chunk). Writers use the unified format only.
 enum ChunkCaption {
     static let unifiedPrefix = "cascade:"
-    static let legacyUnifiedPrefix = "xcloud:"
-    static let legacyVaultPrefix = "xcloud:v1:"
-    static let legacySharePrefix = "xcloud:share:v1:"
     static let kindChunk = "chunk"
     static let kindObject = "object"
     static let kindThumb = "thumb"
@@ -52,7 +45,7 @@ enum ChunkCaption {
         }
     }
 
-    /// Encodes a unified chunk/object caption: `xcloud:{"kind":...,"v":1,...}`.
+    /// Encodes a unified chunk/object caption: `cascade:{"kind":...,"v":1,...}`.
     static func encode(_ meta: Meta, kind: String) -> String? {
         var dict: [String: Any] = [
             "kind": kind,
@@ -79,20 +72,10 @@ enum ChunkCaption {
         return unifiedPrefix + json
     }
 
-    // Cascade caption — unified (`xcloud:`), legacy vault
-    /// (`xcloud:v1:`) or legacy share (`xcloud:share:v1:`) — into normalized
-    // Cascade payloads.
+    /// Parse a `cascade:{...}` caption into normalized metadata.
     static func parse(_ caption: String) -> Meta? {
-        let json: String
-        if caption.hasPrefix(legacySharePrefix) {
-            json = String(caption.dropFirst(legacySharePrefix.count))
-        } else if caption.hasPrefix(legacyVaultPrefix) {
-            json = String(caption.dropFirst(legacyVaultPrefix.count))
-        } else if caption.hasPrefix(unifiedPrefix) {
-            json = String(caption.dropFirst(unifiedPrefix.count))
-        } else {
-            return nil
-        }
+        guard caption.hasPrefix(unifiedPrefix) else { return nil }
+        let json = String(caption.dropFirst(unifiedPrefix.count))
         guard let data = json.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let id = dict["id"] as? String,
@@ -132,16 +115,13 @@ enum ChunkCaption {
     /// unified captions must say `"chunk"` — kind `"object"` is metadata and is
     /// never a purge candidate.
     static func isChunkCaption(_ caption: String) -> Bool {
-        if caption.hasPrefix(legacySharePrefix) || caption.hasPrefix(legacyVaultPrefix) {
-            return true
-        }
         guard let meta = parse(caption) else { return false }
         return meta.kind == kindChunk
     }
 
     // MARK: - Thumbnail sidecar captions
 
-    /// Caption for an encrypted thumbnail sidecar document: `xcloud:{"kind":"thumb","v":1,"id":...}`.
+    /// Caption for an encrypted thumbnail sidecar document: `cascade:{"kind":"thumb","v":1,"id":...}`.
     /// Deliberately carries ONLY the object id — the bytes themselves are AES-GCM
     /// encrypted with the object key, and the id is the same random UUID the
     /// chunk captions already expose. Minimal metadata keeps the channel clean.

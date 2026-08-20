@@ -22,9 +22,6 @@ enum BackupSync {
     static let checkpointObjectID = "cascade:checkpoint"
     static let deltaObjectID = "cascade:delta"
     static let keyRecordObjectID = "cascade:vaultkey"
-    static let legacyCheckpointObjectID = "xcloud:checkpoint"
-    static let legacyDeltaObjectID = "xcloud:delta"
-    static let legacyKeyRecordObjectID = "xcloud:vaultkey"
 
     /// File-based mirror log (/tmp/cascade-backup.log) — the unified log is not
     /// reliably readable on this machine, and the app's stdout goes nowhere when
