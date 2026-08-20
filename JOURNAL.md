@@ -26,6 +26,8 @@ Replaced legacy generated gradient-label avatars with official PNG brand assets 
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched and live channels updated.
 
+Commit: `a322711` — `Integrate official PNG channel profile pictures for vault, backup, and share channels`.
+
 ---
 
 ## 2026-08-20 (morning) — Fix Telegram setup transition and upgrade country flags to high-DPI Apple Color Emoji

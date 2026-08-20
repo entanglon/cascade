@@ -2493,6 +2493,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Multi-path image loader**: Added multi-candidate asset search (`Bundle.main`, `Resources/`, `Public/`, bundle resources) in `ChannelAvatar.makeJPEG(fromPNG:)` with on-the-fly conversion to TDLib-compatible JPEG.
     - **Launch branding heal**: Enhanced `ShareEngine.healChannelPhotos()` to upgrade legacy channels to the official PNG brand images.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `a322711`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
