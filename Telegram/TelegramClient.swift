@@ -773,6 +773,7 @@ final class TelegramClient {
     /// Best-effort — failures are logged, never fatal.
     func setChannelPhoto(chatId: Int64, label: String, hue: Double) async {
         guard let client else { return }
+        guard NSClassFromString("XCTestCase") == nil else { return }
         guard let url = ChannelAvatar.makeJPEG(label: label, hue: hue) else { return }
         do {
             try await client.setChatPhoto(
@@ -790,6 +791,7 @@ final class TelegramClient {
     /// Sets a channel's profile photo from a bundled PNG image file.
     func setChannelPhoto(chatId: Int64, pngNamed: String) async {
         guard let client else { return }
+        guard NSClassFromString("XCTestCase") == nil else { return }
         guard let url = ChannelAvatar.makeJPEG(fromPNG: pngNamed) else {
             logger.error("Channel photo failed: could not load PNG '\(pngNamed)'")
             return

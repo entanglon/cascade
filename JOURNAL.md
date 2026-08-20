@@ -2,7 +2,24 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (morning) — Perfect full-bleed cropping for channel profile pictures.
+> 2026-08-20 (morning) — Fix multiple channel photo updates by adding XCTestCase safeguard to TelegramClient.
+
+---
+
+## 2026-08-20 (morning) — Fix multiple channel photo updates by adding XCTestCase safeguard to TelegramClient
+
+Investigated why the main vault channel received multiple duplicate photo update service notifications.
+
+### Root cause
+- When unit tests ran in `xCloudTests` against the Debug database, tests executing `VaultManager.ensureVault()` (`replaceCatalogCreatesBackupSnapshot`, `resetVaultRefusesUnconfirmedExecution`, etc.) each launched an unshielded `Task { await TelegramClient.shared.setChannelPhoto(...) }` targeting the real vault channel (`-1003757291622`).
+- While `ShareEngine.healChannelPhotos()` had an `underXCTest` check, `TelegramClient.setChannelPhoto` and `VaultManager.swift` did not, allowing the ~6 test cases to repeatedly invoke `setChatPhoto` on the main vault channel during test suite runs.
+
+### Changes
+- `Telegram/TelegramClient.swift`:
+  - Added strict `guard NSClassFromString("XCTestCase") == nil else { return }` check directly inside `setChannelPhoto(chatId:pngNamed:)` and `setChannelPhoto(chatId:label:hue:)` to guarantee tests never trigger real Telegram channel photo updates.
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ---
 

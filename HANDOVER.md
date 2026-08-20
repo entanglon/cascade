@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (morning): Perfect Full-Bleed Cropping for Channel Profile Pictures completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (morning): XCTestCase Safeguard for Channel Photo Updates completed. Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2501,6 +2501,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Full-bleed fit in Telegram**: When Telegram applies its circular crop mask, the artwork now fills the entire circle with zero clipped crescents or white margins.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
       Commit: `f4c948e`.
+
+107. **XCTestCase safeguard for channel photo updates (2026-08-20 — COMMITTED)**
+    (`Telegram/TelegramClient.swift`)
+    - **Root cause of duplicate main channel updates**: Unit tests in `xCloudTests` run against the Debug database and invoke `VaultManager.ensureVault()`. Inside `ensureVault()`, an unshielded `Task { await TelegramClient.shared.setChannelPhoto(...) }` was running without checking `underXCTest`, triggering 6 live photo uploads to the main vault channel during the test run.
+    - **Fix**: Added `guard NSClassFromString("XCTestCase") == nil else { return }` directly into `TelegramClient.setChannelPhoto` overloads, ensuring tests never issue live photo changes.
+    - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
