@@ -44,6 +44,13 @@ enum CatalogSnapshot {
         var checkpoint: Payload?   // newest checkpoint (raw, not normalized)
         var checkpointID: Int64?
         var deltas: [(id: Int64, payload: Payload)] = []
+        /// Message-ID threshold (in the DELTAS' id-space) that the checkpoint already
+        /// covers; deltas with id ≤ deltaBase are skipped on merge. Normally this is
+        /// the checkpoint's own `baseMessageID` (vault-channel ids). When the checkpoint
+        /// came from the BACKUP channel fallback it is set to -1 — a backup forward is a
+        /// best-effort snapshot that may be stale, so every delta is replayed on top and
+        /// LWW merge keeps the newest records.
+        var deltaBase: Int64?
         var newestID: Int64? { [checkpointID, deltas.last?.id].compactMap { $0 }.max() }
     }
 
@@ -259,7 +266,12 @@ enum CatalogSnapshot {
     // MARK: - Channel state
 
     /// Fetches the newest checkpoint and every delta message currently in the channel.
-    private static func fetchChannelState(chatId: Int64) async -> ChannelState {
+    /// When `allowBackupFallback` is true (RESTORE ONLY — never for upload/reconcile,
+    /// which must not let a stale backup clobber a populated local catalog), and the
+    /// vault channel yields no usable checkpoint (pruned, deleted, or undecodable),
+    /// the immutable checkpoint forwards in the BACKUP channel are used instead
+    /// (BackupSync mirrors every vault message there and never prunes it).
+    private static func fetchChannelState(chatId: Int64, allowBackupFallback: Bool = false) async -> ChannelState {
         var state = ChannelState()
         let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId)
         let checkpoints = messages
@@ -272,10 +284,54 @@ enum CatalogSnapshot {
         if let newest = checkpoints.last, let payload = await decodeMessagePayload(newest, chatId: chatId) {
             state.checkpoint = payload
             state.checkpointID = newest.id
+            state.deltaBase = payload.baseMessageID
         }
         for delta in deltas {
             if let payload = await decodeMessagePayload(delta, chatId: chatId) {
                 state.deltas.append((delta.id, payload))
+            }
+        }
+
+        if state.checkpoint == nil, allowBackupFallback,
+           let vault = try? await DatabaseManager.shared.firstVault(),
+           let backupID = vault.backupChannelID {
+            let backupMessages = await TelegramClient.shared.allChannelMessages(chatId: backupID)
+            let backupCheckpoints = backupMessages
+                .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(captionPrefix) }
+                .sorted { $0.id < $1.id }
+            if let newest = backupCheckpoints.last, let payload = await decodeMessagePayload(newest, chatId: backupID) {
+                state.checkpoint = payload
+                state.checkpointID = newest.id
+                print("Cascade fetchChannelState: vault channel had no usable checkpoint — using backup-channel forward \(newest.id) as restore base")
+                // Freshness: a backup forward is trustworthy only when no delta
+                // carries records NEWER than the checkpoint's newest record. If the
+                // deltas are newer, the checkpoint's publisher had a stale catalog
+                // and the deltas hold the real state — replay every delta on top
+                // (LWW merge keeps the newest records; deltaBase = -1 disables the
+                // checkpoint's own base filter).
+                if messages.isEmpty {
+                    let backupDeltas = backupMessages
+                        .filter { (VaultRepair.caption(of: $0) ?? "").hasPrefix(deltaCaptionPrefix) }
+                        .sorted { $0.id < $1.id }
+                    for delta in backupDeltas {
+                        if let payload = await decodeMessagePayload(delta, chatId: backupID) {
+                            state.deltas.append((delta.id, payload))
+                        }
+                    }
+                    print("Cascade fetchChannelState: vault channel empty — also using \(state.deltas.count) delta forward(s) from backup channel")
+                }
+                let checkpointNewest = payload.objects.map(\.modifiedAt).max() ?? .distantPast
+                let deltaNewest = state.deltas
+                    .map { $0.payload.objects.map(\.modifiedAt).max() ?? .distantPast }
+                    .max() ?? .distantPast
+                if deltaNewest > checkpointNewest {
+                    state.deltaBase = -1
+                    print("Cascade fetchChannelState: backup checkpoint is stale (deltas carry newer records) — replaying all deltas on top")
+                } else {
+                    state.deltaBase = payload.baseMessageID
+                }
+            } else {
+                print("Cascade fetchChannelState: backup channel \(backupID) also had no usable checkpoint")
             }
         }
         return state
@@ -287,7 +343,7 @@ enum CatalogSnapshot {
     static func mergedChannelState(_ channel: ChannelState, vaultID: String) -> Payload {
         if let checkpoint = channel.checkpoint {
             var merged = normalized(checkpoint, vaultID: vaultID)
-            let base = checkpoint.baseMessageID ?? -1
+            let base = channel.deltaBase ?? checkpoint.baseMessageID ?? -1
             for (id, delta) in channel.deltas where id > base {
                 merged = merge(local: merged, remote: delta, localVaultID: vaultID)
             }
@@ -446,7 +502,7 @@ enum CatalogSnapshot {
         // Never clobber a device that already has a catalog.
         if !((try? await DatabaseManager.shared.allObjects()) ?? []).isEmpty { return false }
 
-        let channel = await fetchChannelState(chatId: vault.channelID)
+        let channel = await fetchChannelState(chatId: vault.channelID, allowBackupFallback: true)
         print("Cascade restore: channel checkpoint=\(channel.checkpoint != nil) deltas=\(channel.deltas.count)")
         guard channel.checkpoint != nil || !channel.deltas.isEmpty else {
             print("Cascade restore: no decodable channel state — falling through to VaultRepair")

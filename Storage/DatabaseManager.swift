@@ -720,6 +720,23 @@ actor DatabaseManager {
         }
     }
 
+    func backupAttempts(messageID: Int64) throws -> Int {
+        try read { db in
+            (try BackupMsgRecord.fetchOne(db, key: messageID))?.attempts ?? 0
+        }
+    }
+
+    /// Marks a message permanently unforwardable (source deleted/pruned before the
+    /// mirror completed) so the drainer can skip it instead of wedging the queue.
+    func markBackupFailed(messageID: Int64) throws {
+        try write { db in
+            try db.execute(
+                sql: "UPDATE backup_msgs SET status = 'failed' WHERE messageID = ?",
+                arguments: [messageID]
+            )
+        }
+    }
+
     func backupRow(messageID: Int64) throws -> BackupMsgRecord? {
         try read { db in try BackupMsgRecord.fetchOne(db, key: messageID) }
     }

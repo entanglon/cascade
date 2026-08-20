@@ -112,6 +112,13 @@ actor BackupDrainer {
     static let shared = BackupDrainer()
     private var active = false
     private let maxPerDrain = 50
+    /// A message that keeps failing to forward (e.g. it was deleted or pruned from
+    /// the vault channel before the mirror completed) can never succeed. After this
+    /// many attempts it is marked failed and SKIPPED — otherwise a single dead
+    /// message at the head of the FIFO queue wedges the entire backup behind it and
+    /// the backup channel goes permanently stale (it only ever recovers when a
+    /// fresh forward happens to beat the dead one).
+    private let maxForwardAttempts = 5
 
     func drain() async {
         guard !active else { return }
@@ -149,6 +156,15 @@ actor BackupDrainer {
                 try? await DatabaseManager.shared.bumpBackupAttempts(messageID: pending.messageID)
                 BackupSync.mirrorLog("forward FAILED for \(pending.messageID): \(error.localizedDescription)")
                 print("Cascade backup forward failed for \(pending.messageID): \(error.localizedDescription)")
+                if (try? await DatabaseManager.shared.backupAttempts(messageID: pending.messageID)) ?? 0 >= maxForwardAttempts {
+                    // Permanently dead message (deleted/pruned source): skip it so
+                    // the queue can progress. Its content is gone from the vault
+                    // channel anyway — nothing to mirror.
+                    try? await DatabaseManager.shared.markBackupFailed(messageID: pending.messageID)
+                    BackupSync.mirrorLog("skipping \(pending.messageID) (exceeded \(maxForwardAttempts) attempts)")
+                    print("Cascade backup: skipping dead message \(pending.messageID)")
+                    continue
+                }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 return
             }

@@ -376,8 +376,19 @@ final class AppState {
                     var log = "repair-catalog: dropping \(dropIDs.count) object(s)\n"
                     for id in dropIDs {
                         do {
+                            // Capture the object's chunk message IDs BEFORE the rows go —
+                            // a local-only drop leaves the messages in the channel and
+                            // VaultRepair rebuilds the object from its caption at the
+                            // next launch (the "file1.txt keeps coming back" loop).
+                            let messageIDs = (try? await DatabaseManager.shared.chunks(for: id))?
+                                .compactMap(\.messageID) ?? []
                             try await DatabaseManager.shared.deleteObjectWithChunks(id: id)
-                            log += "dropped \(id)\n"
+                            log += "dropped \(id)"
+                            if !messageIDs.isEmpty {
+                                await BackupSync.deleteFromVaultAndBackup(messageIDs: messageIDs)
+                                log += " (+\(messageIDs.count) channel message(s) deleted from vault + backup)"
+                            }
+                            log += "\n"
                         } catch {
                             log += "drop failed \(id): \(error.localizedDescription)\n"
                         }
