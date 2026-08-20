@@ -2478,6 +2478,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Replaced the hardcoded SF symbol placeholder with the official high-resolution `AppIcon` asset.
     - Added dynamic version resolution from bundle info and updated copy to highlight zero-knowledge encryption and native MPV media engine.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `bfe6c39`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:

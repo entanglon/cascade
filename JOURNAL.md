@@ -21,6 +21,8 @@ Updated the "About Cascade" window to render the official high-resolution `AppIc
 
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `bfe6c39` — `Update About Cascade window with official AppIcon and zero-knowledge branding`.
+
 ---
 
 ## 2026-08-20 (morning) — Phase 5: Catalog snapshot zlib compression & immutable backup preservation
