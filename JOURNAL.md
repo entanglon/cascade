@@ -2,11 +2,70 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Trash-restore bug + file1.txt test artifact.
+> 2026-08-20 (evening) — Catalog restore hang + silent empty-DB incident.
 
 ---
 
-## 2026-08-20 (evening) — Trash-restore bug + file1.txt test artifact
+## 2026-08-20 (evening) — Catalog restore hang + silent empty-DB incident
+
+User reported "everything is gone now": the local catalog was empty at launch.
+The chain: the unit test `replaceCatalogCreatesBackupSnapshot` (xCloudTests.swift
+~1887, runs against the REAL Debug DB by design) wiped the catalog; the app's
+launch restore was supposed to heal it but (a) hung, then (b) silently failed,
+leaving the DB empty.
+
+### Root cause 1 — restore hang: TDLibKit dropped-response
+- With TDLib's message/file DB enabled, `getMessage` can answer INSTANTLY from
+  the local cache. TDLibKit's receive thread routes responses to pending
+  continuations by `@extra`; when that dispatch races the client's own
+  registration the response is dropped, the continuation is never resumed, and
+  the caller parks forever. Observed live: the LAST request of a burst dropped
+  while the app blocked in `restore()` for minutes. (Watchdog in
+  `downloadFile` didn't cover `getMessage`.)
+- **Fix (kept)**: `withResponseTimeout(_:_:)` races any TDLibKit async call
+  against a 15s deadline and `getOrFetchMessage` retries up to 3× (getMessage →
+  getMessages → getChatHistory + getMessage), each attempt with a fresh
+  `@extra` — a later attempt almost always lands.
+  (Telegram/TelegramClient.swift:381-455; new `TelegramError.timedOut`.)
+- **Fix (kept)**: cached-file fast path in `downloadMessageFile` — when TDLib
+  already has the file locally it returns synchronously WITHOUT an updateFile
+  event (same dropped-response hazard); now we copy the cached path directly.
+  (Telegram/TelegramClient.swift:622)
+
+### Root cause 2 — silent empty DB: FK violation swallowed by `try?`
+- Once the hang was fixed, restore still failed: `replaceCatalog` threw
+  `SQLite error 19: FOREIGN KEY constraint failed` on
+  `INSERT INTO "chunks"` — the vault channel's deltas contained ORPHAN chunks
+  (size-0 folder-linkage rows, objectID `6C76E5E3-…` = a deleted folder,
+  messageIDs 14680065/15728640, state "uploaded") whose object row no longer
+  exists. The transaction rolled back → DB stayed empty.
+- `restore()` called `replaceCatalog` with `try?` and printed
+  "snapshot restored" regardless — a lying success message that hid the wipe.
+- **Fix (kept)**: `replaceCatalog` drops orphan chunks (logs "dropping N
+  orphan chunk(s)") instead of FK-failing (Storage/DatabaseManager.swift:990);
+  `restore()` propagates the error and reports honestly
+  (Storage/CatalogSnapshot.swift:456).
+- `setvbuf(stdout, nil, _IOLBF, 0)` in `CascadeApp.init` so redirected logs
+  aren't block-buffered (App/xCloudApp.swift:10).
+
+### Channel heal
+- The checkpoint (997312E9) had been pruned from the vault channel by
+  `pruneOldSnapshots` (only a forward in the backup channel survived), so
+  restore replayed all 23 deltas. Verified local DB clean (25 objects/25
+  chunks, no `file1.txt`) and republished a fresh checkpoint with
+  `baseMessageID = newest channel ID` (via `--repair-catalog` + the normal
+  launch heal), then pruned the stale checkpoints. Old deltas are now covered
+  by the checkpoint's base and never replayed.
+- **End-to-end verification**: wiped the DB and relaunched → "checkpoint
+  85983232 decoded" → clean restore (25 objects, 26 chunks, 0 orphans dropped)
+  → "reconciled, nothing new to publish" → DB has the full catalog (22 files +
+  3 folders, NO `file1.txt`). A normal relaunch after the test suite (which
+  re-wipes the catalog) healed the same way.
+
+### Verification
+- Full suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch,
+  0 failures). Debug app relaunched with the catalog visible.
+- Commit: `024523b` (code).
 
 Two user-reported issues: (1) files moved to Trash came back after relaunching
 the app, (2) a mystery `file1.txt` appeared in the vault.
