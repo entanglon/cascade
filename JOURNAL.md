@@ -2,7 +2,22 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (evening) — Fix: audio thumbnails vanish after cache clear (encrypted-era upload stopped attaching previews).
+> 2026-08-20 (evening) — Mini player buttons dead (keyboard works): interactive glass capsule over the bar swallows clicks.
+
+---
+
+## 2026-08-20 (evening) — Mini player buttons dead (keyboard works): interactive glass capsule over the bar swallows clicks
+
+User reported the mini music player's buttons don't respond to clicks while space bar and other keyboard controls work fine.
+
+### Root cause & Solution
+- `Features/MiniPlayerView.swift:150` applied `.glassEffect(.regular.interactive(), in: .capsule)` to the WHOLE bar, while every button inside also carried its own `.glassEffect(.regular.interactive(), in: .circle)`. On macOS 26 the interactive material over the entire bar swallows child hit-testing (same quirk as the DMG login gate — clicks only land near the center). The theater player was already fixed in round 112 by removing the parent overlay; the mini bar still had the nested interactive-glass pattern.
+- **Fix**: the outer bar material is now `.glassEffect(.regular, in: .capsule)` (non-interactive) — each button keeps its own `.interactive()` circle, so the glass look is unchanged but clicks reach the controls. Matches the working BookReader pattern (non-interactive container + interactive circle buttons).
+
+### Build / test
+- Build green (Debug). Full test suite **TEST SUCCEEDED** (68: 64 unit + 4 UI/launch, 0 failures). Debug app relaunched.
+
+Commit: `66b1681` — `Fix mini player buttons not clicking: non-interactive outer glass capsule so button circles receive clicks`.
 
 ---
 

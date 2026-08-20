@@ -2555,6 +2555,13 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
       Commit: `84194cb` (upload attach + audio recovery v1), followed by `6f17351` (revert audio step-6 + guard test).
 
+114. **Mini player buttons dead — FIXED (2026-08-20 — COMMITTED)**
+    (`Features/MiniPlayerView.swift`)
+    - **Root cause**: the whole mini bar was wrapped in `.glassEffect(.regular.interactive(), in: .capsule)` while each button inside had its own `.interactive()` circle glass. The interactive material over the entire bar swallows child hit-testing on macOS 26 (same quirk as the DMG login gate). Keyboard controls still worked because they're engine-level.
+    - **Fix**: outer bar material → `.glassEffect(.regular, in: .capsule)` (non-interactive); each button keeps its `.interactive()` circle. Same pattern as the working BookReader containers.
+    - Full test suite green: **TEST SUCCEEDED** (68: 64 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `66b1681`.
+
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
   - Phase 1: Cryptographic Primitives & Key Management.
