@@ -15,12 +15,18 @@ import GRDB
 @Suite(.serialized)
 struct xCloudTests {
 
-    @Test func databaseIsolationUsesTestDatabase() async throws {
-        #expect(DatabaseManager.isRunningTests)
-        let path = try await DatabaseManager.shared.databasePath()
-        #expect(path.hasSuffix("xcloud-test.sqlite"))
-        let transfers = try await DatabaseManager.shared.loadTransfers()
-        #expect(transfers.count >= 0)
+    @Test func databaseIsolationSupportsCustomDatabase() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempURL = tempDir.appendingPathComponent("custom-test.sqlite")
+
+        let testDB = DatabaseManager()
+        try await testDB.start(customURL: tempURL)
+        let path = try await testDB.databasePath()
+        #expect(path.hasSuffix("custom-test.sqlite"))
+        let transfers = try await testDB.loadTransfers()
+        #expect(transfers.isEmpty)
     }
 
     @Test func transferPauseKeepsCardResumable() async {

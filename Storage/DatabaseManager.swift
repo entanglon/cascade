@@ -1176,7 +1176,6 @@ actor DatabaseManager {
         )
         let folder = support.appendingPathComponent(AppPaths.dataFolder, isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        let fileName = isRunningTests ? "xcloud-test.sqlite" : "xcloud.sqlite"
-        return folder.appendingPathComponent(fileName)
+        return folder.appendingPathComponent("xcloud.sqlite")
     }
 }
