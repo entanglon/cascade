@@ -34,6 +34,7 @@ Implemented Phase 1 (Items 11, 12, 13, 14, 15, 16 from the Architecture Review R
 ### Verification
 - `xcodebuild -configuration Debug build` succeeded.
 - `xcodebuild -configuration Debug test`: **TEST SUCCEEDED** (69 tests: 66 unit + 2 UI + 1 launch, 0 failures).
+- Commit: `613981a`.
 
 ## 2026-08-20 (night) — Phase 0b Data Safety & Correctness: test DB isolation, delta nonces, deletion tombstones, structured error toasts
 

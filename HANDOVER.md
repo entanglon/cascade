@@ -2956,4 +2956,4 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 14 (Multi-Part Checkpoint Pagination)**: Added `xcloud:dbpart:v1:<index>:<total>:<nonce>:<base>` format and partition slicing in `CatalogSnapshot.publishCheckpointFromLocal` for catalogs exceeding `maxObjectsPerPart = 50_000`. Reassembles parts by nonce in `fetchChannelState`.
     - **Item 15 (File-Backed Structured Logging `LogManager`)**: Created `actor LogManager` maintaining rotating log files (`cascade.log`, up to 3 rotations of 5 MB each) in Application Support.
     - **Item 16 (Conditional Post-Auth Heal)**: Added `xc.catalogHealClean` flag tracking to skip $O(N)$ chunk/object dedupe scans at launch when the catalog was clean, speeding up cold startup.
-    - Full test suite green: **TEST SUCCEEDED** (69: 66 unit + 2 UI + 1 launch, 0 failures).
+    - Full test suite green: **TEST SUCCEEDED** (69: 66 unit + 2 UI + 1 launch, 0 failures). Commit: `613981a`.
