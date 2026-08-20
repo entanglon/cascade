@@ -2970,4 +2970,4 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 124. **CI Pipeline & Scale — Phase 3 (2026-08-20 — COMMITTED)** (`.github/workflows/ci.yml`, `architecture_review.md`, `JOURNAL.md`, `HANDOVER.md`)
     - **Item 25 (GitHub Actions CI Workflow)**: Added `.github/workflows/ci.yml` running automated Debug scheme compilation and headless unit test verification (`xcodebuild ... -only-testing:xCloudTests test`) on macOS runners upon pushes and PRs to `main`.
     - **Item 24 (Decomposition Resolution)**: Verified and documented full domain engine separation (`TransferCenter`, `AudioPlayerEngine`, `VideoStreamingEngine`, `ShareEngine`, `BackupSync`, `ThumbnailService`, `CatalogSnapshot`, `VaultRepair`, `ExportEngine`).
-    - Headless unit test suite green: **TEST SUCCEEDED** (70 unit tests passed, 0 failures).
+    - Headless unit test suite green: **TEST SUCCEEDED** (70 unit tests passed, 0 failures). Commit: `8c8953d`.

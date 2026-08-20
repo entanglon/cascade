@@ -21,6 +21,7 @@ Implemented Item 25 from the Architecture Review Roadmap:
 ### Verification
 - Headless test execution: `xcodebuild -configuration Debug -scheme xCloud -destination 'platform=macOS' -only-testing:xCloudTests test`
 - **Result**: `** TEST SUCCEEDED **` (70 unit tests passed, 0 failures, 2.0s).
+- Commit: `8c8953d`.
 
 ## 2026-08-20 (night) — Phase 2 Features: FTS5 full-text search virtual table, version history foundation, local export engine, conflict branch preservation, transfer priority queue
 
