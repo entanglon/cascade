@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-20 (evening): trash-restore fixed, file1.txt removed, catalog-restore hang + silent empty-DB incident fixed (item 115). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-20 (evening): restore hardened — backup-channel fallback, drainer wedge fix, VaultRepair resurrection fix (item 116). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2575,7 +2575,25 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures).
       Commit: `024523b`.
 
+116. **Bulletproof restore: backup-channel fallback, drainer wedge fix, VaultRepair resurrection fix (2026-08-20 — COMMITTED)**
+    (`Storage/CatalogSnapshot.swift`, `Engine/BackupSync.swift`, `Storage/DatabaseManager.swift`, `App/AppState.swift`)
+    - **Backup-channel restore fallback**: `fetchChannelState(chatId:allowBackupFallback:)` — RESTORE ONLY (upload/publish never use it: stale backup must not clobber a populated local catalog, and baseMessageID computations stay in vault id-space). Vault channel without a usable checkpoint → newest checkpoint FORWARD in the backup channel becomes the restore base; vault deltas still apply on top. Freshness guard: if any delta record's modifiedAt is newer than the checkpoint's newest, `deltaBase = -1` replays EVERY delta (LWW resolves) — a stale forward can't hide uploads that live only in deltas. Handles the vault-channel-gone case via backup delta forwards. Live-verified both branches.
+    - **Backup drainer wedge**: the drainer `return`ed on the first forward failure — a message pruned from the vault before its mirror completed sat at the FIFO head forever, stalling ALL pending backups (67 messages incl. a clean checkpoint forward during the incident). Fix: after 5 failed attempts a message is marked `failed` and SKIPPED (`markBackupFailed`/`backupAttempts`). Backup channel now actually stays fresh.
+    - **VaultRepair resurrection**: `--repair-catalog` dropped objects locally only; the chunk FILE MESSAGE stayed in the channel and VaultRepair rebuilt the object from its caption at the next launch — the real "file1.txt keeps coming back" loop (app-driven deleteForever never had this: `deleteFromVaultAndBackup` removes the messages). Fix: the hook deletes the dropped objects' chunk messages from vault + backup (+ queue rows) before publishing.
+    - **Live-verified**: vault checkpoints deleted → wipe → restore used the fresh backup forward (25 objects, no file1.txt); stale forward → full delta replay. After the test suite wiped the catalog again, a normal launch healed: "channel checkpoint=true deltas=23" → "snapshot restored: 25 objects, 25 chunks" → reconciled. Final DB: 25 objects / 25 chunks (10 active + 12 trashed + 3 folders), no file1.txt, backup queue drained.
+    - Full test suite green: **TEST SUCCEEDED** (70: 66 unit + 2 UI + 2 launch, 0 failures).
+      Commit: `9d27481`.
+
 ## 5. Pending / next steps
+- **PROPOSED (not yet implemented): deletion tombstones** — the remaining hole in
+  disaster restore. Delta payloads are append-only and permanently retain records
+  of permanently-deleted objects; a restore that replays deltas (vault checkpoint
+  gone AND backup stale — the double-failure path) resurrects them (the file1.txt
+  pattern). App-driven deletions are already safe (`deleteFromVaultAndBackup`
+  removes the messages, so VaultRepair can't rebuild). Tombstones
+  (`xcloud:dbdel:v1:` message type + merge/restore/VaultRepair honoring
+  deletedAt) would make delta replay deletion-safe and let restore drop the
+  freshness heuristic. Deferred — confirm scope with the user before building.
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
   - Phase 1: Cryptographic Primitives & Key Management.
   - Phase 2: Encrypted Chunk Uploads & Caption Metadata Sanitization.
