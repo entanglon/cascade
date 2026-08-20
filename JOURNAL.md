@@ -23,6 +23,8 @@ Restored collective progress tracking on the floating transfers button (`LiquidM
 ### Build / test
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures). Debug app relaunched.
 
+Commit: `741d53d` — `Fix floating transfers button collective progress and individual queued cards`.
+
 ---
 
 ## 2026-08-20 (morning) — Verify and wire full-bleed profile pictures into dynamic share channel creation

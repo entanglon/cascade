@@ -2521,6 +2521,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Collective progress on FAB**: When multiple files are queued for upload, `AppState.startUpload` registers their work in `TransferCenter` upfront with `"Queued…"`. `LiquidMorphingFAB.overallProgress` tracks the entire batch continuously via `batchProgress` (0% to 100% across the whole batch without per-file stutter/reset).
     - **Individual cards on Transfers**: Every queued file gets its own card immediately visible in `TransfersView` and `MiniTransfersView` popover, transitioning smoothly from `"Queued…"` to active uploading to `"Uploaded ✅"`.
     - Full test suite green: **TEST SUCCEEDED** (72: 64 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `741d53d`.
 
 ## 5. Pending / next steps
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
