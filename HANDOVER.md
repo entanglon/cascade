@@ -2437,6 +2437,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Added `CryptoEngine.deriveLinkKey` (PBKDF2-SHA256, 100k iterations) for password-protected sharing.
     - Verified random-access $O(1)$ individual slice decryption against sub-ranges.
     - Full test suite green: **TEST SUCCEEDED** (67: 59 unit + 4 UI + 4 launch, 0 failures).
+      Commit: `d69e46a`.
 
 ## 5. Pending / next steps
 - **NEXT: Phase 2 — Encrypted Uploads & Caption Metadata Sanitization** (see `implementation_plan.md`):

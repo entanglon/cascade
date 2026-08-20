@@ -25,6 +25,8 @@ Implemented foundational chunk-level encryption, multi-slice serialization, and 
 
 - Build green (Debug). Full test suite **TEST SUCCEEDED** (67: 59 unit + 4 UI + 4 launch, 0 failures). Debug app running. **No Release build** — user policy.
 
+Commit: `d69e46a` — `Phase 1: Cryptographic primitives for chunk encryption, slice seeking, and link key derivation`.
+
 ---
 
 ## 2026-08-20 (late night) — Client-side zero-knowledge encryption & secure sharing architecture design
