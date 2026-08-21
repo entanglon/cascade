@@ -2488,6 +2488,12 @@ final class AppState {
 
             // 4. Batch delete channel messages from vault and backup mirrors
             await BackupSync.deleteFromVaultAndBackup(messageIDs: safeMsgIDs)
+            // The cached channel scan now describes a pre-deletion channel. Drop it
+            // so any concurrent snapshot sync refetches live state instead of
+            // merging deleted objects back into the catalog.
+            if let vault = try? await DatabaseManager.shared.firstVault() {
+                TelegramClient.shared.invalidateScanCache(chatId: vault.channelID)
+            }
 
             // 5. Purge orphans and publish checkpoint once for the entire batch
             await VaultRepair.purgeOrphanedMessages()

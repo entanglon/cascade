@@ -226,12 +226,14 @@ enum CatalogSnapshot {
         // Fold in local records: local wins strictly-newer; ties keep remote.
         for o in local.objects {
             if let remoteWinner = objectsByID[o.id] {
-                // Tombstone resolution: if one side is tombstoned, the tombstone wins
-                // unless the untombstoned side has a newer modifiedAt edit timestamp.
+                // Tombstone resolution — DELETION ABSOLUTISM: a local tombstone
+                // means the user destroyed this object on this device. No remote
+                // timestamp can undo that decision (a stale cached channel scan
+                // carrying a pre-deletion copy once resurrected deleted files in
+                // the UI). Only an explicit user restore may clear a tombstone,
+                // and that rewrites the row directly rather than relying on merge.
                 if o.tombstoneAt != nil && remoteWinner.tombstoneAt == nil {
-                    if o.modifiedAt >= remoteWinner.modifiedAt {
-                        objectsByID[o.id] = o
-                    }
+                    objectsByID[o.id] = o
                 } else if remoteWinner.tombstoneAt != nil && o.tombstoneAt == nil {
                     if o.modifiedAt > remoteWinner.modifiedAt {
                         objectsByID[o.id] = o

@@ -1190,9 +1190,27 @@ actor DatabaseManager {
             if validChunks.count != chunks.count {
                 print("Cascade replaceCatalog: dropping \(chunks.count - validChunks.count) orphan chunk(s) referencing deleted objects")
             }
+            // DELETION ABSOLUTISM (belt to merge's suspenders): an incoming LIVE
+            // record whose id matches a locally tombstoned row is re-tombstoned
+            // before insert. A user deletion must never be undone by a catalog
+            // replace, no matter what a stale channel payload claimed.
+            var tombstonedIDs: Set<String> = []
+            do {
+                tombstonedIDs = try Set(String.fetchAll(
+                    db, sql: "SELECT id FROM objects WHERE tombstoneAt IS NOT NULL"
+                ))
+            } catch {
+                tombstonedIDs = []
+            }
+            let guardedObjects = objects.map { o -> ObjectRecord in
+                guard o.tombstoneAt == nil, tombstonedIDs.contains(o.id) else { return o }
+                var t = o
+                t.tombstoneAt = Date()
+                return t
+            }
             _ = try ChunkRecord.deleteAll(db)
             _ = try ObjectRecord.deleteAll(db)
-            for object in objects {
+            for object in guardedObjects {
                 try object.save(db)
             }
             for chunk in validChunks {

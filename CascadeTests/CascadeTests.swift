@@ -2573,6 +2573,80 @@ struct CascadeTests {
         #expect(conflicted?.rootHash == "hash-remote")
     }
 
+    @Test func mergeTombstoneBeatsNewerRemoteLive() {
+        // DELETION ABSOLUTISM: a locally tombstoned (deleted) object must stay
+        // deleted even when the channel carries a LIVE copy with a NEWER
+        // modifiedAt. This exact race resurrected deleted files in the UI when a
+        // debounced snapshot sync merged against a stale cached channel scan.
+        let deletedAt = Date()
+        let newerLive = deletedAt.addingTimeInterval(60) // remote is NEWER
+
+        var localObj = ObjectRecord(
+            id: "tomb-file-1", vaultID: "v1", name: "Gone.mp4", size: 1000,
+            mime: "video/mp4", state: "ready", rootHash: "hash-gone", wrappedKey: nil,
+            createdAt: deletedAt.addingTimeInterval(-3600), modifiedAt: deletedAt,
+            isFavorite: false, trashed: false, parentID: nil, isFolder: false,
+            isPrivate: false, sourcePath: nil, chunkSize: 1900 * 1024 * 1024
+        )
+        localObj.tombstoneAt = deletedAt
+
+        let remoteObj = ObjectRecord(
+            id: "tomb-file-1", vaultID: "v1", name: "Gone.mp4", size: 1000,
+            mime: "video/mp4", state: "ready", rootHash: "hash-gone", wrappedKey: nil,
+            createdAt: deletedAt.addingTimeInterval(-3600), modifiedAt: newerLive,
+            isFavorite: false, trashed: false, parentID: nil, isFolder: false,
+            isPrivate: false, sourcePath: nil, chunkSize: 1900 * 1024 * 1024
+        )
+
+        let merged = CatalogSnapshot.merge(
+            local: CatalogSnapshot.Payload(version: 1, objects: [localObj], chunks: []),
+            remote: CatalogSnapshot.Payload(version: 1, objects: [remoteObj], chunks: []),
+            localVaultID: "v1"
+        )
+
+        #expect(merged.objects.count == 1)
+        let survivor = merged.objects.first { $0.id == "tomb-file-1" }
+        #expect(survivor?.tombstoneAt != nil) // stays deleted — never resurrected
+    }
+
+    @Test func replaceCatalogNeverResurrectsTombstonedObjects() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let testDB = DatabaseManager()
+        try await testDB.start(customURL: tempDir.appendingPathComponent("tomb-replace.sqlite"))
+
+        // objects.vaultID has a FK to vaults — seed the parent rows first.
+        try await testDB.save(AccountRecord(
+            id: "acc-tomb-replace", telegramUserID: 999995, displayName: "T",
+            state: "ready", createdAt: Date()
+        ))
+        try await testDB.save(VaultRecord(
+            id: "v-tr", accountID: "acc-tomb-replace", channelID: 999995,
+            name: "T Vault", wrappedKey: Data(), createdAt: Date()
+        ))
+
+        let now = Date()
+        var obj = ObjectRecord(
+            id: "tomb-replace-1", vaultID: "v-tr", name: "Deleted.zip", size: 500,
+            mime: "application/zip", state: "ready", rootHash: "rz", wrappedKey: nil,
+            createdAt: now, modifiedAt: now, isFavorite: false, trashed: false,
+            parentID: nil, isFolder: false, isPrivate: false, sourcePath: nil,
+            chunkSize: 1900 * 1024 * 1024
+        )
+        try await testDB.save(obj)
+        try await testDB.markTombstones(ids: [obj.id], at: now)
+
+        // A stale catalog replace arrives carrying the object as LIVE again.
+        obj.tombstoneAt = nil
+        obj.modifiedAt = now.addingTimeInterval(120) // even "newer"
+        try await testDB.replaceCatalog(objects: [obj], chunks: [])
+
+        let row = try await testDB.object(obj.id)
+        #expect(row != nil)
+        #expect(row?.tombstoneAt != nil) // still deleted — replace must not resurrect
+    }
+
     @Test func transferCenterPriorityOrdering() async {
         let tc = await TransferCenter()
         let id1 = await tc.begin(.download, objectID: "obj-bg", name: "background.zip", priority: .background)

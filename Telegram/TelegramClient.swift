@@ -1405,6 +1405,15 @@ final class TelegramClient {
         }
     }
 
+    /// Drops the cached channel scan for `chatId` so the next
+    /// `allChannelMessages(usingCache: true)` refetches live state. Must be called
+    /// after destructive operations (message deletions) — otherwise a debounced
+    /// snapshot sync can merge against a PRE-DELETION scan and resurrect deleted
+    /// objects in the UI.
+    func invalidateScanCache(chatId: Int64) {
+        invalidateChannelScanCache(chatId: chatId)
+    }
+
     func allChannelMessages(chatId: Int64, usingCache: Bool = false) async -> [Message] {
         if usingCache {
             if let cached = Self.withScanCache({ Self.channelScanCache[chatId] }) {
