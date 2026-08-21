@@ -51,6 +51,11 @@ extension Notification.Name {
 
 @Observable
 final class AppState {
+    init() {
+        // UploadManager mutates the observable UI fields through this back-reference.
+        uploads.appState = self
+    }
+
     var selectedDestination: SidebarDestination = .allFiles
     var searchText = ""
     var selectedFiles: Set<String> = []
@@ -165,19 +170,17 @@ final class AppState {
     var uploadProgress: Double = 0
     var isUploading = false
 
+    /// Serial file-upload queue owner (audit item 7). UI-observable fields stay
+    /// here; the manager mutates them through its weak back-reference.
+    let uploads = UploadManager()
+
     /// Uploads are strictly serial — ONE file at a time. Dropping/pasting several
     /// files enqueues them and they drain one-by-one: concurrent file uploads
     /// congested TDLib's upload pipeline (files visibly stuck at 99% while their
     /// last chunk waited behind other files' chunks). Per-file chunk parallelism
     /// (3 chunks) is unchanged — only files are serialized.
-    private struct PendingUpload {
-        let url: URL
-        let resumeObject: ObjectRecord?
-        let transferID: String?
-    }
 
-    @MainActor private var uploadQueue: [PendingUpload] = []
-    @MainActor private var isDrainingUploadQueue = false
+    @MainActor private var isDrainingUploadQueue: Bool { uploads.isDraining }
     var isResetting = false
 
     var isDownloading = false
@@ -993,9 +996,9 @@ final class AppState {
             )
             // Same serial queue as user-initiated uploads — resumed files go one
             // at a time too, so a launch-time pileup can't congest TDLib again.
-            uploadQueue.append(PendingUpload(url: URL(fileURLWithPath: path), resumeObject: object, transferID: transferID))
+            uploads.enqueue(UploadManager.PendingUpload(url: URL(fileURLWithPath: path), resumeObject: object, transferID: transferID))
         }
-        drainUploadQueue()
+        uploads.drain()
         await self.loadFiles()
     }
 
@@ -1011,9 +1014,6 @@ final class AppState {
         await self.loadFiles()
     }
 
-    @MainActor
-    /// Append-only launch diagnostics to /tmp/cascade-boot.log — survives any
-    /// launch style (open/Dock/pty) and proves exactly how far bootstrap got.
     /// Append-only launch diagnostics to /tmp/cascade-boot.log — survives any
     /// launch style (open/Dock/pty) and proves exactly how far bootstrap got.
     /// Mirrored into the rotating LogManager so diagnostics survive reboots.
@@ -1076,7 +1076,7 @@ final class AppState {
         let fileName = url.lastPathComponent
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
         let chunks = max(1, ChunkPlanner.plan(fileSize: fileSize).items.count)
-        let isFirst = uploadQueue.isEmpty && !isDrainingUploadQueue
+        let isFirst = uploads.isIdle
         let transferID = TransferCenter.shared.begin(
             .upload,
             objectID: UUID().uuidString,
@@ -1086,114 +1086,7 @@ final class AppState {
             state: .active,
             totalWork: Double(chunks)
         )
-        uploadQueue.append(PendingUpload(url: url, resumeObject: nil, transferID: transferID))
-        drainUploadQueue()
-    }
-
-    @MainActor
-    private func drainUploadQueue() {
-        guard !isDrainingUploadQueue else { return }
-        isDrainingUploadQueue = true
-        Task {
-            while !uploadQueue.isEmpty {
-                let pending = uploadQueue.removeFirst()
-                await performUpload(pending)
-            }
-            isDrainingUploadQueue = false
-            isUploading = false
-        }
-    }
-
-    @MainActor
-    private func performUpload(_ pending: PendingUpload) async {
-        if let transferID = pending.transferID,
-           let item = TransferCenter.shared.items.first(where: { $0.id == transferID }),
-           item.state == .paused || item.state == .failed {
-            // Upload was cancelled or discarded while waiting in queue
-            return
-        }
-        let url = pending.url
-        isUploading = true
-        uploadStatus = "Preparing…"
-        uploadProgress = 0
-        let isPrivate = (selectedDestination == .privateVault || isFolderPrivate(currentFolderID))
-        let parent = (selectedDestination == .allFiles || selectedDestination == .privateVault) ? currentFolderID : nil
-
-        do {
-            let path = url.path(percentEncoded: false)
-            let all = (try? await DatabaseManager.shared.allObjects()) ?? []
-            var didUpload = true
-
-            // Uploading the same file again resumes its interrupted upload from the last chunk
-            if let existing = pending.resumeObject ?? all.first(where: {
-                $0.sourcePath == path && !$0.isFolder && !$0.trashed &&
-                ($0.state == "paused" || $0.state == "failed")
-            }) {
-                if FileManager.default.fileExists(atPath: path) {
-                    try await UploadEngine.upload(
-                        fileURL: url,
-                        parentID: existing.parentID,
-                        isPrivate: existing.isPrivate,
-                        progress: { [weak self] status, p in
-                            Task { @MainActor in
-                                self?.uploadStatus = status
-                                self?.uploadProgress = p
-                            }
-                        },
-                        existingTransferID: pending.transferID,
-                        resumeObject: existing
-                    )
-                } else {
-                    // Source file is gone: discard the stale partial, then upload fresh
-                    await UploadEngine.cleanupPartialUpload(objectID: existing.id)
-                    TransferCenter.shared.removeItems(forObjectID: existing.id)
-                    try await UploadEngine.upload(
-                        fileURL: url,
-                        parentID: parent,
-                        isPrivate: isPrivate,
-                        progress: { [weak self] status, p in
-                            Task { @MainActor in
-                                self?.uploadStatus = status
-                                self?.uploadProgress = p
-                            }
-                        },
-                        existingTransferID: pending.transferID
-                    )
-                }
-            } else if all.contains(where: {
-                $0.sourcePath == path && !$0.trashed && $0.state == "uploading"
-            }) {
-                uploadStatus = "Already uploading this file"
-                didUpload = false
-                if let transferID = pending.transferID {
-                    TransferCenter.shared.removeItems(forObjectID: transferID)
-                }
-            } else {
-                try await UploadEngine.upload(
-                    fileURL: url,
-                    parentID: parent,
-                    isPrivate: isPrivate,
-                    progress: { [weak self] status, p in
-                        Task { @MainActor in
-                            self?.uploadStatus = status
-                            self?.uploadProgress = p
-                        }
-                    },
-                    existingTransferID: pending.transferID
-                )
-            }
-            if didUpload {
-                uploadStatus = "Upload complete ✅"
-                await self.loadFiles()
-            }
-        } catch {
-            if let uploadError = error as? UploadError, case .cancelled = uploadError {
-                uploadStatus = "Upload paused — resume anytime from Transfers"
-            } else {
-                uploadStatus = "Upload failed: \(error.localizedDescription)"
-            }
-            await self.loadFiles()
-        }
+        uploads.enqueue(UploadManager.PendingUpload(url: url, resumeObject: nil, transferID: transferID))
     }
 
     /// Settings → "Sync Now": the one-shot repair + publish action. If the local
@@ -1998,7 +1891,7 @@ final class AppState {
         moveObject(id: file.id, to: folderID)
     }
 
-    private func isFolderPrivate(_ folderID: String?) -> Bool {
+    func isFolderPrivate(_ folderID: String?) -> Bool {
         guard let folderID else { return false }
         guard let folder = files.first(where: { $0.id == folderID }) else { return false }
         if folder.isPrivate { return true }

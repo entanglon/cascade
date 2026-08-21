@@ -3379,3 +3379,20 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
     - **Remaining roadmap**: item 7 (UploadManager extraction ~half day), item 9
       full consolidation, item 10 (Argon2id research).
+
+151. **Item 7 DONE: UploadManager extracted from AppState (2026-08-21 — COMMITTED)**
+    (`Engine/UploadManager.swift` NEW, `App/AppState.swift`)
+    - The serial file-upload queue (~150 lines: PendingUpload, queue + drain loop,
+      performUpload orchestration incl. resume/duplicate/cleanup branches) moved
+      into `@MainActor final class UploadManager` with a weak AppState back-
+      reference for the observable UI fields (`isUploading/uploadStatus/
+      uploadProgress`) and `loadFiles()`.
+    - AppState keeps thin delegates: `startUpload(url:)` computes the transfer
+      card then `uploads.enqueue(...)`; `resumeInterruptedUploads` enqueues stuck
+      objects; `isUploading`/`uploadStatus`/`uploadProgress` remain @Observable
+      fields so views are untouched. `isFolderPrivate` made internal.
+    - Also fixed: duplicated bootLog doc comment from an earlier scripted patch.
+    - Net: AppState 2,559 → 2,509 lines with upload logic fully out; UploadManager
+      is independently testable going forward.
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched, bootstrap
+      clean per /tmp/cascade-boot.log.
