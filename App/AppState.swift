@@ -919,6 +919,24 @@ final class AppState {
             UserDefaults.standard.set(true, forKey: "xc.catalogHealClean")
         }
 
+        // Ghost object cleanup: catalog-adopted objects with zero chunk rows
+        // and zero channel presence (state=ready but unplayable).  These are
+        // caused by stale-delta resurrection when cleanupPartialUpload hard-
+        // deleted without tombstoning or republishing (fixed 2026-08-21).
+        let allObjs = (try? await DatabaseManager.shared.allObjects()) ?? []
+        var ghostIDs: [String] = []
+        for obj in allObjs where !obj.isFolder && obj.tombstoneAt == nil && obj.state == "ready" && !obj.trashed {
+            let chunkCount = ((try? await DatabaseManager.shared.chunks(for: obj.id)) ?? []).count
+            if chunkCount == 0 { ghostIDs.append(obj.id) }
+        }
+        if !ghostIDs.isEmpty {
+            print("Cascade post-auth: found \(ghostIDs.count) zero-chunk ghost object(s) — removing")
+            for gid in ghostIDs {
+                await UploadEngine.cleanupPartialUpload(objectID: gid)
+            }
+            await self.loadFiles()
+        }
+
         await cleanupExpiredTransfers()
         await ShareEngine.cleanupExpiredShares()
         await ShareEngine.healChannelPhotos()

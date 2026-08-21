@@ -723,17 +723,44 @@ enum UploadEngine {
 
     /// Deletes a partial upload from Telegram and the local database (used by discard and TTL cleanup).
     static func cleanupPartialUpload(objectID: String) async {
+        // 1. Gather Telegram message IDs BEFORE any local deletion so we can
+        //    clean them out of the vault and backup channels.
+        let object = try? await DatabaseManager.shared.object(objectID)
+        var msgIDs: [Int64] = []
+        if let thumbMsg = object?.thumbMessageID { msgIDs.append(thumbMsg) }
         let chunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
-        let msgIDs = chunks.compactMap { $0.messageID }
-        if !msgIDs.isEmpty {
-            // Partial chunks may already be mirrored; their backup copies go too.
-            await BackupSync.deleteFromVaultAndBackup(messageIDs: msgIDs)
-        }
-        try? await DatabaseManager.shared.deleteObjectWithChunks(id: objectID)
-        try? await DatabaseManager.shared.deleteBackupRows(objectID: objectID)
+        msgIDs.append(contentsOf: chunks.compactMap(\.messageID))
+
+        // 2. Tombstone first so deletion-absolutism blocks stale-delta resurrection
+        //    during the window between local delete and catalog republish.
+        let now = Date()
+        try? await DatabaseManager.shared.markTombstones(ids: [objectID], at: now)
         if let thumb = thumbnailURL(for: objectID) {
             try? FileManager.default.removeItem(at: thumb)
         }
+
+        // 3. Remove Telegram messages from vault + backup channels.
+        if !msgIDs.isEmpty {
+            await BackupSync.deleteFromVaultAndBackup(messageIDs: msgIDs)
+        }
+
+        // 4. Drop the cached channel scan so the next snapshot sync fetches live
+        //    state instead of merging a stale delta back into the catalog.
+        if let vault = try? await DatabaseManager.shared.firstVault() {
+            TelegramClient.shared.invalidateScanCache(chatId: vault.channelID)
+        }
+
+        // 5. Purge orphan sidecar/thumbnail messages created during upload.
+        await VaultRepair.purgeOrphanedMessages()
+
+        // 6. Hard-delete the local rows (now safe: messages gone, tombstone held
+        //    long enough for the republished checkpoint to propagate).
+        try? await DatabaseManager.shared.deleteObjectWithChunks(id: objectID)
+        try? await DatabaseManager.shared.deleteBackupRows(objectID: objectID)
+
+        // 7. Force-republish the checkpoint so the cloud catalog drops the object
+        //    immediately — no stale delta can resurrect it on the next reconcile.
+        _ = await CatalogSnapshot.publishCheckpointFromLocal(force: true)
     }
 
     /// Thread-safe aggregate of per-chunk progress for the parallel upload loop:
