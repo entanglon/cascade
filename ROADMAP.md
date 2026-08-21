@@ -302,3 +302,15 @@ or (b) share creation stays app-side and the bot only handles expiry cleanup/
 revocation — (b) is the safe default for now.
 
 
+
+## Streaming architecture candidate: TDLib whole-chunk fill + sparse-file reads (Qwen, 2026-08-21)
+
+Prototype before adopting: replace per-range `downloadFile` batching entirely with
+one low-priority `downloadFile(fileId, limit: 0)` per relevant chunk, then serve
+slices by reading TDLib's growing local sparse file directly; gate on
+`getFileDownloadedPrefixSize` / `updateFile` progress events instead of polling
+`downloadedSize` (item 55's failed attempt used the wrong signal). Would delete the
+ObjectFetcher chains, batch planning, and read-ahead run pool. Validate first:
+updateFile event reliability for ranged downloads, priority coexistence with
+foreground grabs, memory behavior of full-chunk downloads across many chunks.
+Current implementation stays until a cold-cache prototype beats it on stall count.
