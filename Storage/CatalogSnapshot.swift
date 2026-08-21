@@ -104,7 +104,7 @@ enum CatalogSnapshot {
             // 1) Reconcile: fold the channel's published state into ours.
             let channel = await fetchChannelState(chatId: vault.channelID)
             let remote = mergedChannelState(channel, vaultID: vault.id)
-            let merged = merge(local: local, remote: remote, localVaultID: vault.id)
+            var merged = merge(local: local, remote: remote, localVaultID: vault.id)
 
             // 2) Adopt the merged catalog locally — remote records become visible
             //    immediately and future merges stay idempotent.
@@ -113,6 +113,30 @@ enum CatalogSnapshot {
                 print("Cascade snapshot: merge produced 0 objects from \(local.objects.count) local — refusing replaceCatalog (data safety)")
                 return nil
             }
+
+            // Race-condition guard: the `local` payload was captured BEFORE the
+            // network round-trip to fetch the channel state. During that window an
+            // upload may have completed and flipped an object from "uploading" to
+            // "ready". If we blindly write the stale merged result, the object
+            // reverts to "uploading" and disappears from the UI (which filters on
+            // state == "ready"). Fix: re-read the current DB and preserve any state
+            // that advanced to "ready" since the snapshot was taken.
+            let currentStates: [String: String]
+            if merged.objects.contains(where: { $0.state != "ready" }) {
+                let current = (try? await DatabaseManager.shared.allObjects()) ?? []
+                currentStates = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.state) })
+            } else {
+                currentStates = [:]
+            }
+            for i in merged.objects.indices {
+                if let dbState = currentStates[merged.objects[i].id],
+                   dbState == "ready" && merged.objects[i].state != "ready" {
+                    merged.objects[i].state = "ready"
+                    // Also update modifiedAt so the merge metadata stays consistent
+                    merged.objects[i].modifiedAt = max(merged.objects[i].modifiedAt, Date())
+                }
+            }
+
             try await DatabaseManager.shared.replaceCatalog(objects: merged.objects, chunks: merged.chunks)
 
             // 3) The records WE changed (the channel doesn't have them yet) are what
