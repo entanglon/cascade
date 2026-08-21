@@ -2,9 +2,39 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-21 (night) — Streaming round 3: read-ahead restart deadlock found via stream log and fixed (multi-run + span-overlap coverage).
+> 2026-08-21 (night) — Uniform ~1.9 GiB chunks + streaming crypto I/O (item 145).
 
 ---
+
+## 2026-08-21 (night) — Uniform ~1.9 GiB chunks + streaming crypto I/O
+
+User proposal (approved): drop small media chunks entirely — TDLib's persistent
+part-granular upload/download resume makes failed giant chunks cheap, so chunk
+size should optimize message count, not failure granularity.
+
+### What was changed
+1. **`Engine/ChunkPlanner.swift`**: uniform `maxSafeChunkSize` (~1.9 GiB, MiB-
+   aligned, under Telegram's 2 GB doc cliff incl. sealing overhead) for ALL
+   content; profile/mime params retained for API stability but ignored; legacy
+   size constants deprecated. Stored chunk sizes still win on resume.
+2. **`Crypto/CryptoEngine.swift`**: new `encryptStream` / `decryptStream` —
+   slice-at-a-time FileHandle transforms with optional incremental SHA-256
+   hashers. Peak RAM ~2 MiB at any chunk size (was: whole chunk ×2).
+3. **`Engine/UploadEngine.swift`** (`uploadChunk`) + **`Engine/DownloadEngine.swift`**
+   (assembly loop): rewritten onto the streaming transforms; hashes computed
+   incrementally; image hash-mismatch fallback reads back the written range.
+4. **Resume-friendly retries**: failed chunk staging files preserved; retry
+   re-issues the send for the same path so TDLib continues from cached progress.
+
+### Verification
+- New test `streamingCryptoRoundTripMatchesWholeBuffer`: streamed ciphertext
+  round-trips to identical plaintext + classic decryptor compatibility (learned:
+  AES-GCM randomizes nonces — two encryptions are never byte-identical, so
+  cross-check via decryption, not ciphertext equality).
+- `chunkPlanUsesStoredChunkSizeOnResume` updated: 1 GiB → 1 chunk; stored legacy
+  sizes win on resume; 50 GB → 27 pieces ≤ maxSafe.
+- Build green; **TEST SUCCEEDED** (81 unit tests). App relaunched. Pending user
+  verification: large-file upload lands ~1.9 GiB chunks; playback/downloads normal.
 
 ## 2026-08-21 (night) — Streaming round 3: the prefetcher was deadlocked (and the test passed anyway)
 
