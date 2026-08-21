@@ -3441,3 +3441,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       and blocked every resume — caught by resumeIsBlockedWhilePauseIsSettling /
       resumeAfterPauseSettlesProceeds tests before shipping).
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
+
+154. **Resume status truthfulness + stall diagnostic (2026-08-21 — COMMITTED
+     `bd8e0d7`)** (`Engine/UploadEngine.swift`, `Telegram/TelegramClient.swift`)
+    - **User re-test**: pause at 51% preserved correctly (item 152 fraction fix
+      works), but resume showed "Starting…" frozen at 51% — no movement.
+    - **Explanation**: the frozen window is TDLib's silent REVALIDATION of the
+      staged partial (re-hashing before part uploads continue) — no updateFile
+      events fire during it. The absolute-fraction plumbing is correct, so when
+      parts resume, progress jumps to ~51% and climbs.
+    - **Fixes**: upload()'s existing-card path labeled "Starting…"
+      unconditionally, overriding resume feedback — now context-aware ("Resuming…"
+      when resumeObject present). Plus a LogManager warning if an uploadFile is
+      still incomplete 20 s after start (distinguishes slow revalidation from a
+      permanent hang).
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
