@@ -208,7 +208,14 @@ enum UploadEngine {
         if let existingID = existingTransferID, await TransferCenter.shared.items.contains(where: { $0.id == existingID }) {
             transferID = existingID
             await TransferCenter.shared.bindObjectID(transferID, objectID: objectID)
-            await TransferCenter.shared.update(transferID, progress: initialProgress, text: "Starting…")
+            // A resumed upload spends a few seconds in TDLib's silent revalidation
+            // (re-hashing the staged partial before part uploads continue) — label
+            // it truthfully instead of "Starting…".
+            await TransferCenter.shared.update(
+                transferID,
+                progress: initialProgress,
+                text: resumeObject != nil ? "Resuming…" : "Starting…"
+            )
         } else {
             transferID = await TransferCenter.shared.begin(
                 .upload,

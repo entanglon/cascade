@@ -1208,6 +1208,19 @@ final class TelegramClient {
 
         if let onProgress {
             syncLock { fileUploadProgressHandlers[file.id] = onProgress }
+            // Diagnostic: if no completion lands within 20 s, record it —
+            // distinguishes TDLib's silent revalidation window from a permanent
+            // resume hang (paused-upload resume, item 152 follow-up).
+            Task {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                let stillWaiting = syncLock { fileUploadContinuations[file.id] != nil }
+                if stillWaiting {
+                    await LogManager.shared.log(
+                        "uploadFile: file \(file.id) still incomplete 20s after start",
+                        level: .warning, subsystem: "upload"
+                    )
+                }
+            }
         }
 
         let completedFileId = try await withTaskCancellationHandler {
