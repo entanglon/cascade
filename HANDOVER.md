@@ -3396,3 +3396,27 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       is independently testable going forward.
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched, bootstrap
       clean per /tmp/cascade-boot.log.
+
+152. **Pause/resume fixed for big chunks + transfer card polish (2026-08-21 —
+     COMMITTED `a24762e`, awaiting user pause/resume re-test)**
+    (`Engine/UploadEngine.swift`, `Engine/TransferCenter.swift`,
+     `Features/TransfersView.swift`)
+    - **User report**: pausing reset the card to 0% ("Paused — 0/1 chunks");
+      resume restarted progress from zero; status said "Uploading chunks…";
+      thumbnail concern (verified FINE — local jpg/png + encrypted sidecar all
+      present for the new upload).
+    - **Root causes**: (1) pause computed progress as done-chunks/total — with
+      uniform ~1.9 GiB chunks a single-chunk file is always 0/N at pause; (2)
+      TransferCenter.resume passed a NO-OP progress handler and no
+      existingTransferID to UploadEngine.upload, so the resumed card never got
+      live updates and restarted visually.
+    - **Fixes**: pause preserves max(doneRatio, last in-flight fraction); paused
+      text drops chunk-count noise for single-chunk files; resume wires live
+      progress into the same card via existingTransferID (update() monotonic so
+      it never dips below the paused fraction); staged-chunk REUSE — if the
+      staging file exists with exact expected sealed size, skip re-encrypting
+      and re-issue the send for the same path so TDLib continues its cached
+      upload progress; hashes recomputed via range reads.
+    - **Cards**: custom gradient progress capsule (5 pt, animated), percentage
+      chips, refined typography/materials/hover shadow on grid + list.
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
