@@ -3155,3 +3155,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       log preserved as /tmp/cascade-stream-session1.log. Next test should show
       serve misses only at startup/seeks and hundreds of successful batches in
       /tmp/cascade-stream.log.
+    - **Full case file**: `docs/STREAMING_FIX.md` — symptoms, all root causes
+      (A–D), final architecture diagram, verification checklist, and the
+      if-buffering-returns diagnostic playbook for rounds 1–3 (commits `473c940`,
+      `d6b395d`, `caa4873`).
