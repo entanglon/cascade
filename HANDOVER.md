@@ -3159,3 +3159,22 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       (A–D), final architecture diagram, verification checklist, and the
       if-buffering-returns diagnostic playbook for rounds 1–3 (commits `473c940`,
       `d6b395d`, `caa4873`).
+
+142. **Streaming round 4: sequential-access batching on the stream path
+     (2026-08-21 — COMMITTED, awaiting user test)** (`Engine/VideoStreamingEngine.swift`)
+    - **User's full test protocol passed** (two cold-cache playthroughs + 4 s /
+      1 min / 30 s seeks): zero buffering, zero errors/timeouts in the log,
+      multi-run read-ahead proven (11 windows chain-filled all 485 slices in
+      2.7 s after a cache clear).
+    - **Remaining gap the log exposed**: linear playback still fetched 1 round
+      trip PER SLICE (sequential serve misses, no batches that minute) — mpv's
+      huge range requests walk slices via plaintextSliceStream, and each slice
+      was an individual downloadFile. TDLib's disk cache hid it (2–14 ms/slice);
+      on a cold network this is the original fragile pattern resurfacing.
+    - **Fix**: `lastServedSlice` per object — a slice directly continuing the
+      previous one (mpv's sequential walk) fetches a whole 8-slice batch in that
+      round trip; the first slice after a jump (start/seek) stays single for
+      fast startup. Batched path reuses `fetchEncryptedBatchIntoCache` (prio 32).
+    - Build green; unit suite green (**TEST SUCCEEDED**, 79). App relaunched;
+      prior log preserved as /tmp/cascade-stream-session2.log. Full case file:
+      docs/STREAMING_FIX.md.

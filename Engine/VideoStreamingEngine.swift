@@ -38,6 +38,12 @@ final class VideoStreamingEngine {
     // restarts, 99 completed batches).
     private var readAheadRuns: [String: [ReadAheadRun]] = [:]
     private static let maxConcurrentRuns = 3
+    // Last served slice per object — sequential-access detection for stream-path
+    // batching (round 4): mpv issues HUGE range requests, and its sequential walk
+    // used to fetch 1 round trip PER SLICE (fine off TDLib's disk, fragile on a
+    // cold network). When the served slice directly continues the previous one,
+    // fetch a whole batch in the same round trip instead.
+    private var lastServedSlice: [String: Int] = [:]
 
     private let sliceCache = SliceCache()
     // In-flight layout loads, so concurrent callers (theater's play() kickoff +
@@ -145,13 +151,37 @@ final class VideoStreamingEngine {
         let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
 
         if let objectKey = layout.objectKey {
-            // Encrypted streaming: ONE sealed slice on the critical path (fast
-            // startup), then background read-ahead fills the window ahead of the
-            // playhead with batched fetches.
+            // Encrypted streaming: the first slice after a JUMP (start/seek) is a
+            // single-slice fetch — fast startup, mpv gets bytes after one ~1 MB
+            // round trip. A slice that directly CONTINUES the previous one is part
+            // of mpv's sequential walk: fetch a whole batch in that round trip
+            // (8× fewer negotiations on linear playback), decrypt and cache them.
+            let isSequential = lastServedSlice[objectID] == fileSliceIndex - 1
+            let batchCount = isSequential ? Self.readAheadBatchSlices : 1
+            if !isSequential {
+                Self.streamLog("serve miss obj=\(objectID) slice=\(fileSliceIndex) chunk=\(chunkIndex) local=\(localSliceIndex) (jump)")
+            }
+
             let sliceCipherOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sealedSliceSize)
             let plainRemainingInChunk = max(0, chunk.plainSize - Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize))
             let plainSliceLen = min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk)
             let sealedSliceLen = plainSliceLen + 28
+
+            defer { lastServedSlice[objectID] = fileSliceIndex }
+
+            if batchCount > 1 {
+                let cached = try await fetchEncryptedBatchIntoCache(
+                    objectID: objectID,
+                    layout: layout,
+                    firstSlice: fileSliceIndex,
+                    maxCount: batchCount,
+                    priority: 32
+                )
+                if cached > 0, let sliced = sliceCache.get(cacheKey) {
+                    ensureReadAhead(objectID: objectID, layout: layout, servedSlice: fileSliceIndex + cached - 1)
+                    return sliced
+                }
+            }
 
             Self.streamLog("serve miss obj=\(objectID) slice=\(fileSliceIndex) chunk=\(chunkIndex) local=\(localSliceIndex)")
             let sealedData = try await fetchWithRetry(
@@ -599,6 +629,7 @@ final class VideoStreamingEngine {
             guard oldest != objectID else { break }
             layouts[oldest] = nil
             fileIDs[oldest] = nil
+            lastServedSlice[oldest] = nil
             victimFetchers.append(contentsOf: (fetchers.removeValue(forKey: oldest) ?? [:]).values)
             for run in readAheadRuns.removeValue(forKey: oldest) ?? [] {
                 run.cancel()
@@ -665,6 +696,7 @@ final class VideoStreamingEngine {
         let chunkFetchers = fetchers[objectID] ?? [:]
         let chunkFileIDs = fileIDs[objectID] ?? [:]
         fetchers[objectID] = nil
+        lastServedSlice[objectID] = nil
         let readAhead = readAheadRuns.removeValue(forKey: objectID) ?? []
         stateLock.unlock()
         readAhead.forEach { $0.cancel() }
