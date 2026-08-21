@@ -2,9 +2,56 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-21 (evening) — Streaming round 2: layout-eviction mid-playback bug, self-healing prefetcher, deeper window, screen-recording prompt fix, /tmp/cascade-stream.log instrumentation.
+> 2026-08-21 (night) — Streaming round 3: read-ahead restart deadlock found via stream log and fixed (multi-run + span-overlap coverage).
 
 ---
+
+## 2026-08-21 (night) — Streaming round 3: the prefetcher was deadlocked (and the test passed anyway)
+
+User re-tested after round 2: "smooth and clean even after cache purge". Stream-log
+analysis revealed playback WAS smooth but for the wrong reason.
+
+### What the evidence showed (`/tmp/cascade-stream.log`, session 1)
+
+- 1623 read-ahead run starts vs only **99 completed batches** — runs restarted
+  every ~0.6 s, each restart cancelling its in-flight batch (2214 CancellationError,
+  204 TDLibKit.Error error 1, zero timeouts).
+- **793 serve misses** — essentially every slice was fetched by the serve path as a
+  single ~1 MB request (2–14 ms each, because TDLib already had the chunks on its
+  local disk).
+- Playback stayed smooth because TDLib's own persistent download cache made
+  single-slice fetches nearly free — NOT because the prefetcher worked.
+- Frames verified perfect: mpv telemetry vfps steady 24.0, mistimed/voDrop/decDrop/
+  drop all 0 for the whole session.
+- Disk-cache ruled out: zero files in the app cache dir for the object; everything
+  flowed through VaultStreamServer (serve/fetch log lines).
+
+### Root cause
+
+Single-run design + two distant serve positions: mpv opens a SECOND byte-range
+stream for the moov/tail probe while the main stream plays. My `covers()` required
+`servedSlice >= run.startSlice - 2`, so main (slice ~205) and tail probe (~484)
+each saw the other's run as "not covering me" and cancelled+restarted it — a
+ping-pong deadlock where no batch ever survived long enough to fill anything.
+
+### Fixes (commit `caa4873`)
+
+1. Up to **3 concurrent runs per object**; a run is spawned only when no live run's
+   span overlaps the position's needed window (`r.start <= start+B && r.end >= start
+   && r.head+B >= start`, or fully-filled `r.head >= start+W`). At capacity the
+   OLDEST span is replaced — a tail probe can never starve the playhead's run.
+2. Backward movement no longer triggers anything (uncached backward data is served
+   singly until playback advances past the old window).
+3. `fetchWithRetry` rethrows `CancellationError` immediately instead of pointlessly
+   retrying a cancelled operation three times.
+4. `ReadAheadRun` carries `endSlice` for span math.
+
+### Verification
+
+Build green; unit suite green (**TEST SUCCEEDED**, 79). App relaunched with a fresh
+stream log (old session preserved at /tmp/cascade-stream-session1.log). Next test
+must show: serve misses clustered at startup/seek only, hundreds of successful
+read-ahead batches with ms timings, cache pegged at 20 s between hiccups.
 
 ## 2026-08-21 (evening) — Streaming round 2: first-half smooth, second-half buffering
 

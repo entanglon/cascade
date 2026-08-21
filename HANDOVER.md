@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-21: Volume/balance fix, chunk size, streaming buffering investigation + fix rounds (items 127–140). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-21: Volume/balance fix, chunk size, streaming buffering investigation + fix rounds (items 127–141). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -3128,3 +3128,30 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Build green; unit suite green (**TEST SUCCEEDED**, 79 tests). Debug app
       relaunched. **Pending**: user re-test (smooth end-to-end + no prompt); if any
       stall recurs, correlate its timestamp with `/tmp/cascade-stream.log`.
+
+141. **Streaming round 3: read-ahead restart DEADLOCK exposed by the stream log
+     (2026-08-21 — COMMITTED `caa4873`, awaiting one more user test)**
+    (`Engine/VideoStreamingEngine.swift`)
+    - **User report**: "smooth and clean even after cache purge" — but the stream
+      log proved playback was carried by TDLib's disk cache, NOT the prefetcher:
+      1623 run starts vs 99 completed batches, 793 serve misses (every slice a
+      single-slice fetch at 2–14 ms off TDLib's local copy), 2214 CancellationError.
+    - **Root cause**: single-run design + mpv's SECOND byte-range stream (moov/tail
+      probe) — main (~slice 205) and probe (~484) each saw the other's run as not
+      covering them and cancelled+restarted it every ~0.6 s; no batch ever survived;
+      deadlock self-sustained because head never advanced past served+window.
+    - **Fix**: up to 3 concurrent runs per object with span-overlap coverage
+      (`r.start <= start+B && r.end >= start && r.head+B >= start`, or filled
+      `r.head >= start+W`); at capacity replace the OLDEST span (a tail probe can
+      never kill the playhead's run); backward movement triggers nothing;
+      `fetchWithRetry` rethrows CancellationError instead of retrying cancelled ops.
+    - **Also verified this session** (user asked): frames perfect (vfps 24.0,
+      mistimed/voDrop/decDrop/drop all 0 end-to-end); NOT played from the app's
+      disk cache (0 files for the object — all bytes through VaultStreamServer);
+      upload layout of the tested file verified byte-perfect against the sealed-
+      slice grid (chunks 0–2 = exactly 128 sealed slices each; tail = 100 + partial;
+      sum == object.size).
+    - Build green; unit suite green (**TEST SUCCEEDED**, 79). App relaunched; old
+      log preserved as /tmp/cascade-stream-session1.log. Next test should show
+      serve misses only at startup/seeks and hundreds of successful batches in
+      /tmp/cascade-stream.log.
