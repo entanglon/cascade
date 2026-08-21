@@ -3016,9 +3016,13 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Fix**: After computing the merged payload but before calling `replaceCatalog()`, re-read the current DB state for any objects still marked `"uploading"`. If the DB shows them as `"ready"`, preserve the `"ready"` state in the merged result.
     - **Impact**: Batch uploads no longer lose files. The third (or Nth) audio/photo/video in a batch upload now appears immediately in the folder.
 
-132. **Volume Slider Sync — Polling Timer Rewrite (2026-08-21 — COMMITTED)** (`Engine/AudioPlayerEngine.swift`)
-    - **Root Cause (original)**: CoreAudio property listeners were unreliable — `registerDeviceListener()` was called before `resolveVolumeElement()`, so `listenableElements` was empty and zero listeners were ever registered. Additionally, macOS CoreAudio listeners frequently miss keyboard volume changes and Bluetooth device events entirely, making them unreliable as the primary sync mechanism.
-    - **Fix**: Replaced the listener-only approach with a **150 ms polling timer** that reads the system volume on every tick and updates the slider when it changes externally. This is what professional audio apps (Spotify, VLC) do — polling is simple, reliable across all output devices (built-in speakers, Bluetooth, USB), and negligible overhead (one CoreAudio read per 150 ms). The CoreAudio listener is kept as an optional bonus for lower-latency response when it does fire. Also proactively re-probes the volume element on each poll tick when the default device changes.
+132. **Volume Slider Sync — Three-Layer Hybrid (2026-08-21 — COMMITTED)** (`Engine/AudioPlayerEngine.swift`)
+    - **Root Cause (original)**: CoreAudio property listeners were unreliable — `registerDeviceListener()` was called before `resolveVolumeElement()`, so zero listeners were ever registered. Additionally, macOS CoreAudio listeners frequently miss keyboard volume changes and Bluetooth device events.
+    - **Fix**: Replaced with a **three-layer hybrid** approach (per Claude & Qwen recommendations):
+      - **Layer 1**: `NSEvent` global monitor for `NX_KEYTYPE_SOUND_UP/DOWN/MUTE` — catches F10/F11/mute with near-zero latency, independent of CoreAudio.
+      - **Layer 2**: CoreAudio listeners with `kAudioObjectPropertyElementWildcard` + dedicated serial `DispatchQueue` — catches Control Center / other-app changes. Re-registers on device change.
+      - **Layer 3**: `DispatchSourceTimer` (500ms) on background queue — safety net that survives modal tracking loops.
+    - **Additional**: `isUserDragging` flag prevents poll/listener from fighting slider drags. Proper listener cleanup via `removeDeviceListeners()` on device change.
 
 133. **Test Suite & Build Status (2026-08-21)**
     - Build: **BUILD SUCCEEDED** with `xcodebuild -project Cascade.xcodeproj -scheme Cascade build`.
