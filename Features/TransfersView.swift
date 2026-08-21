@@ -212,15 +212,22 @@ struct TransferGridCard: View {
         // EXACTLY the same dimensions regardless of name length or status text.
         VStack(spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                Color.white.opacity(0.03)
+                // Soft vertical sheen instead of a flat fill
+                LinearGradient(
+                    colors: [Color.white.opacity(0.055), Color.white.opacity(0.02)],
+                    startPoint: .top, endPoint: .bottom)
 
                 TransferIcon(item: item)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 HStack(spacing: 6) {
                     Text("\(Int(item.progress * 100))%")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
                         .foregroundStyle(item.accentColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(item.accentColor.opacity(0.14)))
 
                     TransferItemActions(item: item)
                 }
@@ -229,7 +236,7 @@ struct TransferGridCard: View {
             .frame(height: 92)
             .clipped()
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(XTheme.textPrimary)
@@ -238,36 +245,33 @@ struct TransferGridCard: View {
                     .frame(height: 16)
 
                 Text(item.statusLine)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(item.statusColor)
                     .lineLimit(1)
                     .frame(height: 13)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .background(Color.white.opacity(0.04))
+            .padding(.horizontal, 11)
+            .padding(.top, 9)
+            .background(Color.white.opacity(0.03))
 
-            ProgressView(value: item.progress)
-                .progressViewStyle(.linear)
-                .tint(item.accentColor)
-                .animation(.easeInOut(duration: 0.25), value: item.progress)
-                // Display-only — let clicks pass through so the card's double-click
-                // reveal works anywhere on the card, not just on the text.
+            TransferProgressCapsule(progress: item.progress, tint: item.accentColor,
+                                    animating: item.state == .active)
                 .allowsHitTesting(false)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 11)
         }
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(hovering ? 0.1 : 0.06), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(hovering ? 0.28 : 0.12), radius: hovering ? 10 : 5, y: 2)
         .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
         // contentShape makes the whole card (including padding, spacers, and the
         // icon) hit-testable for the double-click, matching the file cards.
@@ -277,6 +281,35 @@ struct TransferGridCard: View {
         .scaleEffect(hovering ? 1.02 : 1.0)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .help(item.state == .complete ? "Double-click to show in folder" : "")
+    }
+}
+
+/// Thin rounded progress track with a gradient fill; indeterminate shimmer while
+/// an upload/download is actively streaming.
+struct TransferProgressCapsule: View {
+    let progress: Double
+    let tint: Color
+    var animating: Bool = false
+
+    @State private var phase: Bool = false
+
+    var body: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.08))
+            .frame(height: 5)
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [tint, tint.opacity(0.65)],
+                                startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(0, geo.size.width * min(max(progress, 0), 1)))
+                        .animation(.easeInOut(duration: 0.25), value: progress)
+                }
+            }
+            .animation(animating ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : .default,
+                       value: phase)
     }
 }
 
@@ -298,16 +331,13 @@ struct TransferRow: View {
                     Spacer()
                     TransferItemActions(item: item)
                     Text("\(Int(item.progress * 100))%")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
                         .foregroundStyle(item.accentColor)
                 }
 
-                ProgressView(value: item.progress)
-                    .progressViewStyle(.linear)
-                    .tint(item.accentColor)
-                    .animation(.easeInOut(duration: 0.25), value: item.progress)
-                    // Display-only — let clicks pass through so the card's double-click
-                    // reveal works anywhere on the card, not just on the text.
+                TransferProgressCapsule(progress: item.progress, tint: item.accentColor,
+                                        animating: item.state == .active)
                     .allowsHitTesting(false)
 
                 HStack {

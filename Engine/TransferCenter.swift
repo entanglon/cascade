@@ -286,7 +286,14 @@ final class TransferCenter {
                     fileURL: URL(fileURLWithPath: path),
                     parentID: object.parentID,
                     isPrivate: object.isPrivate,
-                    progress: { _, _ in },
+                    progress: { [weak self] status, p in
+                        Task { @MainActor in
+                            // Live progress into the SAME card; update() is
+                            // monotonic so the paused fraction never dips.
+                            self?.update(id, progress: p, text: status)
+                        }
+                    },
+                    existingTransferID: id,
                     resumeObject: object
                 )
             }

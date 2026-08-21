@@ -282,20 +282,57 @@ enum UploadEngine {
                     }
                     let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
 
-                    // Stream the chunk to its staging file ONE SLICE AT A TIME —
-                    // peak RAM is a single ~1 MiB slice no matter how large chunks
-                    // get (uniform ~1.9 GiB chunks, round 7).
-                    FileManager.default.createFile(
-                        atPath: tmpURL.path(percentEncoded: false), contents: nil
-                    )
+                    // RESUME OPTIMIZATION: if a previous attempt staged this exact
+                    // chunk (file exists with the exact expected sealed size), reuse
+                    // it — same path + same bytes lets TDLib continue its cached
+                    // upload progress instead of restarting, and we skip re-encrypting
+                    // up to ~1.9 GiB. Size equality is the guard: a crash mid-write
+                    // leaves a short file, which falls through to regeneration.
+                    let expectedSliceCount = (Int64(item.size) + Int64(CryptoEngine.sliceSize) - 1) / Int64(CryptoEngine.sliceSize)
+                    let expectedStagedSize: Int64 = objectKey != nil
+                        ? Int64(item.size) + expectedSliceCount * 28
+                        : Int64(item.size)
+                    var reuseStaging = false
+                    if let attrs = try? FileManager.default.attributesOfItem(
+                        atPath: tmpURL.path(percentEncoded: false)
+                    ), let sz = attrs[.size] as? NSNumber, sz.int64Value == expectedStagedSize {
+                        reuseStaging = true
+                        logger.info("reusing staged chunk \(item.index) (\(sz.int64Value) B) for resume")
+                    }
+
+                    if !reuseStaging {
+                        FileManager.default.createFile(
+                            atPath: tmpURL.path(percentEncoded: false), contents: nil
+                        )
+                    }
                     let outHandle = try FileHandle(forWritingTo: tmpURL)
                     defer { try? outHandle.close() }
+                    if reuseStaging {
+                        try outHandle.seekToEndOfFile()
+                    }
 
                     var plainHasher: SHA256? = SHA256()
                     var cipherHasher: SHA256? = objectKey != nil ? SHA256() : nil
 
                     let uploadedByteCount: Int64
-                    if let objectKey {
+                    if reuseStaging {
+                        // Staged file already holds the sealed bytes: hash source
+                        // (plain) and staging (cipher) without re-encrypting.
+                        plainHasher?.update(data: try readExactly(handle, count: Int(item.size)))
+                        uploadedByteCount = item.size
+                        if cipherHasher != nil {
+                            let staged = try FileHandle(forReadingFrom: tmpURL)
+                            defer { try? staged.close() }
+                            var remaining = expectedStagedSize
+                            while remaining > 0 {
+                                let want = Int(min(4 * 1024 * 1024, remaining))
+                                guard let chunkData = try staged.read(upToCount: want),
+                                      !chunkData.isEmpty else { break }
+                                cipherHasher?.update(data: chunkData)
+                                remaining -= Int64(chunkData.count)
+                            }
+                        }
+                    } else if let objectKey {
                         let startSliceIndex = Int(item.offset / Int64(CryptoEngine.sliceSize))
                         uploadedByteCount = try CryptoEngine.encryptStream(
                             from: handle, to: outHandle,
@@ -362,7 +399,7 @@ enum UploadEngine {
                         thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath,
                         onProgress: { p in
                             progressState.setFraction(item.index, min(max(0.0, p), 1.0))
-                            report("Uploading chunks…", min(progressState.overall, 0.99))
+                            report("Uploading", min(progressState.overall, 0.99))
                         }
                     )
                     // Every chunk is mirrored into the backup channel (cheap
@@ -390,7 +427,7 @@ enum UploadEngine {
                     try? FileManager.default.removeItem(at: tmpURL)
 
                     progressState.complete(item.index)
-                    report("Uploaded \(progressState.completedCount)/\(plan.items.count) chunks", progressState.overall)
+                    report("Uploading", progressState.overall)
                 }
 
                 // Run up to `maxConcurrentChunkUploads` chunks at once. Each chunk is an
@@ -424,19 +461,26 @@ enum UploadEngine {
 
                 if pauseToken.isCancelled {
                     // Paused between chunks: every posted chunk was recorded, so resume
-                    // continues exactly from here.
+                    // continues exactly from here. Preserve the last known in-flight
+                    // fraction — with uniform ~1.9 GiB chunks a single-chunk file has
+                    // done=0 at pause time, and reporting 0/N would visually reset the
+                    // card even though TDLib will resume the staged upload.
+                    let done = ((try? await DatabaseManager.shared.chunks(for: objectID)) ?? [])
+                        .filter { ($0.messageID ?? 0) > 0 }.count
+                    let total = plan.items.count
+                    let overall = progressState.overall
+                    let doneRatio = total > 0 ? Double(done) / Double(total) : 0
+                    let displayProgress = max(doneRatio, min(overall, 0.99))
+                    let pauseText = total > 1 ? "Paused — \(done)/\(total) chunks" : "Paused"
                     _ = try? await DatabaseManager.shared.updateObject(objectID) {
                         $0.state = "paused"
                         $0.modifiedAt = .now
                     }
-                    let done = ((try? await DatabaseManager.shared.chunks(for: objectID)) ?? [])
-                        .filter { ($0.messageID ?? 0) > 0 }.count
-                    let total = plan.items.count
                     Task { @MainActor in
                         TransferCenter.shared.pause(
                             transferID,
-                            progress: total > 0 ? Double(done) / Double(total) : 0,
-                            text: "Paused — \(done)/\(total) chunks uploaded"
+                            progress: displayProgress,
+                            text: pauseText
                         )
                     }
                     throw UploadError.cancelled
