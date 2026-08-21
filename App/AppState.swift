@@ -28,7 +28,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .allFiles: return "square.grid.2x2"
-        case .privateVault: return "number"
+        case .privateVault: return "lock.fill"
         case .recent: return "clock"
         case .favorites: return "star"
         case .photos: return "photo.fill"
@@ -373,6 +373,10 @@ final class AppState {
     @MainActor
     func bootstrap() async {
         Self.bootLog("start")
+        // Launch heartbeat: an "in-progress" marker found at the next launch means
+        // the previous run never finished — surface that to the user once.
+        let previousUnclean = Self.readLaunchState().hasPrefix("in-progress")
+        Self.writeLaunchState("in-progress")
         isInitialLoading = true
         defer { isInitialLoading = false }
         do {
@@ -433,7 +437,18 @@ final class AppState {
                 )
             }
 
-            guard !isRunningUnderXCTest else { return }
+            guard !isRunningUnderXCTest else {
+                Self.writeLaunchState("clean")
+                return
+            }
+
+            if previousUnclean {
+                notify(
+                    title: "Previous launch didn't complete",
+                    message: "Cascade recovered — everything is working normally.",
+                    kind: .warning
+                )
+            }
 
             // Keep the local cache within budget even when the user only streams:
             // evict oldest files at launch and on a 30-minute timer when the hard
@@ -453,6 +468,7 @@ final class AppState {
                 await startTelegram(apiID: creds.apiID, apiHash: creds.apiHash)
                 Self.bootLog("startTelegram returned")
             }
+            Self.writeLaunchState("clean")
 
             for _ in 0..<20 {
                 if TelegramClient.shared.isAuthorized { break }
@@ -1010,6 +1026,25 @@ final class AppState {
         } else {
             try? line.write(to: url, atomically: false, encoding: .utf8)
         }
+    }
+
+    /// Launch heartbeat for the crash/hang detector (audit item 6): bootstrap
+    /// writes "in-progress" at start and "clean" on success. The next launch
+    /// reading a stale "in-progress" knows the previous run died mid-flight.
+    static func writeLaunchState(_ state: String) {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cascade", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let line = "\(state) · \(df.string(from: Date()))\n"
+        try? line.write(to: dir.appendingPathComponent("launch-state.txt"), atomically: true, encoding: .utf8)
+    }
+
+    static func readLaunchState() -> String {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cascade", isDirectory: true)
+        return (try? String(contentsOf: dir.appendingPathComponent("launch-state.txt"), encoding: .utf8)) ?? ""
     }
 
     func startTelegram(apiID: Int, apiHash: String) async {

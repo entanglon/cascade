@@ -2792,11 +2792,23 @@ struct PrivateVaultLockView: View {
     var body: some View {
         ZStack {
             AppBackground()
-            VStack(spacing: 24) {
+            VStack(spacing: 22) {
+                // Hero mark: layered lock in an accent ring
                 ZStack {
-                    Circle().fill(XTheme.accent.opacity(0.15)).frame(width: 72, height: 72)
-                    Image(systemName: phase == .recover ? "key.fill" : "number")
-                        .font(.system(size: 30)).foregroundStyle(XTheme.accent)
+                    Circle()
+                        .fill(LinearGradient(
+                            colors: [XTheme.accent.opacity(0.28), XTheme.accent.opacity(0.08)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 84, height: 84)
+                    Circle()
+                        .strokeBorder(XTheme.accent.opacity(0.35), lineWidth: 1.5)
+                        .frame(width: 84, height: 84)
+                    Image(systemName: phase == .recover ? "key.fill" : "lock.fill")
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [XTheme.accent, XTheme.accent.opacity(0.65)],
+                                startPoint: .top, endPoint: .bottom))
                 }
                 VStack(spacing: 6) {
                     Text(title).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(.white)
@@ -2844,6 +2856,23 @@ struct PrivateVaultLockView: View {
                     }
                 }
                 .offset(x: shake ? 12 : 0)
+
+                // On-screen keypad — mouse/trackpad users couldn't operate the
+                // lock at all before (the field is keyboard-only).
+                VStack(spacing: 10) {
+                    ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]], id: \.self) { row in
+                        HStack(spacing: 10) {
+                            ForEach(row, id: \.self) { digit in
+                                keypadButton(digit)
+                            }
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        keypadButton("delete", label: "delete.left", width: 72)
+                        keypadButton("0")
+                        Color.clear.frame(width: 72, height: 44)
+                    }
+                }
 
                 // Invisible capture field
                 TextField("", text: $buffer)
@@ -2968,6 +2997,39 @@ struct PrivateVaultLockView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             shake = false; buffer = ""; revealedIndex = nil
         }
+    }
+
+    @ViewBuilder
+    private func keypadButton(_ digit: String, label: String? = nil, width: CGFloat = 72) -> some View {
+        Button {
+            focused = true
+            if digit == "delete" {
+                if !buffer.isEmpty { buffer.removeLast() }
+            } else if buffer.count < 4 {
+                buffer.append(digit)
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                    )
+                if let label {
+                    Image(systemName: label)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                } else {
+                    Text(digit)
+                        .font(.system(size: 19, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: width, height: 44)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 

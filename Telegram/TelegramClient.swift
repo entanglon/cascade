@@ -47,7 +47,11 @@ actor RateLimiter {
     }
 
     /// Acquires a write token, automatically sleeping if insufficient tokens exist.
+    /// Long waits surface a throttled user-facing banner so bulk operations don't
+    /// look stalled (audit item 8).
     func acquireWriteToken() async {
+        var waitedTotal: Double = 0
+        var notified = false
         while true {
             refill()
             if availableTokens >= 1.0 {
@@ -57,6 +61,19 @@ actor RateLimiter {
             let deficit = 1.0 - availableTokens
             let waitSeconds = deficit / refillRate
             let waitNanos = UInt64(max(0.05, min(waitSeconds, 3.0)) * 1_000_000_000)
+            waitedTotal += min(waitSeconds, 3.0)
+            if !notified, waitedTotal >= 3.0 {
+                notified = true
+                NotificationCenter.default.post(
+                    name: .cascadeAppNotification,
+                    object: nil,
+                    userInfo: [
+                        "title": "Telegram rate limit",
+                        "message": "Pacing writes to stay within safe limits — finishing shortly…",
+                        "kind": "info"
+                    ]
+                )
+            }
             try? await Task.sleep(nanoseconds: waitNanos)
         }
     }
