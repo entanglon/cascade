@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-21: Volume/balance fix, chunk size, streaming buffering investigation + FIX (items 127–139). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-21: Volume/balance fix, chunk size, streaming buffering investigation + fix rounds (items 127–140). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -3093,3 +3093,38 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **PENDING USER VERIFICATION**: play an uncached ENCRYPTED video past the
       1-minute mark (no permanent buffering), seek away/back recovers instantly,
       startup stays fast (no 10 s first-byte delay).
+
+140. **Streaming round 2: first half smooth / second-half buffering + screen-recording
+     prompt (2026-08-21 — COMMITTED, awaiting live user verification)**
+    (`Engine/VideoStreamingEngine.swift`, `Features/MPVVideoView.swift`)
+    - **User report**: whole file played (item 139 worked — no more permanent
+      death), smooth first ~10 min, buffering in the second half. Plus a macOS
+      "wants to record this screen" prompt on fullscreen.
+    - **Telemetry** (`/tmp/cascade-mpv-telemetry.log`): cache pegged 20 s min 0–10;
+      dips min 10–15; recovery 15–23; TOTAL stall min 24–28 (~4 min, cache 0.0,
+      paused-for-cache continuously); stuttery recovery after. A total multi-minute
+      stall = wholesale request hang/failure.
+    - **ROOT CAUSE: layout eviction wiped the PLAYING file mid-stream**
+      (`loadLayoutUncached`): at ≥8 layouts everything was cleared — fileIDs +
+      per-chunk fetchers of the active playback included. Background probes build
+      layouts during playback; post-wipe, new fetches spawned a second concurrent
+      TDLib chain on the same fileId → supersede clobbering → hang storms. FIX:
+      LRU layout store (`layoutRecency`, cap 16) that NEVER evicts the
+      most-recently-touched object; `plaintextSlice` touches recency every slice;
+      evicted objects' fetchers/runs cancelled cleanly.
+    - **Prefetch self-healing**: the read-ahead loop no longer gives up after 3
+      failures (re-arm depended on successful serves, which stop during a stall).
+      Backoff 0.3 s doubling to 5 s cap; runs until window filled or cancelled.
+    - **Tuning**: window 24 → 48 slices (~38 s buffer), batch 4 → 8 slices,
+      fetchWithRetry up to 3 attempts with chain-cancel between attempts.
+    - **Screen-recording prompt FIXED**: `captureTheaterSnapshot` now prefights
+      `CGPreflightScreenCaptureAccess()` and skips the ghost snapshot when
+      unauthorized (live-attach fallback covers the transition) — SCShareableContent
+      was triggering the TCC prompt on every fullscreen entry.
+    - **Instrumentation**: `/tmp/cascade-stream.log` — layout built/evicted, serve
+      misses, read-ahead batches with ms, timeouts/errors with attempt counts,
+      invalidatePlayback. THE tool for any future streaming report: read this log
+      first.
+    - Build green; unit suite green (**TEST SUCCEEDED**, 79 tests). Debug app
+      relaunched. **Pending**: user re-test (smooth end-to-end + no prompt); if any
+      stall recurs, correlate its timestamp with `/tmp/cascade-stream.log`.

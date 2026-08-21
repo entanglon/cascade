@@ -2,9 +2,64 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-21 (afternoon) — Encrypted-streaming buffering fixed: read-ahead prefetcher + cache-wipe bug + boundary-mapping regression reverted.
+> 2026-08-21 (evening) — Streaming round 2: layout-eviction mid-playback bug, self-healing prefetcher, deeper window, screen-recording prompt fix, /tmp/cascade-stream.log instrumentation.
 
 ---
+
+## 2026-08-21 (evening) — Streaming round 2: first-half smooth, second-half buffering
+
+User re-tested after item 139: the whole file played (progress — no more permanent
+death) and the first ~10 minutes were smooth, but buffering appeared in the second
+half. Also: entering fullscreen made macOS show a "Cascade wants to record this
+screen" prompt.
+
+### Telemetry evidence (/tmp/cascade-mpv-telemetry.log, TrueHD+HEVC session)
+
+2390 samples bucketed per minute: cache pegged 20 s for min 0–10 (prefetcher easily
+keeping up), dips to 4–11 s during min 10–15, recovery 18–20 s through min 15–23,
+then a TOTAL pipeline stall min 24–28 (cache pinned 0.0 s, paused-for-cache 60/60
+samples for ~4 straight minutes), stuttery recovery (0.3–9 s) min 32–39. A
+multi-minute total stall means requests hung/failed wholesale, not jitter.
+
+### Root causes found this round
+
+1. **Layout eviction destroyed the playing file mid-stream**
+   (`loadLayoutUncached`): when 8 layouts accumulated, ALL state was wiped —
+   including the PLAYING object's fileIDs and per-chunk fetchers. Background probes
+   (thumbnail generation, other files' stream URLs) build layouts during playback;
+   once the wipe fired mid-play, new fetches created a SECOND concurrent TDLib chain
+   on the same fileId — supersede semantics clobbering each other → hangs/retry
+   storms → exactly a minutes-long total stall. Fix: LRU store (`layoutRecency`,
+   cap 16) that NEVER evicts the most-recently-touched object; `plaintextSlice`
+   touches recency every slice so the playing file is always protected; evicted
+   objects' fetcher chains + read-ahead runs are cancelled cleanly.
+2. **Prefetch gave up permanently after 3 failures** while re-arming depended on
+   successful serves — during a stall serves stop succeeding, so the system could
+   not self-heal. Now the loop backs off (0.3 s doubling, 5 s cap) and keeps trying
+   until the window is filled or cancelled.
+3. **Screen-recording prompt**: `captureTheaterSnapshot` calls
+   `SCShareableContent`, which requires Screen Recording permission (TCC). Added
+   `CGPreflightScreenCaptureAccess()` guard — unauthorized → skip the ghost
+   snapshot silently (the live-attach fallback covers the fullscreen transition).
+   No prompt.
+
+### Other changes (`Engine/VideoStreamingEngine.swift`)
+
+- Read-ahead window 24 → 48 slices (~48 MB ≈ 38 s buffer at 1.25 MB/s); batch
+  4 → 8 slices per TDLib round trip (matches the proven plaintext batching).
+- `fetchWithRetry`: up to 3 attempts with chain-cancel between attempts.
+- **Instrumentation**: all streaming events append to `/tmp/cascade-stream.log`
+  (layout built/evicted, serve misses, batch outcomes with ms, timeouts/errors,
+  read-ahead lifecycle, invalidatePlayback) — the unified log is unreadable on
+  this machine and stdout is lost via `open`; next playback has a full evidence
+  trail.
+
+### Verification
+
+- Build green; full unit suite green (**TEST SUCCEEDED**, 79 unit tests, 0 failures).
+- Debug app relaunched. User to re-test: full playback must be smooth end-to-end;
+  fullscreen entry must NOT prompt for screen recording. After any stall:
+  check `/tmp/cascade-stream.log`.
 
 ## 2026-08-21 (afternoon) — Encrypted video streaming buffering FIXED (read-ahead prefetcher)
 

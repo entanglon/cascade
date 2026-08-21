@@ -20,6 +20,15 @@ final class VideoStreamingEngine {
 
     private let stateLock = NSLock()
     private var layouts: [String: ObjectLayout] = [:]
+    // Recency order for `layouts` (oldest first). Background probes (thumbnail
+    // generation, other files' stream URLs) build layouts DURING playback; the old
+    // "wipe everything at 8" eviction destroyed the PLAYING file's fetchers/fileIDs
+    // mid-stream — two concurrent TDLib chains then clobbered each other on the same
+    // fileId (supersede semantics), producing minutes-long hangs. Now: LRU eviction,
+    // a much higher cap, and the most-recently-touched object (the one being served)
+    // is never a victim.
+    private var layoutRecency: [String] = []
+    private static let maxCachedLayouts = 16
     private var fileIDs: [String: [Int: Int]] = [:]
     private var fetchers: [String: [Int: ObjectFetcher]] = [:] // objectID -> [chunkIndex: TDLib file id]
     private var readAheadRuns: [String: ReadAheadRun] = [:]
@@ -74,14 +83,49 @@ final class VideoStreamingEngine {
     // sealed slices per TDLib round trip. This is the plaintext batching that
     // made streaming rock solid, moved OFF the critical path so it can no longer
     // delay startup: blocking a background task for a few MB is harmless.
-    private static let readAheadBatchSlices = 4
-    private static let readAheadWindowSlices = 24
+    //
+    // Window sizing (telemetry 2026-08-21): a TrueHD+HEVC stream consumes
+    // ~1.25 MB/s, so 48 slices ≈ 38 s of forward buffer — enough to absorb a
+    // multi-second TDLib stall without mpv ever reaching pause-for-cache.
+    private static let readAheadBatchSlices = 8
+    private static let readAheadWindowSlices = 48
+
+    /// Appends a timestamped line to /tmp/cascade-stream.log. The unified log is
+    /// unreliable on this machine (HANDOVER item 48), and stdout is lost when the
+    /// app is launched via `open` — this file is the streaming pipeline's evidence
+    /// trail (serve misses, batch outcomes, timeouts, teardowns). Best-effort.
+    private static let streamLogLock = NSLock()
+    private static let streamLogFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm:ss.SSS"
+        return df
+    }()
+
+    private static func streamLog(_ message: String) {
+        streamLogLock.lock()
+        defer { streamLogLock.unlock() }
+        let line = "[\(streamLogFormatter.string(from: Date()))] \(message)\n"
+        let url = URL(fileURLWithPath: "/tmp/cascade-stream.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        } else {
+            try? line.write(to: url, atomically: false, encoding: .utf8)
+        }
+    }
 
     private func plaintextSlice(
         _ fileSliceIndex: Int,
         objectID: String,
         layout: ObjectLayout
     ) async throws -> Data {
+        // Keep the playing file the most-recently-used layout so LRU eviction can
+        // never select it while background probes churn other layouts.
+        stateLock.lock()
+        if layouts[objectID] != nil { touchLayoutLocked(objectID) }
+        stateLock.unlock()
+
         let cacheKey = SliceCache.Key(objectID: objectID, sliceIndex: fileSliceIndex)
         if let cached = sliceCache.get(cacheKey) {
             ensureReadAhead(objectID: objectID, layout: layout, servedSlice: fileSliceIndex)
@@ -103,6 +147,7 @@ final class VideoStreamingEngine {
             let plainSliceLen = min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk)
             let sealedSliceLen = plainSliceLen + 28
 
+            Self.streamLog("serve miss obj=\(objectID) slice=\(fileSliceIndex) chunk=\(chunkIndex) local=\(localSliceIndex)")
             let sealedData = try await fetchWithRetry(
                 fetcher, fileID: fileID, offset: sliceCipherOffset, limit: sealedSliceLen, objectID: objectID
             )
@@ -230,12 +275,15 @@ final class VideoStreamingEngine {
         }
         readAheadRuns[objectID] = run
         stateLock.unlock()
+        Self.streamLog("read-ahead start obj=\(objectID) slices=\(start)...\(windowEnd) (served=\(servedSlice))")
     }
 
     /// Fills [from ... end] with decrypted slices, batched `readAheadBatchSlices`
-    /// per TDLib round trip. Short-lived by design: it exits at the window edge or
-    /// after repeated failures, and the next served slice re-arms it. Runs at low
-    /// TDLib priority so it never competes with the serve path.
+    /// per TDLib round trip. Short-lived by design — it exits at the window edge or
+    /// when cancelled, and the next served slice re-arms it. On failures it backs
+    /// off and KEEPS TRYING (0.3 s doubling to a 5 s cap) instead of giving up:
+    /// re-arming is driven by successful serves, which stop during a stall — a
+    /// give-up here would leave the pipeline dead exactly when healing matters.
     private func readAheadLoop(
         objectID: String,
         layout: ObjectLayout,
@@ -252,6 +300,7 @@ final class VideoStreamingEngine {
                 continue
             }
             do {
+                let batchStartedAt = Date()
                 let n = try await fetchEncryptedBatchIntoCache(
                     objectID: objectID,
                     layout: layout,
@@ -261,15 +310,20 @@ final class VideoStreamingEngine {
                 )
                 guard n > 0 else { break }
                 run.advance(to: index + n)
+                let ms = Int(Date().timeIntervalSince(batchStartedAt) * 1000)
+                Self.streamLog("read-ahead batch obj=\(objectID) slices=\(index)+\(n) ms=\(ms)")
                 index += n
                 consecutiveFailures = 0
             } catch {
                 if run.isCancelled || Task.isCancelled { break }
                 consecutiveFailures += 1
-                Self.logger.warning("Read-ahead fetch failed (\(consecutiveFailures)/3) for \(objectID, privacy: .public) slice=\(index, privacy: .public)")
-                if consecutiveFailures >= 3 { break }
-                try? await Task.sleep(nanoseconds: 300_000_000)
+                Self.streamLog("read-ahead FAIL #\(consecutiveFailures) obj=\(objectID) slice=\(index): \(error.localizedDescription)")
+                let backoffNs = min(300_000_000 << min(consecutiveFailures - 1, 8), 5_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(backoffNs))
             }
+        }
+        if !run.isCancelled {
+            Self.streamLog("read-ahead end obj=\(objectID) at slice=\(index) (window \(start)...\(end))")
         }
     }
 
@@ -331,8 +385,11 @@ final class VideoStreamingEngine {
         return count
     }
 
-    /// One retry per range: a corrupted/partial download or GCM tag failure is transient;
-    /// if it repeats, the error propagates to the stream (clean failure, never a crash).
+    /// Up to three attempts per range: a corrupted/partial download or GCM tag
+    /// failure is transient; the fetcher chain is CANCELLED between attempts so a
+    /// stale/superseded TDLib session can't poison the retry. If all three fail,
+    /// the error propagates to the stream — the HTTP response dies and mpv retries
+    /// the byte range with fresh state (clean failure, never a crash).
     ///
     /// IMPORTANT: a failed fetch must NEVER evict the object's cached slices. Cached
     /// slices were successfully fetched (and GCM-verified on the encrypted path) before
@@ -347,22 +404,27 @@ final class VideoStreamingEngine {
         objectID: String,
         priority: Int = 32
     ) async throws -> Data {
-        do {
-            return try await withFetchTimeout {
-                try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit, priority: priority)
-            }
-        } catch is FetchTimeout {
-            Self.logger.warning("Range fetch timed out for \(objectID, privacy: .public) offset=\(offset, privacy: .public) — cancelling the stale chain and retrying")
-            fetcher.cancelPending()
-            return try await withFetchTimeout {
-                try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit, priority: priority)
-            }
-        } catch {
-            Self.logger.warning("Range fetch failed once for \(objectID, privacy: .public) offset=\(offset, privacy: .public) limit=\(limit, privacy: .public), retrying")
-            return try await withFetchTimeout {
-                try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit, priority: priority)
+        let startedAt = Date()
+        defer {
+            let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
+            Self.streamLog("fetch done obj=\(objectID) off=\(offset) len=\(limit) prio=\(priority) ms=\(ms)")
+        }
+        for attempt in 1...3 {
+            do {
+                return try await withFetchTimeout {
+                    try await fetcher.fetch(fileId: fileID, offset: offset, limit: limit, priority: priority)
+                }
+            } catch is FetchTimeout {
+                Self.streamLog("fetch TIMEOUT attempt=\(attempt)/3 obj=\(objectID) off=\(offset) len=\(limit)")
+                guard attempt < 3 else { throw FetchTimeout() }
+                fetcher.cancelPending()
+            } catch {
+                Self.streamLog("fetch ERROR attempt=\(attempt)/3 obj=\(objectID) off=\(offset) len=\(limit): \(error.localizedDescription)")
+                guard attempt < 3 else { throw error }
+                fetcher.cancelPending()
             }
         }
+        throw FetchTimeout()
     }
 
     private struct FetchTimeout: Error {}
@@ -386,6 +448,7 @@ final class VideoStreamingEngine {
     func loadLayout(objectID: String) async throws -> ObjectLayout? {
         stateLock.lock()
         if let existing = layouts[objectID] {
+            touchLayoutLocked(objectID)
             stateLock.unlock()
             return existing
         }
@@ -504,18 +567,36 @@ final class VideoStreamingEngine {
         Self.logger.info(
             "Stream layout \(objectID, privacy: .public): chunks=\(chunks.count, privacy: .public) size=\(object.size, privacy: .public) encrypted=\(objectKey != nil, privacy: .public) canStream=\(canStream, privacy: .public)"
         )
+        Self.streamLog("layout built obj=\(objectID) chunks=\(chunks.count) size=\(object.size) encrypted=\(objectKey != nil) canStream=\(canStream)")
 
         stateLock.lock()
-        if layouts.count >= 8 {
-            layouts.removeAll()
-            fileIDs.removeAll()
-            fetchers.removeAll()
-            for run in readAheadRuns.values { run.cancel() }
-            readAheadRuns.removeAll()
+        // Evict least-recently-used layouts when over cap — NEVER the object being
+        // inserted (the active playback). Victims' fetcher chains and read-ahead
+        // runs are cancelled so no orphaned TDLib chains linger on their fileIds.
+        var victimFetchers: [ObjectFetcher] = []
+        while layouts.count >= Self.maxCachedLayouts,
+              let oldest = layoutRecency.first {
+            guard oldest != objectID else { break }
+            layouts[oldest] = nil
+            fileIDs[oldest] = nil
+            victimFetchers.append(contentsOf: (fetchers.removeValue(forKey: oldest) ?? [:]).values)
+            if let run = readAheadRuns.removeValue(forKey: oldest) {
+                run.cancel()
+            }
+            layoutRecency.removeFirst()
+            Self.streamLog("layout evicted obj=\(oldest) (LRU cap \(Self.maxCachedLayouts))")
         }
+        touchLayoutLocked(objectID)
         layouts[objectID] = layout
         stateLock.unlock()
+        for f in victimFetchers { f.cancelPending() }
         return layout
+    }
+
+    /// Marks `objectID` as most-recently-used. Caller MUST hold stateLock.
+    private func touchLayoutLocked(_ objectID: String) {
+        layoutRecency.removeAll { $0 == objectID }
+        layoutRecency.append(objectID)
     }
 
     private func fileID(for objectID: String, chunkIndex: Int, layout: ObjectLayout) async throws -> Int {
@@ -559,6 +640,7 @@ final class VideoStreamingEngine {
     }
 
     func invalidatePlayback(for objectID: String) {
+        Self.streamLog("invalidatePlayback obj=\(objectID)")
         stateLock.lock()
         let chunkFetchers = fetchers[objectID] ?? [:]
         let chunkFileIDs = fileIDs[objectID] ?? [:]

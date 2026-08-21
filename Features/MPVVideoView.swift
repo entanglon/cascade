@@ -1845,6 +1845,15 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     /// identical to the live layer.
     @MainActor
     private func captureTheaterSnapshot() async {
+        // ScreenCaptureKit requires Screen Recording permission (TCC) — without this
+        // preflight, entering fullscreen made macOS throw a "Cascade wants to record
+        // this screen" prompt at the user. When unauthorized, skip the ghost snapshot
+        // entirely: the live-attach fallback covers the Space transition.
+        guard CGPreflightScreenCaptureAccess() else {
+            print("Cascade player: snapshot skipped — no Screen Recording permission (live attach fallback)")
+            snapshotImage = nil
+            return
+        }
         guard let theaterWindow = hostView?.window, theaterWindow.windowNumber > 0 else {
             print("Cascade player: snapshot skipped — no theater window")
             return
