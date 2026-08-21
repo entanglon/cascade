@@ -3350,3 +3350,18 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       re-seats master key + PIN hash at every launch (idempotent).
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched, bootstrap
       clean per /tmp/cascade-boot.log.
+
+149. **Audit round 2: Private Vault UX + keypad + lock icon, launch heartbeat,
+     rate-limit banner (2026-08-21 — COMMITTED `a98b0e6`)**
+    (`App/AppState.swift`, `Features/FileBrowserView.swift`,
+     `Telegram/TelegramClient.swift`)
+    - **Sidebar icon**: `.privateVault` was `"number"` (#) — now `lock.fill`.
+    - **Lock view redesign**: gradient hero mark; ON-SCREEN NUMERIC KEYPAD —
+      previously the lock was keyboard-only, so mouse/trackpad users could not
+      unlock the vault at all; lockout countdown renders inline in orange.
+    - **Item 6 (heartbeat)**: bootstrap writes an in-progress/clean launch-state
+      marker; the next launch surfaces a one-time "Previous launch didn't
+      complete" warning banner if the last run died mid-flight.
+    - **Item 8 (rate-limit UX)**: write-token waits ≥3 s post a throttled
+      "Telegram rate limit — pacing writes" info banner instead of silence.
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
