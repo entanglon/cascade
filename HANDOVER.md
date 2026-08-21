@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-21 (morning): Batch upload race condition fix (items 127–132). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-21 (morning): Batch upload race condition fix + Bluetooth volume slider fix (items 127–133). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -3016,7 +3016,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Fix**: After computing the merged payload but before calling `replaceCatalog()`, re-read the current DB state for any objects still marked `"uploading"`. If the DB shows them as `"ready"`, preserve the `"ready"` state in the merged result.
     - **Impact**: Batch uploads no longer lose files. The third (or Nth) audio/photo/video in a batch upload now appears immediately in the folder.
 
-132. **Test Suite & Build Status (2026-08-21)**
+132. **Bluetooth Volume Slider Desync Fix (2026-08-21 — COMMITTED)** (`Engine/AudioPlayerEngine.swift`)
+    - **Root Cause**: `SystemVolumeManager` resolved the first readable volume element on the output device and attached a listener only to that one. On Bluetooth devices, element 1 (stream) is readable/writable, but the system volume keys (F10/F11) adjust element 0 (master). The listener on element 1 never fired → slider froze while the actual volume changed. Dragging the slider still worked because `writeScalar()` targeted the correct element.
+    - **Secondary Bug**: `registerDeviceListener()` never removed old listeners when the default device changed, causing a listener leak on repeated connect/disconnect cycles.
+    - **Fix**: Resolve ALL readable elements (not just the first) and register volume-change listeners on every one. Remove old listeners before adding new ones on device change.
+
+133. **Test Suite & Build Status (2026-08-21)**
     - Build: **BUILD SUCCEEDED** with `xcodebuild -project Cascade.xcodeproj -scheme Cascade build`.
     - Tests: **TEST SUCCEEDED** (all CascadeTests pass, 0 failures).
-    - All items 127–131 committed on `main`.
+    - All items 127–132 committed on `main`.
