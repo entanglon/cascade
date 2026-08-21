@@ -334,6 +334,42 @@ struct CascadeTests {
         #expect(r.chunk == 2 && r.local == 35)
     }
 
+    @Test func encryptedBatchPlanClampsToChunkBoundary() {
+        let mb: Int64 = 1024 * 1024
+        let sealedFull: Int64 = mb + 28
+
+        // Room for many slices, ask for a batch → exactly the batch size, one
+        // chunk's worth of bytes (never past the chunk document).
+        let fullChunk = VideoStreamingEngine.planEncryptedBatch(
+            plainRemainingInChunk: 128 * mb, maxCount: 8)
+        #expect(fullChunk.count == 8)
+        #expect(fullChunk.batchBytes == 8 * sealedFull)
+
+        // Near the END of a chunk (2 full slices + 100-byte partial tail): an
+        // 8-slice request must clamp to 3 pieces and never cross into the next
+        // chunk — this is the round-1 bug class re-checked on the round-4 path.
+        let nearTail = VideoStreamingEngine.planEncryptedBatch(
+            plainRemainingInChunk: 2 * mb + 100, maxCount: 8)
+        #expect(nearTail.count == 3)
+        #expect(nearTail.batchBytes == 2 * sealedFull + 128)
+
+        // Tiny remainder → exactly one short piece.
+        let tinyTail = VideoStreamingEngine.planEncryptedBatch(
+            plainRemainingInChunk: 500, maxCount: 8)
+        #expect(tinyTail.count == 1)
+        #expect(tinyTail.batchBytes == 528)
+
+        // Remaining smaller than the batch → all of it.
+        let threeLeft = VideoStreamingEngine.planEncryptedBatch(
+            plainRemainingInChunk: 3 * mb, maxCount: 8)
+        #expect(threeLeft.count == 3)
+        #expect(threeLeft.batchBytes == 3 * sealedFull)
+
+        // Nothing remaining → nothing requested.
+        let empty = VideoStreamingEngine.planEncryptedBatch(plainRemainingInChunk: 0, maxCount: 8)
+        #expect(empty.count == 0 && empty.batchBytes == 0)
+    }
+
     @Test func encryptedStreamingLayoutAndSliceDecryption() throws {
         let mb: Int64 = 1024 * 1024
         let objectKey = SymmetricKey(size: .bits256)

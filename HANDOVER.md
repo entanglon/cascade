@@ -3206,3 +3206,36 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       server behavior, not fixable client-side.
     - Build green; unit suite green (**TEST SUCCEEDED**, 79). App relaunched;
       prior log preserved as /tmp/cascade-stream-session3.log.
+
+144. **Streaming round 6: Claude/Qwen audit fixes — per-stream sequential tracking,
+     cache headroom, distance-based run eviction (2026-08-21 — COMMITTED)**
+    (`Engine/VideoStreamingEngine.swift`, `CascadeTests/CascadeTests.swift`)
+    - Consultation prompt v4 (`.freebuff/streaming-prompt-v4.md`) reviewed by
+      Claude + Qwen. Triage: 2 findings already fixed in round 5 (zombie runs),
+      4 actionable now, 2 deferred.
+    - **FIXED — `lastServedSlice` race (both consultants' #1)**: per-object
+      sequential state flickered off whenever mpv's probe stream interleaved,
+      silently degrading round-4 batching. Deleted the shared state entirely;
+      tracking is now PER-STREAM (local `lastDelivered` inside each
+      `plaintextSliceStream`, updated only after successful delivery — also fixes
+      both consultants' defer-under-cancellation desync by construction).
+    - **FIXED — cache oversubscription**: 3 runs × 48-slice windows = 144 slices
+      against a 128-entry LRU meant prefetchers could evict each other's writes.
+      Cap → 256, plus a playhead protection floor: the actively-serving object's
+      slices are skipped by normal eviction (safety valve if everything resident
+      is protected).
+    - **FIXED — "replace oldest" run eviction**: creation-age FIFO would evict the
+      long-lived playhead run first (it is always oldest). Now replaces the run
+      whose span is FURTHEST from the current serve position.
+    - **TESTED — batch boundary clamp (Claude #5)**: batch planner extracted to
+      pure `planEncryptedBatch(plainRemainingInChunk:maxCount:)`; new unit test
+      `encryptedBatchPlanClampsToChunkBoundary` proves an 8-slice request clamps
+      at the chunk tail (never crosses into the next fileId). Code was already
+      correct; now it is pinned.
+    - **DEFERRED**: (a) cancel-on-run-replace for in-flight TDLib work (Claude Q5)
+      — empirical logs show cancellation propagates in ms; revisit only if chain
+      stalls reappear; (b) Qwen's whole-chunk `downloadFile(limit:0)` + sparse-file
+      pread + updateFile-wait paradigm — promising architecture simplification but
+      needs a prototype vs item 55's failed polling attempt; parked in ROADMAP.
+    - Build green; unit suite green (**TEST SUCCEEDED**, 80 unit incl. new boundary
+      test). App relaunched; prior log preserved as /tmp/cascade-stream-session4.log.

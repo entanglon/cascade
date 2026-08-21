@@ -38,12 +38,6 @@ final class VideoStreamingEngine {
     // restarts, 99 completed batches).
     private var readAheadRuns: [String: [ReadAheadRun]] = [:]
     private static let maxConcurrentRuns = 3
-    // Last served slice per object — sequential-access detection for stream-path
-    // batching (round 4): mpv issues HUGE range requests, and its sequential walk
-    // used to fetch 1 round trip PER SLICE (fine off TDLib's disk, fragile on a
-    // cold network). When the served slice directly continues the previous one,
-    // fetch a whole batch in the same round trip instead.
-    private var lastServedSlice: [String: Int] = [:]
 
     private let sliceCache = SliceCache()
     // In-flight layout loads, so concurrent callers (theater's play() kickoff +
@@ -130,13 +124,16 @@ final class VideoStreamingEngine {
     private func plaintextSlice(
         _ fileSliceIndex: Int,
         objectID: String,
-        layout: ObjectLayout
+        layout: ObjectLayout,
+        afterSlice: Int? = nil
     ) async throws -> Data {
         // Keep the playing file the most-recently-used layout so LRU eviction can
-        // never select it while background probes churn other layouts.
+        // never select it while background probes churn other layouts; also shield
+        // its slices from the slice cache's global LRU.
         stateLock.lock()
         if layouts[objectID] != nil { touchLayoutLocked(objectID) }
         stateLock.unlock()
+        sliceCache.protectedObjectID = objectID
 
         let cacheKey = SliceCache.Key(objectID: objectID, sliceIndex: fileSliceIndex)
         if let cached = sliceCache.get(cacheKey) {
@@ -151,12 +148,12 @@ final class VideoStreamingEngine {
         let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
 
         if let objectKey = layout.objectKey {
-            // Encrypted streaming: the first slice after a JUMP (start/seek) is a
-            // single-slice fetch — fast startup, mpv gets bytes after one ~1 MB
-            // round trip. A slice that directly CONTINUES the previous one is part
-            // of mpv's sequential walk: fetch a whole batch in that round trip
-            // (8× fewer negotiations on linear playback), decrypt and cache them.
-            let isSequential = lastServedSlice[objectID] == fileSliceIndex - 1
+            // Encrypted streaming: the first slice of a range walk (jump/start) is
+            // a single-slice fetch — fast startup, mpv gets bytes after one ~1 MB
+            // round trip. A slice that directly continues this stream's previous
+            // serve is part of mpv's sequential walk: fetch a whole batch in that
+            // round trip (8× fewer negotiations on linear playback).
+            let isSequential = afterSlice == fileSliceIndex - 1
             let batchCount = isSequential ? Self.readAheadBatchSlices : 1
             if !isSequential {
                 Self.streamLog("serve miss obj=\(objectID) slice=\(fileSliceIndex) chunk=\(chunkIndex) local=\(localSliceIndex) (jump)")
@@ -166,8 +163,6 @@ final class VideoStreamingEngine {
             let plainRemainingInChunk = max(0, chunk.plainSize - Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize))
             let plainSliceLen = min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk)
             let sealedSliceLen = plainSliceLen + 28
-
-            defer { lastServedSlice[objectID] = fileSliceIndex }
 
             if batchCount > 1 {
                 let batchStartedAt = Date()
@@ -234,6 +229,11 @@ final class VideoStreamingEngine {
     /// Incrementally yields the plaintext bytes covering `start..<start+length` as
     /// 1 MB slices, so a full-file GET never buffers the whole movie.
     /// Used by the local HTTP server that feeds mpv.
+    ///
+    /// Sequential tracking is PER-STREAM (local `lastDelivered`), never per-object:
+    /// mpv runs concurrent range streams (main + moov/tail probes) against the same
+    /// object, and shared sequential state would flicker batching off for the main
+    /// stream on every probe interleaving (Claude/Qwen review round 6).
     func plaintextSliceStream(
         objectID: String,
         start: Int64,
@@ -250,13 +250,15 @@ final class VideoStreamingEngine {
                     }
                     let firstSlice = Int(start / Int64(CryptoEngine.sliceSize))
                     let lastSlice = Int((end - 1) / Int64(CryptoEngine.sliceSize))
+                    var lastDelivered: Int? = nil
                     for sliceIndex in firstSlice...lastSlice {
                         if Task.isCancelled {
                             continuation.finish()
                             return
                         }
                         let plain = try await plaintextSlice(
-                            sliceIndex, objectID: objectID, layout: layout
+                            sliceIndex, objectID: objectID, layout: layout,
+                            afterSlice: lastDelivered
                         )
                         let sliceStart = Int64(sliceIndex) * Int64(CryptoEngine.sliceSize)
                         let from = max(0, start - sliceStart)
@@ -264,6 +266,10 @@ final class VideoStreamingEngine {
                         if to > from {
                             continuation.yield(plain.subdata(in: Int(from)..<Int(to)))
                         }
+                        // Updated only after a successful serve — a cancelled or
+                        // failed attempt leaves the tracker honest (it must reflect
+                        // bytes actually delivered to this stream).
+                        lastDelivered = sliceIndex
                     }
                     continuation.finish()
                 } catch {
@@ -317,10 +323,15 @@ final class VideoStreamingEngine {
             let run = ReadAheadRun(start: start, end: windowEnd)
             var next = liveRuns
             if next.count >= Self.maxConcurrentRuns {
-                // Replace the OLDEST span — a brand-new tail probe must not kill
-                // the run feeding the current playhead.
-                next.sort { $0.startSlice < $1.startSlice }
-                next.removeFirst().cancel()
+                // Replace the run whose span is FURTHEST from the current serve
+                // position. Creation-age eviction would kill the long-lived
+                // playhead run first (it is always the oldest); distance keeps the
+                // run feeding the playhead and sheds stale/distant probes.
+                let victim = next.max {
+                    abs($0.startSlice - servedSlice) < abs($1.startSlice - servedSlice)
+                } ?? next[0]
+                next.removeAll { $0 === victim }
+                victim.cancel()
             }
             next.append(run)
             readAheadRuns[objectID] = next
@@ -416,18 +427,10 @@ final class VideoStreamingEngine {
         let plainRemainingInChunk = max(0, chunk.plainSize - Int64(localSliceIndex) * Int64(CryptoEngine.sliceSize))
         guard plainRemainingInChunk > 0 else { return 0 }
 
-        let fullRemaining = Int(plainRemainingInChunk / Int64(CryptoEngine.sliceSize))
-        let hasPartialTail = plainRemainingInChunk % Int64(CryptoEngine.sliceSize) != 0
-        let count = min(maxCount, fullRemaining + (hasPartialTail ? 1 : 0))
+        let plan = Self.planEncryptedBatch(plainRemainingInChunk: plainRemainingInChunk, maxCount: maxCount)
+        let count = plan.count
         guard count > 0 else { return 0 }
-
-        // Sealed length per piece: full slices are uniform; the chunk's final
-        // partial slice is shorter.
-        func sealedLen(_ i: Int) -> Int64 {
-            min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk - Int64(i) * Int64(CryptoEngine.sliceSize)) + 28
-        }
-        var batchBytes: Int64 = 0
-        for i in 0..<count { batchBytes += sealedLen(i) }
+        let batchBytes = plan.batchBytes
 
         let fileID = try await self.fileID(for: objectID, chunkIndex: chunkIndex, layout: layout)
         let fetcher = self.fetcher(for: objectID, chunkIndex: chunkIndex)
@@ -441,10 +444,10 @@ final class VideoStreamingEngine {
 
         var offsetInRaw = 0
         for i in 0..<count {
-            let len = Int(sealedLen(i))
-            guard offsetInRaw + len <= raw.count else { break }
-            let piece = raw.subdata(in: offsetInRaw..<(offsetInRaw + len))
-            offsetInRaw += len
+            let len = min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk - Int64(i) * Int64(CryptoEngine.sliceSize)) + 28
+            guard offsetInRaw + Int(len) <= raw.count else { break }
+            let piece = raw.subdata(in: offsetInRaw..<(offsetInRaw + Int(len)))
+            offsetInRaw += Int(len)
             do {
                 let plain = try CryptoEngine.decryptSlice(piece, objectKey: objectKey, index: firstSlice + i)
                 sliceCache.put(SliceCache.Key(objectID: objectID, sliceIndex: firstSlice + i), plain)
@@ -455,6 +458,28 @@ final class VideoStreamingEngine {
             }
         }
         return count
+    }
+
+    /// Pure planner for one encrypted batch request: clamps `maxCount` to the chunk
+    /// remainder and computes the total sealed byte length. A batch must NEVER cross
+    /// a chunk boundary (one fileId per chunk — crossing would read bytes past the
+    /// document's end or attribute them to the wrong chunk). Exposed for unit tests.
+    static func planEncryptedBatch(
+        plainRemainingInChunk: Int64,
+        maxCount: Int
+    ) -> (count: Int, batchBytes: Int64) {
+        let fullRemaining = Int(plainRemainingInChunk / Int64(CryptoEngine.sliceSize))
+        let hasPartialTail = plainRemainingInChunk % Int64(CryptoEngine.sliceSize) != 0
+        let count = min(maxCount, fullRemaining + (hasPartialTail ? 1 : 0))
+        guard count > 0 else { return (0, 0) }
+        // Sealed length per piece: full slices are uniform; the chunk's final
+        // partial slice is shorter.
+        var batchBytes: Int64 = 0
+        for i in 0..<count {
+            let plainLen = min(Int64(CryptoEngine.sliceSize), plainRemainingInChunk - Int64(i) * Int64(CryptoEngine.sliceSize))
+            batchBytes += plainLen + 28
+        }
+        return (count, batchBytes)
     }
 
     /// Up to three attempts per range: a corrupted/partial download or GCM tag
@@ -655,7 +680,6 @@ final class VideoStreamingEngine {
             guard oldest != objectID else { break }
             layouts[oldest] = nil
             fileIDs[oldest] = nil
-            lastServedSlice[oldest] = nil
             victimFetchers.append(contentsOf: (fetchers.removeValue(forKey: oldest) ?? [:]).values)
             for run in readAheadRuns.removeValue(forKey: oldest) ?? [] {
                 run.cancel()
@@ -718,11 +742,13 @@ final class VideoStreamingEngine {
 
     func invalidatePlayback(for objectID: String) {
         Self.streamLog("invalidatePlayback obj=\(objectID)")
+        if sliceCache.protectedObjectID == objectID {
+            sliceCache.protectedObjectID = nil
+        }
         stateLock.lock()
         let chunkFetchers = fetchers[objectID] ?? [:]
         let chunkFileIDs = fileIDs[objectID] ?? [:]
         fetchers[objectID] = nil
-        lastServedSlice[objectID] = nil
         let readAhead = readAheadRuns.removeValue(forKey: objectID) ?? []
         stateLock.unlock()
         readAhead.forEach { $0.cancel() }
@@ -871,8 +897,12 @@ actor ObjectFetcher {
 
 /// In-memory LRU of 1 MB plaintext slices, keyed by (object, file-wide slice index).
 /// Caching at slice granularity dedups the overlapping re-reads mpv's demuxer makes
-/// around the playhead and keeps eviction trivial (128 entries ≈ 128 MB — sized to
-/// hold the full read-ahead window plus mpv's demuxer back-reads with headroom).
+/// around the playhead and keeps eviction trivial.
+///
+/// Capacity arithmetic (Claude/Qwen review round 6): worst-case concurrent demand
+/// is 3 read-ahead runs × 48-slice windows = 144 slices, plus serve-path writes and
+/// background probe traffic — the old 128 cap meant prefetchers could evict each
+/// other's not-yet-consumed writes. 256 gives real headroom over that ceiling.
 final class SliceCache: @unchecked Sendable {
     struct Key: Hashable {
         let objectID: String
@@ -882,7 +912,13 @@ final class SliceCache: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [Key: Data] = [:]
     private var order: [Key] = []
-    private let maxEntries = 128
+    private let maxEntries = 256
+
+    /// The object currently feeding the playhead (set by the engine). Its entries
+    /// are skipped by normal eviction so background probe traffic on other objects
+    /// can never flush the foreground buffer; if the cache fills entirely with
+    /// protected entries they become evictable again (safety valve).
+    var protectedObjectID: String?
 
     /// Existence check that does NOT bump LRU recency (used by the read-ahead loop,
     /// which must not perturb eviction for slices mpv actually reads).
@@ -904,6 +940,15 @@ final class SliceCache: @unchecked Sendable {
         if entries[key] != nil {
             order.removeAll { $0 == key }
         } else {
+            let protected = protectedObjectID
+            if order.count >= maxEntries {
+                // Evict the oldest UNPROTECTED entry; only fall through to the
+                // playhead's own slices when everything resident is protected.
+                if let victim = order.first(where: { $0.objectID != protected }) {
+                    entries[victim] = nil
+                    order.removeAll { $0 == victim }
+                }
+            }
             if order.count >= maxEntries, let evicted = order.first {
                 entries[evicted] = nil
                 order.removeFirst()
