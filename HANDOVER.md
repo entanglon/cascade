@@ -3420,3 +3420,24 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Cards**: custom gradient progress capsule (5 pt, animated), percentage
       chips, refined typography/materials/hover shadow on grid + list.
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
+
+153. **Pause fix round 2 — the REAL single-chunk path + layout + resume feedback
+     (2026-08-21 — COMMITTED `605fa62`, awaiting user re-test)**
+    (`Engine/UploadEngine.swift`, `Engine/TransferCenter.swift`,
+     `Features/TransfersView.swift`)
+    - **User re-test**: pause at 49% STILL showed "Paused — 0/1 chunks uploaded"
+      at 0%; card chips/buttons had drifted to vertical center; resume did
+      nothing for seconds then jumped to 100%.
+    - **Root cause of the persisting bug**: there are TWO pause sites. My item-152
+      fix covered the between-chunks block, but for a SINGLE-chunk file pause
+      always cancels the in-flight sendFile → the work Task THROWS → the OUTER
+      catch runs (which still reported done/total = 0/1). Hoisted progressState
+      above the do-block; both sites now preserve max(doneRatio, last in-flight
+      fraction) with clean "Paused" text.
+    - **Layout**: my card redesign dropped the ZStack's top alignment → chips and
+      buttons centered vertically. Restored ZStack(alignment: .top).
+    - **Resume feedback**: "Resuming…" now set AFTER the settle-window and DB
+      guards pass (an early flip made the settle guard match itself as .active
+      and blocked every resume — caught by resumeIsBlockedWhilePauseIsSettling /
+      resumeAfterPauseSettlesProceeds tests before shipping).
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
