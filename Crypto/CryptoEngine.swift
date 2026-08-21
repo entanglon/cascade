@@ -119,7 +119,7 @@ enum CryptoEngine {
         var decrypted = Data()
         var offset = 0
         var currentSliceIndex = startSliceIndex
-        
+
         while offset < ciphertext.count {
             let remaining = ciphertext.count - offset
             let sliceCipherLength = min(sealedSliceSize, remaining)
@@ -130,6 +130,77 @@ enum CryptoEngine {
             currentSliceIndex += 1
         }
         return decrypted
+    }
+
+    // MARK: - Streaming chunk transform (fixed ~MiB RAM regardless of chunk size)
+
+    /// Streams chunk ENCRYPTION: reads up to `plainByteLimit` plaintext bytes from
+    /// `src` one slice at a time, appending sealed slices to `dst`. Peak RAM is one
+    /// slice, so multi-GiB chunks never materialize in memory.
+    /// Returns the number of CIPHERTEXT bytes written to `dst`.
+    static func encryptStream(
+        from src: FileHandle,
+        to dst: FileHandle,
+        plainByteLimit: Int64,
+        objectKey: SymmetricKey,
+        startSliceIndex: Int,
+        plainHasher: inout SHA256?,
+        cipherHasher: inout SHA256?
+    ) throws -> Int64 {
+        var consumed: Int64 = 0
+        var written: Int64 = 0
+        var index = startSliceIndex
+        while consumed < plainByteLimit {
+            let want = Int(min(Int64(sliceSize), plainByteLimit - consumed))
+            guard let piece = try src.read(upToCount: want), piece.count == want else {
+                throw CryptoError.testFailed // source shorter than the plan says
+            }
+            plainHasher?.update(data: piece)
+            let sealed = try encryptSlice(piece, objectKey: objectKey, index: index)
+            cipherHasher?.update(data: sealed)
+            try dst.write(contentsOf: sealed)
+            written += Int64(sealed.count)
+            consumed += Int64(want)
+            index += 1
+        }
+        return written
+    }
+
+    /// Streams chunk DECRYPTION — or, with `objectKey == nil`, a plain byte copy
+    /// (plaintext objects). Reads `cipherByteLimit` bytes from `src` one sealed
+    /// slice at a time, appending plaintext to `dst`.
+    /// Returns the number of PLAINTEXT bytes written to `dst`.
+    static func decryptStream(
+        from src: FileHandle,
+        to dst: FileHandle,
+        cipherByteLimit: Int64,
+        objectKey: SymmetricKey?,
+        startSliceIndex: Int,
+        cipherHasher: inout SHA256?,
+        plainHasher: inout SHA256?
+    ) throws -> Int64 {
+        var consumed: Int64 = 0
+        var written: Int64 = 0
+        var index = startSliceIndex
+        while consumed < cipherByteLimit {
+            let want = Int(min(Int64(sealedSliceSize), cipherByteLimit - consumed))
+            guard let sealed = try src.read(upToCount: want), sealed.count == want else {
+                throw CryptoError.testFailed // source shorter than recorded size
+            }
+            cipherHasher?.update(data: sealed)
+            let piece: Data
+            if let objectKey {
+                piece = try decryptSlice(sealed, objectKey: objectKey, index: index)
+            } else {
+                piece = sealed
+            }
+            plainHasher?.update(data: piece)
+            try dst.write(contentsOf: piece)
+            written += Int64(piece.count)
+            consumed += Int64(sealed.count)
+            index += 1
+        }
+        return written
     }
 
     // MARK: - Password-derived link key

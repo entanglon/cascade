@@ -23,12 +23,24 @@ enum ChunkProfile: String, Sendable {
 enum ChunkPlanner {
     static let byteMiB: Int64 = 1024 * 1024
 
-    /// Safety margin below Telegram's per-file limit.
+    /// Uniform chunk size for ALL content (round 7): ~1.9 GiB, safely under
+    /// Telegram's 2 GB per-document limit including the ~28 B/MiB sealing
+    /// overhead. Rationale: TDLib resumes uploads/downloads at internal part
+    /// granularity from its persistent database (so a failed giant chunk costs
+    /// only its unfinished tail), streaming crypto I/O keeps RAM at one slice,
+    /// and every message-count metric — uploads, backup forwards, share-pool
+    /// forwards, repair scans — scales with chunk COUNT. Streaming boundaries
+    /// are pre-warmed by read-ahead ~30 s before the playhead arrives, so large
+    /// chunks cost nothing at stream time.
     static let maxSafeChunkSize: Int64 = 1_900 * byteMiB
 
-    static let streamingChunkSize: Int64 = 64 * byteMiB
-    static let standardChunkSize: Int64 = 128 * byteMiB
-    static let archiveChunkSize: Int64 = 256 * byteMiB
+    @available(*, deprecated, message: "Uniform chunking supersedes per-profile sizes")
+    static let streamingChunkSize: Int64 = maxSafeChunkSize
+    @available(*, deprecated, message: "Uniform chunking supersedes per-profile sizes")
+    static let standardChunkSize: Int64 = maxSafeChunkSize
+    @available(*, deprecated, message: "Uniform chunking supersedes per-profile sizes")
+    static let archiveChunkSize: Int64 = maxSafeChunkSize
+    @available(*, deprecated, message: "Uniform chunking supersedes per-profile sizes")
     static let hugeFileThreshold: Int64 = 50_000 * byteMiB
 
     static func isMedia(mime: String) -> Bool {
@@ -40,22 +52,8 @@ enum ChunkPlanner {
         profile: ChunkProfile,
         mime: String
     ) -> Int64 {
-        var size: Int64
-        switch profile {
-        case .streaming:
-            size = streamingChunkSize
-        case .archive:
-            size = archiveChunkSize
-        case .automatic:
-            if isMedia(mime: mime) {
-                size = streamingChunkSize
-            } else if fileSize > hugeFileThreshold {
-                size = archiveChunkSize
-            } else {
-                size = standardChunkSize
-            }
-        }
-        return min(size, maxSafeChunkSize)
+        // Uniform by design; profile/mime parameters retained for API stability.
+        return maxSafeChunkSize
     }
 
     static func plan(

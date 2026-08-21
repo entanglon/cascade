@@ -146,34 +146,54 @@ enum DownloadEngine {
                     )
 
                     report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)
-                    let downloadedData = try Data(contentsOf: tmp)
 
-                    // Verify ciphertext hash if recorded
-                    if let expectedCipher = chunk.cipherHash,
-                       FileHasher.sha256(of: downloadedData) != expectedCipher {
-                        throw DownloadError.hashMismatch
+                    // Stream the downloaded document through verification +
+                    // decryption one sealed slice at a time — never holds the
+                    // chunk in RAM (chunks can be ~1.9 GB).
+                    let inHandle = try FileHandle(forReadingFrom: tmp)
+                    defer { try? inHandle.close() }
+                    let tmpAttrs = try? fm.attributesOfItem(
+                        atPath: tmp.path(percentEncoded: false)
+                    )
+                    let tmpSize = (tmpAttrs?[.size] as? NSNumber)?.int64Value ?? 0
+
+                    var cipherHasher: SHA256? = chunk.cipherHash != nil ? SHA256() : nil
+                    var plainHasher: SHA256? = chunk.plainHash != nil ? SHA256() : nil
+
+                    let startSliceIndex = Int(writtenBytes / Int64(CryptoEngine.sliceSize))
+                    let plainCount = try CryptoEngine.decryptStream(
+                        from: inHandle, to: handle,
+                        cipherByteLimit: tmpSize,
+                        objectKey: objectKey,
+                        startSliceIndex: startSliceIndex,
+                        cipherHasher: &cipherHasher,
+                        plainHasher: &plainHasher
+                    )
+                    guard plainCount > 0 || tmpSize == 0 else {
+                        throw DownloadError.fileNotFound
                     }
 
-                    let plainData: Data
-                    if let objectKey {
-                        let startSliceIndex = Int(writtenBytes / Int64(CryptoEngine.sliceSize))
-                        plainData = try CryptoEngine.decryptChunk(
-                            downloadedData, objectKey: objectKey, startSliceIndex: startSliceIndex
-                        )
-                    } else {
-                        plainData = downloadedData
-                    }
-
-                    // Verify plaintext hash if recorded
-                    if let expectedPlain = chunk.plainHash,
-                       FileHasher.sha256(of: plainData) != expectedPlain {
-                        if !(object.mime.hasPrefix("image/") && NSImage(data: plainData) != nil) {
+                    if let expectedCipher = chunk.cipherHash {
+                        var h = cipherHasher!
+                        if h.finalize().hexString != expectedCipher {
                             throw DownloadError.hashMismatch
                         }
                     }
+                    if let expectedPlain = chunk.plainHash {
+                        var h = plainHasher!
+                        if h.finalize().hexString != expectedPlain {
+                            // Legacy fallback: images uploaded before per-chunk
+                            // hashing may mismatch — accept a decodable image.
+                            try handle.seek(toOffset: UInt64(writtenBytes))
+                            let probe = try handle.read(upToCount: 64 * 1024 * 1024) ?? Data()
+                            if !(object.mime.hasPrefix("image/") && NSImage(data: probe) != nil) {
+                                throw DownloadError.hashMismatch
+                            }
+                            try handle.seekToEndOfFile()
+                        }
+                    }
 
-                    handle.write(plainData)
-                    writtenBytes += Int64(plainData.count)
+                    writtenBytes += plainCount
 
                     try? fm.removeItem(at: tmp)
                     report("Assembled chunk \(n)/\(chunks.count)", Double(n) / total)

@@ -3239,3 +3239,39 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       needs a prototype vs item 55's failed polling attempt; parked in ROADMAP.
     - Build green; unit suite green (**TEST SUCCEEDED**, 80 unit incl. new boundary
       test). App relaunched; prior log preserved as /tmp/cascade-stream-session4.log.
+
+145. **Uniform ~1.9 GiB chunks + streaming crypto I/O (2026-08-21 — COMMITTED,
+     awaiting user upload test)** (`Engine/ChunkPlanner.swift`,
+     `Crypto/CryptoEngine.swift`, `Engine/UploadEngine.swift`,
+     `Engine/DownloadEngine.swift`, `Engine/FileHasher.swift`,
+     `CascadeTests/CascadeTests.swift`)
+    - **Decision (user-approved)**: chunk size is now UNIFORM ~1.9 GiB
+      (`maxSafeChunkSize`, exact MiB multiple, safely under Telegram's 2 GB
+      document cliff incl. ~28 B/MiB sealing overhead) for ALL content — media
+      and archives alike. Rationale: TDLib resumes uploads/downloads at internal
+      part granularity from its persistent DB (failed giant chunk costs only its
+      unfinished tail), streaming crypto keeps RAM at one slice, and every
+      message-count metric (uploads, backup forwards, share-pool forwards,
+      repair scans) scales with chunk COUNT. Streaming boundaries are pre-warmed
+      ~30 s ahead by read-ahead; a 50 GB file = 27 chunks instead of ~390.
+    - **Streaming crypto I/O** (`CryptoEngine.encryptStream` /
+      `decryptStream`): reads/writes one sealed slice at a time through
+      FileHandles with optional incremental SHA-256 hashers — peak RAM ~2 MiB
+      regardless of chunk size. Upload path (`uploadChunk`) and download path
+      (`DownloadEngine` loop) rewritten onto them; legacy whole-Data
+      `encryptChunk`/`decryptChunk` kept for small payloads (thumb sidecars).
+    - **Resume-friendly retries**: failed chunk staging files are preserved and
+      the retry re-issues the send for the SAME path so TDLib matches its cached
+      upload progress; `cleanupPartialUpload` remains only for genuine discards
+      (user cancel / source-file-changed).
+    - **Tests**: `chunkPlanUsesStoredChunkSizeOnResume` updated (1 GiB file → 1
+      chunk; stored legacy sizes still win on resume; 50 GB → 27 pieces); NEW
+      `streamingCryptoRoundTripMatchesWholeBuffer` — streamed ciphertext
+      round-trips to identical plaintext AND is readable by the classic
+      whole-buffer decryptor (cross-implementation compatibility; note AES-GCM
+      randomizes nonces so two encryptions are never byte-identical).
+    - Old uploads keep their stored sizes; mixed chunk sizes coexist natively
+      (per-chunk records + actual-size sync + canStream alignment check).
+    - Build green; unit suite green (**TEST SUCCEEDED**, 81 unit tests). App
+      relaunched. **Pending user verification**: upload a large file → confirm
+      ~1.9 GiB chunks in the channel, smooth playback, normal download.

@@ -6,7 +6,7 @@ enum HashingError: Error, Sendable {
 }
 
 extension Digest {
-    var hexString: String {
+    nonisolated var hexString: String {
         map { String(format: "%02x", $0) }.joined()
     }
 }

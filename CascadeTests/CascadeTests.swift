@@ -285,18 +285,95 @@ struct CascadeTests {
     @Test func chunkPlanUsesStoredChunkSizeOnResume() {
         let gib: Int64 = 1_073_741_824
 
-        // New defaults: 128MB standard chunks → a 1 GiB file gets 8 chunks
+        // Uniform ~1.9 GiB chunks: a 1 GiB file fits in ONE chunk
         let fresh = ChunkPlanner.plan(fileSize: gib)
-        #expect(fresh.chunkSize == 128 * ChunkPlanner.byteMiB)
-        #expect(fresh.items.count == 8)
+        #expect(fresh.chunkSize == ChunkPlanner.maxSafeChunkSize)
+        #expect(fresh.items.count == 1)
+        #expect(fresh.items[0].size == gib)
 
-        // A stored chunk size from an earlier upload wins over the defaults so a
-        // resumed upload re-derives identical chunk boundaries
+        // A stored chunk size (set at upload time) wins over the global constant so a
+        // resumed upload re-derives the exact same chunk boundaries — even across old
+        // uploads planned with legacy 128/256 MB sizes.
         let resumed = ChunkPlanner.plan(fileSize: gib, chunkSize: 256 * ChunkPlanner.byteMiB)
         #expect(resumed.chunkSize == 256 * ChunkPlanner.byteMiB)
         #expect(resumed.items.count == 4)
         #expect(resumed.items[1].offset == 256 * ChunkPlanner.byteMiB)
         #expect(resumed.items[1].size == 256 * ChunkPlanner.byteMiB)
+
+        // A 50 GB file splits into ceil(50 GiB / 1.9 GiB) = 27 pieces
+        let huge = ChunkPlanner.plan(fileSize: 50 * gib)
+        #expect(huge.items.count == 27)
+        #expect(huge.items.allSatisfy { $0.size <= ChunkPlanner.maxSafeChunkSize })
+    }
+
+    @Test func streamingCryptoRoundTripMatchesWholeBuffer() throws {
+        // Deterministic payload spanning whole slices + a partial tail.
+        let mb = CryptoEngine.sliceSize
+        let totalPlain = 3 * mb + 777
+        var source = Data(count: totalPlain)
+        for i in 0..<source.count { source[i] = UInt8((i * 31) % 251) }
+        let objectKey = SymmetricKey(size: .bits256)
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let srcURL = dir.appendingPathComponent("src.bin")
+        let encURL = dir.appendingPathComponent("enc.bin")
+        let outURL = dir.appendingPathComponent("out.bin")
+        try source.write(to: srcURL)
+
+        // Encrypt via the streaming path
+        try FileManager.default.createFile(atPath: encURL.path, contents: nil)
+        let inHandle = try FileHandle(forReadingFrom: srcURL)
+        let encHandle = try FileHandle(forWritingTo: encURL)
+        var pH: SHA256? = SHA256()
+        var cH: SHA256? = SHA256()
+        let sealedLen = try CryptoEngine.encryptStream(
+            from: inHandle, to: encHandle,
+            plainByteLimit: Int64(totalPlain),
+            objectKey: objectKey, startSliceIndex: 0,
+            plainHasher: &pH, cipherHasher: &cH
+        )
+        try? inHandle.close()
+        try? encHandle.close()
+
+        // Sealed size must be exactly slices × (MiB + tag)
+        let expectedSealed = 3 * Int64(CryptoEngine.sealedSliceSize) + 777 + 28
+        #expect(sealedLen == expectedSealed)
+
+        // Decrypt via the streaming path
+        try FileManager.default.createFile(atPath: outURL.path, contents: nil)
+        let decIn = try FileHandle(forReadingFrom: encURL)
+        let outHandle = try FileHandle(forWritingTo: outURL)
+        var dH: SHA256? = SHA256()
+        var pH2: SHA256? = SHA256()
+        let plainLen = try CryptoEngine.decryptStream(
+            from: decIn, to: outHandle,
+            cipherByteLimit: sealedLen,
+            objectKey: objectKey, startSliceIndex: 0,
+            cipherHasher: &dH, plainHasher: &pH2
+        )
+        try? decIn.close()
+        try? outHandle.close()
+
+        #expect(plainLen == Int64(totalPlain))
+        let srcSha = try FileHasher.sha256(of: srcURL)
+        let outSha = try FileHasher.sha256(of: outURL)
+        #expect(outSha == srcSha)
+
+        // Hash bookkeeping must match whole-buffer hashing exactly
+        #expect(pH!.finalize().hexString == FileHasher.sha256(of: source))
+
+        // And the classic (whole-buffer) decryptor must read the streamed
+        // ciphertext perfectly — cross-implementation compatibility. (Byte-equality
+        // of two encryptions is impossible: AES-GCM seals with a random nonce.)
+        let streamedCiphertext = try Data(contentsOf: encURL)
+        let classicDecrypted = try CryptoEngine.decryptChunk(
+            streamedCiphertext, objectKey: objectKey, startSliceIndex: 0
+        )
+        #expect(classicDecrypted == source)
     }
 
     @Test func streamingSliceMappingAcrossChunks() {

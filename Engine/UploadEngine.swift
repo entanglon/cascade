@@ -272,11 +272,7 @@ enum UploadEngine {
 
                     let handle = try FileHandle(forReadingFrom: fileURL)
                     defer { try? handle.close() }
-
                     try handle.seek(toOffset: UInt64(item.offset))
-                    let plain = try readExactly(handle, count: Int(item.size))
-                    guard !plain.isEmpty else { throw UploadError.readFailed }
-                    let plainHash = FileHasher.sha256(of: plain)
 
                     let chunkFileName: String
                     if objectKey != nil || isParentPrivate || plan.items.count > 1 {
@@ -286,20 +282,45 @@ enum UploadEngine {
                     }
                     let tmpURL = tmpDir.appendingPathComponent(chunkFileName)
 
-                    let chunkDataToUpload: Data
-                    let cipherHash: String?
+                    // Stream the chunk to its staging file ONE SLICE AT A TIME —
+                    // peak RAM is a single ~1 MiB slice no matter how large chunks
+                    // get (uniform ~1.9 GiB chunks, round 7).
+                    FileManager.default.createFile(
+                        atPath: tmpURL.path(percentEncoded: false), contents: nil
+                    )
+                    let outHandle = try FileHandle(forWritingTo: tmpURL)
+                    defer { try? outHandle.close() }
 
+                    var plainHasher: SHA256? = SHA256()
+                    var cipherHasher: SHA256? = objectKey != nil ? SHA256() : nil
+
+                    let uploadedByteCount: Int64
                     if let objectKey {
                         let startSliceIndex = Int(item.offset / Int64(CryptoEngine.sliceSize))
-                        let encrypted = try CryptoEngine.encryptChunk(plain, objectKey: objectKey, startSliceIndex: startSliceIndex)
-                        cipherHash = FileHasher.sha256(of: encrypted)
-                        chunkDataToUpload = encrypted
+                        uploadedByteCount = try CryptoEngine.encryptStream(
+                            from: handle, to: outHandle,
+                            plainByteLimit: item.size,
+                            objectKey: objectKey, startSliceIndex: startSliceIndex,
+                            plainHasher: &plainHasher, cipherHasher: &cipherHasher
+                        )
+                    } else {
+                        // Plaintext upload: byte-identical copy of the source range.
+                        uploadedByteCount = try CryptoEngine.decryptStream(
+                            from: handle, to: outHandle,
+                            cipherByteLimit: item.size,
+                            objectKey: nil, startSliceIndex: 0,
+                            cipherHasher: &cipherHasher, plainHasher: &plainHasher
+                        )
+                    }
+                    guard uploadedByteCount > 0 else { throw UploadError.readFailed }
+
+                    let plainHash = plainHasher!.finalize().hexString
+                    let cipherHash: String?
+                    if var ch = cipherHasher {
+                        cipherHash = ch.finalize().hexString
                     } else {
                         cipherHash = nil
-                        chunkDataToUpload = plain
                     }
-
-                    try chunkDataToUpload.write(to: tmpURL)
 
                     var captionString: String? = nil
                     let meta = ChunkCaption.Meta(
@@ -352,7 +373,7 @@ enum UploadEngine {
                         id: UUID().uuidString,
                         objectID: objectID,
                         index: item.index,
-                        size: Int64(chunkDataToUpload.count),
+                        size: uploadedByteCount,
                         plainHash: plainHash,
                         cipherHash: cipherHash,
                         state: "uploaded",
