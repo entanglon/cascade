@@ -3456,3 +3456,25 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       still incomplete 20 s after start (distinguishes slow revalidation from a
       permanent hang).
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
+
+155. **Discard ghost fix (2026-08-21 — COMMITTED `d62f1e7`)**
+     (`Engine/UploadEngine.swift`, `App/AppState.swift`)
+    - **User report**: upload paused at ~51%, then discarded (Delete Transfer) —
+      file appeared in cloud but doesn't play. Zero-chunk "ready" object in DB,
+      no channel presence.
+    - **Root cause**: `cleanupPartialUpload` (discard path) hard-deleted local
+      rows WITHOUT tombstoning, scan-cache invalidation, or catalog republish.
+      Stale deltas (never pruned) still listed the object; next reconcile adopted
+      the stale record back as "ready" with 0 chunks → visible, unplayable.
+    - **Fixes**:
+      1. `cleanupPartialUpload` rewritten to mirror `deleteForever`'s safety
+         machinery — mark tombstones first (absolutism blocks resurrection),
+         gather + delete Telegram messages (vault + backup), invalidate channel
+         scan cache, purge orphans, hard-delete local rows, then force-republish
+         checkpoint so the cloud catalog drops the object immediately.
+      2. Post-auth heal: finds objects with state=ready AND 0 chunk rows (pure
+         catalog artifacts that can't play), runs them through
+         `cleanupPartialUpload` to tombstone + clean + republish. Idempotent.
+    - **Verification**: 83 unit tests green. Ghost BECF9132 cleaned on launch
+      by the new heal step — confirmed via sqlite3 (row gone, channel dump 0
+      references).

@@ -2,9 +2,42 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-21 (late night) — Full codebase audit + roadmap execution: PIN hashing, CI, share KDF, Keychain hardening, deletion absolutism, UploadManager extraction, Private Vault UX (items 146–151).
+> 2026-08-21 (late night) — Discard ghost fix: cleanupPartialUpload tombstones + invalidates cache + republishes catalog; post-auth heal cleans zero-chunk ghosts (item 155).
 
 ---
+
+## 2026-08-21 (late night) — Discard ghost fix (item 155)
+
+User reported: upload paused at ~51%, discarded (Delete Transfer) — file
+appeared in cloud but doesn't play. Root cause: `cleanupPartialUpload` (the
+discard path) hard-deleted local rows WITHOUT tombstoning, cache invalidation,
+or catalog republish. Stale deltas (never pruned) still listed the object;
+next reconcile adopted the stale record back as "ready" with 0 chunks →
+visible, unplayable.
+
+### What was changed
+1. **`Engine/UploadEngine.swift`** (`cleanupPartialUpload`): rewritten to
+   mirror `deleteForever`'s safety machinery — mark tombstones first
+   (absolutism blocks resurrection), gather + delete Telegram messages
+   (vault + backup), invalidate channel scan cache, purge orphans, then
+   hard-delete local rows, then force-republish checkpoint so the cloud
+   catalog drops the object immediately.
+2. **`App/AppState.swift`** (post-auth heal): added ghost-object cleanup —
+   finds objects with state=ready AND 0 chunk rows (pure catalog artifacts
+   that can't play), runs them through `cleanupPartialUpload` to tombstone
+   + clean + republish. Idempotent (healthy catalog → 0 ghosts).
+
+### Verification
+- 83 unit tests green (83:0).
+- Ghost `BECF9132` (ready, 0 chunks, no channel presence) cleaned on launch
+  by the new heal step — confirmed via sqlite3: row gone, channel dump 0
+  references.
+- `docs/STREAMING_FIX.md` updated through round 7.
+
+### Commits
+- `d62f1e7` — Fix discard ghost: cleanupPartialUpload now tombstones +
+  invalidates cache + republishes catalog; post-auth heal cleans zero-chunk
+  ghost objects.
 
 ## 2026-08-21 (late night) — Full codebase audit + roadmap execution (items 146–151)
 
