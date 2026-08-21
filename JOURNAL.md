@@ -2,9 +2,49 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-21 (night) — Uniform ~1.9 GiB chunks + streaming crypto I/O (item 145).
+> 2026-08-21 (late night) — Full codebase audit + roadmap execution: PIN hashing, CI, share KDF, Keychain hardening, deletion absolutism, UploadManager extraction, Private Vault UX (items 146–151).
 
 ---
+
+## 2026-08-21 (late night) — Full codebase audit + roadmap execution (items 146–151)
+
+User requested a full codespace audit with online research and free-only
+improvements. Delivered docs/AUDIT_2026-08-21.md (architecture assessment,
+findings by severity, external research: OWASP 2026 KDF floors, TDLib upstream
+state-persistence guidance, Telegram-as-storage risk model), then executed the
+prioritized roadmap across four commits:
+
+1. **Item 146 — eternal loading screen FIXED**: ChunkEngine.selfTest still
+   asserted legacy 64+36 MB splits; uniform chunking threw planMismatch past
+   startTelegram → TDLib never connected. Self-test updated; bootstrap hardened
+   so engine self-tests are NON-FATAL sanity checks (banner, never a gate).
+   Also cleared corrupt saved window state (windowless launches). Added
+   /tmp/cascade-boot.log file diagnostics.
+2. **Deletion absolutism (item 147)**: user saw deleted files reappear briefly.
+   merge() resolved tombstone-vs-live by modifiedAt LWW — stale cached channel
+   scan resurrected rows. Now: local tombstone ALWAYS beats remote live;
+   replaceCatalog re-tombstones incoming live copies of locally-deleted ids;
+   deleteForever invalidates the channel scan cache post-deletion.
+3. **Item 148 — audit quick-wins**: vault PIN upgraded from unsalted SHA-256 to
+   PBKDF2-SHA256 600k + random salt + constant-time compare + transparent
+   in-place upgrade + attempt throttle ladder; CI workflow rewritten (was pinned
+   to Xcode 15.4 + pre-rename scheme names = permanently broken); share-link
+   password KDF raised to 600k with legacy-100k import fallback; Keychain
+   secrets migrated to ThisDeviceOnly accessibility at launch.
+4. **Items 149/150 — UX + surfacing**: sidebar Private Vault icon fixed
+   (number → lock.fill); lock view gradient hero (keypad added then removed per
+   user preference); launch heartbeat banner for unclean previous runs;
+   rate-limit pacing banner; backup-mirror permanent-failure banner;
+   deleteForever sync-failure banner; bootLog mirrored into LogManager.
+5. **Item 151 — UploadManager extracted** from AppState (~150 lines: queue,
+   drain loop, performUpload orchestration) into its own @MainActor type with
+   weak AppState back-reference; AppState keeps thin delegates and observable
+   fields; views untouched.
+
+### Verification
+Every step: build green + unit suite green (**final: 83 tests, 0 failures**) +
+app relaunched clean per /tmp/cascade-boot.log. Streaming byte-perfectness was
+re-verified live against the original file earlier the same day.
 
 ## 2026-08-21 (night) — Uniform ~1.9 GiB chunks + streaming crypto I/O
 
