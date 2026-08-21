@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-21 (night): Full xCloud → Cascade rename, backup drainer race fix, permanent delete channel cleanup fix (items 127–131). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-21 (morning): Batch upload race condition fix (items 127–132). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -3011,7 +3011,12 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Root Cause**: Both `ensureVault()` and `ensureBackupChannel()` fired fire-and-forget `Task { setChannelPhoto }` calls, and `ShareEngine.healChannelPhotos()` also set photos at every launch. Two independent paths setting the same photo concurrently caused duplicate "Channel photo updated" messages.
     - **Fix**: Removed the `setChannelPhoto` calls from `ensureVault()` and `ensureBackupChannel()`. `healChannelPhotos()` is now the single source of truth for all channel photos.
 
-131. **Test Suite & Build Status (2026-08-21)**
+131. **Batch Upload Race Condition Fix (2026-08-21 — COMMITTED)** (`Storage/CatalogSnapshot.swift`)
+    - **Root Cause**: `CatalogSnapshot.upload()` captured `allObjects()` into a `local` payload at the start, then made a network call to fetch channel state. During that network window, a batch upload could complete and flip an object from `state="uploading"` to `state="ready"`. But the merge used the stale `local` payload (object still `"uploading"`), and `replaceCatalog()` overwrote the DB — reverting the object to `"uploading"`. Since the UI filters by `state == "ready"`, the file vanished from the grid while the folder item count (no state filter) remained correct.
+    - **Fix**: After computing the merged payload but before calling `replaceCatalog()`, re-read the current DB state for any objects still marked `"uploading"`. If the DB shows them as `"ready"`, preserve the `"ready"` state in the merged result.
+    - **Impact**: Batch uploads no longer lose files. The third (or Nth) audio/photo/video in a batch upload now appears immediately in the folder.
+
+132. **Test Suite & Build Status (2026-08-21)**
     - Build: **BUILD SUCCEEDED** with `xcodebuild -project Cascade.xcodeproj -scheme Cascade build`.
     - Tests: **TEST SUCCEEDED** (all CascadeTests pass, 0 failures).
-    - All items 127–130 committed on `main`.
+    - All items 127–131 committed on `main`.
