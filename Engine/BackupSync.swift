@@ -38,6 +38,21 @@ enum BackupSync {
         }
     }
 
+    private static var lastNotifyTime: Date = .distantPast
+
+    /// Posts a user-facing banner at most once per 60 s — failure bursts during
+    /// bulk operations must not spam the notification stack.
+    static func notifyThrottled(title: String, message: String, kind: String) async {
+        let now = Date()
+        guard now.timeIntervalSince(lastNotifyTime) > 60 else { return }
+        lastNotifyTime = now
+        NotificationCenter.default.post(
+            name: .cascadeAppNotification,
+            object: nil,
+            userInfo: ["title": title, "message": message, "kind": kind]
+        )
+    }
+
     /// Records a vault-channel message for mirroring and kicks the drainer.
     static func enqueue(messageID: Int64, objectID: String) {
         guard messageID > 0 else { return }
@@ -167,6 +182,17 @@ actor BackupDrainer {
                     try? await DatabaseManager.shared.markBackupFailed(messageID: pending.messageID)
                     BackupSync.mirrorLog("skipping \(pending.messageID) (exceeded \(maxForwardAttempts) attempts)")
                     print("Cascade backup: skipping dead message \(pending.messageID)")
+                    // Surface it: a permanently unmirrored message is a real
+                    // redundancy gap the user should know about (throttled).
+                    await LogManager.shared.log(
+                        "backup mirror failed permanently for message \(pending.messageID)",
+                        level: .error, subsystem: "backup"
+                    )
+                    await BackupSync.notifyThrottled(
+                        title: "Backup mirror incomplete",
+                        message: "A change couldn't be mirrored to the backup channel. Local data is unaffected.",
+                        kind: "warning"
+                    )
                     continue
                 }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)

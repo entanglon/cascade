@@ -2857,23 +2857,6 @@ struct PrivateVaultLockView: View {
                 }
                 .offset(x: shake ? 12 : 0)
 
-                // On-screen keypad — mouse/trackpad users couldn't operate the
-                // lock at all before (the field is keyboard-only).
-                VStack(spacing: 10) {
-                    ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]], id: \.self) { row in
-                        HStack(spacing: 10) {
-                            ForEach(row, id: \.self) { digit in
-                                keypadButton(digit)
-                            }
-                        }
-                    }
-                    HStack(spacing: 10) {
-                        keypadButton("delete", label: "delete.left", width: 72)
-                        keypadButton("0")
-                        Color.clear.frame(width: 72, height: 44)
-                    }
-                }
-
                 // Invisible capture field
                 TextField("", text: $buffer)
                     .textFieldStyle(.plain)
@@ -2997,39 +2980,6 @@ struct PrivateVaultLockView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             shake = false; buffer = ""; revealedIndex = nil
         }
-    }
-
-    @ViewBuilder
-    private func keypadButton(_ digit: String, label: String? = nil, width: CGFloat = 72) -> some View {
-        Button {
-            focused = true
-            if digit == "delete" {
-                if !buffer.isEmpty { buffer.removeLast() }
-            } else if buffer.count < 4 {
-                buffer.append(digit)
-            }
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.white.opacity(0.06))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                    )
-                if let label {
-                    Image(systemName: label)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                } else {
-                    Text(digit)
-                        .font(.system(size: 19, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                }
-            }
-            .frame(width: width, height: 44)
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 }
 

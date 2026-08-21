@@ -1014,6 +1014,9 @@ final class AppState {
     @MainActor
     /// Append-only launch diagnostics to /tmp/cascade-boot.log — survives any
     /// launch style (open/Dock/pty) and proves exactly how far bootstrap got.
+    /// Append-only launch diagnostics to /tmp/cascade-boot.log — survives any
+    /// launch style (open/Dock/pty) and proves exactly how far bootstrap got.
+    /// Mirrored into the rotating LogManager so diagnostics survive reboots.
     static func bootLog(_ message: String) {
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
@@ -1025,6 +1028,10 @@ final class AppState {
             try? handle.write(contentsOf: Data(line.utf8))
         } else {
             try? line.write(to: url, atomically: false, encoding: .utf8)
+        }
+        if message.contains("FAILED") || message.contains("returned") || message == "start" {
+            let msg = message
+            Task { await LogManager.shared.log("bootstrap: \(msg)", level: .info, subsystem: "bootstrap") }
         }
     }
 
@@ -2542,6 +2549,18 @@ final class AppState {
             if let syncedAt = await CatalogSnapshot.publishCheckpointFromLocal(force: true) {
                 self.lastSyncDate = syncedAt
                 self.lastSnapshotSignature = await self.currentCatalogSignature()
+            } else {
+                // Deletions are recorded locally (tombstones) but the cloud catalog
+                // wasn't updated — surface it instead of failing silently.
+                NotificationCenter.default.post(
+                    name: .cascadeAppNotification,
+                    object: nil,
+                    userInfo: [
+                        "title": "Cloud sync incomplete",
+                        "message": "Deletions are saved locally; the cloud catalog will update on the next launch.",
+                        "kind": "warning"
+                    ]
+                )
             }
         }
     }
