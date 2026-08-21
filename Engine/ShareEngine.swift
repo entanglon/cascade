@@ -1052,6 +1052,7 @@ enum ShareEngine {
 
             // Check if link is password protected and resolve link key
             let linkKey: SymmetricKey?
+            var legacyLinkKey: SymmetricKey? = nil
             if link.isPasswordProtected {
                 guard let password, !password.isEmpty else {
                     throw ShareError.passwordRequired
@@ -1059,7 +1060,10 @@ enum ShareEngine {
                 guard let saltData = Data(base64Encoded: link.saltB64), saltData.count == 16 else {
                     throw ShareError.invalidLink
                 }
+                // New links mint with the 600k KDF; links from older builds used
+                // 100k. Try current first, fall back to legacy for old links.
                 linkKey = CryptoEngine.deriveLinkKey(from: password, salt: saltData)
+                legacyLinkKey = CryptoEngine.deriveLegacyLinkKey(from: password, salt: saltData)
             } else if !link.shareKey.isEmpty {
                 guard let keyData = Data(base64Encoded: link.shareKey) else {
                     throw ShareError.invalidLink
@@ -1110,7 +1114,14 @@ enum ShareEngine {
                         throw ShareError.invalidPayload
                     }
                     do {
-                        let objectKey = try CryptoEngine.unwrap(rawWrapped, with: linkKey)
+                        let objectKey: SymmetricKey
+                        do {
+                            objectKey = try CryptoEngine.unwrap(rawWrapped, with: linkKey)
+                        } catch {
+                            // Link minted by an older build (100k KDF) — retry legacy.
+                            guard let legacy = legacyLinkKey else { throw error }
+                            objectKey = try CryptoEngine.unwrap(rawWrapped, with: legacy)
+                        }
                         rewrappedKey = try CryptoEngine.wrap(objectKey, with: recipientVaultKey)
                     } catch {
                         if link.isPasswordProtected {

@@ -24,13 +24,20 @@ enum KeychainStore {
             kSecAttrAccount as String: account
         ]
 
-        let attributes: [String: Any] = [kSecValueData as String: data]
+        // ThisDeviceOnly for every item: long-lived secrets (master key, PIN hash)
+        // must not silently migrate to other devices through Keychain backup
+        // flows. Updating the attribute here also migrates pre-existing items the
+        // next time they are re-saved.
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
 
         if status == errSecItemNotFound {
             var add = query
             add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             let addStatus = SecItemAdd(add as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
                 throw CryptoError.keychain(addStatus)
@@ -67,6 +74,22 @@ enum KeychainStore {
 
     static func loadMasterKey() throws -> Data? {
         try load(account: masterKeyAccount)
+    }
+
+    /// Re-adds long-lived secrets with ThisDeviceOnly accessibility (idempotent).
+    /// Called at launch — items created by older builds used WhenUnlocked, which
+    /// allows silent migration to other devices via Keychain backup flows.
+    static func migrateSecretsToThisDeviceOnly() {
+        for account in [masterKeyAccount, vaultPINAccount] {
+            guard let data = try? load(account: account) else { continue }
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account
+            ]
+            SecItemDelete(query as CFDictionary)
+            try? save(data: data, account: account)
+        }
     }
 
     // MARK: - Device identity
@@ -115,9 +138,33 @@ enum KeychainStore {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Constant-time equality for equal-length ASCII digests — no early exit on
+    /// the first differing byte.
+    private static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        guard a.count == b.count else { return false }
+        var diff: UInt8 = 0
+        for (ca, cb) in zip(a.utf8, b.utf8) { diff |= ca ^ cb }
+        return diff == 0
+    }
+
+    /// PBKDF2-HMAC-SHA256 hash of the PIN under a random salt. Uses the same
+    /// OWASP-2026 cost (600k) as the vault password KDF — the old unsalted
+    /// SHA-256 scheme fell to instant offline brute force if the Keychain item
+    /// was ever exfiltrated.
+    private static func pinHash(_ pin: String, salt: Data) -> String {
+        CryptoEngine.passwordKey(from: pin, salt: salt)
+            .withUnsafeBytes { Data($0) }
+            .base64EncodedString()
+    }
+
     static func saveVaultPIN(_ pin: String) {
-        let hashHex = sha256hex(pin)
-        if let data = hashHex.data(using: .utf8) {
+        var salt = Data(count: 16)
+        let status = salt.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, 16, $0.baseAddress!)
+        }
+        guard status == errSecSuccess else { return }
+        let record = "pbkdf2-sha256:600000:\(salt.base64EncodedString()):\(pinHash(pin, salt: salt))"
+        if let data = record.data(using: .utf8) {
             try? save(data: data, account: vaultPINAccount)
         }
     }
@@ -128,7 +175,56 @@ enum KeychainStore {
     }
 
     static func verifyVaultPIN(_ pin: String) -> Bool {
-        guard let storedHash = loadVaultPINHash() else { return false }
-        return storedHash == sha256hex(pin)
+        guard let stored = loadVaultPINHash() else { return false }
+
+        // Current format: pbkdf2-sha256:600000:<saltB64>:<hashB64>
+        let prefix = "pbkdf2-sha256:600000:"
+        if stored.hasPrefix(prefix) {
+            let body = stored.dropFirst(prefix.count)
+            let parts = body.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let salt = Data(base64Encoded: parts[0]) else {
+                return false
+            }
+            return constantTimeEquals(pinHash(pin, salt: salt), parts[1])
+        }
+
+        // Legacy unsalted SHA-256 entry: verify the old way, then transparently
+        // upgrade in place to the PBKDF2 record.
+        let legacyOK = constantTimeEquals(sha256hex(pin), stored)
+        if legacyOK { saveVaultPIN(pin) }
+        return legacyOK
+    }
+
+    // MARK: - PIN attempt throttling
+
+    private static let pinFailCountKey = "xc.pin.failCount"
+    private static let pinLockUntilKey = "xc.pin.lockUntil"
+
+    /// Seconds remaining before the next PIN attempt is allowed (0 = now).
+    static func pinLockRemainingSeconds() -> Int {
+        Int(max(0, UserDefaults.standard.double(forKey: pinLockUntilKey) - Date().timeIntervalSince1970))
+    }
+
+    static func pinAttemptAllowed() -> Bool {
+        pinLockRemainingSeconds() == 0
+    }
+
+    /// Exponential backoff ladder after repeated failures: 1 s, 2 s, 4 s … capped
+    /// at ~17 minutes. UX throttling only (the hash itself is brute-force
+    /// resistant); state lives in UserDefaults because losing it just reopens the
+    /// gate — the PIN still has to be right.
+    static func registerPINResult(success: Bool) {
+        let d = UserDefaults.standard
+        guard !success else {
+            d.set(0, forKey: pinFailCountKey)
+            d.set(0, forKey: pinLockUntilKey)
+            return
+        }
+        let failures = d.integer(forKey: pinFailCountKey) + 1
+        d.set(failures, forKey: pinFailCountKey)
+        if failures >= 3 {
+            let delay = min(pow(2, Double(failures - 3)), 1024)
+            d.set(Date().timeIntervalSince1970 + delay, forKey: pinLockUntilKey)
+        }
     }
 }

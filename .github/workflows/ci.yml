@@ -10,32 +10,33 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# NOTE on free-tier minutes: private repos bill macOS runners at 10x the Linux
+# multiplier, so this job is intentionally BUILD-ONLY (a few minutes). Run the
+# full unit suite locally before pushing:
+#   xcodebuild test -project Cascade.xcodeproj -scheme Cascade \
+#     -destination 'platform=macOS' -only-testing:CascadeTests
 jobs:
-  build-and-test:
-    name: Build and Unit Test
-    runs-on: macos-14
-    timeout-minutes: 25
+  build:
+    name: Debug Build (smoke)
+    runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode Version
+      - name: Show toolchain
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcode-select -p
           xcodebuild -version
+          swift --version
 
+      # Uses the runner's default (newest) Xcode — the project requires the
+      # Swift 6.3 / macOS 26 SDK era toolchain. Do NOT pin old Xcode versions.
       - name: Build Debug Scheme
         run: |
           xcodebuild -configuration Debug \
-            -scheme xCloud \
+            -project Cascade.xcodeproj \
+            -scheme Cascade \
             -destination 'platform=macOS' \
-            clean build
-
-      - name: Run Headless Unit Tests
-        run: |
-          xcodebuild -configuration Debug \
-            -scheme xCloud \
-            -destination 'platform=macOS' \
-            -only-testing:xCloudTests \
-            test
+            build

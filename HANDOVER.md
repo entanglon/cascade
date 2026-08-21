@@ -3325,3 +3325,28 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Tests: `mergeTombstoneBeatsNewerRemoteLive` +
       `replaceCatalogNeverResurrectsTombstonedObjects`. **TEST SUCCEEDED**
       (83 unit tests). App relaunched, bootstrap clean.
+
+148. **Audit quick-wins landed: PIN hashing, CI fix, share KDF 600k, Keychain
+     ThisDeviceOnly (2026-08-21 — COMMITTED)** (`Crypto/KeychainStore.swift`,
+     `Crypto/CryptoEngine.swift`, `Engine/ShareEngine.swift`,
+     `Features/FileBrowserView.swift`, `App/AppState.swift`,
+     `.github/workflows/ci.yml`)
+    - From docs/AUDIT_2026-08-21.md roadmap items 1–4:
+    - **H1 — PIN hashing**: verifyVaultPIN now stores/verifies
+      `pbkdf2-sha256:600000:<saltB64>:<hashB64>` (OWASP 2026 cost) with a
+      constant-time compare; legacy unsalted SHA-256 entries verify the old way
+      then transparently upgrade in place. Attempt throttle added (exponential
+      backoff after 3 failures, capped ~17 min) surfaced in the lock sheet via
+      pinLockMessage.
+    - **H3 — CI**: workflow rewritten for current toolchain (was pinned to
+      Xcode 15.4 + pre-rename xCloud scheme names = permanently broken);
+      build-only smoke job on macos-latest to respect private-repo macOS minute
+      multipliers; full suite stays a local pre-push step.
+    - **M1 — share-link KDF**: new password links mint at PBKDF2 600k;
+      imports try 600k then fall back to legacy 100k so pre-existing links keep
+      working (deriveLegacyLinkKey).
+    - **M2 — Keychain ThisDeviceOnly**: save() now writes/stamps
+      kSecAttrAccessibleWhenUnlockedThisDeviceOnly; migrateSecretsToThisDeviceOnly()
+      re-seats master key + PIN hash at every launch (idempotent).
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched, bootstrap
+      clean per /tmp/cascade-boot.log.

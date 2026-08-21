@@ -387,6 +387,9 @@ final class AppState {
 
             try await DatabaseManager.shared.start()
             Self.bootLog("db started")
+            // Re-seat long-lived secrets with ThisDeviceOnly accessibility so they
+            // never ride Keychain backup flows to other devices (audit item M2).
+            KeychainStore.migrateSecretsToThisDeviceOnly()
             try await DatabaseManager.shared.selfTest()
             Self.bootLog("db selfTest ok")
             isDatabaseReady = true

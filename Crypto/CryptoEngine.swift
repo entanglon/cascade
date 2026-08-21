@@ -205,8 +205,22 @@ enum CryptoEngine {
 
     // MARK: - Password-derived link key
 
-    /// Derives a 256-bit key from a user-supplied share password using PBKDF2-SHA256 (100k iterations).
+    /// Derives a 256-bit key from a user-supplied share password using PBKDF2-SHA256.
+    /// 600k iterations (OWASP 2026 floor) for all NEW links; imports of links minted
+    /// by older builds fall back to the legacy 100k cost via `deriveLegacyLinkKey`.
     static func deriveLinkKey(from password: String, salt: Data) -> SymmetricKey {
+        deriveLinkKeyWithIterations(password, salt: salt, iterations: 600_000)
+    }
+
+    /// Legacy cost (100k) — kept ONLY so password links minted before the round-7
+    /// audit remain importable. Never used for new links.
+    static func deriveLegacyLinkKey(from password: String, salt: Data) -> SymmetricKey {
+        deriveLinkKeyWithIterations(password, salt: salt, iterations: 100_000)
+    }
+
+    private static func deriveLinkKeyWithIterations(
+        _ password: String, salt: Data, iterations: Int
+    ) -> SymmetricKey {
         let pw = Array(password.utf8)
         let sl = [UInt8](salt)
         var derived = [UInt8](repeating: 0, count: 32)
@@ -215,7 +229,7 @@ enum CryptoEngine {
             pw, pw.count,
             sl, sl.count,
             CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
-            100_000,
+            UInt32(iterations),
             &derived, derived.count
         )
         return SymmetricKey(data: Data(derived))

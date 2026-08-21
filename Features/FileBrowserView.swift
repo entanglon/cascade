@@ -2784,6 +2784,7 @@ struct PrivateVaultLockView: View {
     @State private var shake = false
     @State private var revealedIndex: Int? = nil
     @State private var revealTimer: Task<Void, Never>? = nil
+    @State private var pinLockMessage: String? = nil
     @FocusState private var focused: Bool
 
     enum Phase { case enter, create, confirm, recover }
@@ -2799,8 +2800,15 @@ struct PrivateVaultLockView: View {
                 }
                 VStack(spacing: 6) {
                     Text(title).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                    Text(subtitle).font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
+                    Text(subtitle)
+                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
                         .multilineTextAlignment(.center)
+                    if let pinLockMessage {
+                        Text(pinLockMessage)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.orange)
+                            .multilineTextAlignment(.center)
+                    }
                 }
                 
                 HStack(spacing: 14) {
@@ -2914,12 +2922,22 @@ struct PrivateVaultLockView: View {
     private func submit(_ pin: String) {
         switch phase {
         case .enter:
-            if KeychainStore.verifyVaultPIN(pin) {
+            guard KeychainStore.pinAttemptAllowed() else {
+                pinLockMessage = "Too many attempts — wait \(KeychainStore.pinLockRemainingSeconds())s"
+                return
+            }
+            let ok = KeychainStore.verifyVaultPIN(pin)
+            KeychainStore.registerPINResult(success: ok)
+            if ok {
+                pinLockMessage = nil
                 // Backfill: make sure the PIN-protected recovery blob exists in the
                 // channel so other devices can recover private files too.
                 Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
                 appState.isPrivateVaultUnlocked = true
             } else {
+                if !KeychainStore.pinAttemptAllowed() {
+                    pinLockMessage = "Too many attempts — wait \(KeychainStore.pinLockRemainingSeconds())s"
+                }
                 failEntry()
             }
         case .create:
