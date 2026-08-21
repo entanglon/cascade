@@ -314,3 +314,23 @@ ObjectFetcher chains, batch planning, and read-ahead run pool. Validate first:
 updateFile event reliability for ranged downloads, priority coexistence with
 foreground grabs, memory behavior of full-chunk downloads across many chunks.
 Current implementation stays until a cold-cache prototype beats it on stall count.
+
+## Argon2id password KDF upgrade (parked 2026-08-21, audit item 10)
+
+Replace PBKDF2-HMAC-SHA256 (600k) with Argon2id (OWASP 2026 default:
+m=19456 KiB, t=2, p=1) for password-derived keys — vault recovery key and
+password-protected share links. Benefit: memory-hardness makes GPU offline
+brute-force of a exfiltrated key record + salt orders of magnitude slower.
+
+Adoption notes (from docs/AUDIT_2026-08-21.md):
+- CommonCrypto has no Argon2id — requires a vetted third-party Swift package
+  or vendored C reference implementation (supply-chain weight is the reason
+  this is parked).
+- Dual-path verification required: existing PBKDF2-derived records (vault key
+  seal v2, password links minted at 600k) must keep verifying; migrate to
+  Argon2id on next successful unlock/re-mint. Legacy-100k link fallback stays.
+- Threat model fit: only matters when an attacker has BOTH the channel's
+  sealed key record AND offline time. Item 148 (PIN PBKDF2 + throttle) closed
+  the more accessible door.
+Trigger to revisit: user request, or any incident suggesting channel-data
+exfiltration attempts.
