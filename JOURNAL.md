@@ -2,9 +2,64 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-20 (night) — Fix: Atomic batch deletion for Empty Trash and Delete Forever.
+> 2026-08-21 (afternoon) — Encrypted-streaming buffering fixed: read-ahead prefetcher + cache-wipe bug + boundary-mapping regression reverted.
 
 ---
+
+## 2026-08-21 (afternoon) — Encrypted video streaming buffering FIXED (read-ahead prefetcher)
+
+Continued from the open investigation (bottom of this file, "Streaming buffering
+buffering investigation (OPEN)"). Implemented the fix for the encrypted path that
+buffered permanently after ~1 minute.
+
+### Root causes found in code
+
+1. **Cache-wipe bug (`fetchWithRetry`)**: on ANY transient fetch error the handler
+   called `sliceCache.removeAll(for: objectID)` — evicting up to 48 MB of buffered,
+   already-decrypted playback. One network hiccup = total buffer loss = permanent
+   buffering. Cached slices were GCM-verified before caching and cannot be corrupted
+   by a later failed request; the wipe was pure damage.
+2. **Per-slice round trips on the serve path**: the encrypted branch fetched exactly
+   one sealed slice (1 MB + 28 B) per TDLib round trip with no read-ahead — the
+   fragility Claude diagnosed (60–150 negotiations/min, zero safety margin).
+3. **Boundary-mapping regression (uncommitted item 137 change)**: the working tree
+   had flipped `chunkAndLocalIndex`'s comparison from `<=` to `<` — BACKWARDS. With
+   `<`, a slice landing exactly on a chunk boundary maps one chunk early with local =
+   one-past-the-end (fetchLen 0 → range-fetch retry storms — the exact symptom item
+   137 claimed to fix). Unit test `streamingSliceMappingAcrossChunks` caught it
+   (failed in suite, passed before the flip). Reverted to `<=`.
+
+### What was changed (`Engine/VideoStreamingEngine.swift`)
+
+1. **`fetchWithRetry`**: no longer wipes the slice cache on transient errors; the
+   generic-error retry is now wrapped in `withFetchTimeout` too (a hung retry can no
+   longer stall forever); added a `priority` parameter.
+2. **Encrypted-path read-ahead prefetcher**:
+   - Serve path now fetches exactly ONE sealed slice on the critical path (fast
+     startup preserved — mpv gets its first byte after a single ~1 MB round trip).
+   - A background run (`ensureReadAhead` / `readAheadLoop` / `ReadAheadRun`) keeps
+     the SliceCache filled 24 slices (~24 MB ≈ 19 s at 1.25 MB/s) ahead of the
+     playhead, fetching 4 sealed slices per TDLib round trip (batching moved OFF the
+     critical path, so it can no longer delay startup — the failure mode of the
+     earlier naive batching attempt).
+   - Batch fetches clamp to chunk boundaries, decrypt each piece with its file-wide
+     slice key (`CryptoEngine.sliceKey(objectKey:index:)`), run at TDLib priority 8
+     (serve stays 32), exit after 3 consecutive failures, and re-arm on every served
+     slice. Backward jumps (>2 slices) restart the run; `invalidatePlayback` cancels
+     it on stop/seek teardown; layout eviction cancels all runs.
+3. **`SliceCache`**: 48 → 128 entries (128 MB headroom for window + demuxer
+   back-reads); new `contains(_:)` existence check that does not perturb LRU order.
+4. **`ObjectLayout.chunkAndLocalIndex`**: comparison reverted `<` → `<=` (boundary
+   slice belongs to the NEXT chunk), with a comment explaining both directions.
+
+### Verification
+
+- Build green (`xcodebuild -project Cascade.xcodeproj -scheme Cascade build`).
+- Full unit suite: **TEST SUCCEEDED**, 79 unit tests passed, 0 failures (before the
+  boundary revert the suite failed on `streamingSliceMappingAcrossChunks`).
+- Live playback test pending (user): an uncached ENCRYPTED video must play past the
+  1-minute mark without entering permanent buffering; seek away and back must recover
+  instantly; startup must stay fast (no 10-second first-byte delay).
 
 ## 2026-08-20 (night) — Fix: Atomic batch deletion for Empty Trash and Delete Forever
 
@@ -2709,3 +2764,71 @@ Debug + Release rebuilt, /Applications refreshed, session preserved, release app
   the pool test is baseline-relative; createPoolChannel refuses under XCTest.
 - Tests green (46 unit incl. 4 new v3 tests + 4 UI + 4 launch); build green;
   app launched; migration verified on the real DB. NOT committed.
+
+## 2026-08-21 — Volume slider was controlling system BALANCE, not volume
+
+User noticed audio shifting between left and right ears when dragging the
+volume slider. Confirmed in macOS Sound settings: the system balance slider
+moved in sync with the app's volume slider.
+
+### Root cause (updated after CoreAudio diagnostic)
+
+Ran a full CoreAudio property diagnostic on the OnePlus Buds 3. Results:
+- Element 0: only `mute` (no volume scalar)
+- Element 1: `kAudioDevicePropertyVolumeScalar` = 0.3096, writable
+- Element 2: `kAudioDevicePropertyVolumeScalar` = 0.3125, writable
+- `VirtualMainVolume`: does NOT exist on this device
+- `LeftVolumeScalar`, `RightVolumeScalar`, `Balance`, `Fade`: none exist
+
+On Bluetooth A2DP devices, `kAudioDevicePropertyVolumeScalar` is
+**per-channel**: element 1 = left channel, element 2 = right channel.
+The app was writing to ONLY element 1, changing one channel's volume
+and shifting stereo balance. Reversing the probe order didn't help
+because both elements 1 and 2 have the same property.
+
+### Fix (verified working)
+
+`resolveVolumeElement()` (singular) → `resolveVolumeElements()` (plural):
+finds ALL elements with a writable `kAudioDevicePropertyVolumeScalar`,
+storing them in `volumeElements: [AudioObjectPropertyElement]`.
+`writeScalar()` now writes the same value to ALL elements simultaneously —
+both left and right channels move together, preventing the balance shift.
+`readScalar()` reads from the first element (they stay in lockstep).
+
+**File**: `Engine/AudioPlayerEngine.swift` — `SystemVolumeManager`.
+Verified by user: volume slider now controls volume, not balance.
+
+## 2026-08-21 — Streaming buffering investigation (OPEN)
+
+User reported encrypted video streaming buffers after ~1 minute of playback.
+Full investigation with Claude and Qwen. Key findings:
+
+1. **TDLib `limit` auto-cancel**: Each `downloadFile(limit=1MB)` call auto-cancels
+   after 1 MB. Every slice is a brand-new download negotiation with Telegram's
+   servers. After 60-150 of these per minute, one unlucky jitter kills the buffer.
+
+2. **Binary search boundary bug**: `chunkAndLocalIndex()` used `<=` which picked
+   wrong chunk at boundaries. Fixed: `<=` → `<`.
+
+3. **Continuous download model attempted**: `downloadFile(limit=0)` + polling
+   `downloadedSize`. Didn't work — TDLib's `downloadedSize` doesn't accurately
+   track byte availability in sparse files.
+
+4. **8-slice batching on encrypted path**: Made startup slow (10+ seconds) because
+   `synchronous: true` blocks until full range is on disk.
+
+5. **Restored ObjectFetcher + fetchWithRetry**: Still buffers after ~1 minute.
+
+**Root cause**: per-slice re-negotiation is fundamentally fragile for streaming.
+The old working version (Aug 19 backup) was plaintext-only — no sealed slices,
+no decryption overhead. 8-slice batching worked perfectly because there was
+no per-slice overhead.
+
+**Status**: UNRESOLVED. Needs a different TDLib API pattern or architectural change.
+Prompt for Claude/Qwen at `.freebuff/streaming-prompt-v2.md`.
+
+**Files touched**: `Engine/VideoStreamingEngine.swift`, `Telegram/TelegramClient.swift`,
+`Engine/AudioPlayerEngine.swift`, `Features/TheaterView.swift`,
+`Features/VideoPlaybackView.swift`, `Engine/UploadEngine.swift`.
+All changes UNCOMMITTED.
+

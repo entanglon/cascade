@@ -1463,7 +1463,8 @@ struct TheaterAudioPlayerView: View {
                     Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.8))
-                    Slider(value: $volumeManager.volume, in: 0...1)
+                    Slider(value: $volumeManager.volume, in: 0...1,
+                           onEditingChanged: { volumeManager.isUserDragging = $0 })
                         .frame(width: 90)
                         .tint(.white)
                 }

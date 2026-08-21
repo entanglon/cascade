@@ -366,7 +366,8 @@ struct PlayerControlsView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.8))
 
-                Slider(value: $volumeManager.volume, in: 0...1)
+                Slider(value: $volumeManager.volume, in: 0...1,
+                       onEditingChanged: { volumeManager.isUserDragging = $0 })
                     .frame(width: 80)
                     .tint(.white)
             }

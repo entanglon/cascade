@@ -28,14 +28,13 @@ final class SystemVolumeManager {
     /// (which fires for our own writes too) never echoes a write back.
     private var lastWritten: Double = 1.0
 
-    /// The output element whose volume scalar actually reads/writes on the
-    /// CURRENT default output device. Bluetooth devices (earbuds, speakers)
-    /// expose their volume on the stream elements (1, 2) while the master
-    /// element (0) is unsupported — pinning `kAudioObjectPropertyElementMain`
-    /// alone made every read/write fail silently on them (dead slider). The
-    /// element is resolved by probing on start and whenever the default device
-    /// changes; nil means no element works (nothing to control).
-    private var volumeElement: AudioObjectPropertyElement?
+    /// All elements that expose a writable kAudioDevicePropertyVolumeScalar
+    /// on the CURRENT default output device. On A2DP Bluetooth devices (e.g.
+    /// OnePlus Buds 3), VolumeScalar is per-channel: element 1 = left,
+    /// element 2 = right. Writing to only one shifts stereo balance. On
+    /// built-in speakers, typically [0] (master). Resolved on start and
+    /// whenever the default device changes.
+    private var volumeElements: [AudioObjectPropertyElement] = []
 
     /// The last known device ID, so we can detect device changes and re-probe.
     private var currentDeviceID: AudioDeviceID?
@@ -82,7 +81,7 @@ final class SystemVolumeManager {
     func start() {
         guard !started else { return }
         started = true
-        resolveVolumeElement()
+        resolveVolumeElements()
         let current = readScalar()
         volume = current
         lastWritten = current
@@ -149,7 +148,7 @@ final class SystemVolumeManager {
         let defaultBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.resolveVolumeElement()
+                self.resolveVolumeElements()
                 // Re-register volume listeners on the new device.
                 self.removeDeviceListeners()
                 self.registerDeviceListener()
@@ -226,7 +225,7 @@ final class SystemVolumeManager {
         guard let newID = defaultOutputDeviceID() else { return }
         if newID != currentDeviceID {
             currentDeviceID = newID
-            resolveVolumeElement()
+            resolveVolumeElements()
         }
     }
 
@@ -247,40 +246,40 @@ final class SystemVolumeManager {
         return deviceID
     }
 
-    /// Probes the current default output device and finds the first element
-    /// whose volume scalar can be READ. Element 0 (master) for built-in/USB,
-    /// element 1 (stream) for Bluetooth.
-    private func resolveVolumeElement() {
+    /// Probes the current default output device and finds ALL elements that
+    /// expose a writable kAudioDevicePropertyVolumeScalar. On A2DP Bluetooth
+    /// devices, VolumeScalar is per-channel (element 1 = L, element 2 = R);
+    /// writing to only one shifts stereo balance. On built-in/USB speakers,
+    /// typically only element 0 (master) exists.
+    private func resolveVolumeElements() {
         guard let deviceID = defaultOutputDeviceID() else {
-            volumeElement = nil
+            volumeElements = []
             return
         }
-        let candidates: [AudioObjectPropertyElement] = [
-            0,                                // master — built-in/USB speakers
-            kAudioObjectPropertyElementMain, // 1 — stream element (Bluetooth)
-            2, 3, 4                            // further stream elements
-        ]
-        for element in candidates {
+        var found: [AudioObjectPropertyElement] = []
+        for element: AudioObjectPropertyElement in [0, 1, 2, 3, 4] {
             var addr = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyVolumeScalar,
                 mScope: kAudioObjectPropertyScopeOutput,
                 mElement: element
             )
+            guard AudioObjectHasProperty(deviceID, &addr) else { continue }
+            var settable: DarwinBoolean = false
+            AudioObjectIsPropertySettable(deviceID, &addr, &settable)
+            guard settable.boolValue else { continue }
             var value: Float32 = 0
             var size = UInt32(MemoryLayout<Float32>.size)
             let status = AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &value)
-            if status == noErr, value.isFinite {
-                volumeElement = element
-                return
-            }
+            guard status == noErr, value.isFinite else { continue }
+            found.append(element)
         }
-        volumeElement = nil
+        volumeElements = found
     }
 
     private func readScalar() -> Double {
         guard let deviceID = defaultOutputDeviceID() else { return 1.0 }
-        if volumeElement == nil { resolveVolumeElement() }
-        guard let element = volumeElement else { return 1.0 }
+        if volumeElements.isEmpty { resolveVolumeElements() }
+        guard let element = volumeElements.first else { return 1.0 }
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioObjectPropertyScopeOutput,
@@ -293,19 +292,25 @@ final class SystemVolumeManager {
         return Double(min(1.0, max(0.0, value)))
     }
 
+    /// Writes the same volume scalar to ALL resolved elements simultaneously.
+    /// On A2DP Bluetooth (per-channel VolumeScalar), this moves both left and
+    /// right channels together — preventing the stereo balance shift.
     private func writeScalar(_ value: Double) {
         guard let deviceID = defaultOutputDeviceID() else { return }
-        if volumeElement == nil { resolveVolumeElement() }
-        guard let element = volumeElement else { return }
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioObjectPropertyScopeOutput,
-            mElement: element
-        )
-        var value = Float32(value)
-        AudioObjectSetPropertyData(
-            deviceID, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &value
-        )
+        if volumeElements.isEmpty { resolveVolumeElements() }
+        guard !volumeElements.isEmpty else { return }
+        let clamped = min(1.0, max(0.0, value))
+        for element in volumeElements {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: element
+            )
+            var writeVal = Float32(clamped)
+            AudioObjectSetPropertyData(
+                deviceID, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &writeVal
+            )
+        }
     }
 }
 
