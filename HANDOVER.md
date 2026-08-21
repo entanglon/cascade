@@ -3275,3 +3275,29 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Build green; unit suite green (**TEST SUCCEEDED**, 81 unit tests). App
       relaunched. **Pending user verification**: upload a large file → confirm
       ~1.9 GiB chunks in the channel, smooth playback, normal download.
+
+146. **Eternal loading screen after round 7 — stale self-test assertion + saved-
+     state corruption (2026-08-21 — COMMITTED `16b7ae7`)** (`Engine/ChunkEngine.swift`,
+     `App/AppState.swift`)
+    - **Symptom**: app stuck on the loading screen; TDLib zero connections.
+    - **Diagnosis trail**: process alive, no crashes, unified log silent (machine
+      quirk), stdout empty even under a pty → sampled threads: only 4, TDLib
+      receive loop waiting on an EventFd that never fires = NO QUERY EVER SENT.
+      Added file-based boot diagnostics (`/tmp/cascade-boot.log`, survives any
+      launch style): bootstrap stalled between "shares loaded" and the chunk
+      engine step. ALSO found corrupt saved window state making some relaunches
+      mount NO window at all (cleared
+      ~/Library/Saved Application State/com.cascade.app.savedState).
+    - **Root cause**: `ChunkEngine.runSelfTest` still asserted the LEGACY 64+36 MB
+      streaming split; round 7's uniform chunking returns one 100 MiB item →
+      guard threw `planMismatch` → bootstrap's catch set `databaseError`
+      (invisible on splash) and SKIPPED startTelegram → TDLib never connected →
+      `isAuthResolved` never resolved → eternal splash.
+    - **Fixes**: (1) self-test asserts uniform behavior (100 MiB = one exact
+      item) with tiling + hash checks intact; (2) bootstrap HARDENED — engine
+      self-tests are now non-fatal sanity checks: failure logs to
+      /tmp/cascade-boot.log + warning banner, Telegram startup always proceeds.
+    - Verified: boot log runs start → db → files → shares → engines ok → creds →
+      startTelegram returned; 3 ESTABLISHED TDLib connections; window present;
+      **TEST SUCCEEDED** (81 unit tests). Lesson: launch-blocking self-tests turn
+      any assertion drift into a full outage — sanity checks must never gate auth.
