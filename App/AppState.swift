@@ -372,6 +372,7 @@ final class AppState {
 
     @MainActor
     func bootstrap() async {
+        Self.bootLog("start")
         isInitialLoading = true
         defer { isInitialLoading = false }
         do {
@@ -385,20 +386,49 @@ final class AppState {
             }
 
             try await DatabaseManager.shared.start()
+            Self.bootLog("db started")
             try await DatabaseManager.shared.selfTest()
+            Self.bootLog("db selfTest ok")
             isDatabaseReady = true
             await self.loadFiles()
+            Self.bootLog("files loaded")
 
             // Restore finished-transfer history (completed/failed cards) so the
             // Transfers page keeps its cards across app restarts.
             await TransferCenter.shared.restoreHistory()
             await self.loadShares()
+            Self.bootLog("shares loaded")
 
-            try await ChunkEngine.selfTest()
-            isEngineReady = true
+            // Engine self-tests are SANITY CHECKS, not launch gates: a failure is
+            // logged and surfaced as a banner but must never block Telegram
+            // startup. (A stale chunk-size assertion here once threw past
+            // startTelegram and left the app on an eternal loading screen —
+            // round 7.)
+            do {
+                try await ChunkEngine.selfTest()
+                isEngineReady = true
+                Self.bootLog("chunk engine ok")
+            } catch {
+                Self.bootLog("chunk engine FAILED: \(error.localizedDescription)")
+                notify(
+                    title: "Chunk engine self-test failed",
+                    message: error.localizedDescription,
+                    kind: .warning
+                )
+            }
 
-            try await CryptoEngine.selfTest()
-            isCryptoReady = true
+            do {
+                try await CryptoEngine.selfTest()
+                isCryptoReady = true
+                Self.bootLog("crypto engine ok")
+            } catch {
+                Self.bootLog("crypto engine FAILED: \(error.localizedDescription)")
+                notify(
+                    title: "Crypto engine self-test failed",
+                    message: error.localizedDescription,
+                    kind: .warning
+                )
+            }
 
             guard !isRunningUnderXCTest else { return }
 
@@ -416,7 +446,9 @@ final class AppState {
 
             if let creds = try KeychainStore.loadTelegramCredentials() {
                 hasTelegramCredentials = true
+                Self.bootLog("creds found, starting telegram")
                 await startTelegram(apiID: creds.apiID, apiHash: creds.apiHash)
+                Self.bootLog("startTelegram returned")
             }
 
             for _ in 0..<20 {
@@ -961,6 +993,22 @@ final class AppState {
     }
 
     @MainActor
+    /// Append-only launch diagnostics to /tmp/cascade-boot.log — survives any
+    /// launch style (open/Dock/pty) and proves exactly how far bootstrap got.
+    static func bootLog(_ message: String) {
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm:ss.SSS"
+        let line = "[\(df.string(from: Date()))] bootstrap: \(message)\n"
+        let url = URL(fileURLWithPath: "/tmp/cascade-boot.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        } else {
+            try? line.write(to: url, atomically: false, encoding: .utf8)
+        }
+    }
+
     func startTelegram(apiID: Int, apiHash: String) async {
         // Test host must never start TDLib: XCTest exits with exit(), tearing down
         // the C++ core while its background receive thread still polls — a segfault

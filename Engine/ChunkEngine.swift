@@ -53,9 +53,10 @@ enum ChunkEngine {
             fileSize: 100 * 1024 * 1024,
             profile: .streaming
         )
-        guard plan.items.count == 2,
-              plan.items[0].size == 64 * 1024 * 1024,
-              plan.items[1].size == 36 * 1024 * 1024,
+        // Uniform chunking (round 7): a 100 MiB file fits in ONE ~1.9 GiB chunk.
+        // The plan must still tile the file exactly with no gaps or overlaps.
+        guard plan.items.count == 1,
+              plan.items[0].size == 100 * 1024 * 1024,
               plan.items.reduce(0, { $0 + $1.size }) == plan.totalSize
         else { throw ChunkEngineError.planMismatch }
 
