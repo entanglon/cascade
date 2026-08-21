@@ -3301,3 +3301,27 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       startTelegram returned; 3 ESTABLISHED TDLib connections; window present;
       **TEST SUCCEEDED** (81 unit tests). Lesson: launch-blocking self-tests turn
       any assertion drift into a full outage — sanity checks must never gate auth.
+
+147. **Deletion absolutism — the "files came back" race fixed structurally
+     (2026-08-21 — COMMITTED `e177cfe`)** (`Storage/CatalogSnapshot.swift`,
+     `Storage/DatabaseManager.swift`, `App/AppState.swift`,
+     `Telegram/TelegramClient.swift`, `CascadeTests/CascadeTests.swift`)
+    - **User report**: after deleting all files + Empty Trash, files briefly
+      REAPPEARED in the UI; a second pass stuck.
+    - **Root cause**: `CatalogSnapshot.merge` resolved local-tombstone vs
+      remote-live by modifiedAt LWW — a debounced snapshot sync merging against
+      a STALE cached channel scan (pre-deletion copy with newer timestamp)
+      resurrected deleted rows via replaceCatalog.
+    - **Fix — three defensive layers**:
+      1. merge(): local tombstone ALWAYS beats remote live, timestamps ignored
+         (deletion is a user decision; only explicit restore clears it).
+         Cross-device propagation (remote tombstone newer than local live)
+         unchanged.
+      2. replaceCatalog(): incoming live records matching locally tombstoned
+         ids are re-tombstoned before insert.
+      3. deleteForever: invalidates the channel scan cache immediately after
+         Telegram message deletions, so concurrent snapshot syncs refetch
+         post-deletion state instead of trusting the stale cache.
+    - Tests: `mergeTombstoneBeatsNewerRemoteLive` +
+      `replaceCatalogNeverResurrectsTombstonedObjects`. **TEST SUCCEEDED**
+      (83 unit tests). App relaunched, bootstrap clean.
