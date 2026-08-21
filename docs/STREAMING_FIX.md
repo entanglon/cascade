@@ -208,3 +208,24 @@ Supporting pieces:
 3. Correlate with `/tmp/cascade-mpv-telemetry.log` (cache trajectory, drops).
 4. Old sessions are preserved (`/tmp/cascade-stream-session1.log` = the deadlocked
    one).
+
+---
+
+## 8. Round 4 — sequential-access batching (`e39b553`)
+
+**User's full protocol passed**: two cold-cache complete playthroughs + 4 s /
+1 min / 30 s seeks — zero buffering, zero errors/timeouts, seeks clean, and the
+log showed eleven read-ahead windows chain-filling all 485 slices in 2.7 s after
+a cache clear (multi-run system proven live).
+
+**Last gap found in the log**: linear playback still fetched 1 TDLib round trip
+per slice — mpv's huge byte-range requests walk slices through
+`plaintextSliceStream`, each an individual `downloadFile`. TDLib's disk cache hid
+it (2–14 ms/slice); on a cold network this was the original fragile pattern
+resurfacing inside the fixed architecture.
+
+**Fix**: per-object sequential detection (`lastServedSlice`) — a slice directly
+continuing the previous one fetches an 8-slice batch in that same round trip;
+the first slice after a jump (start/seek) stays single-slice so startup and seek
+latency are unchanged. Linear playback now costs ~1 negotiation per 8 MB instead
+of per 1 MB.
