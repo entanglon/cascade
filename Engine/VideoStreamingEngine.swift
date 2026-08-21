@@ -170,6 +170,7 @@ final class VideoStreamingEngine {
             defer { lastServedSlice[objectID] = fileSliceIndex }
 
             if batchCount > 1 {
+                let batchStartedAt = Date()
                 let cached = try await fetchEncryptedBatchIntoCache(
                     objectID: objectID,
                     layout: layout,
@@ -177,6 +178,8 @@ final class VideoStreamingEngine {
                     maxCount: batchCount,
                     priority: 32
                 )
+                let ms = Int(Date().timeIntervalSince(batchStartedAt) * 1000)
+                Self.streamLog("serve batch obj=\(objectID) slices=\(fileSliceIndex)+\(cached) prio=32 ms=\(ms)")
                 if cached > 0, let sliced = sliceCache.get(cacheKey) {
                     ensureReadAhead(objectID: objectID, layout: layout, servedSlice: fileSliceIndex + cached - 1)
                     return sliced
@@ -184,6 +187,11 @@ final class VideoStreamingEngine {
             }
 
             Self.streamLog("serve miss obj=\(objectID) slice=\(fileSliceIndex) chunk=\(chunkIndex) local=\(localSliceIndex)")
+            // A read-ahead run batch we just queued behind may have filled this
+            // slice while we waited on the chain — never re-download it.
+            if let filled = sliceCache.get(cacheKey) {
+                return filled
+            }
             let sealedData = try await fetchWithRetry(
                 fetcher, fileID: fileID, offset: sliceCipherOffset, limit: sealedSliceLen, objectID: objectID
             )
@@ -290,7 +298,9 @@ final class VideoStreamingEngine {
         guard start <= windowEnd else { return }
 
         stateLock.lock()
-        let liveRuns = (readAheadRuns[objectID] ?? []).filter { !$0.isCancelled }
+        // Only ACTIVE runs provide coverage — a finished run will never fetch
+        // again and must not block spawning. Prune finished/cancelled entries.
+        let liveRuns = (readAheadRuns[objectID] ?? []).filter { $0.isActive }
         readAheadRuns[objectID] = liveRuns
 
         // Covered when a live run either (a) has already filled everything we
@@ -369,21 +379,37 @@ final class VideoStreamingEngine {
             }
         }
         if !run.isCancelled {
+            run.finish()
             Self.streamLog("read-ahead end obj=\(objectID) at slice=\(index) (window \(start)...\(end))")
         }
     }
 
     /// Fetches up to `maxCount` sealed slices starting at `firstSlice` in ONE TDLib
     /// range request (clamped to the chunk boundary), decrypts each piece with its
-    /// file-wide slice key, and caches them. Returns the number of slices cached.
+    /// file-wide slice key, and caches them. Returns the number of slices covered
+    /// INCLUDING any leading slices that were already cached by the time the fetch
+    /// was about to start (a run batch we queued behind can fill them first —
+    /// re-downloading would double the bandwidth bill on cold files).
     private func fetchEncryptedBatchIntoCache(
         objectID: String,
         layout: ObjectLayout,
-        firstSlice: Int,
-        maxCount: Int,
+        firstSlice requestedFirst: Int,
+        maxCount requestedMax: Int,
         priority: Int
     ) async throws -> Int {
         guard let objectKey = layout.objectKey else { return 0 }
+        // Skip leading slices filled meanwhile (race with a read-ahead run).
+        var firstSlice = requestedFirst
+        var maxCount = requestedMax
+        while maxCount > 0,
+              sliceCache.contains(SliceCache.Key(objectID: objectID, sliceIndex: firstSlice)) {
+            firstSlice += 1
+            maxCount -= 1
+        }
+        if maxCount <= 0 { return requestedMax }
+        if firstSlice != requestedFirst {
+            Self.streamLog("batch dedup obj=\(objectID) skipping \(firstSlice - requestedFirst) already-cached (requested \(requestedFirst))")
+        }
         let (chunkIndex, localSliceIndex) = layout.chunkAndLocalIndex(for: firstSlice)
         let chunk = layout.chunks[chunkIndex]
 
@@ -756,12 +782,28 @@ final class ReadAheadRun: @unchecked Sendable {
     private var _end: Int
     private var _head: Int
     private var _cancelled = false
+    private var _finished = false
     var task: Task<Void, Never>?
 
     init(start: Int, end: Int) {
         _start = start
         _end = end
         _head = start
+    }
+
+    /// A run that exited normally (window filled or gave ground) must NOT count as
+    /// coverage: it will never fetch again. Treating finished runs as covering let
+    /// them silently block new spawns — background filling stopped and playback
+    /// fell back to just-in-time single fetches (visible as buffering on cold
+    /// files, where single fetches run at ~0.9 MB/s vs ~5 MB/s batched).
+    var isActive: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return !_cancelled && !_finished
+    }
+
+    func finish() {
+        lock.lock(); defer { lock.unlock() }
+        _finished = true
     }
 
     var startSlice: Int {

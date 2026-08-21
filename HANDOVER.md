@@ -3178,3 +3178,31 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Build green; unit suite green (**TEST SUCCEEDED**, 79). App relaunched;
       prior log preserved as /tmp/cascade-stream-session2.log. Full case file:
       docs/STREAMING_FIX.md.
+
+143. **Streaming round 5: cold-file buffering — zombie runs + duplicate fetches
+     (2026-08-21 — COMMITTED, awaiting user test)** (`Engine/VideoStreamingEngine.swift`)
+    - **User test**: brand-new 775 MB / 7-chunk video played COLD (TDLib never had
+      its bytes) — slight buffering, seeks fine, zero errors.
+    - **Log math**: batched fetches ≈ 5.1 MB/s; single-slice ≈ 0.9 MB/s (197
+      singles!). Consumption > 0.9 MB/s → any single-fetch stretch drains the
+      buffer. Three causes found:
+      1. **Zombie runs**: completed-but-not-cancelled read-ahead runs still
+         satisfied the span-overlap coverage check → blocked new spawns → no
+         background filling → serve path fell back to singles. Runs now carry
+         `finish()`/`isActive`; coverage counts ACTIVE runs only; finished runs
+         are pruned.
+      2. **Duplicate downloads**: the serve path checked the cache BEFORE queuing
+         behind a run's in-flight batch — the same slice was then downloaded twice.
+         Fixed both paths: `fetchEncryptedBatchIntoCache` skips leading slices
+         cached meanwhile (returns covered count incl. skips); the jump path
+         re-checks the cache right before network I/O.
+      3. **Invisible sequential batches**: serve-path batches had no log line —
+         added `serve batch obj= slices=N+count ms=`.
+    - **Why buffering can never be fully "eliminated" on cold files** (user Q): a
+      cold file must pull every byte over the network in real time; the buffer
+      only smooths bursts. With steady-state batched throughput (~5 MB/s) above
+      consumption, stalls should now be limited to startup (first-byte RTT) and
+      Telegram-side slowdowns (out of scope per user). Telegram throttling is a
+      server behavior, not fixable client-side.
+    - Build green; unit suite green (**TEST SUCCEEDED**, 79). App relaunched;
+      prior log preserved as /tmp/cascade-stream-session3.log.
