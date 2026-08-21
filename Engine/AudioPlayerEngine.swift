@@ -29,6 +29,16 @@ final class SystemVolumeManager {
     /// changes; nil means no element works (nothing to control).
     private var volumeElement: AudioObjectPropertyElement?
 
+    /// ALL readable volume elements on the current device. The volume listener
+    /// must be attached to every one because the system volume keys (F10/F11)
+    /// may adjust a different element than the one we write to — e.g. element 0
+    /// (master) on Bluetooth while element 1 (stream) is the only readable one.
+    private var listenableElements: [AudioObjectPropertyElement] = []
+
+    /// Opaque listener references so we can remove them on device change.
+    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
+    private var defaultDeviceListenerBlock: AudioObjectPropertyListenerBlock?
+
     var volume: Double = 1.0 {
         didSet {
             let clamped = min(1.0, max(0.0, volume))
@@ -72,13 +82,17 @@ final class SystemVolumeManager {
         return deviceID
     }
 
-    /// Finds the output element whose volume scalar can actually be READ on the
-    /// current default device: Main (1) first — the stream element that works
-    /// on Bluetooth — then Master (0, built-in/USB), then remaining stream
-    /// elements. An element that can't even be read can't be written either.
+    /// Finds ALL output elements whose volume scalar can actually be READ on
+    /// the current default device. The FIRST readable element becomes the
+    /// primary `volumeElement` (used for read/write), while ALL readable
+    /// elements are stored in `listenableElements` so volume-change listeners
+    /// are attached to every one — catching system volume key presses that
+    /// may adjust a different element (e.g. element 0 on Bluetooth while
+    /// element 1 is the only readable one).
     private func resolveVolumeElement() {
         guard let deviceID = defaultOutputDeviceID() else {
             volumeElement = nil
+            listenableElements = []
             return
         }
         var addr = AudioObjectPropertyAddress(
@@ -91,17 +105,18 @@ final class SystemVolumeManager {
             0,                                // master — built-in/USB speakers
             2, 3, 4                            // further stream elements
         ]
+        var readable: [AudioObjectPropertyElement] = []
         for element in candidates {
             addr.mElement = element
             var value: Float32 = 0
             var size = UInt32(MemoryLayout<Float32>.size)
             let status = AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &value)
             if status == noErr, value.isFinite {
-                volumeElement = element
-                return
+                readable.append(element)
             }
         }
-        volumeElement = nil
+        volumeElement = readable.first
+        listenableElements = readable
     }
 
     private func volumeScalarAddress() -> AudioObjectPropertyAddress? {
@@ -135,17 +150,47 @@ final class SystemVolumeManager {
     }
 
     private func registerDeviceListener() {
-        // Volume changes from outside the app (keyboard keys, Control Center).
-        guard let deviceID = defaultOutputDeviceID() else { return }
+        // Remove any previous volume listener to avoid leaks when the device changes.
+        if let oldDeviceID = defaultOutputDeviceID(), let oldBlock = deviceListenerBlock {
+            var oldAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: volumeElement ?? kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(oldDeviceID, &oldAddr, .main, oldBlock)
+            deviceListenerBlock = nil
+        }
+        // Remove the old default-device-change listener if one exists.
+        if let oldDefaultBlock = defaultDeviceListenerBlock {
+            var oldDefaultAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &oldDefaultAddr, .main, oldDefaultBlock
+            )
+            defaultDeviceListenerBlock = nil
+        }
 
-        var deviceAddr = volumeScalarAddress()
-        guard var deviceAddr else { return }
-        AudioObjectAddPropertyListenerBlock(deviceID, &deviceAddr, .main) { [weak self] _, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                let current = self.readScalar()
-                if abs(current - self.lastWritten) > 0.0001 {
-                    self.volume = current
+        // Register volume-change listeners on ALL readable elements. On Bluetooth
+        // devices the system volume keys (F10/F11) may adjust element 0 (master)
+        // while only element 1 (stream) is readable — listening on both ensures
+        // the slider stays in sync regardless of which element the OS touches.
+        guard let deviceID = defaultOutputDeviceID() else { return }
+        for element in listenableElements {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: element
+            )
+            AudioObjectAddPropertyListenerBlock(deviceID, &addr, .main) { [weak self] _, _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let current = self.readScalar()
+                    if abs(current - self.lastWritten) > 0.0001 {
+                        self.volume = current
+                    }
                 }
             }
         }
