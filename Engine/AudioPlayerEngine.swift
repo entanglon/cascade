@@ -13,12 +13,13 @@ import os
 /// one volume, always in sync. mpv's own volume property stays at 100; the
 /// device volume is the only attenuation.
 ///
-/// Sync strategy: a 150 ms polling timer reads the system volume and updates
-/// the published `volume` when it changes externally (keyboard keys, Control
-/// Center, Bluetooth earbuds). CoreAudio property listeners are unreliable on
-/// macOS — they frequently miss keyboard volume changes and Bluetooth device
-/// events — so polling is the primary sync mechanism. Listeners are kept as
-/// an optional bonus for lower-latency response when they DO fire.
+/// Three-layer sync strategy (hybrid approach per Apple/CoreAudio best practices):
+///  1. NSEvent global monitor  — catches F10/F11/mute keypresses with near-zero
+///     latency, independent of CoreAudio listener reliability.
+///  2. CoreAudio listeners    — catches Control Center slider drags and other-app
+///     volume changes. Uses wildcard element + dedicated queue for reliability.
+///  3. Polling timer (500 ms)  — safety net that catches anything the listeners
+///     miss (Bluetooth HFP relay quirks, etc.).
 @Observable
 final class SystemVolumeManager {
     static let shared = SystemVolumeManager()
@@ -39,9 +40,23 @@ final class SystemVolumeManager {
     /// The last known device ID, so we can detect device changes and re-probe.
     private var currentDeviceID: AudioDeviceID?
 
-    /// Polling timer: reads system volume every 150 ms to catch all external
-    /// changes (keyboard keys, Control Center, Bluetooth device adjustments).
-    private var pollTimer: Timer?
+    /// Layer 1: NSEvent global monitor for media volume keys.
+    private var mediaKeyMonitor: Any?
+
+    /// Layer 2: CoreAudio listener reference for cleanup on device change.
+    private var volumeListenerBlock: AudioObjectPropertyListenerBlock?
+    private var deviceChangeListenerBlock: AudioObjectPropertyListenerBlock?
+
+    /// Layer 3: DispatchSourceTimer polling as safety net.
+    private var pollSource: DispatchSourceTimer?
+
+    /// Dedicated serial queue for CoreAudio listener callbacks — avoids
+    /// main-thread starvation during SwiftUI re-renders / modal tracking.
+    private let audioQueue = DispatchQueue(label: "com.cascade.app.volume-listener", qos: .userInteractive)
+
+    /// Set while the user drags the volume slider so poll/listener updates
+    /// don't fight the gesture with stale mid-drag reads.
+    var isUserDragging = false
 
     var volume: Double = 1.0 {
         didSet {
@@ -52,41 +67,156 @@ final class SystemVolumeManager {
         }
     }
 
-    private var deviceListenerRegistered = false
+    private var started = false
 
     private init() {}
 
+    deinit {
+        if let m = mediaKeyMonitor { NSEvent.removeMonitor(m) }
+        pollSource?.cancel()
+    }
+
     /// Starts observing the default output device's volume. Safe to call
-    /// repeatedly. Runs once at launch so keyboard/Control Center volume
-    /// changes reach the sliders.
+    /// repeatedly (idempotent). Runs once at launch so keyboard/Control
+    /// Center volume changes reach the sliders.
     func start() {
-        guard !deviceListenerRegistered else { return }
-        deviceListenerRegistered = true
+        guard !started else { return }
+        started = true
         resolveVolumeElement()
-        registerDeviceListener()
         let current = readScalar()
         volume = current
         lastWritten = current
-        startPolling()
+        registerDeviceListener()   // Layer 2
+        installMediaKeyMonitor()   // Layer 1
+        startPolling()             // Layer 3
     }
 
-    // MARK: - Polling
+    // MARK: — Layer 1: NSEvent Global Monitor (F10/F11/Mute)
 
-    /// 150 ms polling timer catches every external volume change. CoreAudio
-    /// listeners are unreliable on macOS (especially Bluetooth), so this is
-    /// the primary sync mechanism. One read per 150 ms is negligible overhead.
-    private func startPolling() {
-        pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            // Re-probe if the default device changed (Bluetooth connect/disconnect).
-            self.reprobeIfDeviceChanged()
-            let current = self.readScalar()
-            if abs(current - self.lastWritten) > 0.0001 {
-                Task { @MainActor in
-                    self.volume = current
-                }
+    /// Intercepts media-key system-defined events globally. On F10/F11/Mute
+    /// key-down, schedules a delayed volume re-read so the slider tracks the
+    /// change with near-zero latency — no dependence on CoreAudio listeners.
+    private func installMediaKeyMonitor() {
+        let mask = CGEventMask(1 << NX_SYSDEFINED)
+        mediaKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .systemDefined) { [weak self] event in
+            guard event.subtype.rawValue == 8 else { return }
+            let data1 = event.data1
+            let keyCode = Int((data1 & 0xFFFF0000) >> 16)
+            let keyState = (data1 >> 8) & 0xFF  // 0xA = key-down
+            guard keyState == 0xA else { return }
+            // NX_KEYTYPE_SOUND_UP = 0, NX_KEYTYPE_SOUND_DOWN = 1, NX_KEYTYPE_MUTE = 7
+            guard keyCode == 0 || keyCode == 1 || keyCode == 7 else { return }
+            // 50 ms delay lets coreaudiod finish adjusting before we read.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self?.pollVolume()
             }
+        }
+    }
+
+    // MARK: — Layer 2: CoreAudio Listeners
+
+    /// Registers volume-change + mute-change listeners on the current default
+    /// output device. Uses `kAudioObjectPropertyElementWildcard` so the
+    /// callback fires regardless of which element the HAL plugin updates.
+    /// Re-attaches automatically when the default device changes (e.g.
+    /// Bluetooth connect / disconnect).
+    private func registerDeviceListener() {
+        guard let deviceID = defaultOutputDeviceID() else { return }
+
+        // --- Volume scalar listener (wildcard element) ---
+        let volBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.pollVolume()
+        }
+        volumeListenerBlock = volBlock
+        var volAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementWildcard
+        )
+        AudioObjectAddPropertyListenerBlock(deviceID, &volAddr, audioQueue, volBlock)
+
+        // --- Mute listener (wildcard element) ---
+        var muteAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementWildcard
+        )
+        AudioObjectAddPropertyListenerBlock(deviceID, &muteAddr, audioQueue) { [weak self] _, _ in
+            self?.pollVolume()
+        }
+
+        // --- Default-output-device-change listener ---
+        let defaultBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.resolveVolumeElement()
+                // Re-register volume listeners on the new device.
+                self.removeDeviceListeners()
+                self.registerDeviceListener()
+            }
+        }
+        deviceChangeListenerBlock = defaultBlock
+        var defaultAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &defaultAddr, audioQueue, defaultBlock
+        )
+    }
+
+    private func removeDeviceListeners() {
+        guard let deviceID = defaultOutputDeviceID() else { return }
+        if let block = volumeListenerBlock {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementWildcard
+            )
+            AudioObjectRemovePropertyListenerBlock(deviceID, &addr, audioQueue, block)
+            volumeListenerBlock = nil
+        }
+        if let block = deviceChangeListenerBlock {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &addr, audioQueue, block
+            )
+            deviceChangeListenerBlock = nil
+        }
+    }
+
+    // MARK: — Layer 3: Polling Timer (safety net)
+
+    /// 500 ms DispatchSourceTimer on a background queue. Catches anything the
+    /// listeners miss (Bluetooth HFP quirks, Control Center via other apps,
+    /// etc.). Uses DispatchSourceTimer (not RunLoop Timer) so it keeps firing
+    /// during modal tracking loops (menu open, window drag, slider drag).
+    private func startPolling() {
+        pollSource?.cancel()
+        let source = DispatchSource.makeTimerSource(queue: audioQueue)
+        source.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        source.setEventHandler { [weak self] in
+            self?.reprobeIfDeviceChanged()
+            self?.pollVolume()
+        }
+        source.resume()
+        pollSource = source
+    }
+
+    /// Reads the current system volume and publishes it if it changed. Shared
+    /// entry point for all three layers — the `isUserDragging` and
+    /// `lastWritten` guards prevent feedback loops and redundant updates.
+    private func pollVolume() {
+        guard !isUserDragging else { return }
+        let current = readScalar()
+        guard abs(current - lastWritten) > 0.005 else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.volume = current
         }
     }
 
@@ -100,7 +230,7 @@ final class SystemVolumeManager {
         }
     }
 
-    // MARK: - Device plumbing
+    // MARK: — Core Audio plumbing
 
     private func defaultOutputDeviceID() -> AudioDeviceID? {
         var addr = AudioObjectPropertyAddress(
@@ -117,9 +247,9 @@ final class SystemVolumeManager {
         return deviceID
     }
 
-    /// Probes the current default output device and finds the element whose
-    /// volume scalar can be READ. For Bluetooth devices this is usually
-    /// element 1 (stream); for built-in/USB speakers it's element 0 (master).
+    /// Probes the current default output device and finds the first element
+    /// whose volume scalar can be READ. Element 0 (master) for built-in/USB,
+    /// element 1 (stream) for Bluetooth.
     private func resolveVolumeElement() {
         guard let deviceID = defaultOutputDeviceID() else {
             volumeElement = nil
@@ -176,27 +306,6 @@ final class SystemVolumeManager {
         AudioObjectSetPropertyData(
             deviceID, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &value
         )
-    }
-
-    /// Optional: CoreAudio listener for lower-latency response when it fires.
-    /// Not relied upon — polling catches everything this misses.
-    private func registerDeviceListener() {
-        guard let deviceID = defaultOutputDeviceID() else { return }
-        guard let element = volumeElement else { return }
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioObjectPropertyScopeOutput,
-            mElement: element
-        )
-        AudioObjectAddPropertyListenerBlock(deviceID, &addr, .main) { [weak self] _, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                let current = self.readScalar()
-                if abs(current - self.lastWritten) > 0.0001 {
-                    self.volume = current
-                }
-            }
-        }
     }
 }
 
