@@ -255,11 +255,14 @@ enum UploadEngine {
         // for it) and the token stops any chunk from starting at the next boundary.
         // The last fully-recorded chunk is untouched, so resume continues from there.
         let pauseToken = UploadPauseToken()
+        // Hoisted so the OUTER catch (pause mid-chunk) can preserve the last known
+        // in-flight fraction — for single-chunk files done=0 there, and reporting
+        // 0/N visually resets the card to 0%.
+        let progressState = ParallelUploadProgress(total: plan.items.count)
 
         let work = Task { () throws -> Void in
             do {
                 let tmpDir = try tempDirectory()
-                let progressState = ParallelUploadProgress(total: plan.items.count)
                 // Resume: the already-recorded chunks count toward the total, so the
                 // displayed progress starts where the pause left off instead of 0.
                 progressState.setCompleted(doneIndexes.count)
@@ -536,11 +539,16 @@ enum UploadEngine {
                     let done = ((try? await DatabaseManager.shared.chunks(for: objectID)) ?? [])
                         .filter { ($0.messageID ?? 0) > 0 }.count
                     let total = plan.items.count
+                    // Preserve the last known in-flight fraction (single-chunk files
+                    // have done=0 here — reporting 0/N visually resets the card).
+                    let doneRatio = total > 0 ? Double(done) / Double(total) : 0
+                    let displayProgress = max(doneRatio, min(progressState.overall, 0.99))
+                    let pauseText = total > 1 ? "Paused — \(done)/\(total) chunks" : "Paused"
                     Task { @MainActor in
                         TransferCenter.shared.pause(
                             transferID,
-                            progress: total > 0 ? Double(done) / Double(total) : 0,
-                            text: "Paused — \(done)/\(total) chunks uploaded"
+                            progress: displayProgress,
+                            text: pauseText
                         )
                     }
                     throw UploadError.cancelled

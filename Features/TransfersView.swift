@@ -211,7 +211,7 @@ struct TransferGridCard: View {
         // of the card sizes itself to its text, so every card in the grid has
         // EXACTLY the same dimensions regardless of name length or status text.
         VStack(spacing: 0) {
-            ZStack {
+            ZStack(alignment: .top) {
                 // Soft vertical sheen instead of a flat fill
                 LinearGradient(
                     colors: [Color.white.opacity(0.055), Color.white.opacity(0.02)],

@@ -257,7 +257,8 @@ final class TransferCenter {
         guard item.state == .paused || item.state == .failed else { return }
         // Don't start a second attempt while one is already running (or still settling
         // after a pause) for the same object — two racing tasks would both upload chunks
-        // for the same object and corrupt the transfer.
+        // for the same object and corrupt the transfer. Runs BEFORE any state flip so
+        // the settle window is detected against the original paused card.
         if items.contains(where: {
             $0.objectID == item.objectID && $0.direction == item.direction &&
             ($0.state == .active || $0.statusText == "Pausing…")
@@ -280,6 +281,13 @@ final class TransferCenter {
                     persist(items[i])
                 }
                 return
+            }
+            // Immediate feedback AFTER the guards pass: the engine takes a moment to
+            // re-validate staged chunks / reconnect — show intent instead of a frozen
+            // paused card.
+            if let i = items.firstIndex(where: { $0.id == id }) {
+                items[i].state = .active
+                items[i].statusText = "Resuming…"
             }
             Task {
                 try? await UploadEngine.upload(
@@ -305,6 +313,10 @@ final class TransferCenter {
                     persist(items[i])
                 }
                 return
+            }
+            if let i = items.firstIndex(where: { $0.id == id }) {
+                items[i].state = .active
+                items[i].statusText = "Resuming…"
             }
             Task {
                 _ = try? await DownloadEngine.download(object: object) { _, _ in }
