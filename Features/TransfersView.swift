@@ -211,7 +211,7 @@ struct TransferGridCard: View {
         // of the card sizes itself to its text, so every card in the grid has
         // EXACTLY the same dimensions regardless of name length or status text.
         VStack(spacing: 0) {
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 // Soft vertical sheen instead of a flat fill
                 LinearGradient(
                     colors: [Color.white.opacity(0.055), Color.white.opacity(0.02)],
@@ -220,7 +220,9 @@ struct TransferGridCard: View {
                 TransferIcon(item: item)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                HStack(spacing: 6) {
+                // Percentage top-LEFT; pause/resume + menu top-RIGHT — the action
+                // button owns the corner while a card is in progress.
+                HStack(alignment: .top) {
                     Text("\(Int(item.progress * 100))%")
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .monospacedDigit()
@@ -228,6 +230,8 @@ struct TransferGridCard: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(Capsule().fill(item.accentColor.opacity(0.14)))
+
+                    Spacer()
 
                     TransferItemActions(item: item)
                 }
