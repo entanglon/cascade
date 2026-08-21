@@ -3365,3 +3365,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 8 (rate-limit UX)**: write-token waits ≥3 s post a throttled
       "Telegram rate limit — pacing writes" info banner instead of silence.
     - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
+
+150. **Audit round 3: error surfacing + LogManager wiring; keypad removed per user
+     (2026-08-21 — COMMITTED `7a8634e`)**
+    - **Keypad REMOVED (user decision)** — lock view keeps the gradient hero +
+      lock sidebar icon; keyboard entry only.
+    - **Item 5 (partial)**: permanently-failed backup mirrors now surface a
+      throttled warning banner ("Backup mirror incomplete") + LogManager error;
+      deleteForever publish failures surface "Cloud sync incomplete" instead of
+      failing silently.
+    - **Item 9 (partial)**: bootLog milestones mirror into the rotating LogManager
+      (`logs/cascade.log`).
+    - Build green; **TEST SUCCEEDED** (83 unit tests). App relaunched.
+    - **Remaining roadmap**: item 7 (UploadManager extraction ~half day), item 9
+      full consolidation, item 10 (Argon2id research).
