@@ -31,7 +31,13 @@ final class VideoStreamingEngine {
     private static let maxCachedLayouts = 16
     private var fileIDs: [String: [Int: Int]] = [:]
     private var fetchers: [String: [Int: ObjectFetcher]] = [:] // objectID -> [chunkIndex: TDLib file id]
-    private var readAheadRuns: [String: ReadAheadRun] = [:]
+    // Up to N concurrent read-ahead runs per object. mpv issues SEPARATE byte-range
+    // streams (main playback + moov/tail probes), and ONE run cannot cover two
+    // distant positions — the previous single-run design made them cancel each
+    // other in a ping-pong that killed every batch (telemetry 2026-08-21: 1623
+    // restarts, 99 completed batches).
+    private var readAheadRuns: [String: [ReadAheadRun]] = [:]
+    private static let maxConcurrentRuns = 3
 
     private let sliceCache = SliceCache()
     // In-flight layout loads, so concurrent callers (theater's play() kickoff +
@@ -233,8 +239,11 @@ final class VideoStreamingEngine {
     // MARK: - Encrypted-path read-ahead
 
     /// Keeps the SliceCache filled ahead of the playhead for encrypted streams.
-    /// Called after every served slice; a no-op while a healthy run already covers
-    /// the window. A backward jump or an exhausted window restarts the run.
+    /// Called after every served slice. Spawns a run only when NO live run already
+    /// spans the position's needed window; never cancels healthy runs to start
+    /// another one (that was the restart storm). Backward movement (seeks, mpv's
+    /// tail probes) never triggers anything — uncached backward data is served by
+    /// single fetches until playback advances past the old window.
     private func ensureReadAhead(objectID: String, layout: ObjectLayout, servedSlice: Int) {
         // Plaintext streaming batches on the serve path already (slicesPerFetch);
         // read-ahead is an encrypted-path-only mechanism.
@@ -242,18 +251,6 @@ final class VideoStreamingEngine {
         let totalSlices = Int((layout.fileSize + Int64(CryptoEngine.sliceSize) - 1) / Int64(CryptoEngine.sliceSize))
         guard servedSlice + 1 < totalSlices else { return }
 
-        func covers(_ run: ReadAheadRun?) -> Bool {
-            guard let run, !run.isCancelled else { return false }
-            return run.head >= servedSlice + Self.readAheadWindowSlices
-                && servedSlice >= run.startSlice - 2
-        }
-
-        stateLock.lock()
-        let existing = readAheadRuns[objectID]
-        stateLock.unlock()
-        if covers(existing) { return }
-
-        // (Re)start: fill from the first uncached slice after the playhead.
         let windowEnd = min(totalSlices - 1, servedSlice + Self.readAheadWindowSlices)
         var start = servedSlice + 1
         while start <= windowEnd,
@@ -263,19 +260,38 @@ final class VideoStreamingEngine {
         guard start <= windowEnd else { return }
 
         stateLock.lock()
-        // Double-check under the lock: another serve call may have started a run.
-        if covers(readAheadRuns[objectID]) {
+        let liveRuns = (readAheadRuns[objectID] ?? []).filter { !$0.isCancelled }
+        readAheadRuns[objectID] = liveRuns
+
+        // Covered when a live run either (a) has already filled everything we
+        // need, or (b) is actively spanning our neighborhood and has progressed
+        // close to us (within a batch) — it will reach us.
+        let covered = liveRuns.contains { r in
+            r.head >= start + Self.readAheadWindowSlices
+                || (r.startSlice <= start + Self.readAheadBatchSlices
+                    && r.endSlice >= start
+                    && r.head + Self.readAheadBatchSlices >= start)
+        }
+
+        if !covered {
+            let run = ReadAheadRun(start: start, end: windowEnd)
+            var next = liveRuns
+            if next.count >= Self.maxConcurrentRuns {
+                // Replace the OLDEST span — a brand-new tail probe must not kill
+                // the run feeding the current playhead.
+                next.sort { $0.startSlice < $1.startSlice }
+                next.removeFirst().cancel()
+            }
+            next.append(run)
+            readAheadRuns[objectID] = next
             stateLock.unlock()
-            return
+            run.task = Task { [weak self] in
+                await self?.readAheadLoop(objectID: objectID, layout: layout, run: run, from: start, end: windowEnd)
+            }
+            Self.streamLog("read-ahead start obj=\(objectID) slices=\(start)...\(windowEnd) (served=\(servedSlice))")
+        } else {
+            stateLock.unlock()
         }
-        existing?.cancel()
-        let run = ReadAheadRun(start: start)
-        run.task = Task { [weak self] in
-            await self?.readAheadLoop(objectID: objectID, layout: layout, run: run, from: start, end: windowEnd)
-        }
-        readAheadRuns[objectID] = run
-        stateLock.unlock()
-        Self.streamLog("read-ahead start obj=\(objectID) slices=\(start)...\(windowEnd) (served=\(servedSlice))")
     }
 
     /// Fills [from ... end] with decrypted slices, batched `readAheadBatchSlices`
@@ -418,6 +434,10 @@ final class VideoStreamingEngine {
                 Self.streamLog("fetch TIMEOUT attempt=\(attempt)/3 obj=\(objectID) off=\(offset) len=\(limit)")
                 guard attempt < 3 else { throw FetchTimeout() }
                 fetcher.cancelPending()
+            } catch where error is CancellationError || Task.isCancelled {
+                // Our own context was cancelled (run restart, teardown) — retrying
+                // a cancelled operation can never succeed; fail through immediately.
+                throw error
             } catch {
                 Self.streamLog("fetch ERROR attempt=\(attempt)/3 obj=\(objectID) off=\(offset) len=\(limit): \(error.localizedDescription)")
                 guard attempt < 3 else { throw error }
@@ -580,7 +600,7 @@ final class VideoStreamingEngine {
             layouts[oldest] = nil
             fileIDs[oldest] = nil
             victimFetchers.append(contentsOf: (fetchers.removeValue(forKey: oldest) ?? [:]).values)
-            if let run = readAheadRuns.removeValue(forKey: oldest) {
+            for run in readAheadRuns.removeValue(forKey: oldest) ?? [] {
                 run.cancel()
             }
             layoutRecency.removeFirst()
@@ -645,10 +665,9 @@ final class VideoStreamingEngine {
         let chunkFetchers = fetchers[objectID] ?? [:]
         let chunkFileIDs = fileIDs[objectID] ?? [:]
         fetchers[objectID] = nil
-        let readAhead = readAheadRuns[objectID]
-        readAheadRuns[objectID] = nil
+        let readAhead = readAheadRuns.removeValue(forKey: objectID) ?? []
         stateLock.unlock()
-        readAhead?.cancel()
+        readAhead.forEach { $0.cancel() }
         for f in chunkFetchers.values {
             f.cancelPending()
         }
@@ -702,18 +721,25 @@ struct ObjectLayout {
 final class ReadAheadRun: @unchecked Sendable {
     private let lock = NSLock()
     private var _start: Int
+    private var _end: Int
     private var _head: Int
     private var _cancelled = false
     var task: Task<Void, Never>?
 
-    init(start: Int) {
+    init(start: Int, end: Int) {
         _start = start
+        _end = end
         _head = start
     }
 
     var startSlice: Int {
         lock.lock(); defer { lock.unlock() }
         return _start
+    }
+
+    var endSlice: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _end
     }
 
     var head: Int {
