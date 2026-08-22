@@ -6,6 +6,41 @@
 
 ---
 
+## 2026-08-22 (evening) — Download pause/resume parity + sparse fast-path fix (item 157)
+
+User asked whether downloads share the new true-pause architecture. They didn't:
+download cards had Cancel only, the catch block deleted the partial file, and
+cancellation never called TDLib's cancelDownloadFile. Also found a LATENT BUG:
+TransferCenter.discard() ran UploadEngine.cleanupPartialUpload unconditionally —
+discarding a DOWNLOAD card would tombstone/delete the cloud object itself.
+
+### What was changed (`724d317`)
+1. `Telegram/TelegramClient.swift` (downloadMessageFile): onCancel also fires
+   cancelDownloadFile(fileId:, onlyIfPending:false) — parts retained per fileId.
+2. `Engine/DownloadEngine.swift`: cancelled downloads KEEP the partial dest and
+   persist exact state ("xc.dl.resume.<objectID>" = completedChunks:plainBytes);
+   resume validates partial size, skips completed chunks, seeks to the exact
+   byte offset, appends; card paused with last-known fraction. Other failures
+   still drop partials.
+3. `Engine/TransferCenter.swift`: discard() direction-aware (downloads drop
+   card + partial only); download resume() feeds live progress into same card.
+4. `Features/TransfersView.swift`: pause button on all active cards; unified
+   menus; direction-aware help texts.
+
+### Follow-up fix (`69973db`)
+User round 1: fresh download after a cache purge failed with CryptoKit error 3
+(AES-GCM authenticationFailure). Root cause: downloadMessageFile's fast path
+trusted ANY existing TDLib local file — video streaming's ranged fetchRangeData
+creates that persistent file and fills ONLY watched ranges, so a recently
+streamed file had a sparse artifact that got copied in as if complete. Fast path
+now requires file.local.isDownloadingCompleted == true; otherwise falls through
+to a full downloadFile that fills missing ranges before the copy.
+
+### Verification
+Build green; **TEST SUCCEEDED** (83 unit tests). User to verify: post-purge
+download now completes; large download → pause mid-chunk → bandwidth stops →
+resume continues from the same fraction without redoing completed work.
+
 ## 2026-08-22 — True pause: cancel TDLib native upload (item 156)
 
 User tested pause/resume: pause held fraction, resume showed "Resuming…" then

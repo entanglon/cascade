@@ -3513,6 +3513,8 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       column), but the resume state does — the next manual download attempt of
       that file auto-resumes from the offset.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
-
-    - Build green; **TEST SUCCEEDED** (83 unit tests).
+    - Follow-up (`69973db`): user hit CryptoKit error 3 downloading after a cache
+      purge — downloadMessageFile's fast path trusted TDLib's SPARSE local
+      artifact left by streaming's ranged downloads. Fast path now requires
+      isDownloadingCompleted == true, else falls through to a full ranged fill.
 
