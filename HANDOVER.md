@@ -3529,4 +3529,22 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       (purge first so retries pull actual bytes).
     - Build green; **TEST SUCCEEDED** (83 unit tests).
 
+159. **Single-cache architecture (2026-08-22 night — COMMITTED `0d022df`)**
+     (`Engine/DownloadEngine.swift`, `Telegram/TelegramClient.swift`,
+     `App/AppState.swift`, `Features/SettingsView.swift`,
+     `Engine/VideoStreamingEngine.swift`, `Engine/AudioPlayerEngine.swift`,
+     `Features/MPVVideoView.swift`)
+    - App-level playback cache RETIRED per user decision: TDLib's downloaded-
+      file store is now the single cache, capped via Settings' Cache Limit
+      (optimizeStorage size:, enforced on change + after each download).
+    - Clear Local Cache purges previews + thumbs + TDLib store (one button).
+    - All media playback streams via VaultStreamServer; replays served from
+      TDLib's local store until evicted.
+    - Books/thumbnails/export/openFile materialize into new scratch/ dir,
+      wiped at every launch; legacy cache/ dir removed by janitor (453 MB).
+    - Gotcha recorded: identical "await cleanupExpiredTransfers()" lines exist
+      in bootstrap AND the 6-hour loop — anchor edits with wider context.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
+
 

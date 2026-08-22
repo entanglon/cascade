@@ -2,11 +2,39 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (evening) — TDLib download-store purge in Settings (item 158); download pause/resume parity (157); true pause upload (156); discard ghost fix (155).
+> 2026-08-22 (night) — Single-cache architecture: app playback cache retired, TDLib store is the only cache with live cap (item 159).
 
 ---
 
-## 2026-08-22 (evening) — TDLib download-store purge (item 158)
+## 2026-08-22 (night) — Single-cache architecture (item 159)
+
+User proposal (approved after assessment): remove the app-level playback cache
+— TDLib's store is already a working cache; keep ONE cache, capped, at the
+TDLib layer. Dependency scan showed quiet downloads also materialize files for
+books/thumbnails/export/open-with-app, so those became scratch materializations.
+
+### What was changed (`0d022df` + janitor fix)
+1. Cap wired to TDLib: Settings "Cache Limit" picker now enforces
+   optimizeStorage(size: cap) immediately on change AND DownloadEngine
+   re-enforces it after every completed download. 0 = uncapped.
+2. One Clear button: Clear Local Cache now purges previews + thumbnails +
+   TDLib's download store; separate "Delete Telegram Download Store" row
+   removed (size folded into its subtitle).
+3. Playback-from-cache retired: mpvStreamURL/pdfStreamURL no longer return nil
+   for cached files; AudioPlayerEngine.resolvePlaybackURL streams all media;
+   MPVVideoView secondary view streams first, materializes only as fallback.
+4. Scratch materialization: DownloadEngine.cacheDirectory() now aliases a new
+   scratch/ dir — books, thumbs, exports, openFile land there; launch janitor
+   wipes last session's scratch AND the legacy cache/ dir (453 MB reclaimed,
+   verified). isCached() semantics preserved for remaining callers.
+
+### Verification
+Build green; **TEST SUCCEEDED** (83 unit tests). Legacy cache dir confirmed
+gone post-launch. NOTE: an initial edit landed the janitor inside the 6-hour
+cleanup loop by mistake (same call text) — caught because the legacy dir
+survived relaunch; moved to post-auth bootstrap and loop restored.
+
+ (item 158)
 
 User asked how large TDLib's cache can grow and whether it can be cleaned.
 Measured: ~/Library/Caches/Cascade/tdlib-files held 2.2 GB of documents.
