@@ -3643,6 +3643,18 @@ Open levers (not scheduled):
       absent from bundle; ROADMAP holds the full distribution plan of record.
     - Licensing/notarization deferred to feature-complete milestone by design.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+168. **Folder sharing + folder-aware imports (2026-08-22 afternoon — COMMITTED `f6cc47e`)**
+     (`Engine/ShareEngine.swift`, `App/AppState.swift`,
+     `Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
+    - Folders now shareable: expansion to descendants + relative paths ride the
+      link manifest (`p` field on ShareFile, Codable-backward-compatible);
+      imports rebuild hierarchy via resolveImportDestination/ensureFolder.
+    - Import-from-link lands in CURRENT folder (All Files browsing only;
+      private section imports stay at root). Legacy links: destination applies,
+      no paths.
+    - Trashed sources excluded from shares; expiry copy fixed to 24 h.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
 
 

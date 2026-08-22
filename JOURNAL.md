@@ -39,6 +39,31 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (afternoon) — Folder sharing + folder-aware imports (item 168)
+
+User asked whether folders can be shared (NO — blocked at engine/AppState/UI)
+and requested: imports should land in the CURRENT folder like uploads do.
+
+### What was changed (`f6cc47e`)
+1. **Folder sharing**: share() expands folder selections to descendant FILES
+   (private/trashed skipped; empty expansion refuses), each ShareFile carries a
+   new optional `path` ("sub/dir/file.ext") encoded as `p` in the link manifest
+   (Codable — legacy links decode unchanged). forwardShare threads the path
+   map. Recipient's import resolves each path, creating missing subfolders
+   (resolveImportDestination/ensureFolder), under the chosen destination.
+2. **Folder-aware imports**: importLink/stageImport/stageLegacyImport accept
+   destinationFolderID; AppState.importShareLink passes currentFolderID when
+   browsing All Files. Imports now land where you're standing — same mental
+   model as uploads.
+3. Quick wins: trashed-source guard (trashed files silently excluded from
+   shares); expiry copy corrected 7 days → 24 hours.
+
+### Verification
+Build green; **TEST SUCCEEDED** (83 unit tests; folder-refusal test updated —
+unauthorized sessions now surface notAuthorized for folder selections).
+Commit `f6cc47e`. User to verify end-to-end: share a folder → open link in
+second account while inside a folder → hierarchy lands under it.
+
 ## 2026-08-22 (afternoon) — Ship-prep quick wins + distribution plan (item 167)
 
 User asked how to ship closed-source without cracking/leaks. Advisory answer:
