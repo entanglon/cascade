@@ -995,10 +995,13 @@ final class MPVLayerView: NSView {
         mpv_set_property_string(mpv, "sub-ass-override", "no")
 
         mpv_set_property_string(mpv, "cache", "yes")
-        mpv_set_property_string(mpv, "cache-secs", "20")
-        mpv_set_property_string(mpv, "demuxer-max-bytes", "104857600")
-        mpv_set_property_string(mpv, "demuxer-max-back-bytes", "26214400")
-        mpv_set_property_string(mpv, "demuxer-readahead-secs", "20")
+        mpv_set_property_string(mpv, "cache-secs", "30")
+        // Network-profile insurance (mpv big-cache recommendation): with the
+        // deep-range fetcher feeding the loopback server, this buffer absorbs
+        // any transient stall before it can reach playback.
+        mpv_set_property_string(mpv, "demuxer-max-bytes", "268435456")
+        mpv_set_property_string(mpv, "demuxer-max-back-bytes", "33554432")
+        mpv_set_property_string(mpv, "demuxer-readahead-secs", "30")
         mpv_set_property_string(mpv, "demuxer-mkv-subtitle-preroll", "yes")
         mpv_set_property_string(mpv, "access-references", "no")
         mpv_set_property_string(mpv, "audio-fallback-to-null", "yes")

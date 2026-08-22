@@ -858,6 +858,32 @@ final class TelegramClient {
 
     // MARK: - TDLib file-cache maintenance
 
+    /// Starts (or supersedes) an ASYNC deep range download. TDLib pipelines many
+    /// parts internally across its connections — one such window replaces dozens
+    /// of serialized synchronous 1 MB round trips. Bytes land in the persistent
+    /// local file at original offsets as downloaded_prefix_size grows from
+    /// download_offset; a later downloadFile with different offset/limit cancels
+    /// this one (that is the seek mechanism).
+    func beginDeepRangeDownload(fileId: Int, offset: Int64, length: Int64, priority: Int) async {
+        guard let client else { return }
+        _ = try? await client.downloadFile(
+            fileId: fileId,
+            limit: length,
+            offset: offset,
+            priority: priority,
+            synchronous: false
+        )
+    }
+
+    /// Live state of TDLib's local copy of a file: where the current ranged
+    /// download starts (`base`), how many bytes are available from it (`prefix`),
+    /// and whether the whole file is already on disk. nil when no local path yet.
+    func localRangeState(fileId: Int) async -> (path: String, base: Int64, prefix: Int64, completed: Bool)? {
+        guard let client else { return nil }
+        guard let f = try? await client.getFile(fileId: fileId), !f.local.path.isEmpty else { return nil }
+        return (f.local.path, f.local.downloadOffset, f.local.downloadedPrefixSize, f.local.isDownloadingCompleted)
+    }
+
     /// Size of TDLib's persistent downloaded-file store on disk
     /// (~/Library/Caches/<dataFolder>/tdlib-files). Grows unbounded by default:
     /// TDLib keeps every fully-downloaded document until explicitly optimized.

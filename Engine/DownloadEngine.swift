@@ -57,7 +57,15 @@ enum DownloadEngine {
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: false
         ).appendingPathComponent("\(AppPaths.dataFolder)/cache", isDirectory: true) {
-            try? fm.removeItem(at: legacy)
+            do {
+                let existed = fm.fileExists(atPath: legacy.path)
+                try fm.removeItem(at: legacy)
+                if existed {
+                    logger.info("Janitor: removed legacy playback cache")
+                }
+            } catch {
+                logger.error("Janitor: legacy cache removal failed: \(error.localizedDescription)")
+            }
         }
         if let scratch = try? scratchDirectory() {
             if let entries = try? fm.contentsOfDirectory(at: scratch, includingPropertiesForKeys: nil) {

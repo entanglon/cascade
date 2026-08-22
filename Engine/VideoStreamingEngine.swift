@@ -142,7 +142,6 @@ final class VideoStreamingEngine {
         let chunk = layout.chunks[chunkIndex]
         let fileID = try await fileID(for: objectID, chunkIndex: chunkIndex, layout: layout)
 
-        let fetcher = fetcher(for: objectID, chunkIndex: chunkIndex)
 
         if let objectKey = layout.objectKey {
             // Encrypted streaming: the first slice of a range walk (jump/start) is
@@ -184,8 +183,13 @@ final class VideoStreamingEngine {
             if let filled = sliceCache.get(cacheKey) {
                 return filled
             }
-            let sealedData = try await fetchWithRetry(
-                fetcher, fileID: fileID, offset: sliceCipherOffset, limit: sealedSliceLen, objectID: objectID
+            let sealedData = try await fetchViaDeepWindow(
+                fileID: fileID,
+                offset: sliceCipherOffset,
+                limit: sealedSliceLen,
+                chunkSealedEndOffset: Self.sealedChunkSize(chunk.plainSize),
+                objectID: objectID,
+                priority: 32
             )
             let decryptedSlice = try CryptoEngine.decryptSlice(
                 sealedData, objectKey: objectKey, index: fileSliceIndex
@@ -202,8 +206,13 @@ final class VideoStreamingEngine {
                 remainingInChunk
             )
 
-            let raw = try await fetchWithRetry(
-                fetcher, fileID: fileID, offset: slicePlainOffset, limit: batchBytes, objectID: objectID
+            let raw = try await fetchViaDeepWindow(
+                fileID: fileID,
+                offset: slicePlainOffset,
+                limit: batchBytes,
+                chunkSealedEndOffset: chunk.plainSize,
+                objectID: objectID,
+                priority: 32
             )
 
             var pieceStart = 0
@@ -430,12 +439,15 @@ final class VideoStreamingEngine {
         let batchBytes = plan.batchBytes
 
         let fileID = try await self.fileID(for: objectID, chunkIndex: chunkIndex, layout: layout)
-        let fetcher = self.fetcher(for: objectID, chunkIndex: chunkIndex)
         let cipherOffset = Int64(localSliceIndex) * Int64(CryptoEngine.sealedSliceSize)
 
-        let raw = try await fetchWithRetry(
-            fetcher, fileID: fileID, offset: cipherOffset, limit: batchBytes,
-            objectID: objectID, priority: priority
+        let raw = try await fetchViaDeepWindow(
+            fileID: fileID,
+            offset: cipherOffset,
+            limit: batchBytes,
+            chunkSealedEndOffset: Self.sealedChunkSize(chunk.plainSize),
+            objectID: objectID,
+            priority: priority
         )
         guard raw.count >= Int(batchBytes) else { throw ShortRangeFetch() }
 
@@ -455,6 +467,17 @@ final class VideoStreamingEngine {
             }
         }
         return count
+    }
+
+    /// Sealed (on-disk) byte length of a chunk document: every slice carries its
+    /// 28-byte GCM seal, the last one possibly partial. Used to clamp deep-window
+    /// coverage to the chunk end.
+    static func sealedChunkSize(_ plainSize: Int64) -> Int64 {
+        let s = Int64(CryptoEngine.sliceSize)
+        let seal = Int64(CryptoEngine.sealedSliceSize - CryptoEngine.sliceSize)
+        let full = plainSize / s
+        let tail = plainSize % s
+        return full * (s + seal) + (tail > 0 ? tail + seal : 0)
     }
 
     /// Pure planner for one encrypted batch request: clamps `maxCount` to the chunk
@@ -527,6 +550,120 @@ final class VideoStreamingEngine {
 
     private struct FetchTimeout: Error {}
     private struct ShortRangeFetch: Error {}
+
+    // MARK: - Deep-range fetching (item 160)
+
+    /// One deep ASYNC TDLib download per fileId window. The old path paid one
+    /// network round trip per 1-8 MB SYNCHRONOUS range request — latency-bound at
+    /// ~1 MB/s sustained, which collapsed mpv's cache into buffering. Instead we
+    /// issue ONE large downloadFile(offset, limit, synchronous:false) and let
+    /// TDLib pipeline many parts internally across its connections (exactly what
+    /// official clients do). Bytes become readable from the persistent local file
+    /// the moment downloaded_prefix_size covers them; slices are served straight
+    /// off that growth. A new superseding downloadFile cancels the previous one —
+    /// which is precisely the seek behavior we want.
+    final class DeepRangeFetcher: @unchecked Sendable {
+        private struct Window { let offset: Int64; let limit: Int64 }
+        private let lock = NSLock()
+        private var windows: [Int: Window] = [:]
+
+        /// How far ahead of a request we keep TDLib fetching (sealed bytes),
+        /// clamped later to the chunk end by callers passing exact cover lengths.
+        static let defaultCoverBytes: Int64 = 48 << 20
+
+        func ensureCoverage(_ fileId: Int, offset: Int64, length: Int64, priority: Int) {
+            lock.lock()
+            let current = windows[fileId]
+            lock.unlock()
+            if let w = current, offset >= w.offset, offset + length <= w.offset + w.limit {
+                return
+            }
+            lock.lock()
+            windows[fileId] = Window(offset: offset, limit: length)
+            lock.unlock()
+            VideoStreamingEngine.streamLog("deep window file=\(fileId) [\(offset), +\(length)) prio=\(priority)")
+            Task {
+                await TelegramClient.shared.beginDeepRangeDownload(
+                    fileId: fileId, offset: offset, length: length, priority: priority)
+            }
+        }
+
+        /// Waits until TDLib's downloaded prefix covers [offset, offset+length),
+        /// then reads those bytes from the persistent local file. Self-heals when
+        /// another flow superseded our window (base moved away or prefix stalled):
+        /// reissues coverage for exactly this request after a short grace period.
+        func waitForBytes(
+            _ fileId: Int,
+            offset: Int64,
+            length: Int64,
+            timeoutSeconds: Double = 45
+        ) async throws -> Data {
+            var waited: Double = 0
+            var lastProgressAt = Date()
+            var lastPrefix: Int64 = -1
+            while waited < timeoutSeconds {
+                if let st = await TelegramClient.shared.localRangeState(fileId: fileId) {
+                    if st.completed || (offset >= st.base && offset + length <= st.base + st.prefix) {
+                        return try Self.readLocal(st.path, at: offset, length)
+                    }
+                    if st.prefix != lastPrefix {
+                        lastProgressAt = Date()
+                    } else if Date().timeIntervalSince(lastProgressAt) > 1.5 {
+                        // Stalled AND not covering us — some other flow superseded
+                        // the window. Re-issue for this request.
+                        VideoStreamingEngine.streamLog("deep reissue file=\(fileId) off=\(offset) len=\(length) (stalled base=\(st.base) prefix=\(st.prefix))")
+                        ensureCoverage(fileId, offset: offset, length: max(length, Self.defaultCoverBytes), priority: 32)
+                        lastProgressAt = Date()
+                    }
+                    lastPrefix = st.prefix
+                } else {
+                    ensureCoverage(fileId, offset: offset, length: max(length, Self.defaultCoverBytes), priority: 32)
+                    lastProgressAt = Date()
+                }
+                try await Task.sleep(nanoseconds: 40_000_000)
+                waited += 0.04
+            }
+            VideoStreamingEngine.streamLog("deep TIMEOUT file=\(fileId) off=\(offset) len=\(length)")
+            throw ShortRangeFetch()
+        }
+
+        private static func readLocal(_ path: String, at offset: Int64, _ length: Int64) throws -> Data {
+            let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(offset))
+            guard let data = try handle.read(upToCount: Int(length)), Int64(data.count) == length else {
+                throw ShortRangeFetch()
+            }
+            return data
+        }
+    }
+
+    /// Shared deep fetcher: one window per fileId across serve + read-ahead paths.
+    private static let deepFetcher = DeepRangeFetcher()
+
+    /// Routes one ranged byte request through the deep-window fetcher: widens
+    /// coverage ahead of the request (clamped to this chunk's sealed end) and
+    /// waits until TDLib's growing prefix covers it, then returns the bytes.
+    private func fetchViaDeepWindow(
+        fileID: Int,
+        offset: Int64,
+        limit: Int64,
+        chunkSealedEndOffset: Int64,
+        objectID: String,
+        priority: Int
+    ) async throws -> Data {
+        let coverLen = min(
+            max(limit * 4, DeepRangeFetcher.defaultCoverBytes),
+            max(chunkSealedEndOffset - offset, limit)
+        )
+        Self.deepFetcher.ensureCoverage(fileID, offset: offset, length: coverLen, priority: priority)
+        let startedAt = Date()
+        defer {
+            let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
+            VideoStreamingEngine.streamLog("deep served obj=\(objectID) off=\(offset) len=\(limit) ms=\(ms)")
+        }
+        return try await Self.deepFetcher.waitForBytes(fileID, offset: offset, length: limit)
+    }
 
     private func withFetchTimeout<T>(_ operation: @escaping () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in

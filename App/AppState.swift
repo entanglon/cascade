@@ -939,6 +939,10 @@ final class AppState {
             await self.loadFiles()
         }
 
+        // Single-cache architecture janitor (item 159): drop last session's
+        // scratch materializations and the legacy playback cache.
+        DownloadEngine.cleanScratchAndLegacyCache()
+
         await cleanupExpiredTransfers()
         await ShareEngine.cleanupExpiredShares()
         await ShareEngine.healChannelPhotos()
@@ -1205,11 +1209,7 @@ final class AppState {
         Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 6 * 60 * 60 * 1_000_000_000)
-        // Single-cache architecture janitor (item 159): drop last session's
-        // scratch materializations and the legacy playback cache.
-        DownloadEngine.cleanScratchAndLegacyCache()
-
-        await cleanupExpiredTransfers()
+                await cleanupExpiredTransfers()
                 await ShareEngine.cleanupExpiredShares()
                 await loadShares()
             }
