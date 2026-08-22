@@ -36,6 +36,13 @@ struct MPVVideoView: NSViewControllerRepresentable {
     }
 
     static func dismantleNSViewController(_ nsViewController: MPVViewController, coordinator: Coordinator) {
+        // Wave 2 item 5: while PiP floats this layer, its mpv core must survive
+        // the theater's INTENTIONAL unmount — cleanup here would kill panel
+        // playback. PiP owns teardown for that case.
+        if PictureInPictureWindow.shared.isActive,
+           PictureInPictureWindow.shared.playerView === nsViewController.playerView {
+            return
+        }
         nsViewController.playerView.cleanup()
     }
 

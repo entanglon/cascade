@@ -442,6 +442,14 @@ final class AudioPlayerEngine {
     func play(file: ObjectRecord, in trackList: [ObjectRecord] = []) {
         playbackError = nil
         ended = false
+        // Wave 2 item 5: a different track taking over while a video floats in
+        // PiP — retire the panel first so the orphaned core can't linger frozen
+        // behind the new controller. (Same-file re-open is intercepted below as
+        // an EXPAND, which tears down and resumes at position.)
+        if PictureInPictureWindow.shared.isActive,
+           PictureInPictureWindow.shared.file?.id != file.id {
+            PictureInPictureWindow.shared.dismiss()
+        }
         // The track we're leaving — its streaming state must be torn down (see
         // stopMPVIfNeeded) so the next play starts with a clean TDLib download
         // queue. Captured BEFORE currentTrack is overwritten below.
@@ -461,9 +469,17 @@ final class AudioPlayerEngine {
             if isLoading { return }
             if let mpv = mpvController {
                 if !mpv.isHeadless {
-                    mpv.play()
-                    isPlaying = true
-                    return
+                    // Re-opening the video that is floating in PiP = EXPAND:
+                    // tear the panel down and restart the stream at the floating
+                    // position (a fresh render view must not bind to this core).
+                    if let pipPos = PictureInPictureWindow.shared.takeOverForReopen(fileID: file.id) {
+                        resumePos = max(resumePos, pipPos)
+                        // fall through to the full start path with resumePos armed
+                    } else {
+                        mpv.play()
+                        isPlaying = true
+                        return
+                    }
                 } else {
                     // Transitioning from headless background audio to full video player
                     resumePos = max(currentTime, mpv.timePos)
@@ -723,5 +739,13 @@ final class AudioPlayerEngine {
         ended = false
         setRemoteCommandsEnabled(false)
         updateNowPlayingInfo()
+    }
+
+    /// Arms a resume position for the NEXT play() call — used when expanding a
+    /// PiP video back into the theater so the fresh stream continues exactly
+    /// where the floating panel left off.
+    func resumeVideoAt(_ seconds: Double) {
+        guard seconds > 0.5 else { return }
+        pendingVideoSeek = seconds
     }
 }

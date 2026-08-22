@@ -1283,6 +1283,10 @@ struct FileBrowserView: View {
             appState.readerFile = file
         } else if appState.selectedDestination == .audio {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
+        } else if PictureInPictureWindow.shared.isShowing(file.id) {
+            // Wave 2 item 5 UX: opening the video that's floating in PiP
+            // EXPANDS it back into the theater at its position.
+            PictureInPictureWindow.shared.expandToTheater()
         } else {
             appState.theaterFile = file
         }
@@ -1299,6 +1303,8 @@ struct FileBrowserView: View {
             appState.readerFile = file
         } else if appState.selectedDestination == .audio, !file.isFolder {
             AudioPlayerEngine.shared.play(file: file, in: visibleFiles)
+        } else if PictureInPictureWindow.shared.isShowing(file.id) {
+            PictureInPictureWindow.shared.expandToTheater()
         } else {
             appState.theaterFile = file
         }

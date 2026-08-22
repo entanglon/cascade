@@ -337,20 +337,15 @@ struct TheaterView: View {
 
     private var topControls: some View {
         HStack(spacing: 12) {
-            // Minimize button — video: float into the PiP panel (Wave 2 item 5);
+            // Minimize button — video: float into the PiP panel (theater closes;
+            // expand from the panel's hover controls or by re-opening the file);
             // audio: hand off to the mini player (headless playback continues).
             Button {
                 withAnimation(.easeInOut(duration: 0.20)) {
                     if previewKind == .video {
-                        if PictureInPictureWindow.shared.isActive {
-                            PictureInPictureWindow.shared.dismiss()
-                        } else {
-                            PictureInPictureWindow.shared.presentFromEngine(title: file.name)
-                        }
+                        togglePictureInPicture()
                     } else if previewKind == .audio, AudioPlayerEngine.shared.currentTrack == nil {
                         AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
-                    }
-                    if previewKind != .video {
                         appState.theaterFile = nil
                     }
                 }
@@ -1208,14 +1203,19 @@ struct TheaterView: View {
     }
 
     /// Wave 2 item 5 — float the live video into the always-on-top PiP panel
-    /// (or bring it back). The theater STAYS OPEN: its view hierarchy must
-    /// remain mounted (dismantle destroys the mpv core), and it keeps working
-    /// as the control surface while the picture floats.
+    /// (or expand it back). Entering CLOSES the theater: the panel is where
+    /// playback lives; the view's dismantle skips mpv cleanup while PiP holds
+    /// the layer, and PiP retains the controller-view so commands keep routing.
     private func togglePictureInPicture() {
         if PictureInPictureWindow.shared.isActive {
-            PictureInPictureWindow.shared.dismiss()
+            PictureInPictureWindow.shared.expandToTheater()
         } else {
-            guard PictureInPictureWindow.shared.presentFromEngine(title: file.name) else { return }
+            guard PictureInPictureWindow.shared.presentFromEngine(
+                title: file.name, file: file, appState: appState
+            ) else { return }
+            withAnimation(.easeInOut(duration: 0.20)) {
+                appState.theaterFile = nil
+            }
         }
     }
 
