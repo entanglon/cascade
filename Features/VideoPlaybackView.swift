@@ -629,6 +629,10 @@ struct PlayerControlsView: View {
                             .offset(x: geo.size.width * displayedProgress - 9)
                             .shadow(radius: 4)
                     }
+                    // GeometryReader aligns children TOP-LEADING by default —
+                    // without this frame the capsule rides above the time
+                    // labels instead of sharing their axis.
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                     .contentShape(Rectangle())
                     .gesture(
                         // minimumDistance 0 → the gesture fires on press, so a

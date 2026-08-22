@@ -326,11 +326,11 @@ class MPVController: ObservableObject {
     }
 
     func seek(relative seconds: Double) {
-        if isHeadless {
-            headlessView?.seek(relativeSeconds: seconds)
-        } else {
-            playerView?.seek(relative: seconds)
-        }
+        // Route through the absolute path so ±10 s skips get the same
+        // scrubber-hold + label sync as bar clicks (they bypassed it before).
+        var target = timePos + seconds
+        if duration > 0 { target = min(max(target, 0), duration) }
+        seek(absolute: target)
     }
 
     /// Queues a seek to apply once the next file finishes loading — mpv drops

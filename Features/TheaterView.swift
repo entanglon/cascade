@@ -1522,6 +1522,9 @@ struct TheaterAudioPlayerView: View {
                         .offset(x: geo.size.width * displayedProgress - 9)
                         .shadow(radius: 4)
                 }
+                // Same top-leading fix as the video overlay scrubber:
+                // GeometryReader aligns children top-leading by default.
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                 .contentShape(Rectangle()) // whole 28pt band hit-tests, not just the 5pt track
                 .gesture(
                     // minimumDistance 0 → the gesture fires on press, so a
