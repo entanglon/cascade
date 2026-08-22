@@ -364,6 +364,41 @@ binaries; scattered print() statements remain in Release stdout paths
 (cosmetic; sweep into a DevLog shim if it ever matters); moat = iteration
 speed + support + legal layer, not binary secrecy.
 
+## Streaming app addon — PLANNED (discussed 2026-08-22, own session later)
+
+User runs a Stremio-like streaming app (separate repo/directory — that session
+opens THERE; read Cascade's HANDOVER first, the reusable pieces live here).
+
+**Goal:** pull playback from Telegram-backed storage instead of torrents,
+using Cascade's engines as the backend via an addon-style bridge.
+
+**Architecture sketch (user decisions):**
+- Dedicated STREAMING CHANNEL, deliberately separate from the main vault
+  channel (blast-radius isolation; keeps the personal catalog clean).
+- Ingestion = forward-based from Telegram movie bots into the streaming
+  channel (server-side copies, zero re-upload — reuses the share-forward
+  machinery).
+- Torrent-playback cache inversion: play directly from torrent; any title
+  played that isn't already in the channel gets uploaded in the background
+  (~1.9 GiB chunker). rootHash dedupe prevents duplicate uploads.
+- Addon bridge exposes catalog + authenticated byte-range stream URLs; the app
+  plays via libmpv like Cascade does (no transcoding needed client-side).
+
+**Reusable Cascade pieces:** VaultStreamServer (+deep-range fetcher),
+TelegramClient/chunker/UploadEngine, rootHash dedupe, subtitle sidecars,
+ShareLink crypto, pool-channel management (multi-channel patterns).
+
+**Open questions for the research session:**
+1. Protected-content flags on bot channels block forwards — detection +
+   fallbacks needed.
+2. VaultStreamServer assumes the vault channel; extend to arbitrary
+   channelID (touches fetcher core — careful, see items 160–166 history).
+3. Upload ceilings: FLOOD_PREMIUM_WAIT monthly throttle; background-queue
+   semantics for bulk ingestion.
+4. Remote access shape: loopback vs LAN vs Tailscale (auth hardening grows).
+5. Risk posture: keep the streaming channel single-user/self-hosted — shared
+   distribution channels are the ban magnet. Content-provenance caveat stands.
+
 ## Feature Wave 2 (approved 2026-08-22 — ordered implementation queue)
 
 1. **Subtitles** — ✅ *implemented 2026-08-22 (`34db68b`)*: sidecar `.srt/.ass/
