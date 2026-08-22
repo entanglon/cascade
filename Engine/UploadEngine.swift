@@ -534,6 +534,24 @@ enum UploadEngine {
                 report("Complete", 1.0)
                 Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
                 logger.info("Upload complete: \(plan.items.count) chunk(s) stored in vault")
+                // TDLib preheat (item 164): pull each chunk document into TDLib's
+                // local store in the background at low priority. Streaming then
+                // serves from local disk (ms-level fetches, observed on rewatched
+                // files) instead of network — this is exactly why previously
+                // watched files never buffer while fresh uploads do.
+                if !isParentPrivate {
+                    let oid = objectID
+                    let chatId = vault.channelID
+                    Task.detached(priority: .utility) {
+                        let chunks = (try? await DatabaseManager.shared.chunks(for: oid)) ?? []
+                        for c in chunks {
+                            guard !Task.isCancelled, let mid = c.messageID else { continue }
+                            if let fid = try? await TelegramClient.shared.getFileId(chatId: chatId, messageId: mid) {
+                                await TelegramClient.shared.beginBackgroundWarm(fileId: fid)
+                            }
+                        }
+                    }
+                }
             } catch {
                 // Pause requested mid-chunk or the task was cancelled externally: keep the
                 // uploaded chunks in Telegram + DB so the upload can resume from the last

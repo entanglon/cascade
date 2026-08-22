@@ -858,6 +858,17 @@ final class TelegramClient {
 
     // MARK: - TDLib file-cache maintenance
 
+    /// Background preheat: pulls a whole document into TDLib's local store at
+    /// minimum priority so later streams/downloads serve from disk. Fire-and-
+    /// forget — TDLib keeps partial progress like any ranged download.
+    func beginBackgroundWarm(fileId: Int) async {
+        guard let client else { return }
+        _ = try? await client.downloadFile(
+            fileId: fileId, limit: 0, offset: 0, priority: 1, synchronous: false
+        )
+    }
+
+
     /// Size of TDLib's persistent downloaded-file store on disk
     /// (~/Library/Caches/<dataFolder>/tdlib-files). Grows unbounded by default:
     /// TDLib keeps every fully-downloaded document until explicitly optimized.

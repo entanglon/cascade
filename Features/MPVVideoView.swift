@@ -292,15 +292,8 @@ class MPVController: ObservableObject {
     }
 
     func seek(to value: Double) {
-        // Optimistic update
-        self.progress = value
-        let targetTime = value * duration
-        beginPendingSeek(targetTime)
-        if isHeadless {
-            headlessView?.seek(absoluteSeconds: targetTime)
-        } else {
-            playerView?.seek(absolute: targetTime)
-        }
+        // Delegate so progress, timePos AND the pending-seek hold stay in sync.
+        seek(absolute: value * max(duration, 0))
     }
 
     func seek(absolute time: Double) {

@@ -726,7 +726,7 @@ struct PlayerControlsView: View {
     private func holdProgressUntilSeekLands(_ target: Double) {
         seekTarget = target
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
             if self.seekTarget == target {
                 self.seekTarget = nil
             }

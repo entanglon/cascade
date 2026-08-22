@@ -96,7 +96,7 @@ final class VideoStreamingEngine {
     // seconds of latency to every start/seek. Throughput comes from the deep
     // read-ahead runs (32-slice batches); responsiveness from these.
     private static let serveBatchSlices = 8
-    private static let readAheadWindowSlices = 48
+    private static let readAheadWindowSlices = 96
 
     /// Appends a timestamped line to /tmp/cascade-stream.log. The unified log is
     /// unreliable on this machine (HANDOVER item 48), and stdout is lost when the
