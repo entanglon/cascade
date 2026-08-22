@@ -2,7 +2,34 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (night) — Wave 2 items 1–5 done (subtitles, pins, drop-zone sync, Touch ID, PiP + audio output picker); TESTING.md manual-QA tracker.
+> 2026-08-22 (night) — Wave 2 items 1–6 done; PiP green-button crash diagnosed (callback race) and REVERTED to known-good hover-expand.
+
+---
+
+## 2026-08-22 (night, later) — Wave 2 item 6: Storage dashboard + PiP revert
+
+User hit a SIGSEGV pressing the PiP panel's GREEN traffic light. Crash log:
+mpv thread, objc_release/Block_release during dispatch drain — an
+over-released callback closure. Root cause: the seamless-expand ADOPTION path
+re-pointed the live layer's callback closures (and re-homed it into a fresh
+VC) while mpv's async machinery still held references across threads — a race
+the renderLock doesn't cover. Per user instruction, REVERTED `4d97421`
+entirely (`3fa714c`): PiP is back on the verified hover-expand behavior
+(theater closes on entry; expand = reopen + resume at position with brief
+buffering; red X stops; no traffic-light zoom). The adoption idea stays parked
+in git history — revisiting requires serializing callback swaps with mpv's
+queue.
+
+### Item 6: Storage dashboard (`cd3cd5e`)
+- NEW `Engine/StorageDashboard.swift`: pure math — `folderSubtreeSizes`
+  (memoized DFS over parentID graph, cycle-guarded, trashed+tombstoned
+  excluded), `largestFiles(limit:)`, `totalBytes`.
+- Settings: new "Storage Dashboard" card between Vault Usage and Local
+  Storage — TOP FOLDERS (≤6, recursive subtree bytes + mini bar + share-of-
+  vault %) and LARGEST FILES (≤6). Complements existing by-type breakdown and
+  cache/TDLib rows.
+- Tests (+3 → **95 unit green**): recursive sums, largest ordering/trash
+  exclusion, A↔B cycle tolerance.
 
 ---
 

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–173 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–5 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–174 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–6 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2647,10 +2647,11 @@ directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
 states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
-items 1–5 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
+items 1–6 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
 sync (`3fd4c9b`), Touch ID unlock (`938c8cb`), PiP + output picker
-(`548816c`); next = Storage dashboard (6). **TESTING.md** tracks manual QA
-per feature. Tests: 93 unit green.
+(`548816c`; seamless-expand experiment REVERTED — see item 173), storage
+dashboard (`cd3cd5e`); next = Duplicate finder UI (7). **TESTING.md** tracks
+manual QA per feature. Tests: 95 unit green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3770,6 +3771,24 @@ Open levers (not scheduled):
       (Engine/ and Storage/ are synchronized groups and need nothing).
     - Build green; **TEST SUCCEEDED** (93 unit tests). Manual QA: TESTING.md
       item 5 checklist.
+173. **Wave 2 item 5 addendum — green-button crash + REVERT (2026-08-22 night — `4d97421` reverted by `3fa714c`)**
+     - Seamless-expand adoption (fresh VC adopts the live layer) crashed with
+       SIGSEGV on the mpv thread: objc_release/Block_release during dispatch
+       drain — callback closures re-pointed while mpv's event machinery still
+       held them across threads. Reverted per user decision; PiP is back on
+       the verified behavior: theater closes on entry, hover strip has the
+       expand button, expand = reopen theater + resume at position, red X
+       stops. Revisit only with callback swaps serialized against mpv's queue.
+174. **Wave 2 item 6 — Storage dashboard (2026-08-22 night — COMMITTED `cd3cd5e`)**
+     (`Engine/StorageDashboard.swift` NEW, `Features/SettingsView.swift`,
+     `CascadeTests/CascadeTests.swift`)
+    - Settings → "Storage Dashboard" card: TOP FOLDERS (≤6) by RECURSIVE
+      subtree bytes (memoized cycle-safe DFS; trashed/tombstoned excluded;
+      archived/private counted) + LARGEST FILES (≤6), each row with a mini
+      usage bar and share-of-vault %. Complements the existing by-type bar
+      (Vault Usage) and cache/TDLib rows (Local Storage).
+    - Build green; **TEST SUCCEEDED** (95 unit tests, +3). Manual QA:
+      TESTING.md item 6 checklist.
 
 
 

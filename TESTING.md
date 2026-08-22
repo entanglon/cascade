@@ -13,6 +13,35 @@
 
 ---
 
+## Wave 2 · Item 6 — Storage dashboard — `cd3cd5e` (2026-08-22)
+
+**Implemented:** Settings → new "Storage Dashboard" card between Vault Usage
+and Local Storage. Two lists, live from the catalog:
+- **Top Folders** (up to 6): each folder's RECURSIVE subtree bytes — a parent
+  shows its whole tree's weight — with a mini usage bar + share-of-vault %.
+- **Largest Files** (up to 6): heaviest files anywhere in the vault.
+Trashed and deleted objects never count; archived/private files do (they hold
+real vault bytes). Cycle-safe against corrupted parent graphs. The by-type
+breakdown (Images/Videos/Audio/Documents/Other) already lived in "Vault
+Usage", and cache/TDLib-store sizes in "Local Storage" — the dashboard
+completes the picture.
+
+**Automated tests:** `storageDashboardRecursiveFolderSizes` (subtree sums,
+largest-files ordering, trash exclusion),
+`storageDashboardCycleSafe` (A↔B parent cycle tolerated).
+
+### Manual QA checklist
+
+- [ ] Settings → Storage Dashboard shows your top folders sorted by size, biggest first.
+- [ ] A folder containing subfolders shows the COMBINED size (parent = whole tree).
+- [ ] Mini bars roughly match each folder's share; percentages sum sensibly (~100% across all folders+root files).
+- [ ] Largest Files list matches reality (biggest videos first).
+- [ ] Trash a large file → its bytes vanish from both lists after the catalog refreshes.
+- [ ] Numbers agree with the existing "Vault Usage → Cloud Storage Used" total.
+
+---
+
+
 ## Wave 2 · Item 5 — Casting/AirPlay + Picture-in-Picture — `548816c` (2026-08-22)
 
 **Implemented:** Two pieces, scoped honestly for an mpv-only app (AVKit is

@@ -401,8 +401,10 @@ speed + support + legal layer, not binary secrecy.
    picker in the player pill row (live AO switch to AirPlay speakers/
    headphones/HDMI/DACs); AirPlay VIDEO = macOS system Screen Mirroring
    (documented — true video routing requires AVKit).
-6. **Storage dashboard** — Settings page: usage by type/folder, cache + TDLib
-   store sizes, largest files.
+6. **Storage dashboard** — ✅ *implemented 2026-08-22 (`cd3cd5e`)*: Settings
+   card with TOP FOLDERS by recursive subtree bytes (cycle-safe DFS) and
+   LARGEST FILES, each with share-of-vault bars; complements the existing
+   by-type bar and cache/TDLib-store rows.
 7. **Duplicate finder UI** — rootHash grouping → review/merge sheet.
 8. **Version history** (existing item 18) + **bulk export** (item 19) — as scoped.
 9. **Shared-page upgrades** — importer visibility, re-share controls, activity.
