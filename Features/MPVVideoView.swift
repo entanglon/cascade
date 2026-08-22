@@ -117,6 +117,14 @@ class MPVController: ObservableObject {
     @Published var volume: Double = 1.0
     @Published var bufferProgress: Double = 0.0
 
+    /// Set while a user-initiated seek is in flight. mpv's async seek keeps
+    /// reporting the OLD (or transiently zeroed) position until data arrives at
+    /// the target — accepting those updates made the scrubber "dance": target →
+    /// back → target. While pending, time-pos updates are ignored until one lands
+    /// within ~1 s of the target (or a safety timeout releases the hold).
+    var pendingSeekTarget: Double?
+    var pendingSeekAt = Date.distantPast
+
     @Published var isBuffering = false
     @Published var isSeeking = false
     @Published var isUserPaused = false
@@ -227,6 +235,8 @@ class MPVController: ObservableObject {
     func play(url: URL) {
         self.isUserPaused = false
         lastURL = url
+        // A new file invalidates any in-flight seek hold from the previous one.
+        pendingSeekTarget = nil
         if isHeadless {
             headlessView?.playHeadless(url)
             return
@@ -282,6 +292,7 @@ class MPVController: ObservableObject {
         // Optimistic update
         self.progress = value
         let targetTime = value * duration
+        beginPendingSeek(targetTime)
         if isHeadless {
             headlessView?.seek(absoluteSeconds: targetTime)
         } else {
@@ -291,11 +302,17 @@ class MPVController: ObservableObject {
 
     func seek(absolute time: Double) {
         if duration > 0 { self.progress = time / duration }
+        beginPendingSeek(time)
         if isHeadless {
             headlessView?.seek(absoluteSeconds: time)
         } else {
             playerView?.seek(absolute: time)
         }
+    }
+
+    private func beginPendingSeek(_ targetTime: Double) {
+        pendingSeekTarget = targetTime
+        pendingSeekAt = Date()
     }
 
     func seek(relative seconds: Double) {
@@ -379,6 +396,16 @@ class MPVController: ObservableObject {
             switch name {
             case "time-pos":
                 if let time = value as? Double {
+                    // Seek-suppression: while a user seek is in flight, mpv keeps
+                    // reporting the old (or transiently zero) position. Hold the
+                    // scrubber at the target until an update lands within ~1 s of
+                    // it — that's the seek completing.
+                    if let target = self.pendingSeekTarget {
+                        let settled = abs(time - target) < 1.0
+                        let timedOut = Date().timeIntervalSince(self.pendingSeekAt) > 12
+                        guard settled || timedOut else { return }
+                        self.pendingSeekTarget = nil
+                    }
                     self.timePos = time
                     if self.duration > 0 {
                         self.progress = time / self.duration
