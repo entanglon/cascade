@@ -1837,7 +1837,7 @@ struct FileItemContextMenu: View {
                 // imports together. The Share menu expands into the two kinds:
                 // PRIVATE (lock) — expiring link in a dedicated pool channel,
                 // max 5; PUBLIC (globe) — never expires, persistent channel.
-                let shareTargets = actionTargets.filter { !$0.isFolder && !$0.isPrivate }
+                let shareTargets = actionTargets.filter { !$0.isPrivate }
                 if !shareTargets.isEmpty {
                     Menu {
                         Button {
@@ -3278,8 +3278,8 @@ struct ShareLinkSheet: View {
             }
 
             Text(fileCount > 1
-                ? "This link expires in 7 days — after the share channel is deleted, the shared files can no longer be imported."
-                : "This link expires in 7 days — after the share channel is deleted, the file can no longer be imported.")
+                ? "This link expires in 24 hours — after the share channel is deleted, the shared files can no longer be imported."
+                : "This link expires in 24 hours — after the share channel is deleted, the file can no longer be imported.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(XTheme.textTertiary)
                 .multilineTextAlignment(.center)

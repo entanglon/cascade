@@ -217,9 +217,10 @@ enum ShareEngine {
                 var n: String
                 var m: String
                 var w: String? = nil
+                var p: String? = nil
             }
             let payload = files.map {
-                Payload(n: $0.name, m: $0.messageIDs.map(String.init).joined(separator: ","), w: $0.wrappedKey)
+                Payload(n: $0.name, m: $0.messageIDs.map(String.init).joined(separator: ","), w: $0.wrappedKey, p: $0.path)
             }
             guard let data = try? JSONEncoder().encode(payload) else { return "" }
             return base64URLEncode(data)
@@ -230,11 +231,12 @@ enum ShareEngine {
                 var n: String
                 var m: String
                 var w: String?
+                var p: String?
             }
             guard let data = base64URLDecode(raw),
                   let payload = try? JSONDecoder().decode([Payload].self, from: data) else { return nil }
             let files = payload.map {
-                ShareFile(name: $0.n, messageIDs: $0.m.split(separator: ",").compactMap { Int64($0) }, wrappedKey: $0.w)
+                ShareFile(name: $0.n, messageIDs: $0.m.split(separator: ",").compactMap { Int64($0) }, wrappedKey: $0.w, path: $0.p)
             }
             // Every entry must resolve to at least one message — a file with zero
             // chunks would import-fail and silently drop from the group.
@@ -247,10 +249,53 @@ enum ShareEngine {
     /// single entry (synthesized on parse); group links carry one entry per
     /// shared file, each naming that file's forwarded chunk messages in the
     /// share channel.
+    /// Resolves (creating missing folders) the destination parent for an
+    /// imported file: destination folder + optional relative path "a/b/name".
+    static func resolveImportDestination(_ destinationID: String?, path: String?) async throws -> String? {
+        guard destinationID != nil || (path != nil && !path!.isEmpty) else { return nil }
+        var parent = destinationID
+        if let path, !path.isEmpty {
+            for component in path.split(separator: "/").map(String.init).dropLast() {
+                parent = try await ensureFolder(named: component, under: parent)
+            }
+        }
+        return parent
+    }
+
+    static func ensureFolder(named name: String, under parentID: String?) async throws -> String {
+        let pool = (try? await DatabaseManager.shared.allObjects()) ?? []
+        if let existing = pool.first(where: {
+            $0.isFolder && $0.tombstoneAt == nil && $0.parentID == parentID && $0.name == name
+        }) {
+            return existing.id
+        }
+        let folder = ObjectRecord(
+            id: UUID().uuidString,
+            vaultID: (try? await DatabaseManager.shared.firstVault())?.id ?? "",
+            name: name,
+            size: 0,
+            mime: "cascade/folder",
+            state: "ready",
+            rootHash: nil,
+            wrappedKey: nil,
+            createdAt: .now,
+            modifiedAt: .now,
+            isFavorite: false,
+            trashed: false,
+            parentID: parentID,
+            isFolder: true
+        )
+        try await DatabaseManager.shared.save(folder)
+        return folder.id
+    }
+
     struct ShareFile: Equatable, Sendable, Codable {
         var name: String
         var messageIDs: [Int64]
         var wrappedKey: String? = nil
+        /// Relative path inside a shared folder ("sub/dir/file.ext"); nil for
+        /// plain file shares. Imports rebuild hierarchy under the destination.
+        var path: String? = nil
     }
 
     // MARK: - Legacy manifest (pre-v22 per-chunk caption, disposable channels)
@@ -316,11 +361,40 @@ enum ShareEngine {
         guard !objects.isEmpty else { throw ShareError.notShareable }
         for object in objects {
             guard !object.isPrivate else { throw ShareError.notShareablePrivate }
-            guard !object.isFolder else { throw ShareError.notShareable }
         }
         guard TelegramClient.shared.isAuthorized else {
             throw ShareError.notAuthorized
         }
+
+        // Folder sharing: folders expand to their descendant FILES — each file
+        // records its path relative to the shared root so imports rebuild the
+        // hierarchy under the destination folder. Private/trashed descendants
+        // are skipped; an empty expansion refuses.
+        var expanded: [(object: ObjectRecord, path: String?)] = []
+        if objects.contains(where: \.isFolder) {
+            let pool = ((try? await DatabaseManager.shared.allObjects()) ?? []).filter { !$0.trashed && $0.tombstoneAt == nil }
+            let byParent = Dictionary(grouping: pool, by: { $0.parentID ?? "" })
+            var expandedIDs = Set<String>()
+            func walk(_ folder: ObjectRecord, _ prefix: String) {
+                for child in byParent[folder.id] ?? [] where !child.isFolder {
+                    guard !child.isPrivate, expandedIDs.insert(child.id).inserted else { continue }
+                    expanded.append((child, prefix.isEmpty ? child.name : prefix + "/" + child.name))
+                }
+                for child in byParent[folder.id] ?? [] where child.isFolder {
+                    guard !child.isPrivate else { continue }
+                    walk(child, (prefix.isEmpty ? "" : prefix + "/") + child.name)
+                }
+            }
+            for object in objects where object.isFolder { walk(object, "") }
+            for object in objects where !object.isFolder {
+                if expandedIDs.insert(object.id).inserted { expanded.append((object, nil)) }
+            }
+        } else {
+            expanded = objects.map { ($0, nil as String?) }
+        }
+        guard !expanded.isEmpty else { throw ShareError.notShareable }
+        let pathByObjectID = Dictionary(uniqueKeysWithValues: expanded.map { ($0.object.id, $0.path) })
+        let objects = expanded.map(\.object)
 
         // Drive-style reuse: a single file that already has a LIVE share (active,
         // not yet expired) reuses that link instead of forwarding the chunks
@@ -338,7 +412,13 @@ enum ShareEngine {
                 return existing
             }
         }
-        return try await forwardShare(objects: objects, lifetime: lifetime, isPublic: isPublic, password: password)
+        return try await forwardShare(
+            objects: objects,
+            lifetime: lifetime,
+            isPublic: isPublic,
+            password: password,
+            pathByObjectID: pathByObjectID
+        )
     }
 
     /// The forward path shared by single-file and group shares: validates every
@@ -348,7 +428,8 @@ enum ShareEngine {
         objects: [ObjectRecord],
         lifetime: TimeInterval,
         isPublic: Bool,
-        password: String? = nil
+        password: String? = nil,
+        pathByObjectID: [String: String?] = [:]
     ) async throws -> String {
         let vault: VaultRecord
         do {
@@ -483,7 +564,7 @@ enum ShareEngine {
             if forwardedPerFile.count == 1 {
                 singleWrappedKeyB64 = wrappedForLink ?? ""
             }
-            files.append(ShareFile(name: object.name, messageIDs: fileIDs, wrappedKey: wrappedForLink))
+            files.append(ShareFile(name: object.name, messageIDs: fileIDs, wrappedKey: wrappedForLink, path: pathByObjectID[object.id] ?? nil))
         }
 
         // Group links present a combined name; the record also stores every object
@@ -970,7 +1051,11 @@ enum ShareEngine {
     /// link, it short-circuits to `.selfOpen` — the file is already in their
     /// cloud, so nothing is imported.
     @discardableResult
-    static func importLink(_ rawLink: String, password: String? = nil) async throws -> ImportOutcome {
+    static func importLink(
+        _ rawLink: String,
+        password: String? = nil,
+        destinationFolderID: String? = nil
+    ) async throws -> ImportOutcome {
         guard TelegramClient.shared.isAuthorized else {
             throw ShareError.notAuthorized
         }
@@ -1023,9 +1108,9 @@ enum ShareEngine {
         defer { Task { try? await TelegramClient.shared.leaveChat(chatId: channelID) } }
 
         if link.isForwardBased {
-            return try await stageImport(link: link, channelID: channelID, vault: vault, password: password)
+            return try await stageImport(link: link, channelID: channelID, vault: vault, password: password, destinationFolderID: destinationFolderID)
         }
-        return try await stageLegacyImport(link: link, channelID: channelID, vault: vault)
+        return try await stageLegacyImport(link: link, channelID: channelID, vault: vault, destinationFolderID: destinationFolderID)
     }
 
     /// v2 import staging: reads the link's messages in the share channel and
@@ -1039,7 +1124,8 @@ enum ShareEngine {
         link: ShareLink,
         channelID: Int64,
         vault: VaultRecord,
-        password: String? = nil
+        password: String? = nil,
+        destinationFolderID: String? = nil
     ) async throws -> ImportOutcome {
         do {
             // The link names one or more files. Single-file links parse into a
@@ -1186,7 +1272,7 @@ enum ShareEngine {
                     modifiedAt: .now,
                     isFavorite: false,
                     trashed: false,
-                    parentID: nil,
+                    parentID: try await Self.resolveImportDestination(destinationFolderID, path: file.path),
                     isFolder: false,
                     isPrivate: false,
                     sourcePath: nil,
@@ -1295,7 +1381,12 @@ enum ShareEngine {
     /// channel whose messages carry `cascade:share:v1:` captions with a
     /// per-chunk manifest. Kept forever — old links and channels must keep
     /// working. Same stage-then-decide semantics as the v2 path.
-    private static func stageLegacyImport(link: ShareLink, channelID: Int64, vault: VaultRecord) async throws -> ImportOutcome {
+    private static func stageLegacyImport(
+        link: ShareLink,
+        channelID: Int64,
+        vault: VaultRecord,
+        destinationFolderID: String? = nil
+    ) async throws -> ImportOutcome {
         do {
             let messages = try await TelegramClient.shared.shareChannelMessages(chatId: channelID, prefix: captionPrefix)
             let metas = messages.compactMap { ShareEngine.parseChunkMeta($0.caption) }
@@ -1359,7 +1450,7 @@ enum ShareEngine {
                 modifiedAt: .now,
                 isFavorite: false,
                 trashed: false,
-                parentID: nil,
+                parentID: try await Self.resolveImportDestination(destinationFolderID, path: nil),
                 isFolder: false,
                 isPrivate: false,
                 sourcePath: nil,

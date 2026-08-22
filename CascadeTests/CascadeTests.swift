@@ -1784,10 +1784,13 @@ struct CascadeTests {
             state: "ready", createdAt: Date(), modifiedAt: Date(), isFolder: true
         )
         do {
+            // Folders ARE shareable since item 168 — they expand to descendant
+            // files (DB access happens post-auth). Without a session this now
+            // surfaces notAuthorized instead of the old folder refusal.
             _ = try await ShareEngine.share(objects: [folder])
-            Issue.record("folders must not be shareable")
+            Issue.record("unauthorized session must refuse before any sharing")
         } catch let error as ShareEngine.ShareError {
-            #expect(error == .notShareable)
+            #expect(error == .notAuthorized)
         } catch {
             Issue.record("unexpected error: \(error)")
         }

@@ -1358,9 +1358,10 @@ final class AppState {
     @MainActor
     func shareFiles(_ objects: [ObjectRecord], isPublic: Bool = false, password: String? = nil) {
         guard !isSharingFile else { return }
-        // Folders and private files can't be shared — drop them from the request
-        // (the context menu already hides the action for folder-only selections).
-        let shareable = objects.filter { !$0.isFolder && !$0.isPrivate }
+        // Private files can't be shared — drop them from the request. Folders
+        // ARE shareable: the engine expands them to their descendant files and
+        // carries hierarchy paths for the recipient's import.
+        let shareable = objects.filter { !$0.isPrivate }
         guard !shareable.isEmpty else {
             // Name the actual blocker — private files and folders have different
             // remedies (move out of Private Vault vs. share the files inside).
@@ -1442,7 +1443,14 @@ final class AppState {
         guard !trimmed.isEmpty else { return }
         Task {
             do {
-                switch try await ShareEngine.importLink(trimmed, password: password) {
+                // Imports land where the user is standing — same mental model
+                // as uploads (folder-aware import).
+                let destination = selectedDestination == .allFiles ? currentFolderID : nil
+                switch try await ShareEngine.importLink(
+                    trimmed,
+                    password: password,
+                    destinationFolderID: destination
+                ) {
                 case .pending(let objectID):
                     print("Cascade URL: staged for import decision (object \(objectID))")
                     self.passwordUnlockLink = nil
