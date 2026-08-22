@@ -13,6 +13,36 @@
 
 ---
 
+## Wave 2 · Item 8 — Version history + bulk export — `6e0be76` (2026-08-22)
+
+**Implemented:**
+1. **Version history** — when a Finder-sync folder edit REPLACES a file, the
+   retired copy is snapshotted into `object_versions` (hash/size/date/chunk
+   lineage) and the lineage travels to the replacement. The old copy now rests
+   in TRASH with its bytes intact (instead of being permanently deleted), so
+   recovery = open Trash and restore until Trash is emptied. View via file
+   context menu → "Version History…" (version number, date, size, hash
+   prefix; empty state explains when versions appear).
+2. **Bulk export** — context menu → "Export…" / "Export N Items…"
+   (multi-select aware; folders expand to their whole tree): pick a
+   destination folder, ExportEngine streams every file there decrypted with
+   hierarchy preserved; banner notifications report start/completion/failures.
+
+**Automated tests:** `versionHistoryCarryOverOnReplace` (snapshot + carry-over
+renumbering + no dangling source rows).
+
+### Manual QA checklist
+
+- [ ] With Finder Sync enabled, edit a synced .txt locally → after replace completes, right-click the file in Cascade → "Version History…" shows v1 with the OLD content's date/size/hash.
+- [ ] The replaced copy appears in Trash (Restore possible until emptied).
+- [ ] A never-replaced file's Version History sheet shows the empty state.
+- [ ] Select several files (mixed folders) → right-click → "Export N Items…" → choose destination → success banner; files land decrypted with folder hierarchy preserved.
+- [ ] Export a single folder → its entire tree materializes in the chosen folder.
+- [ ] Cancel the export destination panel → nothing runs.
+
+---
+
+
 ## Wave 2 · Item 7 — Duplicate finder — `839e62f` (2026-08-22)
 
 **Implemented:** All Files → right-click empty area → "Find Duplicates…".

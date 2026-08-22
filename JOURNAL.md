@@ -2,11 +2,36 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (late night) — Wave 2 items 1–7 done (…+ storage dashboard, duplicate finder).
+> 2026-08-22 (late night) — Wave 2 items 1–8 done (…+ duplicate finder, version history + bulk export).
 
 ---
 
-## 2026-08-22 (late night) — Wave 2 item 7: Duplicate finder
+## 2026-08-22 (late night, later) — Wave 2 item 8: Version history + bulk export
+
+User: "continue" → item 8 ("as scoped" = item 18 snapshot-on-overwrite + item
+19 one-click bulk export).
+
+### Design (`6e0be76`)
+1. **Versions on overwrite**: the Finder mirror's replaceRemote is the only
+   content-update path. It now (a) snapshots the retired copy via
+   recordVersion BEFORE trashing, (b) carries the lineage to the replacement
+   via NEW DatabaseManager.carryOverVersions(from:to:) (renumbered above
+   existing history; source rows removed), and (c) leaves the old copy in
+   TRASH with channel bytes intact instead of deleteForever — Trash-is-the-
+   backup decision makes recovery real. Share note: links to replaced content
+   keep working until Trash empties (trashed-source share guard blocks new).
+2. **VersionsSheet** (NEW Features file + manual pbxproj entries): context
+   menu "Version History…" → vN/date/size/hash-prefix rows, empty state,
+   Trash-recovery hint.
+3. **Bulk export**: context menu "Export…"/"Export N Items…" (multi-select;
+   folders expand descendants client-side since ExportEngine filters exact
+   IDs) → NSOpenPanel destination → ExportEngine.export with appState banner
+   feedback (info start / success+count / error).
+
+Tests (+1 → **98 unit green**): carry-over renumbering, no dangling source
+rows, descending order continuity.
+
+---
 
 User: "Continue" → item 7.
 

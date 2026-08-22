@@ -410,7 +410,12 @@ speed + support + legal layer, not binary secrecy.
    keep-selection per set (oldest pre-picked), one-tap "Keep 1 · Delete N"
    through the full deleteForever path. Upload-side dedupe (skip identical
    upload entirely) remains open as a separate future item.
-8. **Version history** (existing item 18) + **bulk export** (item 19) — as scoped.
+8. **Version history** (item 18) + **bulk export** (item 19) — ✅ *implemented
+   2026-08-22 (`6e0be76`)*: mirror replaces snapshot the retired copy into
+   object_versions and carry the lineage to the replacement; old copies rest
+   in Trash (bytes intact) for recovery; "Version History…" sheet per file.
+   Bulk export via context menu (multi-select + folder trees) into a chosen
+   folder through ExportEngine with banner feedback.
 9. **Shared-page upgrades** — importer visibility, re-share controls, activity.
 10. **Smart search** — Vision OCR index for images; Whisper-local transcripts
     for audio/video; semantic query box. LAST (heaviest).

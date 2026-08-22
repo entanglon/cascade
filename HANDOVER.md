@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–175 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–7 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard, duplicate finder). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–176 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–8 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard, duplicate finder, version history + bulk export). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2650,9 +2650,9 @@ states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
 items 1–7 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
 sync (`3fd4c9b`), Touch ID unlock (`938c8cb`), PiP + output picker
 (`548816c`; seamless-expand experiment REVERTED — see item 173), storage
-dashboard (`cd3cd5e`), duplicate finder (`839e62f`); next = Version history +
-bulk export (8). **TESTING.md** tracks manual QA per feature. Tests: 97 unit
-green.
+dashboard (`cd3cd5e`), duplicate finder (`839e62f`), versions + bulk export
+(`6e0be76`); next = Shared-page upgrades (9). **TESTING.md** tracks manual QA
+per feature. Tests: 98 unit green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3801,6 +3801,23 @@ Open levers (not scheduled):
       full safety rails).
     - Build green; **TEST SUCCEEDED** (97 unit tests, +2). Manual QA:
       TESTING.md item 7 checklist.
+176. **Wave 2 item 8 — Version history + bulk export (2026-08-22 late night — COMMITTED `6e0be76`)**
+     (`Storage/DatabaseManager.swift` carryOverVersions,
+     `Engine/MirrorSyncEngine.swift`, `Features/VersionsSheet.swift` NEW +
+     pbxproj manual entries, `Features/FileBrowserView.swift`,
+     `App/AppState.swift`, `CascadeTests/CascadeTests.swift`)
+    - Mirror replaces now RECORD history: recordVersion(old) before trash →
+      carryOverVersions(old→new) re-homes lineage above existing numbering →
+      old copy RESTS IN TRASH (bytes intact) instead of deleteForever, making
+      recovery real per the Trash-is-the-backup decision. Note: share links to
+      replaced content survive until Empty Trash (new shares blocked by the
+      trashed-source guard).
+    - UI: file context menu "Version History…" → VersionsSheet (vN/date/size/
+      hash rows, empty state, Trash hint). Bulk export: context menu
+      "Export…"/"Export N Items…" with folder-tree expansion → ExportEngine →
+      banner feedback.
+    - Build green; **TEST SUCCEEDED** (98 unit tests, +1). Manual QA:
+      TESTING.md item 8 checklist.
 
 
 
