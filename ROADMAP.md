@@ -370,9 +370,12 @@ speed + support + legal layer, not binary secrecy.
    load matching subs into mpv at play; manual pick from player menu. HIGH.
 2. **Offline pins** — per file/folder "Keep downloaded": exempt from cache LRU
    eviction + free-space floor; pin indicator in grid/list.
-3. **Finder drop-zone sync** — watch local folder(s); new/changed files auto-
-   upload to a mapped cloud folder (FSEvents + hash-based change detection).
-   NOTE: this is NOT share folders — it's one-way local→cloud automation.
+3. **Finder drop-zone sync** — TWO-WAY mirrored folder (user-confirmed,
+   Dropbox-style): local drops auto-upload AND cloud adds/imports materialize
+   in the Finder folder. FSEvents watcher (local→cloud) + download poller
+   (cloud→local, reusing DownloadEngine) + hash-based change detection.
+   v1 does NOT propagate deletions either direction (safest); conflicts resolve
+   last-writer-wins per file. Distinct from share folders (other people).
 4. **Touch ID for Private Vault** — LAContext evaluatePolicy; PIN stays fallback;
    toggle in Settings.
 5. **Casting/AirPlay + PiP** — AirPlay via AVRouting/mpv output options; PiP as
