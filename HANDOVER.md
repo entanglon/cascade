@@ -3585,6 +3585,14 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       within ~1 s of the target or a 12 s timeout; cleared by play(url:) on new
       files. Single funnel covers video + headless.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+163. **Player load/seek UX polish (2026-08-22 night — COMMITTED `7da1ae5`)**
+     (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`)
+    - Time label now follows the scrubber target on seek (timePos synced with
+      progress); isBuffering derived from cachePaused || waitingFirstFrame ||
+      pendingSeek — covers cold start and seek fetch waits that paused-for-
+      cache misses; seek overlay exclusion removed in VideoPlaybackView.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
     - VERIFIED: brief ~1 s startup buffer then fully smooth playback (normal
       cold start). Arc closed — no further streaming work needed for now.

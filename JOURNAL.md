@@ -39,6 +39,24 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (night) — Player load/seek UX polish (item 163)
+
+User follow-ups after scrubber fix: (1) time label didn't follow the scrubber
+on seek, (2) no loading indication during cold start or seek waits ("00:00"
+with a silent few-second wait), (3) buffering overlay never appeared.
+
+Fixes (`7da1ae5`):
+1. seek(absolute:) now also sets timePos to the target — label + bar stay in
+   sync while the seek lands.
+2. MPVController.isBuffering is now derived: cachePaused || waitingFirstFrame
+   || pendingSeekTarget != nil. paused-for-cache alone never fires during cold
+   start/seek fetch waits — play(url:) arms waitingFirstFrame until the first
+   accepted time-pos update.
+3. VideoPlaybackView shows the existing overlay during seeks too (dropped the
+   `&& !isSeeking` exclusions).
+
+Verification: build green; **TEST SUCCEEDED** (83 unit tests).
+
 ## 2026-08-22 (night) — Scrubber bounce fix (item 162)
 
 User: seek worked but the playhead "danced" — clicked position → snapped back
