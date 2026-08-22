@@ -318,8 +318,14 @@ final class TransferCenter {
                 items[i].state = .active
                 items[i].statusText = "Resuming…"
             }
-            Task {
-                _ = try? await DownloadEngine.download(object: object) { _, _ in }
+            Task { [weak self] in
+                _ = try? await DownloadEngine.download(object: object) { status, p in
+                    Task { @MainActor in
+                        // Live progress into the SAME card; update() is monotonic
+                        // so the paused fraction never dips.
+                        self?.update(id, progress: p, text: status)
+                    }
+                }
             }
         }
     }
@@ -331,13 +337,25 @@ final class TransferCenter {
         unsettle(id)
         unpersist(ids: [item.id])
         items.removeAll { $0.id == id }
-        // Stop the upload task first so it doesn't keep posting chunks after cleanup
+        // Stop the transfer task first so it doesn't keep posting progress after cleanup
         if let handler = cancelHandlers.removeValue(forKey: id) {
             handler()
         }
         let objectID = item.objectID
-        Task {
-            await UploadEngine.cleanupPartialUpload(objectID: objectID)
+        if item.direction == .upload {
+            Task {
+                await UploadEngine.cleanupPartialUpload(objectID: objectID)
+            }
+        } else {
+            // Download: dropping the card also drops the partial cache file.
+            // NEVER run the upload cleanup here — it would tombstone and delete
+            // the cloud object itself (latent bug found while wiring download
+            // pause/resume, 2026-08-22).
+            Task {
+                if let object = try? await DatabaseManager.shared.object(objectID) {
+                    DownloadEngine.removePartialDownload(object: object)
+                }
+            }
         }
     }
 

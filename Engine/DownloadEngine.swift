@@ -85,7 +85,16 @@ enum DownloadEngine {
             totalWork: Double(max(1, chunks0.count)),
             reuseExisting: true
         )
+        // Hoisted so both report() and the catch block share them: the exact
+        // resume state when the task is cancelled (pause) — which chunks fully
+        // landed, how many plain bytes were appended to dest, and the last
+        // overall fraction for the paused card.
+        var completedChunks = 0
+        var writtenTotal: Int64 = 0
+        var lastOverall = 0.0
+
         func report(_ s: String, _ p: Double) {
+            lastOverall = max(lastOverall, min(max(p, 0), 1))
             progress(s, p)
             if let transferID {
                 Task { @MainActor in TransferCenter.shared.update(transferID, progress: p, text: s) }
@@ -113,11 +122,26 @@ enum DownloadEngine {
 
                 let fm = FileManager.default
                 let destPath = dest.path(percentEncoded: false)
-                if fm.fileExists(atPath: destPath) { try fm.removeItem(at: dest) }
-                fm.createFile(atPath: destPath, contents: nil)
-                let handle = try FileHandle(forWritingTo: dest)
-                defer { try? handle.close() }
 
+                // Pause/resume: a previously paused download left a partial dest
+                // file plus a recorded (completedChunks, plainBytes) state. If the
+                // partial is intact, skip past the completed chunks and append from
+                // the exact byte offset (TDLib separately resumes an interrupted
+                // chunk from its own cached parts via fileId).
+                var startIndex = 0
+                var resumeBytes: Int64 = 0
+                if let saved = loadResumeState(objectID: object.id),
+                   saved.chunks > 0, saved.chunks < chunks.count,
+                   let attrs = try? fm.attributesOfItem(atPath: destPath),
+                   (attrs[.size] as? NSNumber)?.int64Value == saved.bytes {
+                    startIndex = saved.chunks
+                    resumeBytes = saved.bytes
+                    logger.info("Download resume: \(saved.chunks)/\(chunks.count) chunks, \(saved.bytes) bytes already on disk")
+                } else {
+                    clearResumeState(objectID: object.id)
+                    if fm.fileExists(atPath: destPath) { try fm.removeItem(at: dest) }
+                    fm.createFile(atPath: destPath, contents: nil)
+                }
                 let tmpDir = try UploadEngine.tempDirectory()
                 let total = Double(chunks.count)
 
@@ -127,8 +151,16 @@ enum DownloadEngine {
                 var writtenMessageIDs = Set<Int64>()
                 var writtenBytes: Int64 = 0
 
+                let handle = try FileHandle(forWritingTo: dest)
+                defer { try? handle.close() }
+                if startIndex > 0 {
+                    try handle.seek(toOffset: UInt64(resumeBytes))
+                    writtenBytes = resumeBytes
+                }
+
                 for (i, chunk) in chunks.enumerated() {
                     try Task.checkCancellation()
+                    guard i >= startIndex else { continue }
                     guard let messageId = chunk.messageID else { throw DownloadError.fileNotFound }
                     guard writtenMessageIDs.insert(messageId).inserted else { continue }
                     let n = i + 1
@@ -194,12 +226,15 @@ enum DownloadEngine {
                     }
 
                     writtenBytes += plainCount
+                    completedChunks = i + 1
+                    writtenTotal = writtenBytes
 
                     try? fm.removeItem(at: tmp)
                     report("Assembled chunk \(n)/\(chunks.count)", Double(n) / total)
                 }
 
                 try handle.close()
+                clearResumeState(objectID: object.id)
                 // The assembled file must be exactly the recorded size. Catches
                 // catalog corruption (duplicated/missing chunk rows) even where
                 // the root-hash check doesn't apply.
@@ -229,6 +264,17 @@ enum DownloadEngine {
                 enforceCacheBudget()
                 return dest
             } catch {
+                // Pause semantics: a cancelled download keeps its partial dest
+                // file plus exact resume state, so Resume continues from the
+                // last completed chunk at the exact byte offset (the in-flight
+                // chunk is resumed inside TDLib from its cached parts). Any
+                // other failure drops the partial so a retry starts clean.
+                if Task.isCancelled, let transferID {
+                    saveResumeState(objectID: object.id, chunks: completedChunks, bytes: writtenTotal)
+                    await TransferCenter.shared.pause(transferID, progress: lastOverall, text: "Paused")
+                    throw DownloadError.cancelled
+                }
+                clearResumeState(objectID: object.id)
                 // Drop the partial file on any failure so a retry re-downloads cleanly from scratch
                 try? FileManager.default.removeItem(at: dest)
                 if Task.isCancelled {
@@ -251,6 +297,45 @@ enum DownloadEngine {
         } catch is CancellationError {
             throw DownloadError.cancelled
         }
+    }
+
+    // MARK: - Download pause/resume state
+    //
+    // Exact byte-offset bookkeeping for a paused download, persisted in
+    // UserDefaults so Resume (even after a relaunch) can verify the partial
+    // file and skip past completed chunks. Key format: "count:bytes".
+
+    private static func resumeStateKey(_ objectID: String) -> String {
+        "xc.dl.resume.\(objectID)"
+    }
+
+    static func saveResumeState(objectID: String, chunks: Int, bytes: Int64) {
+        guard chunks > 0 else {
+            clearResumeState(objectID: objectID)
+            return
+        }
+        UserDefaults.standard.set("\(chunks):\(bytes)", forKey: resumeStateKey(objectID))
+    }
+
+    static func loadResumeState(objectID: String) -> (chunks: Int, bytes: Int64)? {
+        guard let raw = UserDefaults.standard.string(forKey: resumeStateKey(objectID)) else { return nil }
+        let parts = raw.split(separator: ":")
+        guard parts.count == 2, let chunks = Int(parts[0]), let bytes = Int64(parts[1]) else {
+            clearResumeState(objectID: objectID)
+            return nil
+        }
+        return (chunks, bytes)
+    }
+
+    static func clearResumeState(objectID: String) {
+        UserDefaults.standard.removeObject(forKey: resumeStateKey(objectID))
+    }
+
+    /// Drops any partial download artifacts for an object (discarded download):
+    /// the partial cache file and its resume state.
+    static func removePartialDownload(object: ObjectRecord) {
+        clearResumeState(objectID: object.id)
+        try? FileManager.default.removeItem(at: cacheURL(for: object))
     }
 
     // MARK: - Adaptive LRU Cache Management

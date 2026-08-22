@@ -817,6 +817,16 @@ final class TelegramClient {
                 syncLock { fileDownloadWatchdogs.removeValue(forKey: file.id)?.cancel() }
                 syncLock { fileDownloadProgressHandlers.removeValue(forKey: file.id) }
                 continuation?.resume(throwing: CancellationError())
+                // True cancel/pause: ALSO stop TDLib's native download — otherwise
+                // bytes keep flowing in the background after the caller gives up.
+                // TDLib keeps the downloaded prefix for the fileId, so a re-issued
+                // downloadFile resumes from cached parts (same family of behavior
+                // verified empirically on the upload side, item 156).
+                let client = self.client
+                let fileId = file.id
+                Task {
+                    try? await client?.cancelDownloadFile(fileId: fileId, onlyIfPending: false)
+                }
             }
             onProgress?(1.0)
         }

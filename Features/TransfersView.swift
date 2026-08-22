@@ -485,28 +485,22 @@ struct TransferItemActions: View {
     private var quickAction: some View {
         switch item.state {
         case .active:
-            if item.direction == .upload {
-                circleActionButton(
-                    systemName: "pause.fill",
-                    color: .orange,
-                    help: "Pause upload — resumes from the last uploaded chunk"
-                ) {
-                    TransferCenter.shared.cancel(item.id)
-                }
-            } else {
-                circleActionButton(
-                    systemName: "xmark",
-                    color: .red,
-                    help: "Cancel download"
-                ) {
-                    TransferCenter.shared.cancel(item.id)
-                }
+            circleActionButton(
+                systemName: "pause.fill",
+                color: .orange,
+                help: item.direction == .upload
+                    ? "Pause upload — resumes from the last uploaded chunk"
+                    : "Pause download — resumes from the exact byte offset"
+            ) {
+                TransferCenter.shared.cancel(item.id)
             }
         case .paused:
             circleActionButton(
                 systemName: "play.fill",
                 color: .orange,
-                help: "Resume upload from the last uploaded chunk"
+                help: item.direction == .upload
+                    ? "Resume upload from the last uploaded chunk"
+                    : "Resume download from the exact byte offset"
             ) {
                 Task { await TransferCenter.shared.resume(item.id) }
             }
@@ -553,28 +547,15 @@ struct TransferItemActions: View {
 func TransferItemMenuContent(item: TransferCenter.Item, appState: AppState) -> some View {
     switch item.state {
     case .active:
-        if item.direction == .upload {
-            Button {
-                TransferCenter.shared.cancel(item.id)
-            } label: {
-                Label("Pause", systemImage: "pause.fill")
-            }
-            Button(role: .destructive) {
-                TransferCenter.shared.discard(item.id)
-            } label: {
-                Label("Cancel & Delete", systemImage: "trash.fill")
-            }
-        } else {
-            Button {
-                TransferCenter.shared.cancel(item.id)
-            } label: {
-                Label("Cancel", systemImage: "xmark")
-            }
-            Button(role: .destructive) {
-                TransferCenter.shared.discard(item.id)
-            } label: {
-                Label("Cancel & Delete", systemImage: "trash.fill")
-            }
+        Button {
+            TransferCenter.shared.cancel(item.id)
+        } label: {
+            Label("Pause", systemImage: "pause.fill")
+        }
+        Button(role: .destructive) {
+            TransferCenter.shared.discard(item.id)
+        } label: {
+            Label("Cancel & Delete", systemImage: "trash.fill")
         }
     case .paused:
         Button {
