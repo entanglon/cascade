@@ -17,13 +17,13 @@
 
 **Implemented:** Two pieces, scoped honestly for an mpv-only app (AVKit is
 banned):
-1. **PiP** — new "Picture in Picture" button in the theater player's top bar
-   (and the chevron minimize button now does this for videos): the live video
-   floats into an always-on-top mini panel (bottom-right, draggable, survives
-   Spaces/app switches) while the theater stays open as the control surface —
-   play/pause/seek/subtitles keep working. Closing the panel returns the video
-   seamlessly; ESC or closing the theater stops everything cleanly. Mutual
-   exclusion with the fullscreen window (they own the same render surface).
+1. **PiP** — the theater's PiP button (or chevron minimize) floats the live
+   video into an always-on-top mini panel (bottom-right, draggable, survives
+   Spaces/app switches) and CLOSES THE THEATER — the panel is where playback
+   lives. Hover over the panel for controls: play/pause · title · expand-back.
+   Expanding (panel button, or re-opening the same file in Cascade) reopens
+   the theater resuming at the exact position. Closing the panel stops
+   playback cleanly. Mutual exclusion with the fullscreen window.
 2. **Audio output picker** — a hi-fi-speaker button in the player's pill row
    lists every endpoint mpv sees (built-in speakers, AirPlay speakers when
    connected, headphones, HDMI, USB DACs); selecting one switches output LIVE
@@ -35,18 +35,18 @@ manual checklist below is the verification.
 
 ### Manual QA checklist
 
-- [ ] Play a video → click the new PiP button (top bar, next to Full Screen) → a small floating panel appears bottom-right showing the video; playback never stutters or restarts.
-- [ ] Drag the panel anywhere; open another app over Cascade → the panel stays on top.
-- [ ] Switch to another Space / desktop → the panel follows and keeps playing.
-- [ ] Theater (still open behind) → pause, seek, ±10 s, subtitle switching → all affect the floating picture.
-- [ ] Click the panel's close (X) traffic light → video returns into the theater at the same position, still playing.
-- [ ] Press the chevron button (theater top-left, was "minimize") → toggles PiP too.
-- [ ] With PiP active, press ESC in the theater → panel closes AND playback stops (no orphaned frozen panel).
-- [ ] With PiP active, click the theater's X close button → same clean stop.
-- [ ] Enter the fullscreen player → the PiP button is hidden there; with PiP active, entering fullscreen is refused until PiP exits.
+- [ ] Play a video → click PiP (top bar button or chevron minimize) → the THEATER CLOSES and a small floating panel appears bottom-right; playback never stutters or restarts.
+- [ ] Hover over the panel → control strip fades in: play/pause works, title shows.
+- [ ] Drag the panel anywhere; open another app over Cascade → panel stays on top; switch Spaces → follows and keeps playing.
+- [ ] Click the expand button on the panel → theater REOPENS and playback resumes at the exact position where the panel left off.
+- [ ] Enter PiP again, then double-click the SAME video tile in All Files → expands back into the theater at position (does not restart from zero).
+- [ ] With PiP active, play a DIFFERENT video from the grid → the panel retires cleanly and the new video plays in the theater (no frozen orphan panel).
+- [ ] Click the panel's close (X) traffic light with no theater open → playback stops entirely, panel gone (no zombie audio).
+- [ ] Fullscreen player: the PiP button is hidden there; entering fullscreen while PiP is active is refused until PiP exits.
 - [ ] Output picker: click the hi-fi speaker button in the pill row (next to waveform) → popover lists "auto" + devices; current one has a checkmark.
 - [ ] Connect an AirPlay speaker (or Bluetooth headphones), reopen the popover → it appears in the list; select it → sound moves there instantly mid-video; switch back to built-in.
-- [ ] (Optional) Enable macOS Screen Mirroring to an Apple TV → the floating/theater video mirrors (system-level AirPlay video).
+- [ ] Subtitles still work in PiP (sidecar subs render in the floating picture).
+- [ ] (Optional) Enable macOS Screen Mirroring to an Apple TV → the floating video mirrors (system-level AirPlay video).
 
 ---
 
