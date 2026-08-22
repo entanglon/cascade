@@ -3602,6 +3602,20 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       steady state already smooth; ROADMAP lever = multi-TDLib-instance
       parallelism.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+165. **Streaming round 3: preheat + flicker fix (2026-08-22 afternoon — COMMITTED `92c5a14`)**
+     (`Engine/UploadEngine.swift`, `Telegram/TelegramClient.swift`,
+     `Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`,
+     `Engine/VideoStreamingEngine.swift`)
+    - MKV-vs-MP4 buffering difference explained by log data: TDLib local-store
+      warmth, not size/container — rewatched files fetch at 1-48 ms locally,
+      fresh uploads pull network at ~600-800 ms/batch.
+    - Preheat after upload (non-private): sequential low-priority full downloads
+      of each chunk doc into TDLib's store.
+    - Flicker root cause #2 fixed: VideoPlaybackView's own 1.5 s hold → 12 s;
+      seek(to:) delegates to absolute (label sync on fraction seeks).
+    - readAheadWindowSlices 96.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
 
 

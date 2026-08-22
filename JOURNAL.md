@@ -39,6 +39,28 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (afternoon) — Streaming round 3: preheat + flicker root cause #2 (item 165)
+
+User: MKVs play buffer-free, the MP4 (2× size) buffers; seek-label reset still
+there. Log forensics answered the size question: SIZE DOESN'T MATTER — TDLib
+LOCAL STORE warmth does. The mkvs were watched before → their fetches complete
+in 1-48 ms (local hits); the mp4 is a fresh upload → every 8 MB batch is a
+network pull at ~600-800 ms. Duplicate fetches (run prio-8 + serve prio-32 on
+the same range) waste part of that budget.
+
+Fixes (`92c5a14`):
+1. FLICKER ROOT CAUSE #2: VideoPlaybackView has its OWN 1.5 s scrubber hold
+   (only TheaterView's was extended in item 164) → now 12 s. Also
+   MPVController.seek(to:) delegates to seek(absolute:) so fraction seeks sync
+   timePos too.
+2. Post-upload TDLib PREHEAT: after a successful non-private upload completes,
+   background task walks chunk records → getFileId → downloadFile(0, limit 0,
+   priority 1) per chunk. Fresh uploads then stream from local disk exactly
+   like rewatched files. beginBackgroundWarm added to TelegramClient.
+3. readAheadWindowSlices 48→96 for deeper runway against bitrate spikes.
+
+Verification: build green; **TEST SUCCEEDED** (83 unit tests). Commit `92c5a14`.
+
 ## 2026-08-22 (night) — Seek UX round 2 + buffering-honesty (item 164)
 
 User: seek label still flickered (target → initial → target) and asked whether
