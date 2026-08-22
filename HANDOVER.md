@@ -3637,6 +3637,13 @@ Open levers (not scheduled):
       centered frame on the ZStack in both players.
     - ±10 s skips now route through seek(absolute:) → get hold + label sync.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+167. **Ship-prep quick wins + distribution plan (2026-08-22 afternoon — COMMITTED `797df96`)**
+     (`Engine/VideoStreamingEngine.swift`, `App/AppState.swift`, `ROADMAP.md`)
+    - streamLog/bootLog compile out in Release (#if DEBUG); docs verified
+      absent from bundle; ROADMAP holds the full distribution plan of record.
+    - Licensing/notarization deferred to feature-complete milestone by design.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
 
 

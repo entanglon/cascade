@@ -39,6 +39,23 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (afternoon) — Ship-prep quick wins + distribution plan (item 167)
+
+User asked how to ship closed-source without cracking/leaks. Advisory answer:
+compiled Swift already hides source; Keychain-held TG credentials = no embedded
+secrets; perfect protection impossible — raise cost + legal layer (EULA/DMCA).
+Decision: licensing/notarization/activation DEFERRED to feature-complete
+milestone; three cheap-now items done now (`797df96`):
+1. streamLog + bootLog bodies wrapped in #if DEBUG — Release builds contain no
+   fetch-offset/object-ID/bootstrap internals. (First gating attempt via script
+   truncated two source files; recovered from git, re-applied via edit tool.)
+2. Verified zero .md/docs in bundle or pbxproj resources.
+3. ROADMAP.md: full distribution & licensing plan of record (Developer ID +
+   notarized DMG, Ed25519 offline keys or activation backend, separate
+   distribution Telegram api_id, release hardening checklist, accepted risks).
+
+Verification: build green; **TEST SUCCEEDED** (83 unit tests).
+
 ## 2026-08-22 (afternoon) — Scrubber axis fix + relative-seek hold (item 166)
 
 User's final scrubber audit: the bar rode ABOVE the time labels instead of
