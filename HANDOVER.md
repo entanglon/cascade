@@ -3518,3 +3518,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       artifact left by streaming's ranged downloads. Fast path now requires
       isDownloadingCompleted == true, else falls through to a full ranged fill.
 
+158. **TDLib download-store purge (2026-08-22 evening — COMMITTED `09f1187`)**
+     (`Telegram/TelegramClient.swift`, `App/AppState.swift`,
+     `Features/SettingsView.swift`)
+    - User question: how big can TDLib's cache get / can it be cleaned? Answer:
+      unbounded (tdlib-files/documents held 2.2 GB); now cleanable in Settings →
+      "Delete Telegram Download Store" via official optimizeStorage API
+      (documents only, safe — channel is source of truth). Size shown live;
+      toast reports bytes freed. Also enables real pause/resume testing
+      (purge first so retries pull actual bytes).
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
+

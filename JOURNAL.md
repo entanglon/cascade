@@ -2,9 +2,33 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (evening) — Download pause/resume parity + discard-direction fix (item 157); true pause upload (156); discard ghost fix (155).
+> 2026-08-22 (evening) — TDLib download-store purge in Settings (item 158); download pause/resume parity (157); true pause upload (156); discard ghost fix (155).
 
 ---
+
+## 2026-08-22 (evening) — TDLib download-store purge (item 158)
+
+User asked how large TDLib's cache can grow and whether it can be cleaned.
+Measured: ~/Library/Caches/Cascade/tdlib-files held 2.2 GB of documents.
+TDLib keeps every fully-downloaded document indefinitely (nothing ever purged
+it), which also makes pause/resume hard to observe (retries hit the cache).
+
+### What was changed (`09f1187`)
+1. `Telegram/TelegramClient.swift`: tdlibFilesSize() (disk walk of filesPath())
+   + purgeDownloadedFiles() using TDLib's official optimizeStorage
+   (fileTypes=[document], size=0, immunityDelay=0, returnDeletedFileStatistics)
+   → bytes freed from stats.size. Safe by design: channel remains source of
+   truth, anything requested later re-downloads.
+2. `App/AppState.swift`: clearTdlibFileCache() with freed-space toast +
+   .tdlibCacheChanged notification.
+3. `Features/SettingsView.swift`: new "Delete Telegram Download Store" row
+   showing live size + confirm dialog.
+
+Note: this ALSO gives a clean way to test pause/resume for real — purge the
+store first so retries actually pull bytes.
+
+### Verification
+Build green; **TEST SUCCEEDED** (83 unit tests). Commit `09f1187`.
 
 ## 2026-08-22 (evening) — Download pause/resume parity + sparse fast-path fix (item 157)
 
