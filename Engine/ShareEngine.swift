@@ -611,6 +611,12 @@ enum ShareEngine {
             record.groupObjectIDs = objects.map(\.id).joined(separator: ",")
         }
         try await DatabaseManager.shared.saveShare(record)
+        try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
+            id: UUID().uuidString, shareID: record.id, channelID: channelID,
+            kind: "created", userID: nil,
+            detail: isPublic ? "Public link created (never expires)" : "Private link created (24h)",
+            createdAt: .now
+        ))
         logger.info("Share: \(displayName) (\(files.count) file(s), \(allMessageIDs.count) chunks) into channel \(channelID) [\(isPublic ? "public" : "private"), protected=\(isProtected)]")
         return finalLink
     }
@@ -977,6 +983,11 @@ enum ShareEngine {
         var updated = share
         updated.state = "revoked"
         try? await DatabaseManager.shared.saveShare(updated)
+        try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
+            id: UUID().uuidString, shareID: share.id, channelID: share.channelID,
+            kind: "revoked", userID: nil, detail: "Link cancelled — recipients can no longer open it",
+            createdAt: .now
+        ))
     }
 
     /// Revokes every active outgoing share (private and public). Private slots
@@ -1000,19 +1011,53 @@ enum ShareEngine {
     /// it revokes itself (messages deleted, channel left), exactly like a
     /// manual cancel. The recipient's forwarded copy lives in THEIR vault
     /// channel, so the grace-protected forward is unaffected.
+    ///
+    /// Wave 2 item 9 — importer visibility: EVERY join (private AND public
+    /// channels) lands in the share-activity log. Private joins attribute to
+    /// the active share on that slot; public joins stay channel-level (every
+    /// public link shares one channel, so per-link attribution is impossible).
     static func handleShareChannelMemberJoined(chatId: Int64, userId: Int64) async {
-        guard let state = try? await DatabaseManager.shared.shareChannelState(channelID: chatId),
-              state.kind == "private" else { return }
-        // Our own account rejoining its slot (after a cancel/leave) is not a use.
-        if let me = try? await TelegramClient.shared.myUserID(), me == userId { return }
-        let share = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
-            .first { $0.state == "active" && !$0.isPublic && $0.channelID == chatId }
-        guard let share else { return }
-        logger.info("Share \(share.id): recipient joined slot \(state.id) — cancelling after \(cancelOnUseGrace)s grace")
-        try? await Task.sleep(nanoseconds: UInt64(cancelOnUseGrace * 1_000_000_000))
-        guard let latest = try? await DatabaseManager.shared.share(id: share.id),
-              latest.state == "active" else { return }
-        await cancelShare(latest)
+        guard let state = try? await DatabaseManager.shared.shareChannelState(channelID: chatId) else { return }
+
+        // Activity first — even when nothing else acts on the join.
+        if state.kind == "private" {
+            // Our own account rejoining its slot (after a cancel/leave) is not a use.
+            let isSelf = ((try? await TelegramClient.shared.myUserID()) ?? nil) == userId
+            let share = ((try? await DatabaseManager.shared.shares(role: "outgoing")) ?? [])
+                .first { $0.state == "active" && !$0.isPublic && $0.channelID == chatId }
+            if !isSelf {
+                try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
+                    id: UUID().uuidString,
+                    shareID: share?.id ?? "",
+                    channelID: chatId,
+                    kind: "join",
+                    userID: userId,
+                    detail: "Importer joined the private share channel",
+                    createdAt: .now
+                ))
+            }
+            guard !isSelf else { return }
+            guard let share else { return }
+            logger.info("Share \(share.id): recipient joined slot \(state.id) — cancelling after \(cancelOnUseGrace)s grace")
+            try? await Task.sleep(nanoseconds: UInt64(cancelOnUseGrace * 1_000_000_000))
+            guard let latest = try? await DatabaseManager.shared.share(id: share.id),
+                  latest.state == "active" else { return }
+            await cancelShare(latest)
+        } else {
+            // Public channel: a join means SOMEONE opened one of the public
+            // links and came in. Not attributable to a single link.
+            let isSelf = ((try? await TelegramClient.shared.myUserID()) ?? nil) == userId
+            guard !isSelf else { return }
+            try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
+                id: UUID().uuidString,
+                shareID: "",
+                channelID: chatId,
+                kind: "join",
+                userID: userId,
+                detail: "Someone joined the public share channel via a link",
+                createdAt: .now
+            ))
+        }
     }
 
     // MARK: - Recipient
@@ -1581,6 +1626,72 @@ enum ShareEngine {
         var updated = share
         updated.state = "revoked"
         try await DatabaseManager.shared.saveShare(updated)
+        try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
+            id: UUID().uuidString, shareID: share.id, channelID: share.channelID,
+            kind: "expired", userID: nil, detail: "Link expired (24h TTL)",
+            createdAt: .now
+        ))
+    }
+
+    // MARK: - Re-share controls (Wave 2 item 9)
+
+    /// Adds password protection to an EXISTING unprotected single-file share:
+    /// re-wraps the object key under the new password-derived link key and
+    /// mints a fresh obfuscated blob — same channel, messages and expiry. The
+    /// OLD link stops working immediately (its key no longer unwraps anything);
+    /// the new link is returned so the caller can copy it to the clipboard.
+    /// Protected shares cannot be rotated here — the object key would need the
+    /// old password — nor group links (per-file manifest re-wrap).
+    static func addPasswordToShare(_ share: ShareRecord, password: String) async throws -> String {
+        let (newBlob, newWrapped) = try remintLinkWithPassword(share, password: password)
+        var updated = share
+        updated.linkBlob = newBlob
+        updated.shareKey = ""
+        updated.wrappedKeyB64 = newWrapped
+        try await DatabaseManager.shared.saveShare(updated)
+        try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
+            id: UUID().uuidString, shareID: share.id, channelID: share.channelID,
+            kind: "password_added", userID: nil,
+            detail: "Password protection added — previous link invalidated",
+            createdAt: .now
+        ))
+        return newBlob
+    }
+
+    /// Pure crypto/link transformation behind `addPasswordToShare` — no I/O,
+    /// unit-testable. Returns (obfuscated link, new wrapped object key).
+    static func remintLinkWithPassword(_ share: ShareRecord, password: String) throws -> (blob: String, wrappedKeyB64: String) {
+        guard !password.isEmpty else { throw ShareError.invalidPassword }
+        guard !share.isPublic, share.groupObjectIDs.isEmpty else {
+            throw ShareError.createFailed("Only private single-file links can gain a password.")
+        }
+        guard let blob = share.linkBlob,
+              let plain = try? deobfuscate(blob),
+              var link = ShareLink.parse(plain) else {
+            throw ShareError.invalidLink
+        }
+        // Recover the object key with today's unprotected link key.
+        guard let keyData = Data(base64Encoded: share.shareKey) else { throw ShareError.invalidLink }
+        let oldKey = SymmetricKey(data: keyData)
+        guard !link.wrappedKeyB64.isEmpty,
+              let wrapped = Data(base64Encoded: link.wrappedKeyB64),
+              let objectKey = try? CryptoEngine.unwrap(wrapped, with: oldKey) else {
+            throw ShareError.createFailed("This share carries no recoverable key.")
+        }
+
+        var saltBytes = [UInt8](repeating: 0, count: 16)
+        _ = SecRandomCopyBytes(kSecRandomDefault, 16, &saltBytes)
+        let salt = Data(saltBytes)
+        let newLinkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
+        let newWrapped = try CryptoEngine.wrap(objectKey, with: newLinkKey).base64EncodedString()
+
+        link.wrappedKeyB64 = newWrapped
+        link.saltB64 = salt.base64EncodedString()
+        link.shareKey = ""
+
+        let plainNew = link.urlString
+        let finalLink = (try? obfuscate(plainNew)) ?? plainNew
+        return (finalLink, newWrapped)
     }
 
     // MARK: - Link obfuscation

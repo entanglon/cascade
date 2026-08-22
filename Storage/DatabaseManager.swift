@@ -498,6 +498,19 @@ actor DatabaseManager {
                 t.column("lastSyncedAt", .datetime).notNull()
             }
         }
+
+        migrator.registerMigration("v33-share-activity") { db in
+            try db.create(table: "share_activity") { t in
+                t.column("id", .text).primaryKey()
+                t.column("shareID", .text).notNull().defaults(to: "")
+                t.column("channelID", .integer).notNull()
+                t.column("kind", .text).notNull()
+                t.column("userID", .integer)
+                t.column("detail", .text).notNull().defaults(to: "")
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(index: "idx_share_activity_share", on: "share_activity", columns: ["shareID"])
+        }
     }
 
     private func ensureStarted() throws -> DatabasePool {
@@ -1198,6 +1211,28 @@ actor DatabaseManager {
     func clearMirrorStates() throws {
         try write { db in
             _ = try MirrorStateRecord.deleteAll(db)
+        }
+    }
+
+    // MARK: - Share activity (Wave 2 item 9)
+
+    func recordShareActivity(_ record: ShareActivityRecord) throws {
+        try write { db in
+            try record.insert(db)
+        }
+    }
+
+    /// Events for one share: its own rows PLUS unattributable public-channel
+    /// rows (shareID == "") for the same channel, newest first, capped.
+    func shareActivity(shareID: String, channelID: Int64, limit: Int = 100) throws -> [ShareActivityRecord] {
+        try read { db in
+            let share = Column("shareID")
+            let channel = Column("channelID")
+            return try ShareActivityRecord
+                .filter(share == shareID || (share == "" && channel == channelID))
+                .order(Column("createdAt").desc)
+                .limit(limit)
+                .fetchAll(db)
         }
     }
 

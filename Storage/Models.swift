@@ -475,3 +475,25 @@ struct MirrorStateRecord: Codable, FetchableRecord, PersistableRecord, Identifia
 extension MirrorStateRecord {
     static let databaseTableName = "mirror_state"
 }
+
+// MARK: - Share activity log (Wave 2 item 9)
+
+/// One row per observed sharing event, newest-first lists on the Shared page's
+/// Activity sheet. Kinds: `created` (link minted), `join` (a recipient joined
+/// the share channel — `userID` carries their Telegram user when known;
+/// public-channel joins carry `shareID = ""` because every public link shares
+/// one channel), `revoked` (manual cancel), `expired` (TTL cleanup),
+/// `cancel_on_use` (private one-use semantics fired).
+struct ShareActivityRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    var id: String
+    var shareID: String
+    var channelID: Int64
+    var kind: String
+    var userID: Int64?
+    var detail: String
+    var createdAt: Date
+}
+
+extension ShareActivityRecord {
+    static let databaseTableName = "share_activity"
+}

@@ -2927,6 +2927,87 @@ struct CascadeTests {
         #expect(all[0].versionNumber == 2, "descending order, newest first")
     }
 
+    @Test func shareActivityLogRoundTripAndChannelFallback() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-shareact-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let testDB = DatabaseManager()
+        try await testDB.start(customURL: tempURL)
+
+        func event(_ id: String, _ shareID: String, _ channelID: Int64, kind: String) -> ShareActivityRecord {
+            ShareActivityRecord(
+                id: id, shareID: shareID, channelID: channelID,
+                kind: kind, userID: kind == "join" ? 4242 : nil,
+                detail: "", createdAt: Date()
+            )
+        }
+
+        try await testDB.recordShareActivity(event("e1", "share-A", -500, kind: "created"))
+        try await testDB.recordShareActivity(event("e2", "share-A", -500, kind: "join"))
+        // Unattributable public-channel join — same channel, empty share ID.
+        try await testDB.recordShareActivity(event("e3", "", -500, kind: "join"))
+        try await testDB.recordShareActivity(event("e4", "share-B", -999, kind: "created"))
+
+        let forA = try await testDB.shareActivity(shareID: "share-A", channelID: -500)
+        #expect(forA.count == 3, "own rows + unattributed public-channel rows")
+        #expect(Set(forA.map(\.id)) == ["e1", "e2", "e3"])
+
+        let joins = forA.filter { $0.kind == "join" }
+        #expect(joins.count == 2)
+        #expect(joins.compactMap(\.userID) == [4242, 4242])
+    }
+
+    @Test func addPasswordToShareRotatesLinkAndInvalidatesOld() throws {
+        let objectKey = SymmetricKey(size: .bits256)
+        let linkKey = SymmetricKey(size: .bits256)
+        let wrapped = try CryptoEngine.wrap(objectKey, with: linkKey).base64EncodedString()
+        let oldLinkKeyB64 = linkKey.withUnsafeBytes { Data($0).base64EncodedString() }
+
+        let plain = ShareEngine.ShareLink(
+            id: UUID().uuidString, channelID: -700, inviteLink: "https://t.me/+abc",
+            shareKey: oldLinkKeyB64, fileName: "Movie.mkv", expiry: Date().addingTimeInterval(3600),
+            messageIDs: [11, 22], wrappedKeyB64: wrapped
+        ).urlString
+        let blob = try ShareEngine.obfuscate(plain)
+
+        var record = ShareRecord(
+            id: UUID().uuidString, objectID: "obj-x", channelID: -700,
+            inviteLink: "https://t.me/+abc", shareKey: oldLinkKeyB64,
+            expiry: Date().addingTimeInterval(3600), role: "outgoing",
+            state: "active", fileName: "Movie.mkv", createdAt: Date()
+        )
+        record.linkBlob = blob
+        record.messageIDs = "11,22"
+        record.wrappedKeyB64 = wrapped
+
+        let newBlob = try ShareEngine.remintLinkWithPassword(record, password: "hunter2").blob
+        #expect(newBlob != blob, "the link is re-minted")
+
+        guard let newPlain = try? ShareEngine.deobfuscate(newBlob),
+              let newLink = ShareEngine.ShareLink.parse(newPlain) else {
+            Issue.record("new blob must parse")
+            return
+        }
+        #expect(newLink.shareKey.isEmpty, "protected links carry no naked key")
+        #expect(!newLink.saltB64.isEmpty)
+        #expect(newLink.channelID == -700 && newLink.messageIDs == [11, 22])
+
+        // The new password unwraps the SAME object key.
+        let salt = try #require(Data(base64Encoded: newLink.saltB64))
+        let derived = CryptoEngine.deriveLinkKey(from: "hunter2", salt: salt)
+        let sealed = try #require(Data(base64Encoded: newLink.wrappedKeyB64))
+        let recovered = try CryptoEngine.unwrap(sealed, with: derived)
+        let originalBytes = objectKey.withUnsafeBytes { Data($0) }
+        let recoveredBytes = recovered.withUnsafeBytes { Data($0) }
+        #expect(recoveredBytes == originalBytes)
+
+        // The OLD (unprotected) key no longer opens the new blob.
+        if let sealedOld = Data(base64Encoded: newLink.wrappedKeyB64) {
+            #expect((try? CryptoEngine.unwrap(sealedOld, with: linkKey)) == nil,
+                    "old link material must be invalidated")
+        }
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)
