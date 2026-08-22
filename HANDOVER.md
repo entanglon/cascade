@@ -3544,6 +3544,24 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       wiped at every launch; legacy cache/ dir removed by janitor (453 MB).
     - Gotcha recorded: identical "await cleanupExpiredTransfers()" lines exist
       in bootstrap AND the 6-hour loop — anchor edits with wider context.
+
+160. **Deep-range streaming prefetcher (2026-08-22 night — COMMITTED `1366284`)**
+     (`Engine/VideoStreamingEngine.swift`, `Telegram/TelegramClient.swift`,
+     `Features/MPVVideoView.swift`)
+    - Root cause of residual buffering: serial synchronous 1-8 MB ranged
+      fetches = latency-bound ~1 MB/s. Research (tdlib docs/PartsManager/
+      td#1498): downloadFile limit unbounded-ish; TDLib pipelines parts in
+      parallel WITHIN one call; one active download per fileId (supersede =
+      seek); prefix growth observable via local.downloaded_prefix_size.
+    - Fix: DeepRangeFetcher — one async 48 MB window per fileId (clamped to
+      chunk end), 40 ms prefix polling serves slices as bytes land; stall/base-
+      drift >1.5 s reissues coverage. Encrypted batch + jump + plaintext paths
+      all route through it. mpv demuxer-max-bytes 256 MiB / readahead 30 s /
+      back-buffer 32 MiB as insurance.
+    - Interference note: other downloadFile users of the SAME fileId (rare)
+      supersede windows; self-heal recovers in ~1.5 s.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
     - Build green; **TEST SUCCEEDED** (83 unit tests).
 
 

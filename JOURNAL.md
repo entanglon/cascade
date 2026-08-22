@@ -2,9 +2,42 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (night) — Single-cache architecture: app playback cache retired, TDLib store is the only cache with live cap (item 159).
+> 2026-08-22 (night) — Deep-range streaming prefetcher + mpv cache profile (item 160); single-cache architecture (159).
 
 ---
+
+## 2026-08-22 (night) — Zero-buffering: deep-range prefetcher (item 160)
+
+User asked for research-backed streaming improvements to eliminate buffering.
+Findings: our fetch path paid one TDLib round trip per 1-8 MB SYNCHRONOUS
+range request — latency-bound ~1 MB/s, at the edge of TrueHD+HEVC needs. TDLib
+research (downloadFile docs, PartsManager source, td#1498): limit has NO small
+ceiling; within one ranged download TDLib pipelines MANY parts across its
+connections (official clients' speed); only ONE active download per fileId —
+a new call supersedes the old (perfect seek semantics); ranged bytes land in
+the persistent local file at original offsets with downloaded_prefix_size
+growth reported by updateFile.
+
+### What was changed (`1366284`)
+1. `VideoStreamingEngine.DeepRangeFetcher`: per-fileId deep async window —
+   ensureCoverage issues downloadFile(offset, limit≤48 MB→chunk end,
+   synchronous:false, prio 32/8); waitForBytes polls localRangeState every
+   40 ms and reads from the local file once prefix covers the request.
+   Self-heals interference: if base moved away or prefix stalls >1.5 s,
+   reissues coverage. All three serve paths now route through it (encrypted
+   batch, encrypted jump/slice, plaintext batch); sealedChunkSize() clamps
+   coverage to chunk end. Old serial fetch chain (ObjectFetcher tail-chain +
+   fetchWithRetry on these paths) retired.
+2. mpv insurance: demuxer-max-bytes 100→256 MiB, readahead-secs 20→30,
+   back-buffer 25→32 MiB.
+
+Expected: sustained throughput jumps from round-trip-bound to TDLib bulk speed;
+mpv buffer rides out residual hiccups. Watch /tmp stream log lines "deep
+window/served/reissue" for behavior.
+
+### Verification
+Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
+verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
 ## 2026-08-22 (night) — Single-cache architecture (item 159)
 
