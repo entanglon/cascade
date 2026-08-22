@@ -13,6 +13,35 @@
 
 ---
 
+## Wave 2 · Item 4 — Touch ID / Face ID vault unlock — `938c8cb` (2026-08-22)
+
+**Implemented:** Settings → new "Private Vault" card (only shown when the Mac
+has a sensor) → "Touch ID Unlock" toggle. When enabled, the Private Vault lock
+screen shows an "Unlock with Touch ID" button and auto-prompts ONCE when it
+appears; a successful match flips the exact same unlock flag as the PIN and
+clears any failed-attempt backoff. The PIN remains fully in charge: PIN
+creation/confirm/recovery always need literal digits, wrong biometrics fall
+back to the PIN with a message, and disabling the toggle restores the
+PIN-only behavior. Face ID Macs get "Face ID" labels + the required usage
+description.
+
+**Automated tests:** `biometricEligibilityGate` (enabled × PIN-exists ×
+sensor-present matrix, toggle persistence). The system prompt itself cannot be
+automated — manual QA below is essential.
+
+### Manual QA checklist
+
+- [ ] Settings shows the "Private Vault" card with "Touch ID Unlock" (on a Touch ID Mac).
+- [ ] Toggle it ON, go to the Private Vault page after relaunching the app (lock state resets each launch) → the system Touch ID prompt appears automatically once.
+- [ ] Matching your finger → vault opens instantly (same crossfade as PIN unlock).
+- [ ] Lock Now from the page context menu → return → prompt re-offers; this time CANCEL it → a message suggests entering the PIN, and typing the PIN still unlocks normally.
+- [ ] Toggle OFF → the lock screen shows NO biometric button at all (pure PIN, exactly like before).
+- [ ] Enter a wrong PIN 3+ times to trigger backoff, then use Touch ID → success clears the wait ("Too many attempts" gone).
+- [ ] PIN creation on a fresh vault NEVER offers biometrics until a PIN exists.
+- [ ] Relaunch → toggle state persisted.
+
+---
+
 ## Wave 2 · Item 3 — Finder drop-zone sync (two-way mirror) — `3fd4c9b` (2026-08-22)
 
 **Implemented:** Settings → "Finder Sync" card. Pick a Mac folder + a cloud
@@ -78,6 +107,7 @@ survives a remote LWW win).
 - [ ] (Two Macs, optional) Pin on Mac A → Mac B does NOT start downloading that file after its next sync.
 
 ---
+
 
 ## Wave 2 · Item 1 — Sidecar subtitles — `34db68b` (2026-08-22)
 

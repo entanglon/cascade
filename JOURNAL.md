@@ -2,7 +2,38 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (evening) — Wave 2 items 1–3 done (subtitles, offline pins, Finder drop-zone two-way sync); TESTING.md manual-QA tracker started.
+> 2026-08-22 (evening) — Wave 2 items 1–4 done (subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock); TESTING.md manual-QA tracker.
+
+---
+
+## 2026-08-22 (evening, latest) — Wave 2 item 4: Touch ID vault unlock
+
+User: "I am ready, let's go" → item 4.
+
+### Design (`938c8cb`)
+- NEW `Engine/BiometricUnlock.swift`: LAContext wrapper — availability probe,
+  sensor naming (Touch/Face), pure `isEligible(enabled:hasPINHash:biometryAvailable:)`
+  gate, and `authenticate(reason:)` using `.deviceOwnerAuthenticationWithBiometrics`
+  ONLY (no system-passcode fallback — the app's PIN screen IS the fallback;
+  `localizedFallbackTitle = ""` hides the password button).
+- Lock view (`PrivateVaultLockView`): in `.enter` phase with a PIN hash set +
+  toggle on + sensor present → an accent "Unlock with Touch ID" button under
+  the PIN dots + ONE-SHOT auto-prompt per lock-screen appearance. Success:
+  `registerPINResult(success: true)` (clears the fail backoff) then flips the
+  SAME `appState.isPrivateVaultUnlocked` flag the PIN path flips — no new
+  unlock semantics. Failure/cancel: message nudges back to the PIN.
+  Deliberately NOT offered for create/confirm/recover (they derive crypto
+  material from the literal digits) and recovery-blob backfill skipped (needs
+  the raw PIN; best-effort, runs on next PIN entry).
+- Settings: new "Private Vault" card rendered ONLY when `BiometricUnlock.isAvailable()`,
+  toggle bound to `xc.vault.biometricUnlock`, reverted automatically if the
+  sensor disappears mid-session.
+- Info.plist: added `NSFaceIDUsageDescription` (required by Face ID Macs).
+
+### Verification
+Build green; **TEST SUCCEEDED** — 93 unit tests (+1 `biometricEligibilityGate`;
+the system prompt itself is untestable headless → TESTING.md item 4 carries an
+8-point manual checklist). Commit `938c8cb`.
 
 ---
 

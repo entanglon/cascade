@@ -388,8 +388,12 @@ speed + support + legal layer, not binary secrecy.
    mtime; local edits replace the cloud copy (trash→upload→deleteForever with
    failure restore). v1 does NOT propagate deletions either direction; flat
    scope (no subfolders); manual QA in TESTING.md.
-4. **Touch ID for Private Vault** — LAContext evaluatePolicy; PIN stays fallback;
-   toggle in Settings.
+4. **Touch ID for Private Vault** — ✅ *implemented 2026-08-22 (`938c8cb`)*:
+   LAContext biometrics-only prompt (no system-passcode fallback; the app PIN
+   screen is the fallback) on the lock screen's enter phase with a one-shot
+   auto-prompt; success flips the same unlock flag + clears fail backoff;
+   create/confirm/recover stay PIN-only (they derive crypto material).
+   Settings "Private Vault" toggle, sensor-gated.
 5. **Casting/AirPlay + PiP** — AirPlay via AVRouting/mpv output options; PiP as
    floating always-on-top mini window.
 6. **Storage dashboard** — Settings page: usage by type/folder, cache + TDLib

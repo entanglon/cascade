@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–171 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–3 (sidecar subtitles, offline pins, Finder drop-zone two-way sync). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–172 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–4 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2641,16 +2641,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### Latest session state (items 155–171, 2026-08-22)
+### Latest session state (items 155–172, 2026-08-22)
 Streaming/upload/download arcs CLOSED and verified: true pause/resume both
 directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
 states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
-item 1 sidecar subtitles (`34db68b`), item 2 offline pins (`e1f359e`), item 3
-Finder drop-zone two-way sync (`3fd4c9b`) all done; next = Touch ID vault
-unlock (4). **TESTING.md** now tracks manual QA per feature. Tests: 92 unit
-green.
+items 1–4 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
+sync (`3fd4c9b`), Touch ID unlock (`938c8cb`); next = Casting/AirPlay + PiP
+(5). **TESTING.md** tracks manual QA per feature. Tests: 93 unit green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3733,6 +3732,25 @@ Open levers (not scheduled):
       manual project edit (old xCloud gotcha does not apply to this repo).
     - Build green; **TEST SUCCEEDED** (92 unit tests, 3 new). Manual QA:
       TESTING.md item 3 checklist.
+172. **Wave 2 item 4 — Touch ID vault unlock (2026-08-22 evening — COMMITTED `938c8cb`)**
+     (`Engine/BiometricUnlock.swift` NEW, `Features/FileBrowserView.swift`
+     `PrivateVaultLockView`, `Features/SettingsView.swift`,
+     `App/Info.plist`, `CascadeTests/CascadeTests.swift`)
+    - LAContext `.deviceOwnerAuthenticationWithBiometrics` ONLY — no system
+      passcode fallback (the app's PIN screen is the fallback). Success flips
+      the same `isPrivateVaultUnlocked` flag the PIN path flips + clears the
+      fail backoff (`registerPINResult(success: true)`). No new unlock
+      semantics; decryption keys untouched.
+    - Offered ONLY in the `.enter` phase with a PIN hash present — create/
+      confirm/recover need literal digits (PBKDF2 seal / recovery blob derive
+      from them). Recovery-blob backfill intentionally skipped on biometric
+      success (needs raw PIN; runs on next PIN entry).
+    - Lock view: accent "Unlock with Touch ID" button under the dots +
+      ONE-SHOT auto-prompt per lock-screen appearance. Settings card
+      ("Private Vault" → toggle) rendered only when a sensor exists;
+      `xc.vault.biometricUnlock`. Info.plist gained NSFaceIDUsageDescription.
+    - Build green; **TEST SUCCEEDED** (93 unit tests, +1 pure-gate test).
+      Manual QA: TESTING.md item 4 checklist.
 
 
 
