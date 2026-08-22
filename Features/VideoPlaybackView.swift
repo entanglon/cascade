@@ -154,9 +154,11 @@ struct PlayerStatusOverlay: View {
 
     private var showStatus: Bool {
         // Headless audio never renders a first frame — gate on the core only.
+        // Seeks now SHOW the overlay too: the fetch wait at the new offset is
+        // exactly when users need feedback (previously excluded via !isSeeking).
         isAudio
-            ? (!mpv.isCoreReady || (mpv.isBuffering && !mpv.isSeeking))
-            : (!mpv.isCoreReady || !mpv.hasFirstFrame || (mpv.isBuffering && !mpv.isSeeking))
+            ? (!mpv.isCoreReady || mpv.isBuffering)
+            : (!mpv.isCoreReady || !mpv.hasFirstFrame || mpv.isBuffering)
     }
 
     private var isLoading: Bool {

@@ -235,8 +235,11 @@ class MPVController: ObservableObject {
     func play(url: URL) {
         self.isUserPaused = false
         lastURL = url
-        // A new file invalidates any in-flight seek hold from the previous one.
+        // A new file invalidates any in-flight seek hold from the previous one,
+        // and playback intent begins the cold-start loading state.
         pendingSeekTarget = nil
+        waitingFirstFrame = true
+        refreshBuffering()
         if isHeadless {
             headlessView?.playHeadless(url)
             return
@@ -302,6 +305,9 @@ class MPVController: ObservableObject {
 
     func seek(absolute time: Double) {
         if duration > 0 { self.progress = time / duration }
+        // Keep the TIME LABEL in sync with the scrubber while the seek lands,
+        // not just the bar position.
+        self.timePos = time
         beginPendingSeek(time)
         if isHeadless {
             headlessView?.seek(absoluteSeconds: time)
@@ -313,6 +319,17 @@ class MPVController: ObservableObject {
     private func beginPendingSeek(_ targetTime: Double) {
         pendingSeekTarget = targetTime
         pendingSeekAt = Date()
+        refreshBuffering()
+    }
+
+    // Buffering = cache underrun OR first frame not flowing yet OR seek data
+    // fetch in flight. paused-for-cache alone never fires during cold start or
+    // seek waits — leaving those stretches without any loading indication.
+    private var cachePaused = false
+    private var waitingFirstFrame = false
+
+    private func refreshBuffering() {
+        isBuffering = cachePaused || waitingFirstFrame || (pendingSeekTarget != nil)
     }
 
     func seek(relative seconds: Double) {
@@ -406,6 +423,8 @@ class MPVController: ObservableObject {
                         guard settled || timedOut else { return }
                         self.pendingSeekTarget = nil
                     }
+                    self.waitingFirstFrame = false
+                    self.refreshBuffering()
                     self.timePos = time
                     if self.duration > 0 {
                         self.progress = time / self.duration
@@ -433,7 +452,8 @@ class MPVController: ObservableObject {
                 }
             case "paused-for-cache":
                 if let buff = value as? Bool {
-                    self.isBuffering = buff
+                    self.cachePaused = buff
+                    self.refreshBuffering()
                     if buff {
                         self.isUserPaused = false
                     }
