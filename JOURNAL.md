@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 — True pause: TDLib native upload cancelled on pause (item 156); discard ghost fix (item 155).
+> 2026-08-22 (evening) — Download pause/resume parity + discard-direction fix (item 157); true pause upload (156); discard ghost fix (155).
 
 ---
 

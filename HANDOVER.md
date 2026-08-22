@@ -3494,5 +3494,25 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       perfectly from 49% to completion. TDLib RETAINS cached parts across
       cancelPreliminaryUploadFile, so true pause costs nothing on resume.
       Upload finished; playback + post-cache-clear replay OK. Item closed.
+
+157. **Download pause/resume parity (2026-08-22 evening — COMMITTED `724d317`)**
+     (`Telegram/TelegramClient.swift`, `Engine/DownloadEngine.swift`,
+     `Engine/TransferCenter.swift`, `Features/TransfersView.swift`)
+    - Downloads previously had Cancel only; catch deleted the partial file;
+      cancellation never called TDLib cancelDownloadFile. Latent bug: discard()
+      ran UploadEngine.cleanupPartialUpload for ALL directions — discarding a
+      DOWNLOAD card would tombstone/delete the cloud object itself.
+    - **Fix**: downloadMessageFile's onCancel fires cancelDownloadFile natively
+      (parts retained by fileId); cancelled downloads keep the partial dest +
+      persist exact state "completedChunks:plainBytes" (UserDefaults
+      xc.dl.resume.<objectID>); resume validates size, skips completed chunks,
+      seeks to exact offset, appends. discard() direction-aware (downloads drop
+      card+partial only); download resume feeds live progress into same card;
+      UI pause button on all active cards.
+    - Known limit: paused-download CARDS don't survive relaunch (no object-state
+      column), but the resume state does — the next manual download attempt of
+      that file auto-resumes from the offset.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
     - Build green; **TEST SUCCEEDED** (83 unit tests).
 
