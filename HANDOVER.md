@@ -3490,9 +3490,9 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       duplicate identical-hash chunk messages in item 155's channel dump.
     - **Fix**: uploadFile's onCancel now also fires
       client.cancelPreliminaryUploadFile(fileId:) best-effort.
-    - **Open question for next pause→resume test**: does TDLib retain cached
-      parts after cancel (card jumps quickly to prior %) or restart the chunk
-      (slow crawl)? If parts are discarded, reconsider design (e.g., let the
-      current single giant chunk finish natively but relabel UI).
+    - **VERIFIED same day**: user re-tested — paused at 49%, resume carried
+      perfectly from 49% to completion. TDLib RETAINS cached parts across
+      cancelPreliminaryUploadFile, so true pause costs nothing on resume.
+      Upload finished; playback + post-cache-clear replay OK. Item closed.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
 

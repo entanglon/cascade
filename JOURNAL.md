@@ -24,6 +24,8 @@ whether TDLib retains cached parts across cancel will be visible as jump-vs-craw
 on the next pause→resume test.
 
 Verification: build green, **TEST SUCCEEDED** (83 unit tests). Commit `8f30adc`.
+User re-test: pause at 49% → resume carried from 49% to completion — cached
+parts ARE retained across native cancel; no resume penalty. Item closed.
 
 ## 2026-08-21 (late night) — Discard ghost fix (item 155)
 
