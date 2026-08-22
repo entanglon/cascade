@@ -20,10 +20,11 @@ banned):
 1. **PiP** — the theater's PiP button (or chevron minimize) floats the live
    video into an always-on-top mini panel (bottom-right, draggable, survives
    Spaces/app switches) and CLOSES THE THEATER — the panel is where playback
-   lives. Hover over the panel for controls: play/pause · title · expand-back.
-   Expanding (panel button, or re-opening the same file in Cascade) reopens
-   the theater resuming at the exact position. Closing the panel stops
-   playback cleanly. Mutual exclusion with the fullscreen window.
+   lives. Full traffic lights: RED = stop, YELLOW = greyed out, GREEN =
+   seamless expand back into the theater (the live layer is ADOPTED by the
+   fresh theater view — same mpv core, zero restart/buffering). Hover shows a
+   play/pause strip. Double-clicking the floating file's tile in Cascade also
+   expands seamlessly; playing a DIFFERENT video retires the panel cleanly.
 2. **Audio output picker** — a hi-fi-speaker button in the player's pill row
    lists every endpoint mpv sees (built-in speakers, AirPlay speakers when
    connected, headphones, HDMI, USB DACs); selecting one switches output LIVE
@@ -36,12 +37,13 @@ manual checklist below is the verification.
 ### Manual QA checklist
 
 - [ ] Play a video → click PiP (top bar button or chevron minimize) → the THEATER CLOSES and a small floating panel appears bottom-right; playback never stutters or restarts.
-- [ ] Hover over the panel → control strip fades in: play/pause works, title shows.
-- [ ] Drag the panel anywhere; open another app over Cascade → panel stays on top; switch Spaces → follows and keeps playing.
-- [ ] Click the expand button on the panel → theater REOPENS and playback resumes at the exact position where the panel left off.
-- [ ] Enter PiP again, then double-click the SAME video tile in All Files → expands back into the theater at position (does not restart from zero).
+- [ ] Panel has all THREE traffic lights: red closes/stops, middle one is GREYED OUT, green expands back into Cascade.
+- [ ] Click the GREEN light → theater reopens and playback CONTINUES at the exact moment — no spinner, no restart, position untouched.
+- [ ] Enter PiP again, then double-click the SAME video tile in All Files → seamless expand again (no restart).
+- [ ] Hover over the panel → play/pause strip fades in and works.
+- [ ] Drag the panel anywhere; resize it (stays 16:9); open another app over Cascade → panel stays on top; switch Spaces → follows and keeps playing.
 - [ ] With PiP active, play a DIFFERENT video from the grid → the panel retires cleanly and the new video plays in the theater (no frozen orphan panel).
-- [ ] Click the panel's close (X) traffic light with no theater open → playback stops entirely, panel gone (no zombie audio).
+- [ ] Click the panel's close (RED) traffic light with no theater open → playback stops entirely, panel gone (no zombie audio).
 - [ ] Fullscreen player: the PiP button is hidden there; entering fullscreen while PiP is active is refused until PiP exits.
 - [ ] Output picker: click the hi-fi speaker button in the pill row (next to waveform) → popover lists "auto" + devices; current one has a checkmark.
 - [ ] Connect an AirPlay speaker (or Bluetooth headphones), reopen the popover → it appears in the list; select it → sound moves there instantly mid-video; switch back to built-in.
