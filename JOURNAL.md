@@ -2,7 +2,48 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (evening) — Wave 2 items 1–2: sidecar subtitles (upload/link/auto-load/track menu) + offline pins ("Keep Downloaded", eviction-proof, device-local).
+> 2026-08-22 (evening) — Wave 2 items 1–3 done (subtitles, offline pins, Finder drop-zone two-way sync); TESTING.md manual-QA tracker started.
+
+---
+
+## 2026-08-22 (evening, later) — Wave 2 item 3: Finder drop-zone sync
+
+User asked to continue AND to keep a manual-testing tracker — created
+**TESTING.md** at repo root (per shipped feature: what was implemented,
+automated tests, unchecked-box manual QA list; newest first).
+
+### Design (`3fd4c9b`)
+- **Config**: `xc.mirrorEnabled` / `xc.mirrorLocalPath` / `xc.mirrorFolderID`
+  ("": vault root). Settings → new "Finder Sync" card (toggle, folder picker
+  via fileImporter [.folder], cloud-destination menu, live status dot).
+- **Engine**: NEW `Engine/MirrorSyncEngine.swift` (@MainActor singleton).
+  Local→cloud via FSEvents (FileEvents+CFTypes, 1 s latency, 1.5 s debounce);
+  cloud→local via a 30 s poller that runs `CatalogSnapshot.upload()` (cached
+  scan; cheap when unchanged) then one unified reconcile pass.
+- **Pairing baseline**: DB v32 `mirror_state` table (`MirrorStateRecord`:
+  objectID/name/sizes/both mtimes/rootHash/lastSyncedAt) — local-only state;
+  no FKs by design (v13 lesson). Baseline recorded AFTER each action, so the
+  engine's own writes don't retrigger work on the debounced follow-up pass.
+- **Decision matrix** (pure static `decide()`, 13 unit-tested branches):
+  uploadNew / replaceRemote / pullOverwrite / adoptPair / conflictLocalKeeps /
+  dropEntry / none. Conflicts = LWW by mtime; ambiguous same-size adoptions
+  pair silently; deletions NEVER propagate in v1 (stale entries dropped,
+  surviving side untouched). Hidden/partial/temp names never tracked.
+- **Push**: `UploadEngine.upload(fileURL:parentID:)` directly (bypasses
+  UploadManager's UI-state coupling); created object located via sourcePath +
+  ready state. Replace = trash old → upload fresh under clean name →
+  `appState.deleteForever([old])` (ALL deletion safety rails reused); failure
+  restores the old row.
+- **Pull**: quiet scratch download → temp-sibling copy → atomic swap into the
+  mirror dir (ExportEngine pattern; scratch files are launch-wiped, mirror dir
+  must hold real copies).
+- pbxproj note: Cascade uses PBXFileSystemSynchronizedRootGroups — new Swift
+  files need NO manual project edit here (old xCloud gotcha doesn't apply).
+
+### Verification
+Build green; **TEST SUCCEEDED** — 92 unit tests (3 new: round-trip incl. GRDB
+millisecond-date tolerance, decision matrix, name filter). Commit `3fd4c9b`.
+User QA checklist lives in TESTING.md item 3.
 
 ---
 

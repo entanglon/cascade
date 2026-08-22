@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–170 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–2 (sidecar subtitles, offline pins). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–171 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–3 (sidecar subtitles, offline pins, Finder drop-zone two-way sync). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2641,14 +2641,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### Latest session state (items 155–170, 2026-08-22)
+### Latest session state (items 155–171, 2026-08-22)
 Streaming/upload/download arcs CLOSED and verified: true pause/resume both
 directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
 states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
-item 1 sidecar subtitles done (`34db68b`), item 2 offline pins done
-(`e1f359e`); next = Finder drop-zone sync (3), Touch ID (4). Tests: 89 unit
+item 1 sidecar subtitles (`34db68b`), item 2 offline pins (`e1f359e`), item 3
+Finder drop-zone two-way sync (`3fd4c9b`) all done; next = Touch ID vault
+unlock (4). **TESTING.md** now tracks manual QA per feature. Tests: 92 unit
 green.
 
 Open levers (not scheduled):
@@ -3710,6 +3711,28 @@ Open levers (not scheduled):
       folderCard / FileListRow / Photos+Videos cells.
     - Build green; **TEST SUCCEEDED** (89 unit tests, 3 new). User check:
       pin → cards download → relaunch → opens offline.
+171. **Wave 2 item 3 — Finder drop-zone sync (2026-08-22 evening — COMMITTED `3fd4c9b`)**
+     (`Engine/MirrorSyncEngine.swift` NEW, `Storage/Models.swift` v32
+     `MirrorStateRecord`, `Storage/DatabaseManager.swift`,
+     `Features/SettingsView.swift`, `App/AppState.swift`,
+     `CascadeTests/CascadeTests.swift`, `TESTING.md` NEW)
+    - TWO-WAY mirrored folder: Settings → "Finder Sync" (toggle + local folder
+      picker + cloud-destination menu + status). Local drops auto-upload via
+      FSEvents (debounced); cloud adds materialize within 30 s via a poller
+      that reconciles the channel snapshot then diffs both sides.
+    - Pairing baseline in `mirror_state` v32 (sizes/mtimes/rootHash at sync);
+      pure decision matrix `decide()`: uploadNew/replaceRemote/pullOverwrite/
+      adoptPair/conflictLocalKeeps/dropEntry. Conflicts LWW by mtime;
+      deletions NOT propagated either direction (v1); hidden/partial files
+      ignored. Push bypasses UploadManager (UI-coupled) and calls
+      UploadEngine.upload directly; replace = trash→upload→deleteForever(old)
+      with failure restore. Pull copies out of scratch atomically.
+    - Config keys xc.mirrorEnabled/mirrorLocalPath/mirrorFolderID; engine
+      started from completePostAuthSetup and restarted live from Settings.
+    - Cascade pbxproj uses synchronized folder groups — new files need no
+      manual project edit (old xCloud gotcha does not apply to this repo).
+    - Build green; **TEST SUCCEEDED** (92 unit tests, 3 new). Manual QA:
+      TESTING.md item 3 checklist.
 
 
 

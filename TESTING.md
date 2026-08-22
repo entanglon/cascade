@@ -13,6 +13,41 @@
 
 ---
 
+## Wave 2 · Item 3 — Finder drop-zone sync (two-way mirror) — `3fd4c9b` (2026-08-22)
+
+**Implemented:** Settings → "Finder Sync" card. Pick a Mac folder + a cloud
+destination (any vault folder or root), flip the toggle on: new files dropped
+into the Finder folder upload automatically; cloud files added from anywhere
+(other device, phone, share import) materialize in the Finder folder within
+~30 s or immediately on local changes. Same-named identical files pair
+silently; genuine conflicts resolve last-writer-wins by modification time;
+local edits of already-synced files replace the cloud copy. Deletions are NOT
+propagated in v1 either direction (a removed file just un-pairs). Hidden and
+partial files (.DS_Store, .crdownload, ~$ Office locks…) are ignored. Status
+dot + last-event line live in the card.
+
+**Automated tests:** `mirrorStateTableRoundTrip` (DB v32 CRUD),
+`mirrorDecisionMatrix` (13 decision branches incl. both LWW orders),
+`mirrorNameFilter` (hidden/partial exclusion).
+
+### Manual QA checklist
+
+- [ ] Settings → Finder Sync → toggle ON with no folder chosen → folder picker opens.
+- [ ] Choose (or create) an empty folder like ~/CascadeMirror, leave destination "Vault Root".
+- [ ] Status row shows a green dot once watching.
+- [ ] Drag 2–3 files into the folder in Finder → transfer cards appear; files show up in All Files in the app.
+- [ ] In the app, upload a small file into any folder (or copy one between folders into the destination) → it appears in the Finder folder within ~30 s.
+- [ ] Copy a file that ALREADY exists identically in the destination → it pairs without a duplicate upload ("file (1).ext" never appears).
+- [ ] Edit a synced file locally (e.g. append text to a .txt) → after the change settles, the cloud copy updates (old version replaced; name unchanged).
+- [ ] Change a file's content from another device/session → the Finder folder copy updates to the newer content.
+- [ ] Delete a file from the Finder folder → its cloud copy REMAINS (v1 skips delete propagation); the pin/badge pairing silently drops.
+- [ ] Save a file mid-write (e.g. large download into the folder) → no partial/temporary file gets uploaded (watch Transfers for no ".crdownload" entries).
+- [ ] Toggle OFF → green dot disappears; files stay on disk and in the cloud untouched. Toggle back ON → sync resumes.
+- [ ] Restart the app (still enabled) → watcher resumes automatically at launch.
+
+---
+
+
 ## Wave 2 · Item 2 — Offline pins ("Keep Downloaded") — `e1f359e` (2026-08-22)
 
 **Implemented:** right-click any file or folder → "Keep Downloaded" (multi-select

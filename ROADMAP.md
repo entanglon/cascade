@@ -381,12 +381,13 @@ speed + support + legal layer, not binary secrecy.
    grid/list/folder cards + Photos/Videos cells; undo/redo. DEVICE-LOCAL flag
    (stripped from remote snapshot adoption — a pin never downloads on another
    Mac).
-3. **Finder drop-zone sync** — TWO-WAY mirrored folder (user-confirmed,
-   Dropbox-style): local drops auto-upload AND cloud adds/imports materialize
-   in the Finder folder. FSEvents watcher (local→cloud) + download poller
-   (cloud→local, reusing DownloadEngine) + hash-based change detection.
-   v1 does NOT propagate deletions either direction (safest); conflicts resolve
-   last-writer-wins per file. Distinct from share folders (other people).
+3. **Finder drop-zone sync** — ✅ *implemented 2026-08-22 (`3fd4c9b`)*: TWO-WAY
+   mirrored folder (Settings → "Finder Sync"). Local drops auto-upload
+   (FSEvents, debounced); cloud adds materialize within ~30 s (snapshot-
+   reconciling poller); same-size adoptions pair silently; conflicts LWW by
+   mtime; local edits replace the cloud copy (trash→upload→deleteForever with
+   failure restore). v1 does NOT propagate deletions either direction; flat
+   scope (no subfolders); manual QA in TESTING.md.
 4. **Touch ID for Private Vault** — LAContext evaluatePolicy; PIN stays fallback;
    toggle in Settings.
 5. **Casting/AirPlay + PiP** — AirPlay via AVRouting/mpv output options; PiP as
