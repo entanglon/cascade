@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (night) — Deep-range streaming prefetcher + mpv cache profile (item 160); single-cache architecture (159).
+> 2026-08-22 (night) — Deep-range fetcher REVERTED after live test (item 161); serial chain with larger sync batches kept (160→161); single-cache architecture (159).
 
 ---
 
@@ -38,6 +38,34 @@ window/served/reissue" for behavior.
 ### Verification
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
+
+## 2026-08-22 (night) — Deep-range fetcher reverted (item 161)
+
+User reported buffering WORSE with item 160 and asked whether slices can be
+requested in parallel. Log forensics (/tmp/cascade-stream.log):
+1. SUPERSEDE PING-PONG: two waiters on one fileId (serve off=346 MB, stale
+   read-ahead off=533 MB) alternated windows every ~1.5 s — each supersede
+   discarded TDLib's in-flight parts; prefix stuck ~3 MB until 49 s TIMEOUT.
+2. DEAD REISSUES: file=1273's base never moved despite reissue storms
+   (downloadFile errors swallowed by try?).
+3. BANDWIDTH SPLIT across three concurrently streaming fileIds.
+Answered the parallel-slices question from tdlib#1498: separate ranged calls
+per fileId are impossible by design — a new downloadFile CANCELS the previous;
+concurrency only exists INSIDE one call via TDLib's part pipelining.
+
+### What was changed (`627edb0`)
+1. Reverted VideoStreamingEngine to the proven serial synchronous chain
+   (restored from pre-item-160 commit); removed DeepRangeFetcher +
+   fetchViaDeepWindow + TelegramClient deep helpers entirely.
+2. Kept mpv demuxer bumps (256 MiB / readahead 30 s / back-buffer 32 MiB).
+3. Larger single sync batches for more internal pipelining per round trip:
+   slicesPerFetch 8→16 (plaintext), readAheadBatchSlices 8→32 (encrypted).
+
+If buffering persists, remaining lever: multiple TDLib client instances for
+true parallelism (heavyweight) — ROADMAP candidate.
+
+### Verification
+Build green; **TEST SUCCEEDED** (83 unit tests). Commit `627edb0`.
 
 ## 2026-08-22 (night) — Single-cache architecture (item 159)
 

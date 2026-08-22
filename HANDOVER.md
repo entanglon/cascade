@@ -3563,6 +3563,21 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Build green; **TEST SUCCEEDED** (83 unit tests).
 
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+161. **Deep-range fetcher reverted (2026-08-22 night — COMMITTED `627edb0`)**
+     (`Engine/VideoStreamingEngine.swift`, `Telegram/TelegramClient.swift`)
+    - Item 160 made buffering WORSE in live testing. Log forensics: supersede
+      ping-pong between two waiters on one fileId (every reissue discarded
+      TDLib's in-flight parts; 49 s timeouts), swallowed downloadFile errors,
+      bandwidth split across concurrent windows.
+    - Key TDLib fact confirmed (td#1498): NO parallel ranged calls per fileId
+      — new call cancels previous. Concurrency only inside ONE call.
+    - Resolution: reverted to the proven serial chain; raised sync batch sizes
+      (slicesPerFetch 16, readAheadBatchSlices 32) so each round trip pipelines
+      more internally. mpv cache bumps kept.
+    - Roadmap lever if still insufficient: multiple TDLib client instances for
+      true cross-instance parallelism (heavyweight).
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
 
 
