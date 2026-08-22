@@ -394,8 +394,13 @@ speed + support + legal layer, not binary secrecy.
    auto-prompt; success flips the same unlock flag + clears fail backoff;
    create/confirm/recover stay PIN-only (they derive crypto material).
    Settings "Private Vault" toggle, sensor-gated.
-5. **Casting/AirPlay + PiP** — AirPlay via AVRouting/mpv output options; PiP as
-   floating always-on-top mini window.
+5. **Casting/AirPlay + PiP** — ✅ *implemented 2026-08-22 (`548816c`)*, scope
+   set by the AVKit ban: **PiP** = floating always-on-top NSPanel re-parenting
+   the live mpv layer (theater stays as control surface; clean restore/stop
+   paths; fullscreen mutual exclusion); **AirPlay audio** = mpv audio-device
+   picker in the player pill row (live AO switch to AirPlay speakers/
+   headphones/HDMI/DACs); AirPlay VIDEO = macOS system Screen Mirroring
+   (documented — true video routing requires AVKit).
 6. **Storage dashboard** — Settings page: usage by type/folder, cache + TDLib
    store sizes, largest files.
 7. **Duplicate finder UI** — rootHash grouping → review/merge sheet.

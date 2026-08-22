@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–172 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–4 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–173 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–5 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2641,15 +2641,16 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### Latest session state (items 155–172, 2026-08-22)
+### Latest session state (items 155–173, 2026-08-22)
 Streaming/upload/download arcs CLOSED and verified: true pause/resume both
 directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
 states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
-items 1–4 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
-sync (`3fd4c9b`), Touch ID unlock (`938c8cb`); next = Casting/AirPlay + PiP
-(5). **TESTING.md** tracks manual QA per feature. Tests: 93 unit green.
+items 1–5 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
+sync (`3fd4c9b`), Touch ID unlock (`938c8cb`), PiP + output picker
+(`548816c`); next = Storage dashboard (6). **TESTING.md** tracks manual QA
+per feature. Tests: 93 unit green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3751,6 +3752,24 @@ Open levers (not scheduled):
       `xc.vault.biometricUnlock`. Info.plist gained NSFaceIDUsageDescription.
     - Build green; **TEST SUCCEEDED** (93 unit tests, +1 pure-gate test).
       Manual QA: TESTING.md item 4 checklist.
+173. **Wave 2 item 5 — PiP + audio output picker (2026-08-22 night — COMMITTED `548816c`)**
+     (`Features/PictureInPictureWindow.swift` NEW + pbxproj manual entry,
+     `Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`,
+     `Features/TheaterView.swift`)
+    - Scope: AVKit ban rules out AirPlay video routing — casting = AirPlay
+      AUDIO via mpv `audio-device-list`/`audio-device` (new hi-fi-speaker pill
+      button + popover, live AO switch) + system Screen Mirroring for video.
+    - PiP = floating NSPanel re-parenting the single live MPVLayerView (same
+      handoff pattern as the fullscreen window; playback never restarts).
+      Theater stays open as control surface while the picture floats; panel X
+      restores the video; theater ESC/X dismiss-then-stop; host-gone → stop.
+      Mutual exclusion with PlayerFullScreenWindow both directions; chevron
+      minimize repurposed as video-PiP toggle.
+    - Features/ pbxproj gotcha RE-CONFIRMED: explicit group — new files there
+      need manual PBXBuildFile/PBXFileReference/children/Sources entries
+      (Engine/ and Storage/ are synchronized groups and need nothing).
+    - Build green; **TEST SUCCEEDED** (93 unit tests). Manual QA: TESTING.md
+      item 5 checklist.
 
 
 

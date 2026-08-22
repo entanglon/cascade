@@ -2,7 +2,44 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (evening) — Wave 2 items 1–4 done (subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock); TESTING.md manual-QA tracker.
+> 2026-08-22 (night) — Wave 2 items 1–5 done (subtitles, pins, drop-zone sync, Touch ID, PiP + audio output picker); TESTING.md manual-QA tracker.
+
+---
+
+## 2026-08-22 (night) — Wave 2 item 5: PiP + audio output picker
+
+User: "keep going" → item 5. Scope decided by the AVKit ban: true AirPlay
+VIDEO routing is impossible without AVKit — casting = AirPlay AUDIO via mpv's
+coreaudio device list + system Screen Mirroring for video (documented in
+TESTING.md). The buildable piece: **Picture-in-Picture** + an output picker.
+
+### Design (`548816c`)
+1. **PiP** (`Features/PictureInPictureWindow.swift` NEW — Features is an
+   EXPLICIT pbxproj group; manually added fileRef/buildFile/children/Sources
+   entries): floating `NSPanel` (.nonactivatingPanel + .closable +
+   fullSizeContentView, .floating level, canJoinAllSpaces, draggable,
+   hidesOnDeactivate=false). The single live `MPVLayerView` is RE-PARENTED into
+   the panel — same handoff PlayerFullScreenWindow uses; mpv never learns
+   about superview changes so playback never hiccups.
+   - Theater STAYS OPEN while PiP holds the layer (its dismantle destroys the
+     mpv core) and remains the control surface; the black player area is
+     accepted v1 cosmetics.
+   - Exit paths dismiss PiP FIRST (restore layer → hostView, needsDisplay +
+     mpvRenderUpdate nudge) then proceed: close-X traffic light → restore;
+     theater ESC/close → restore+stop; if the host window died meanwhile,
+     playback stops instead of orphaning a surface.
+   - Mutual exclusion both ways with PlayerFullScreenWindow; PiP button hidden
+     in fullscreen chrome. Chevron minimize repurposed as the video-PiP toggle.
+2. **Audio output picker**: MPVLayerView.getAudioDeviceList parses the
+   `audio-device-list` JSON property; setAudioDevice switches `audio-device`
+   at runtime (AO rebuilds live). New hi-fi-speaker pill button + popover
+   (`AudioOutputList`) with checkmark on active endpoint — AirPlay speakers/
+   headphones/HDMI/DACs all appear here.
+
+### Verification
+Build green; **TEST SUCCEEDED** (93 unit tests — no new ones: pure AppKit
+window mechanics are untestable headless; TESTING.md item 5 carries a 12-point
+manual checklist). Commit `548816c`.
 
 ---
 

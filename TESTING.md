@@ -13,6 +13,44 @@
 
 ---
 
+## Wave 2 · Item 5 — Casting/AirPlay + Picture-in-Picture — `548816c` (2026-08-22)
+
+**Implemented:** Two pieces, scoped honestly for an mpv-only app (AVKit is
+banned):
+1. **PiP** — new "Picture in Picture" button in the theater player's top bar
+   (and the chevron minimize button now does this for videos): the live video
+   floats into an always-on-top mini panel (bottom-right, draggable, survives
+   Spaces/app switches) while the theater stays open as the control surface —
+   play/pause/seek/subtitles keep working. Closing the panel returns the video
+   seamlessly; ESC or closing the theater stops everything cleanly. Mutual
+   exclusion with the fullscreen window (they own the same render surface).
+2. **Audio output picker** — a hi-fi-speaker button in the player's pill row
+   lists every endpoint mpv sees (built-in speakers, AirPlay speakers when
+   connected, headphones, HDMI, USB DACs); selecting one switches output LIVE
+   during playback. This is the practical "casting" story: AirPlay AUDIO via
+   device selection; AirPlay VIDEO happens through macOS system Screen
+   Mirroring (true AirPlay video routing needs AVKit, which is banned).
+No automated tests — pure window/AppKit mechanics, untestable headless. The
+manual checklist below is the verification.
+
+### Manual QA checklist
+
+- [ ] Play a video → click the new PiP button (top bar, next to Full Screen) → a small floating panel appears bottom-right showing the video; playback never stutters or restarts.
+- [ ] Drag the panel anywhere; open another app over Cascade → the panel stays on top.
+- [ ] Switch to another Space / desktop → the panel follows and keeps playing.
+- [ ] Theater (still open behind) → pause, seek, ±10 s, subtitle switching → all affect the floating picture.
+- [ ] Click the panel's close (X) traffic light → video returns into the theater at the same position, still playing.
+- [ ] Press the chevron button (theater top-left, was "minimize") → toggles PiP too.
+- [ ] With PiP active, press ESC in the theater → panel closes AND playback stops (no orphaned frozen panel).
+- [ ] With PiP active, click the theater's X close button → same clean stop.
+- [ ] Enter the fullscreen player → the PiP button is hidden there; with PiP active, entering fullscreen is refused until PiP exits.
+- [ ] Output picker: click the hi-fi speaker button in the pill row (next to waveform) → popover lists "auto" + devices; current one has a checkmark.
+- [ ] Connect an AirPlay speaker (or Bluetooth headphones), reopen the popover → it appears in the list; select it → sound moves there instantly mid-video; switch back to built-in.
+- [ ] (Optional) Enable macOS Screen Mirroring to an Apple TV → the floating/theater video mirrors (system-level AirPlay video).
+
+---
+
+
 ## Wave 2 · Item 4 — Touch ID / Face ID vault unlock — `938c8cb` (2026-08-22)
 
 **Implemented:** Settings → new "Private Vault" card (only shown when the Mac
