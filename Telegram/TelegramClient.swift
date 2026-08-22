@@ -876,6 +876,25 @@ final class TelegramClient {
         return total
     }
 
+    /// Enforces the user's storage cap on TDLib's downloaded-file store via the
+    /// official optimizeStorage API — TDLib evicts least-recently-accessed
+    /// documents until the store fits the budget. No-op when `bytes <= 0`
+    /// (uncapped).
+    func enforceDownloadStoreCap(bytes: Int64) async {
+        guard bytes > 0 else { return }
+        _ = try? await client?.optimizeStorage(
+            chatIds: nil,
+            chatLimit: nil,
+            count: -1,
+            excludeChatIds: nil,
+            fileTypes: [.fileTypeDocument],
+            immunityDelay: 0,
+            returnDeletedFileStatistics: false,
+            size: bytes,
+            ttl: -1
+        )
+    }
+
     /// Deletes downloaded documents from TDLib's file cache via the official
     /// optimizeStorage API. TDLib updates its internal file database and simply
     /// re-downloads anything requested later, so this is always safe for data

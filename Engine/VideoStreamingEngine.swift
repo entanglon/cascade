@@ -49,11 +49,10 @@ final class VideoStreamingEngine {
 
     /// Returns a playable mpv stream URL for any container with a loadable layout
     /// (mpv/FFmpeg demuxes what AVFoundation can't — mkv, webm, avi, ...). The URL
-    /// points at the local byte-range server, which serves plaintext.
-    /// Returns nil for cached files (the caller plays the local file directly via
-    /// mpv) or unloadable layouts.
+    /// points at the local byte-range server, which serves plaintext. Since the
+    /// single-cache architecture (item 159) EVERYTHING streams — replays are fed
+    /// from TDLib's local store without network until evicted by its cap.
     func mpvStreamURL(for object: ObjectRecord) async -> URL? {
-        if DownloadEngine.isCached(object) { return nil }
         guard let layout = try? await loadLayout(objectID: object.id), layout.fileSize > 0 else {
             return nil
         }
@@ -61,10 +60,8 @@ final class VideoStreamingEngine {
     }
 
     /// PDF variant of `mpvStreamURL`: same byte-range server, `application/pdf`
-    /// content type. Returns nil for cached files (the caller renders the local
-    /// file) or unloadable layouts.
+    /// content type.
     func pdfStreamURL(for object: ObjectRecord) async -> URL? {
-        if DownloadEngine.isCached(object) { return nil }
         guard let layout = try? await loadLayout(objectID: object.id), layout.fileSize > 0 else {
             return nil
         }

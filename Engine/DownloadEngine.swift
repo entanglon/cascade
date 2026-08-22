@@ -30,7 +30,12 @@ enum DownloadEngine {
         category: "download"
     )
 
-    static func cacheDirectory() throws -> URL {
+    /// Scratch materialization directory. Since 2026-08-22 (item 159) the app
+    /// keeps NO playback cache of its own — TDLib's downloaded-file store is the
+    /// single cache (capped via optimizeStorage). This directory only holds
+    /// short-lived plaintext files materialized on demand (books, thumbnails,
+    /// exports, "open with default app") and is wiped at every launch.
+    static func scratchDirectory() throws -> URL {
         let fm = FileManager.default
         let support = try fm.url(
             for: .applicationSupportDirectory,
@@ -38,9 +43,31 @@ enum DownloadEngine {
             appropriateFor: nil,
             create: true
         )
-        let dir = support.appendingPathComponent("\(AppPaths.dataFolder)/cache", isDirectory: true)
+        let dir = support.appendingPathComponent("\(AppPaths.dataFolder)/scratch", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// Launch janitor for the single-cache architecture: wipes last session's
+    /// scratch files and the LEGACY playback cache (pre-item-159) so its bytes
+    /// are reclaimed without user action.
+    static func cleanScratchAndLegacyCache() {
+        let fm = FileManager.default
+        if let legacy = try? fm.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: false
+        ).appendingPathComponent("\(AppPaths.dataFolder)/cache", isDirectory: true) {
+            try? fm.removeItem(at: legacy)
+        }
+        if let scratch = try? scratchDirectory() {
+            if let entries = try? fm.contentsOfDirectory(at: scratch, includingPropertiesForKeys: nil) {
+                for url in entries { try? fm.removeItem(at: url) }
+            }
+        }
+    }
+
+    static func cacheDirectory() throws -> URL {
+        try scratchDirectory()
     }
 
     static func cacheURL(for object: ObjectRecord) -> URL {
@@ -249,6 +276,12 @@ enum DownloadEngine {
                     Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
                 }
                 logger.info("Download complete: \(object.name)")
+                // Single-cache architecture: keep TDLib's downloaded-file store
+                // under the user's cap right after adding to it.
+                let capGB = UserDefaults.standard.integer(forKey: cacheCapKey)
+                if capGB > 0 {
+                    await TelegramClient.shared.enforceDownloadStoreCap(bytes: Int64(capGB) * 1_073_741_824)
+                }
                 await ThumbnailService.shared.generateAndSaveThumbnail(for: object, from: dest)
                 // Books: the download IS the trigger for cover generation (covers
                 // are otherwise made at upload time; older uploads have none until

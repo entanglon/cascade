@@ -2504,8 +2504,10 @@ private struct ImageFullscreenRoot: View {
         .environment(\.colorScheme, .dark)
         .task(id: session.file?.id) {
             guard let file = session.file else { return }
-            if DownloadEngine.isCached(file) {
-                url = DownloadEngine.cacheURL(for: file)
+            // Single-cache architecture (item 159): stream via the byte-range
+            // server; materialize to scratch only as a fallback.
+            if let stream = await VideoStreamingEngine.shared.mpvStreamURL(for: file) {
+                url = stream
                 return
             }
             do {

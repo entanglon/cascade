@@ -64,7 +64,6 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var showClearCacheConfirm = false
-    @State private var showClearTdlibConfirm = false
     @State private var tdlibCacheSize: Int64?
     @State private var isExporting = false
     @State private var exportProgressText = ""
@@ -112,19 +111,10 @@ struct SettingsView: View {
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
         .confirmationDialog(
-            "Clear local cache? This deletes downloaded previews and thumbnails. Your files in Telegram are safe.",
+            "Clear local cache? This deletes downloaded previews, thumbnails and Telegram's download store (\(tdlibSizeLabel)). Your files in Telegram are safe.",
             isPresented: $showClearCacheConfirm, titleVisibility: .visible
         ) {
             Button("Clear Cache", role: .destructive) { appState.clearLocalCache() }
-        }
-        .confirmationDialog(
-            "Delete Telegram's download store (\(tdlibSizeLabel))? Anything you open later re-downloads from your channel.",
-            isPresented: $showClearTdlibConfirm, titleVisibility: .visible
-        ) {
-            Button("Delete Telegram Cache", role: .destructive) {
-                appState.clearTdlibFileCache()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { refreshTdlibSize() }
-            }
         }
         .task { refreshTdlibSize() }
         .onReceive(NotificationCenter.default.publisher(for: .tdlibCacheChanged)) { _ in
@@ -394,7 +384,7 @@ struct SettingsView: View {
                 settingsDivider
                 settingsRow(
                     title: "Cache Limit",
-                    subtitle: "Oldest files also auto-evict when free disk space drops below \(XTheme.formatBytes(DownloadEngine.minFreeSpaceBytes))."
+                    subtitle: "Applies to Telegram's download store — oldest files auto-evict past the cap (and when free disk space drops below \(XTheme.formatBytes(DownloadEngine.minFreeSpaceBytes)))."
                 ) {
                     Picker("", selection: $cacheCapGB) {
                         Text("2 GB").tag(2)
@@ -408,6 +398,13 @@ struct SettingsView: View {
                     .fixedSize()
                     .onChange(of: cacheCapGB) { _, _ in
                         DownloadEngine.enforceCacheBudget()
+                        if cacheCapGB > 0 {
+                            Task {
+                                await TelegramClient.shared.enforceDownloadStoreCap(
+                                    bytes: Int64(cacheCapGB) * 1_073_741_824
+                                )
+                            }
+                        }
                     }
                 }
                 settingsDivider
@@ -468,25 +465,11 @@ struct SettingsView: View {
                     showClearCacheConfirm = true
                 } label: {
                     HStack {
-                        Text("Clear Local Cache")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.red.opacity(0.85))
-                        Spacer()
-                    }
-                    .padding(.vertical, 10)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                settingsDivider
-                Button(role: .destructive) {
-                    showClearTdlibConfirm = true
-                } label: {
-                    HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Delete Telegram Download Store")
+                            Text("Clear Local Cache")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.red.opacity(0.85))
-                            Text("TDLib keeps every downloaded file here — currently \(tdlibSizeLabel). Your channel is unaffected; files re-download on demand.")
+                            Text("Clears previews, thumbnails and Telegram's download store (currently \(tdlibSizeLabel)). Your channel is unaffected; anything you open later re-downloads on demand.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }

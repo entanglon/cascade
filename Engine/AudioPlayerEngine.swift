@@ -507,21 +507,15 @@ final class AudioPlayerEngine {
         trackList.filter { $0.isAudio || $0.isVideo }
     }
 
-    /// Resolves the playable URL for `file`: cached → local file; uncached →
-    /// byte-range stream from Telegram (VaultStreamServer); neither → download the
-    /// file to disk. The single source of truth for play() and the background paths.
+    /// Resolves the playable URL for `file`: media streams via the byte-range
+    /// server (VaultStreamServer) — since the single-cache architecture (item 159)
+    /// there is no app-side playback cache; TDLib's store feeds replays locally.
+    /// Non-media (rare) materializes to scratch. The single source of truth for
+    /// play() and the background paths.
     private func resolvePlaybackURL(for file: ObjectRecord) async throws -> URL {
         let isMedia = file.isAudio || file.isVideo
-        if isMedia {
-            if DownloadEngine.isCached(file) {
-                return DownloadEngine.cacheURL(for: file)
-            }
-            if let streamURL = await VideoStreamingEngine.shared.mpvStreamURL(for: file) {
-                return streamURL
-            }
-        }
-        if DownloadEngine.isCached(file) {
-            return DownloadEngine.cacheURL(for: file)
+        if isMedia, let streamURL = await VideoStreamingEngine.shared.mpvStreamURL(for: file) {
+            return streamURL
         }
         return try await DownloadEngine.download(object: file, quiet: true) { _, _ in }
     }

@@ -1205,7 +1205,11 @@ final class AppState {
         Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 6 * 60 * 60 * 1_000_000_000)
-                await cleanupExpiredTransfers()
+        // Single-cache architecture janitor (item 159): drop last session's
+        // scratch materializations and the legacy playback cache.
+        DownloadEngine.cleanScratchAndLegacyCache()
+
+        await cleanupExpiredTransfers()
                 await ShareEngine.cleanupExpiredShares()
                 await loadShares()
             }
@@ -2067,6 +2071,10 @@ final class AppState {
             if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
                 try? FileManager.default.removeItem(at: thumbDir)
             }
+            // Single-cache architecture: the Clear button also purges TDLib's
+            // downloaded-file store (the one true cache since item 159).
+            _ = try? await TelegramClient.shared.purgeDownloadedFiles()
+            NotificationCenter.default.post(name: .tdlibCacheChanged, object: nil)
             // Clear upload staging files that don't belong to an IN-FLIGHT upload
             // (state uploading/paused). Staging .bin files are named
             // <objectID>-<index>.bin and are recreated on demand, so orphans —
@@ -2380,28 +2388,6 @@ final class AppState {
     }
 
     @MainActor
-    /// Clears TDLib's persistent downloaded-file store (~/Library/Caches/
-    /// .../tdlib-files). Safe: the vault channel is the source of truth and
-    /// anything requested later is simply re-downloaded. Surfaces bytes freed.
-    func clearTdlibFileCache() {
-        Task {
-            do {
-                let freed = try await TelegramClient.shared.purgeDownloadedFiles()
-                let gb = Double(freed) / 1_073_741_824
-                let label = gb >= 0.1 ? String(format: "%.1f GB", gb)
-                    : String(format: "%.0f MB", Double(freed) / 1_048_576)
-                notify(
-                    title: "Telegram cache cleared",
-                    message: "Freed \(label). Files stay in your channel — they'll re-download on demand.",
-                    kind: .success
-                )
-            } catch {
-                notify(title: "Couldn't clear Telegram cache", message: error.localizedDescription, kind: .error)
-            }
-            NotificationCenter.default.post(name: .tdlibCacheChanged, object: nil)
-        }
-    }
-
     func deleteForever(_ file: ObjectRecord) {
         deleteForever([file])
     }
