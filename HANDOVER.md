@@ -3577,6 +3577,8 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Roadmap lever if still insufficient: multiple TDLib client instances for
       true cross-instance parallelism (heavyweight).
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+    - VERIFIED: brief ~1 s startup buffer then fully smooth playback (normal
+      cold start). Arc closed — no further streaming work needed for now.
 
 
 

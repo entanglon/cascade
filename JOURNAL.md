@@ -66,7 +66,9 @@ true parallelism (heavyweight) — ROADMAP candidate.
 
 ### Verification
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `627edb0`.
-
+User re-test: brief startup buffer (~1 s, normal cold start) then FULL smooth
+playback — no stalls. Item 161 arc CLOSED; serial chain + large batches is the
+final streaming architecture.
 ## 2026-08-22 (night) — Single-cache architecture (item 159)
 
 User proposal (approved after assessment): remove the app-level playback cache
