@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-21: Volume/balance fix, chunk size, streaming buffering investigation + fix rounds (items 127–141). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–166 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2641,6 +2641,21 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
+### Latest session state (items 155–166, 2026-08-22)
+Streaming/upload/download arcs CLOSED and verified: true pause/resume both
+directions, no discard ghosts, single-cache architecture (app playback cache
+retired; TDLib store capped via Settings + auto-enforced after downloads +
+preheated after uploads), smooth playback + pinned seeks + visible loading
+states. Tests: 83 unit green throughout.
+
+Open levers (not scheduled):
+- Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
+  files ever need more than ~11 MB/s effective.
+- Dedupe in-flight overlapping range fetches (run vs serve double-pull).
+- Preheat currently skips private uploads (needs vault-key path).
+- ROADMAP.md still holds parked items: Argon2id KDF, TDLib whole-chunk paradigm.
+
+
 ### Phase 0: Anti-Ban & Telegram API Safety (DONE ✅ — 2026-08-20, item 120)
 - [x] **Universal `withFloodWait`** on all TDLib call sites in `TelegramClient`.
 - [x] **Inter-page delay (200ms)** in `allChannelMessages` and paging loops.
@@ -2656,15 +2671,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 - [x] **Item 10: Structured error surfacing** — user-facing banner/toast notifications for background sync and transfer failures instead of silent catches.
 
 ### Phase 1: Robustness (Weeks 4–8)
-- [ ] **Item 11: Global token-bucket rate limiter** — actor wrapping all TDLib writes (20 writes/min sustained, burst of 8).
-- [ ] **Item 12: API call metrics & telemetry** — counters per TDLib function per hour, log to file, warn at thresholds.
-- [ ] **Item 13: `sendCopy: true` backup option** — true independent document clone in backup channel (opt-in).
+- [x] **Item 11: Global token-bucket rate limiter** — actor wrapping all TDLib writes (20 writes/min sustained, burst of 8).
+- [x] **Item 12: API call metrics & telemetry** — counters per TDLib function per hour, log to file, warn at thresholds.
+- [x] **Item 13: `sendCopy: true` backup option** — true independent document clone in backup channel (opt-in).
 - [ ] **Item 14: Checkpoint pagination** — multi-part checkpoint documents removing the single-message ceiling.
-- [ ] **Item 15: Structured logging subsystem** — file-backed rotating log engine.
-- [ ] **Item 16: Conditional post-auth heal** — skip O(n) dedupe if clean flag set.
+- [x] **Item 15: Structured logging subsystem** (LogManager) — file-backed rotating log engine.
+- [x] **Item 16: Conditional post-auth heal** — skip O(n) dedupe if clean flag set.
 
 ### Phase 2: Features & UX (Weeks 9–16)
-- [ ] **Item 17: FTS5 full-text search** — replace SQLite `LIKE '%query%'` with full-text search index on name, MIME, and path.
+- [x] **Item 17: FTS5 full-text search** — replace SQLite `LIKE '%query%'` with full-text search index on name, MIME, and path.
 - [ ] **Item 18: Version history & file recovery** — snapshot previous revisions on overwrite.
 - [ ] **Item 19: Local export engine** — one-click bulk decrypted export to local folder.
 - [ ] **Item 20: Share improvements** — viewer lists, revocable links, expiry notifications.
@@ -2675,7 +2690,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 ### Phase 3: Scale (Weeks 17–26)
 - [ ] **Item 23: iOS companion app** (read-only / media player).
 - [ ] **Item 24: AppState decomposition** — separate navigation, playback, and transfer state machines.
-- [ ] **Item 25: Automated CI workflow** (`.github/workflows/ci.yml`).
+- [x] **Item 25: Automated CI workflow** (rewritten for current toolchain, item 148) (`.github/workflows/ci.yml`).
 - **Zero-Knowledge Encryption Pipeline Complete (Phases 1–5)**:
   - Phase 1: Cryptographic Primitives & Key Management.
   - Phase 2: Encrypted Chunk Uploads & Caption Metadata Sanitization.

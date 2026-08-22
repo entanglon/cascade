@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (night) — Deep-range fetcher REVERTED after live test (item 161); serial chain with larger sync batches kept (160→161); single-cache architecture (159).
+> 2026-08-22 (afternoon) — Scrubber axis fix + relative-seek hold (item 166); preheat + flicker fix (165); seek UX round 2 (164); single-cache (159); true pause/resume up+down (156/157); discard ghosts fixed (155).
 
 ---
 
