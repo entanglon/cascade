@@ -391,3 +391,14 @@ speed + support + legal layer, not binary secrecy.
 Deferred by decision: FileProvider native mount (messy; revisit post-iOS),
 iOS companion (FIRST task once feature-complete), distribution/licensing
 (feature-complete milestone, see plan above).
+
+### Wave 2 kickoff notes (2026-08-22, for item 1 Subtitles — execute next session)
+Existing hooks confirmed: MPVController has track-list enumeration
+(MPVVideoView:1269+) + selectTrack plumbing (both headless & view paths) —
+subtitle TRACKS already surface if present in-container. Missing pieces:
+(a) sidecar upload: reuse thumbnail-sidecar pattern (ChunkCaption kindSidecar)
+    when user picks a .srt/.ass next to a video, or auto-detect same-stem file;
+(b) catalog linkage column or reuse thumb-style linkage on ObjectRecord;
+(c) at playback start: if sidecar exists → materialize to scratch + mpv command
+    "sub-add <path> auto" before/after loadfile; expose in existing track picker.
+Test plan: sidecar round-trip caption codec test + play-with-subs manual check.
