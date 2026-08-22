@@ -37,13 +37,10 @@ manual checklist below is the verification.
 ### Manual QA checklist
 
 - [ ] Play a video → click PiP (top bar button or chevron minimize) → the THEATER CLOSES and a small floating panel appears bottom-right; playback never stutters or restarts.
-- [ ] Panel has all THREE traffic lights: red closes/stops, middle one is GREYED OUT, green expands back into Cascade.
-- [ ] Click the GREEN light → theater reopens and playback CONTINUES at the exact moment — no spinner, no restart, position untouched.
-- [ ] Enter PiP again, then double-click the SAME video tile in All Files → seamless expand again (no restart).
-- [ ] Hover over the panel → play/pause strip fades in and works.
-- [ ] Drag the panel anywhere; resize it (stays 16:9); open another app over Cascade → panel stays on top; switch Spaces → follows and keeps playing.
+- [ ] Hover over the panel → control strip fades in: play/pause works; the expand button (fullscreen arrows) reopens the theater — playback RESUMES at the position where the panel left off (brief buffering while the stream re-opens is expected).
+- [ ] Drag the panel anywhere; open another app over Cascade → panel stays on top; switch Spaces → follows and keeps playing.
 - [ ] With PiP active, play a DIFFERENT video from the grid → the panel retires cleanly and the new video plays in the theater (no frozen orphan panel).
-- [ ] Click the panel's close (RED) traffic light with no theater open → playback stops entirely, panel gone (no zombie audio).
+- [ ] Click the panel's close (X) traffic light with no theater open → playback stops entirely, panel gone (no zombie audio).
 - [ ] Fullscreen player: the PiP button is hidden there; entering fullscreen while PiP is active is refused until PiP exits.
 - [ ] Output picker: click the hi-fi speaker button in the pill row (next to waveform) → popover lists "auto" + devices; current one has a checkmark.
 - [ ] Connect an AirPlay speaker (or Bluetooth headphones), reopen the popover → it appears in the list; select it → sound moves there instantly mid-video; switch back to built-in.
