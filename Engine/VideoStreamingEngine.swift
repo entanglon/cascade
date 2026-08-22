@@ -91,6 +91,11 @@ final class VideoStreamingEngine {
     // ~1.25 MB/s, so 48 slices ≈ 38 s of forward buffer — enough to absorb a
     // multi-second TDLib stall without mpv ever reaching pause-for-cache.
     private static let readAheadBatchSlices = 32
+    // Serve-path batches stay SMALL: the synchronous fetch must fully complete
+    // before mpv sees even its first slice, so a big batch here would add
+    // seconds of latency to every start/seek. Throughput comes from the deep
+    // read-ahead runs (32-slice batches); responsiveness from these.
+    private static let serveBatchSlices = 8
     private static let readAheadWindowSlices = 48
 
     /// Appends a timestamped line to /tmp/cascade-stream.log. The unified log is
@@ -151,7 +156,7 @@ final class VideoStreamingEngine {
             // serve is part of mpv's sequential walk: fetch a whole batch in that
             // round trip (8× fewer negotiations on linear playback).
             let isSequential = afterSlice == fileSliceIndex - 1
-            let batchCount = isSequential ? Self.readAheadBatchSlices : 1
+            let batchCount = isSequential ? Self.serveBatchSlices : 1
             if !isSequential {
                 Self.streamLog("serve miss obj=\(objectID) slice=\(fileSliceIndex) chunk=\(chunkIndex) local=\(localSliceIndex) (jump)")
             }

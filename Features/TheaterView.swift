@@ -1568,11 +1568,11 @@ struct TheaterAudioPlayerView: View {
     }
 
     /// Pins the bar to the requested position until mpv reports it; gives up
-    /// after 1.5s so a failed seek can never freeze the bar.
+    /// after 12s (matching MPVController's hold) so a failed seek can never freeze the bar.
     private func holdProgressUntilSeekLands(_ target: Double) {
         seekTarget = target
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
             if self.seekTarget == target {
                 self.seekTarget = nil
             }
