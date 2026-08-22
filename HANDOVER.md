@@ -2651,9 +2651,11 @@ items 1–7 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
 sync (`3fd4c9b`), Touch ID unlock (`938c8cb`), PiP + output picker
 (`548816c`; seamless-expand experiment REVERTED — see item 173), storage
 dashboard (`cd3cd5e`), duplicate finder (`839e62f`), versions + bulk export
-(`6e0be76`), Shared-page upgrades (`2c1412b`); next = Smart search (10, LAST
-and heaviest). **TESTING.md** tracks manual QA per feature. Tests: 100 unit
-green.
+(`6e0be76`), Shared-page upgrades (`2c1412b`). **Item 10 (smart search)
+DEFERRED by decision** — see ROADMAP. **WAVE 2 COMPLETE (9/10 shipped).**
+Next major arcs: iOS companion (user-stated FIRST post-feature-complete),
+distribution/licensing. **TESTING.md** tracks manual QA per feature. Tests:
+100 unit green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate

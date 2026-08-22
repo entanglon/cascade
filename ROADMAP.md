@@ -421,8 +421,14 @@ speed + support + legal layer, not binary secrecy.
    joins attribute the importer's Telegram user, public joins stay
    channel-level), import badges + Activity timeline sheet per card, and
    "Add Password…" rotation for unprotected private links.
-10. **Smart search** — Vision OCR index for images; Whisper-local transcripts
-    for audio/video; semantic query box. LAST (heaviest).
+10. **Smart search** — DEFERRED by decision (2026-08-22, end of Wave 2):
+    content search pays off at large catalogs, and the vault is small;
+    FTS5 name search (item 17) covers most real retrieval; the full scope
+    (Vision OCR + Whisper-local transcripts + semantic box) costs weeks while
+    the feature-complete milestone (iOS companion, distribution/licensing)
+    delivers far more value. IF revisited: build the OCR-only slice first
+    (Vision text recognition → index → fold into existing search) and skip
+    Whisper/semantic entirely.
 
 Deferred by decision: FileProvider native mount (messy; revisit post-iOS),
 iOS companion (FIRST task once feature-complete), distribution/licensing

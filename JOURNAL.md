@@ -2,7 +2,7 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (late night) — Wave 2 items 1–9 done (…+ duplicate finder, versions/export, Shared-page upgrades).
+> 2026-08-22 (late night) — WAVE 2 COMPLETE: items 1–9 shipped; item 10 (smart search) deferred by decision (see ROADMAP for the OCR-only slice if revisited).
 
 ---
 
