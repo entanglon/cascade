@@ -13,5 +13,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock your Private Vault with Face ID.</string>
 </dict>
 </plist>

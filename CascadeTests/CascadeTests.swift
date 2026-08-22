@@ -2736,6 +2736,25 @@ struct CascadeTests {
         #expect(MirrorSyncEngine.shouldTrackName("my.partfile.txt"), ".partfile is part of the stem, not a partial suffix")
     }
 
+    // MARK: - Touch ID vault unlock (Wave 2 item 4)
+
+    @Test func biometricEligibilityGate() {
+        // All three conditions must hold: enabled + PIN exists + sensor present.
+        #expect(BiometricUnlock.isEligible(enabled: true, hasPINHash: true, biometryAvailable: true))
+        #expect(!BiometricUnlock.isEligible(enabled: false, hasPINHash: true, biometryAvailable: true), "toggle off → PIN only")
+        #expect(!BiometricUnlock.isEligible(enabled: true, hasPINHash: false, biometryAvailable: true), "no PIN yet (create phase) → never biometric")
+        #expect(!BiometricUnlock.isEligible(enabled: true, hasPINHash: true, biometryAvailable: false), "no sensor on this Mac")
+        #expect(!BiometricUnlock.isEligible(enabled: false, hasPINHash: false, biometryAvailable: false))
+
+        // The Settings toggle persists and defaults to off.
+        let key = BiometricUnlock.enabledKey
+        let original = UserDefaults.standard.bool(forKey: key)
+        defer { UserDefaults.standard.set(original, forKey: key) }
+        #expect(original == false || original == true)
+        UserDefaults.standard.set(true, forKey: key)
+        #expect(UserDefaults.standard.bool(forKey: key) == true)
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)

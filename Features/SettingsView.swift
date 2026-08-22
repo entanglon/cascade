@@ -93,6 +93,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 26) {
                         accountSection
+                        if BiometricUnlock.isAvailable() { securitySection }
                         syncSection
                         mirrorSection
                         playbackSection
@@ -196,6 +197,33 @@ struct SettingsView: View {
         if !id.username.isEmpty { return "@\(id.username)" }
         if !id.phone.isEmpty { return "+\(id.phone)" }
         return "Telegram account"
+    }
+
+    // MARK: - Private Vault (Wave 2 item 4)
+
+    @AppStorage(BiometricUnlock.enabledKey) private var biometricUnlockEnabled = false
+
+    /// Only rendered when a biometric sensor exists on this Mac.
+    private var securitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Private Vault")
+            settingsCard {
+                settingsRow(
+                    title: "\(BiometricUnlock.biometryName) Unlock",
+                    subtitle: "Unlock the Private Vault with \(BiometricUnlock.biometryName) instead of typing the PIN. The PIN stays the fallback and still protects recovery."
+                ) {
+                    Toggle("", isOn: $biometricUnlockEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(XTheme.accent)
+                        .onChange(of: biometricUnlockEnabled) { _, enabled in
+                            if enabled && !BiometricUnlock.isAvailable() {
+                                biometricUnlockEnabled = false
+                            }
+                        }
+                }
+            }
+        }
     }
 
     // MARK: - Cloud Sync

@@ -2853,9 +2853,17 @@ struct PrivateVaultLockView: View {
     @State private var revealedIndex: Int? = nil
     @State private var revealTimer: Task<Void, Never>? = nil
     @State private var pinLockMessage: String? = nil
+    @State private var biometricAutoPrompted = false
     @FocusState private var focused: Bool
 
     enum Phase { case enter, create, confirm, recover }
+
+    /// Wave 2 item 4 — Touch ID / Face ID replaces the ENTER phase only (the
+    /// PIN stays the source of truth; create/confirm/recover need the literal
+    /// digits because they derive crypto material).
+    private var showBiometricUnlock: Bool {
+        phase == .enter && BiometricUnlock.isEligible(hasPINHash: KeychainStore.loadVaultPINHash() != nil)
+    }
 
     var body: some View {
         ZStack {
@@ -2925,6 +2933,30 @@ struct PrivateVaultLockView: View {
                 }
                 .offset(x: shake ? 12 : 0)
 
+                // Biometric unlock (Touch ID / Face ID) — PIN stays as fallback.
+                if showBiometricUnlock {
+                    Button {
+                        Task { await unlockWithBiometrics() }
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: BiometricUnlock.biometryName == "Face ID" ? "faceid" : "touchid")
+                                .font(.system(size: 26, weight: .medium))
+                            Text("Unlock with \(BiometricUnlock.biometryName)")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(XTheme.accent)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(XTheme.accent.opacity(0.12))
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Unlock the Private Vault using \(BiometricUnlock.biometryName)")
+                }
+
                 // Invisible capture field
                 TextField("", text: $buffer)
                     .textFieldStyle(.plain)
@@ -2959,7 +2991,15 @@ struct PrivateVaultLockView: View {
         }
         .onAppear {
             focused = true
-            Task { await chooseInitialPhase() }
+            Task {
+                await chooseInitialPhase()
+                // Auto-prompt the sensor once per lock-screen appearance —
+                // Touch ID unlock should feel like the DEFAULT path.
+                if showBiometricUnlock && !biometricAutoPrompted {
+                    biometricAutoPrompted = true
+                    await unlockWithBiometrics()
+                }
+            }
         }
         .task(id: appState.selectedDestination) {
             try? await Task.sleep(for: .milliseconds(50))
@@ -3047,6 +3087,27 @@ struct PrivateVaultLockView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { shake = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             shake = false; buffer = ""; revealedIndex = nil
+        }
+    }
+
+    /// Biometric unlock success flips the exact same flag the PIN path does —
+    /// the vault gate re-evaluates and crossfades open. The recovery-blob
+    /// backfill is skipped here (it needs the raw PIN); it is best-effort and
+    /// runs on the next successful PIN entry.
+    private func unlockWithBiometrics() async {
+        guard phase == .enter else { return }
+        guard KeychainStore.pinAttemptAllowed() else {
+            pinLockMessage = "Too many attempts — wait \(KeychainStore.pinLockRemainingSeconds())s"
+            return
+        }
+        let ok = await BiometricUnlock.authenticate(reason: "Unlock your Private Vault")
+        if ok {
+            // Mirror a PIN success: clear the failure backoff, then unlock.
+            KeychainStore.registerPINResult(success: true)
+            pinLockMessage = nil
+            appState.isPrivateVaultUnlocked = true
+        } else {
+            pinLockMessage = "\(BiometricUnlock.biometryName) didn't match — enter your PIN."
         }
     }
 }
