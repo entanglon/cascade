@@ -1235,6 +1235,15 @@ final class TelegramClient {
             }
             syncLock { fileUploadProgressHandlers.removeValue(forKey: file.id) }
             continuation?.resume(throwing: CancellationError())
+            // True pause: ALSO stop TDLib's native part uploads. Without this the
+            // upload silently continued in the background after Pause — resume then
+            // "jumped" to wherever the background had reached (user report 2026-
+            // 08-22). Best-effort: failures are non-fatal.
+            let client = self.client
+            let fileId = file.id
+            Task {
+                try? await client?.cancelPreliminaryUploadFile(fileId: fileId)
+            }
         }
 
         if onProgress != nil {
