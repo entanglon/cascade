@@ -492,7 +492,7 @@ final class AudioPlayerEngine {
                 // and play it from disk.
                 let url = try await resolvePlaybackURL(for: file)
                 let isVideo = file.isVideo
-                await MainActor.run { setupMPVPlayer(with: url, audioOnly: !isVideo, startPosition: resumePos, previousTrackID: previousTrackID) }
+                await MainActor.run { setupMPVPlayer(with: url, audioOnly: !isVideo, startPosition: resumePos, previousTrackID: previousTrackID, file: file) }
             } catch {
                 await MainActor.run {
                     isLoading = false
@@ -525,7 +525,7 @@ final class AudioPlayerEngine {
     /// MPVVideoView attaches later and picks up the pending URL when its view loads.
     /// For audio (`audioOnly`) the controller plays headless — mpv runs with no GL
     /// surface and the file loads immediately.
-    private func setupMPVPlayer(with url: URL, audioOnly: Bool = false, startPosition: Double = 0, previousTrackID: String? = nil) {
+    private func setupMPVPlayer(with url: URL, audioOnly: Bool = false, startPosition: Double = 0, previousTrackID: String? = nil, file: ObjectRecord? = nil) {
         stopMPVIfNeeded(for: previousTrackID)
         let controller = MPVController()
         controller.onPlaybackError = { [weak self] in
@@ -601,6 +601,38 @@ final class AudioPlayerEngine {
                 controller.seek(absolute: startPosition)
             }
             controller.play(url: url)
+        }
+        // Sidecar subtitles (Wave 2 item 1): materialize each linked .srt/.ass to
+        // scratch and hand it to mpv. Safe to issue right after loadfile — the
+        // controller/layer queue them until the FILE_LOADED event (mpv rejects
+        // sub-add earlier). First sidecar selects; the rest attach unselected.
+        // The view path queues at the controller level until MPVVideoView attaches.
+        if let file, file.isVideo, !file.subtitleList.isEmpty {
+            let video = file
+            Task { [weak self] in
+                await self?.attachSidecarSubtitles(to: controller, video: video)
+            }
+        }
+    }
+
+    /// Downloads + decrypts every sidecar subtitle of `video` into scratch and
+    /// adds it to the live mpv core. Failures are logged per subtitle and never
+    /// block playback (the video is already playing by the time these land).
+    private func attachSidecarSubtitles(to controller: MPVController, video: ObjectRecord) async {
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
+        for (index, sub) in video.subtitleList.enumerated() {
+            do {
+                let url = try await UploadEngine.materializeSubtitle(video: video, sidecar: sub, vault: vault)
+                let title = (sub.name as NSString).deletingPathExtension
+                controller.addExternalSubtitle(
+                    url: url,
+                    title: title,
+                    mode: index == 0 ? "select" : "auto"
+                )
+                Self.playbackLogger.info("sidecar sub attached track=\(video.id, privacy: .public) name=\(sub.name, privacy: .public)")
+            } catch {
+                Self.playbackLogger.warning("sidecar sub failed track=\(video.id, privacy: .public) name=\(sub.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

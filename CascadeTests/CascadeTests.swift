@@ -2432,6 +2432,78 @@ struct CascadeTests {
         #expect(meta.id == objectID)
     }
 
+    // MARK: - Subtitle sidecars (Wave 2 item 1)
+
+    @Test func subCaptionCodecMarksSidecarDocuments() {
+        let videoID = "video-\(UUID().uuidString)"
+        guard let caption = ChunkCaption.subCaption(objectID: videoID) else {
+            Issue.record("sub caption must encode")
+            return
+        }
+        #expect(caption.hasPrefix(ChunkCaption.unifiedPrefix))
+        #expect(ChunkCaption.isSubCaption(caption))
+        #expect(!ChunkCaption.isThumbCaption(caption))
+        #expect(!ChunkCaption.isChunkCaption(caption), "subtitle sidecars must never be orphan-purge candidates")
+        guard let meta = ChunkCaption.parse(caption) else {
+            Issue.record("sub caption must parse")
+            return
+        }
+        #expect(meta.kind == ChunkCaption.kindSub)
+        #expect(meta.id == videoID)
+    }
+
+    @Test func subtitleSidecarJSONRoundTripAndLegacyDecode() throws {
+        var record = ObjectRecord(
+            id: "video-\(UUID().uuidString)",
+            vaultID: "vault",
+            name: "Movie.mkv",
+            size: 1234,
+            mime: "video/x-matroska",
+            state: "ready",
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        #expect(record.subtitleList.isEmpty, "no linkage column → no subtitles")
+
+        // Round-trip a populated list through the JSON column encoding.
+        let list = [
+            SubtitleSidecar(messageID: 111, name: "Movie.en.srt"),
+            SubtitleSidecar(messageID: 222, name: "Movie.ar.ass")
+        ]
+        let encoded = try #require(ObjectRecord.encodedSubtitles(list))
+        record.subtitleSidecars = encoded
+        #expect(record.subtitleList == list)
+
+        // Empty list encodes to nil (column stays NULL, not an empty JSON array).
+        #expect(ObjectRecord.encodedSubtitles([]) == nil)
+
+        // Old snapshots/rows without the key decode to nil (defensive decoding).
+        let legacyJSON = """
+        {"id":"\(record.id)","vaultID":"vault","name":"Movie.mkv","size":1234,"mime":"video/x-matroska","state":"ready","createdAt":\(Int(record.createdAt.timeIntervalSince1970)),"modifiedAt":\(Int(record.modifiedAt.timeIntervalSince1970))}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(ObjectRecord.self, from: Data(legacyJSON.utf8))
+        #expect(decoded.subtitleSidecars == nil)
+        #expect(decoded.subtitleList.isEmpty)
+    }
+
+    @Test func subtitleExtensionClassification() {
+        func record(_ name: String) -> ObjectRecord {
+            ObjectRecord(
+                id: UUID().uuidString, vaultID: "v", name: name, size: 10,
+                mime: "application/octet-stream", state: "ready",
+                createdAt: Date(), modifiedAt: Date()
+            )
+        }
+        #expect(record("movie.srt").isSubtitleFile)
+        #expect(record("movie.ass").isSubtitleFile)
+        #expect(record("movie.SRT").isSubtitleFile)
+        #expect(record("movie.vtt").isSubtitleFile)
+        #expect(!record("movie.mkv").isSubtitleFile)
+        #expect(!record("notes.txt").isSubtitleFile)
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)

@@ -104,6 +104,13 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// tombstoneAt is set. Deltas and checkpoints carry the tombstone to prevent
     /// deleted objects from being resurrected on delta replay or multi-device sync.
     var tombstoneAt: Date? = nil
+    /// Sidecar subtitle files attached to this video, JSON-encoded as a
+    /// `[SubtitleSidecar]` array (GRDB TEXT column — keeps the record mapping
+    /// flat and old rows decode to nil). Each entry links one uploaded
+    /// `.srt/.ass/.vtt` document by its vault-channel message ID; at playback
+    /// the sidecars are materialized to scratch and handed to mpv (`sub-add`).
+    /// Synced through the catalog snapshot like every other ObjectRecord field.
+    var subtitleSidecars: String? = nil
 
     // Custom decoding so records missing newer fields (old catalog snapshots in the
     // channel, or rows read before a migration) still decode — every optional-ish
@@ -111,6 +118,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     enum CodingKeys: String, CodingKey {
         case id, vaultID, name, size, mime, state, rootHash, wrappedKey, createdAt, modifiedAt
         case isFavorite, trashed, parentID, isFolder, isPrivate, sourcePath, chunkSize, isArchived, isInLibrary, coverObjectID, thumbMessageID, tombstoneAt
+        case subtitleSidecars
     }
 
     init(from decoder: Decoder) throws {
@@ -137,6 +145,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         coverObjectID = try c.decodeIfPresent(String.self, forKey: .coverObjectID)
         thumbMessageID = try c.decodeIfPresent(Int64.self, forKey: .thumbMessageID)
         tombstoneAt = try c.decodeIfPresent(Date.self, forKey: .tombstoneAt)
+        subtitleSidecars = try c.decodeIfPresent(String.self, forKey: .subtitleSidecars)
     }
 
     // Explicit memberwise init (matching the old synthesized one, in property
@@ -163,7 +172,8 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         isInLibrary: Bool = false,
         coverObjectID: String? = nil,
         thumbMessageID: Int64? = nil,
-        tombstoneAt: Date? = nil
+        tombstoneAt: Date? = nil,
+        subtitleSidecars: String? = nil
     ) {
         self.id = id
         self.vaultID = vaultID
@@ -187,6 +197,32 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.coverObjectID = coverObjectID
         self.thumbMessageID = thumbMessageID
         self.tombstoneAt = tombstoneAt
+        self.subtitleSidecars = subtitleSidecars
+    }
+}
+
+// MARK: - Subtitle sidecars
+
+/// One sidecar subtitle document linked to a video object. `messageID` is the
+/// vault-channel message carrying the (optionally encrypted) subtitle bytes;
+/// `name` is the original file name ("Movie.en.srt") used as the track title.
+struct SubtitleSidecar: Codable, Equatable, Sendable {
+    var messageID: Int64
+    var name: String
+}
+
+extension ObjectRecord {
+    /// Decoded sidecar list (empty when the JSON column is nil/corrupt).
+    var subtitleList: [SubtitleSidecar] {
+        guard let json = subtitleSidecars, let data = json.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([SubtitleSidecar].self, from: data)) ?? []
+    }
+
+    /// Encodes a sidecar list for the `subtitleSidecars` column.
+    static func encodedSubtitles(_ list: [SubtitleSidecar]) -> String? {
+        guard !list.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(list) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 
@@ -230,6 +266,15 @@ extension ObjectRecord {
         guard !isFolder else { return false }
         let ext = (name as NSString).pathExtension.lowercased()
         return mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg", "wma", "opus", "aiff", "alac"].contains(ext)
+    }
+
+    /// Sidecar subtitle formats mpv consumes directly.
+    static let subtitleExtensions = ["srt", "ass", "ssa", "vtt", "sub"]
+
+    var isSubtitleFile: Bool {
+        guard !isFolder else { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return Self.subtitleExtensions.contains(ext)
     }
 }
 

@@ -758,11 +758,16 @@ struct PlayerControlsView: View {
 }
 
 /// Track picker for the audio / subtitle popovers — checkmark on the selected
-/// track, plain list rows, scrollable when many tracks exist.
+/// track, plain list rows, scrollable when many tracks exist. Subtitle lists
+/// gain an "Off" row (mpv `sid=0`) so sidecar/embedded subs can be hidden.
 private struct TrackSelectionList: View {
     let title: String
     let tracks: [Track]
     let onSelect: (Track) -> Void
+
+    private var showsOffRow: Bool {
+        tracks.contains { $0.type == "sub" }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -774,6 +779,28 @@ private struct TrackSelectionList: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
+                    if showsOffRow {
+                        Button {
+                            onSelect(Track(id: 0, type: "sub", title: "Off", lang: "", isSelected: !tracks.contains { $0.isSelected }))
+                        } label: {
+                            HStack {
+                                if !tracks.contains { $0.isSelected } {
+                                    Image(systemName: "checkmark")
+                                        .frame(width: 16)
+                                } else {
+                                    Spacer().frame(width: 16)
+                                }
+                                Text("Off")
+                                Spacer()
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(!tracks.contains { $0.isSelected } ? Color.white.opacity(0.1) : Color.clear)
+                        .cornerRadius(6)
+                    }
                     ForEach(tracks) { track in
                         Button {
                             onSelect(track)

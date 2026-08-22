@@ -20,6 +20,7 @@ struct MPVVideoView: NSViewControllerRepresentable {
         context.coordinator.player = mpv
         controller.playerView = mpv // Link controller to view
         mpv.delegate = controller // Link view to controller
+        controller.flushQueuedSubtitles() // Apply sidecar subs queued before attach
         return mpv
     }
 
@@ -499,13 +500,39 @@ class MPVController: ObservableObject {
         }
     }
 
-    func addExternalSubtitle(url: String, title: String) {
+    /// External subtitles queued while the theater's view had not attached yet
+    /// (`play(url:)` runs before SwiftUI builds MPVVideoView). Flushed by
+    /// `flushQueuedSubtitles()` from makeNSViewController.
+    private var queuedExternalSubtitles: [(url: String, title: String, mode: String)] = []
+
+    func addExternalSubtitle(path: String, title: String, mode: String = "select") {
         if isHeadless {
-            headlessView?.addExternalSubtitle(url: url, title: title)
+            headlessView?.queueExternalSubtitle(path: path, title: title, mode: mode)
+        } else if let view = playerView {
+            view.playerView.queueExternalSubtitle(path: path, title: title, mode: mode)
         } else {
-            playerView?.addExternalSubtitle(url: url, title: title)
+            queuedExternalSubtitles.append((path, title, mode))
+            return
         }
         // Re-fetch tracks after a brief delay to show the new track selected
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.fetchTracks()
+        }
+    }
+
+    /// Convenience for file URLs.
+    func addExternalSubtitle(url: URL, title: String, mode: String = "select") {
+        addExternalSubtitle(path: url.path(percentEncoded: false), title: title, mode: mode)
+    }
+
+    /// The theater view attached — apply any subtitles queued in the meantime.
+    func flushQueuedSubtitles() {
+        guard !queuedExternalSubtitles.isEmpty else { return }
+        let batch = queuedExternalSubtitles
+        queuedExternalSubtitles.removeAll()
+        for sub in batch {
+            playerView?.playerView.queueExternalSubtitle(path: sub.url, title: sub.title, mode: sub.mode)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.fetchTracks()
         }
@@ -1190,6 +1217,7 @@ final class MPVLayerView: NSView {
     /// player expands back into the theater and must continue where it left off).
     func loadFile(_ url: URL, startAt seconds: Double?) {
         seekOnLoad = seconds
+        awaitingFileLoaded = true
         if mpvGL == nil {
             print("[MPV] Deferring loadFile until render context is initialized: \(url.lastPathComponent)")
             pendingURL = url
@@ -1207,6 +1235,7 @@ final class MPVLayerView: NSView {
     func playHeadless(_ url: URL, startPosition: Double = 0) {
         pendingURL = url
         seekOnLoad = startPosition > 0.5 ? startPosition : nil
+        awaitingFileLoaded = true
         guard isMpvReady else { return }
         pendingURL = nil
         command("loadfile", url.absoluteString)
@@ -1289,6 +1318,45 @@ final class MPVLayerView: NSView {
 
     func addExternalSubtitle(url: String, title: String) {
         command("sub-add", url, "select", title)
+    }
+
+    // MARK: - External subtitle queue
+
+    /// Sidecar subtitles waiting for a file-load event. mpv rejects `sub-add`
+    /// issued before any file is loaded (the exact window where the engine
+    /// queues them: right after `loadfile`), so they park here and are flushed
+    /// from the MPV_EVENT_FILE_LOADED handler — the same pattern as seekOnLoad.
+    private struct QueuedSubtitle {
+        let url: String
+        let title: String
+        let mode: String // mpv flag: "select" activates, "auto" adds unselected
+    }
+
+    /// Main-queue-confined: mutated from UI/engine calls and flushed via the
+    /// event-loop's dispatch to main (never touched on the mpv thread itself).
+    private var pendingSubtitles: [QueuedSubtitle] = []
+    /// True between a `loadfile` and its FILE_LOADED event — the window where
+    /// sub-add must wait instead of applying immediately.
+    private var awaitingFileLoaded = false
+
+    /// Adds an external subtitle file, deferring until the media is loaded when
+    /// needed. Safe to call before/during/after playback start.
+    func queueExternalSubtitle(path: String, title: String, mode: String = "select") {
+        DispatchQueue.main.async {
+            self.pendingSubtitles.append(QueuedSubtitle(url: path, title: title, mode: mode))
+            if !self.awaitingFileLoaded {
+                self.flushPendingSubtitles()
+            }
+        }
+    }
+
+    private func flushPendingSubtitles() {
+        guard !pendingSubtitles.isEmpty else { return }
+        let batch = pendingSubtitles
+        pendingSubtitles.removeAll()
+        for sub in batch {
+            command("sub-add", sub.url, sub.mode, sub.title)
+        }
     }
 
     private func command(_ args: String...) {
@@ -1434,6 +1502,10 @@ final class MPVLayerView: NSView {
                         self.seekOnLoad = nil
                         self.command("seek", String(format: "%.2f", target), "absolute")
                     }
+                    // The load window is closed: external subtitles queued while
+                    // the demuxer was opening can now attach. Main-queue confined.
+                    self.awaitingFileLoaded = false
+                    DispatchQueue.main.async { self.flushPendingSubtitles() }
                 } else if eventId == MPV_EVENT_END_FILE {
                     let endFile = event.pointee.data.assumingMemoryBound(to: mpv_event_end_file.self)
                     if endFile.pointee.reason == MPV_END_FILE_REASON_ERROR {

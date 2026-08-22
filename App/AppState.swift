@@ -192,6 +192,9 @@ final class AppState {
     var theaterFile: ObjectRecord? = nil
     /// Book currently open in the reader (epub / pdf / text / comic).
     var readerFile: ObjectRecord? = nil
+    /// Video awaiting a sidecar-subtitle picker (.srt/.ass/…) — set by the file
+    /// context menu's "Add Subtitles…", consumed by the browser's fileImporter.
+    var subtitlePickerTarget: ObjectRecord? = nil
     var isTheaterFullScreen: Bool = false
 
     /// Object whose card should flash its border after a "reveal in folder"
@@ -1114,6 +1117,59 @@ final class AppState {
             totalWork: Double(chunks)
         )
         uploads.enqueue(UploadManager.PendingUpload(url: url, resumeObject: nil, transferID: transferID))
+    }
+
+    /// Wave 2 item 1 — sidecar subtitles: uploads the picked .srt/.ass/.vtt file
+    /// as a vault document linked to `video` (encrypted for private videos, raw
+    /// otherwise) and records it on the video row, so every playback auto-loads
+    /// it into mpv and any device can fetch it. Multiple subtitles per video are
+    /// allowed; re-adding a same-named subtitle replaces its entry.
+    @MainActor
+    func addSubtitleSidecar(from url: URL, to video: ObjectRecord?) {
+        guard let video else { return }
+        guard ObjectRecord.subtitleExtensions.contains(url.pathExtension.lowercased()) else {
+            alertMessage = "Unsupported subtitle format — use .srt, .ass, .ssa, .vtt or .sub."
+            return
+        }
+        Task {
+            do {
+                var vault = try? await VaultManager.ensureVault()
+                if vault == nil {
+                    vault = try? await DatabaseManager.shared.firstVault()
+                }
+                guard let vault else { throw UploadError.notAuthorized }
+                // Security-scoped access is a no-op for ordinary file picks but
+                // keeps drag-in sources readable.
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                _ = try await UploadEngine.uploadSubtitleSidecar(
+                    video: video,
+                    name: url.lastPathComponent,
+                    data: data,
+                    vault: vault
+                )
+            } catch {
+                alertMessage = "Subtitle upload failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Removes a sidecar subtitle from `video`: rewrites the linkage, then
+    /// deletes the vault + backup message (the scratch materialization is wiped
+    /// at next launch; an in-session copy is harmless — nothing references it).
+    @MainActor
+    func removeSubtitleSidecar(from video: ObjectRecord, sidecar: SubtitleSidecar) {
+        Task {
+            let remaining = video.subtitleList.filter { $0.messageID != sidecar.messageID }
+            try? await DatabaseManager.shared.updateObject(video.id) { record in
+                record.subtitleSidecars = ObjectRecord.encodedSubtitles(remaining)
+            }
+            await BackupSync.deleteFromVaultAndBackup(messageIDs: [sidecar.messageID])
+            if let vault = try? await DatabaseManager.shared.firstVault() {
+                TelegramClient.shared.invalidateScanCache(chatId: vault.channelID)
+            }
+        }
     }
 
     /// Settings → "Sync Now": the one-shot repair + publish action. If the local
@@ -2429,14 +2485,15 @@ final class AppState {
             }
 
             // 1. Gather all Telegram message IDs BEFORE markTombstones deletes
-            //    chunk records from SQLite. Include both chunk messages and
-            //    encrypted thumbnail sidecar messages.
+            //    chunk records from SQLite. Include chunk messages, encrypted
+            //    thumbnail sidecars, and subtitle sidecars.
             var channelMsgIDs: [Int64] = []
             for id in allIDs {
                 if let obj = try? await DatabaseManager.shared.object(id) {
                     if let thumbMsg = obj.thumbMessageID {
                         channelMsgIDs.append(thumbMsg)
                     }
+                    channelMsgIDs.append(contentsOf: obj.subtitleList.map(\.messageID))
                 }
                 let chunks = (try? await DatabaseManager.shared.chunks(for: id)) ?? []
                 channelMsgIDs.append(contentsOf: chunks.compactMap(\.messageID))

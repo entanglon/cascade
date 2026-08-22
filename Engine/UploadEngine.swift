@@ -737,6 +737,87 @@ enum UploadEngine {
         logger.info("thumb sidecar uploaded for \(objectID, privacy: .public) msg=\(messageId, privacy: .public)")
     }
 
+    // MARK: - Subtitle sidecars
+
+    /// Uploads a sidecar subtitle (.srt/.ass/…) for `video` as its own vault
+    /// document and links it on the video's record. Bytes follow the video's own
+    /// storage mode: AES-GCM sealed with the object key for private videos
+    /// (single slice — the same codec the thumb sidecar uses), raw bytes for
+    /// public videos. The caption carries only the video's object id
+    /// (`cascade:{kind:"sub"}`), so VaultRepair's purge resolves ownership while
+    /// the video exists. Mirrored to the backup channel like every vault message.
+    static func uploadSubtitleSidecar(
+        video: ObjectRecord,
+        name: String,
+        data: Data,
+        vault: VaultRecord
+    ) async throws -> Int64 {
+        guard !data.isEmpty else { throw UploadError.readFailed }
+        let payload: Data
+        if let wrappedKey = video.wrappedKey, !wrappedKey.isEmpty {
+            let vaultKey = try VaultManager.vaultKey(for: vault)
+            let objectKey = try CryptoEngine.unwrap(wrappedKey, with: vaultKey)
+            payload = try CryptoEngine.encryptChunk(data, objectKey: objectKey, startSliceIndex: 0)
+        } else {
+            payload = data
+        }
+        let safeName = (name as NSString).lastPathComponent
+        let tmpURL = try tempDirectory().appendingPathComponent("\(video.id)-sub-\(UUID().uuidString).bin")
+        try payload.write(to: tmpURL)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        let messageId = try await TelegramClient.shared.sendFile(
+            chatId: vault.channelID,
+            path: tmpURL.path(percentEncoded: false),
+            kind: .document,
+            caption: ChunkCaption.subCaption(objectID: video.id),
+            thumbnailPath: nil
+        )
+        BackupSync.enqueue(messageID: messageId, objectID: video.id)
+        // updateObject bumps modifiedAt → the LWW snapshot merge keeps the new
+        // linkage (and carries it to other devices) instead of reverting it.
+        try await DatabaseManager.shared.updateObject(video.id) { record in
+            var list = record.subtitleList.filter { $0.name != safeName }
+            list.append(SubtitleSidecar(messageID: messageId, name: safeName))
+            record.subtitleSidecars = ObjectRecord.encodedSubtitles(list)
+        }
+        logger.info("subtitle sidecar uploaded for \(video.id, privacy: .public) msg=\(messageId, privacy: .public) name=\(safeName, privacy: .public)")
+        return messageId
+    }
+
+    /// Materializes one linked subtitle to scratch (`sub-<messageID>.<ext>`) so
+    /// mpv can load it from disk: downloads the sidecar document by message ID,
+    /// decrypts when the video is private, and returns the file URL. The result
+    /// is cached per session (scratch is wiped at launch), so replaying the same
+    /// video never re-downloads its subs.
+    static func materializeSubtitle(
+        video: ObjectRecord,
+        sidecar: SubtitleSidecar,
+        vault: VaultRecord
+    ) async throws -> URL {
+        let ext = (sidecar.name as NSString).pathExtension.lowercased()
+        let dest = try DownloadEngine.scratchDirectory()
+            .appendingPathComponent("sub-\(sidecar.messageID).\(ext.isEmpty ? "srt" : ext)")
+        if FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)),
+           ((try? FileManager.default.attributesOfItem(atPath: dest.path(percentEncoded: false)))?[.size] as? Int64) ?? 0 > 0 {
+            return dest
+        }
+        let tmp = try tempDirectory().appendingPathComponent("sub-\(sidecar.messageID).bin")
+        try? FileManager.default.removeItem(at: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try await TelegramClient.shared.downloadMessageFile(
+            messageId: sidecar.messageID, chatId: vault.channelID, to: tmp
+        )
+        var plain = try Data(contentsOf: tmp)
+        if let wrappedKey = video.wrappedKey, !wrappedKey.isEmpty {
+            let vaultKey = try VaultManager.vaultKey(for: vault)
+            let objectKey = try CryptoEngine.unwrap(wrappedKey, with: vaultKey)
+            plain = try CryptoEngine.decryptChunk(plain, objectKey: objectKey, startSliceIndex: 0)
+        }
+        try plain.write(to: dest)
+        return dest
+    }
+
     // MARK: - Helpers
 
     /// Deletes a partial upload from Telegram and the local database (used by discard and TTL cleanup).
@@ -746,6 +827,7 @@ enum UploadEngine {
         let object = try? await DatabaseManager.shared.object(objectID)
         var msgIDs: [Int64] = []
         if let thumbMsg = object?.thumbMessageID { msgIDs.append(thumbMsg) }
+        msgIDs.append(contentsOf: (object?.subtitleList ?? []).map(\.messageID))
         let chunks = (try? await DatabaseManager.shared.chunks(for: objectID)) ?? []
         msgIDs.append(contentsOf: chunks.compactMap(\.messageID))
 

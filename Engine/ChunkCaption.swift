@@ -13,6 +13,7 @@ enum ChunkCaption {
     static let kindChunk = "chunk"
     static let kindObject = "object"
     static let kindThumb = "thumb"
+    static let kindSub = "sub"
 
     struct Meta: Equatable, Sendable {
         var kind: String? = nil        // unified only; legacy captions carry no kind
@@ -143,5 +144,31 @@ enum ChunkCaption {
     static func isThumbCaption(_ caption: String) -> Bool {
         guard let meta = parse(caption) else { return false }
         return meta.kind == kindThumb
+    }
+
+    // MARK: - Subtitle sidecar captions
+
+    /// Caption for a sidecar subtitle document attached to `objectID`:
+    /// `cascade:{"kind":"sub","v":1,"id":...}`. Same minimal shape as the thumb
+    /// sidecar — only the owning video's object id rides in the clear; the bytes
+    /// are AES-GCM sealed with the video's object key when the video is private,
+    /// raw when it is public (matching how the video's own chunks are stored).
+    static func subCaption(objectID: String) -> String? {
+        let dict: [String: Any] = [
+            "kind": kindSub,
+            "v": 1,
+            "id": objectID,
+            // parse() requires a size for any unified caption — never read here.
+            "size": 0
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return unifiedPrefix + json
+    }
+
+    /// True when a caption identifies a subtitle sidecar document.
+    static func isSubCaption(_ caption: String) -> Bool {
+        guard let meta = parse(caption) else { return false }
+        return meta.kind == kindSub
     }
 }

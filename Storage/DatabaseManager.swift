@@ -462,6 +462,13 @@ actor DatabaseManager {
             }
             try db.create(index: "idx_object_versions_objectID", on: "object_versions", columns: ["objectID"])
         }
+
+        migrator.registerMigration("v30-subtitle-sidecars") { db in
+            try db.alter(table: "objects") { t in
+                // JSON-encoded [SubtitleSidecar] (messageID + name per entry).
+                t.add(column: "subtitleSidecars", .text)
+            }
+        }
     }
 
     private func ensureStarted() throws -> DatabasePool {

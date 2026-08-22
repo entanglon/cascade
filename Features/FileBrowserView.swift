@@ -188,6 +188,21 @@ struct FileBrowserView: View {
                     }
                 }
             }
+            .fileImporter(
+                isPresented: Binding(
+                    get: { appState.subtitlePickerTarget != nil },
+                    set: { if !$0 { appState.subtitlePickerTarget = nil } }
+                ),
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                let target = appState.subtitlePickerTarget
+                appState.subtitlePickerTarget = nil
+                guard case .success(let urls) = result else { return }
+                for url in urls {
+                    appState.addSubtitleSidecar(from: url, to: target)
+                }
+            }
             .alert("New Folder", isPresented: $showNewFolder) {
                 TextField("Folder name", text: $folderName)
                 Button("Cancel", role: .cancel) {}
@@ -1803,6 +1818,29 @@ struct FileItemContextMenu: View {
                     }
                 } label: {
                     Label("Open in Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+            }
+            // Sidecar subtitles (Wave 2): attach .srt/.ass/.vtt files to this
+            // video — they ride along in the vault and auto-load at playback.
+            if file.isVideo {
+                Button {
+                    appState.subtitlePickerTarget = file
+                } label: {
+                    Label("Add Subtitles…", systemImage: "captions.bubble")
+                }
+                let subs = file.subtitleList
+                if !subs.isEmpty {
+                    Menu {
+                        ForEach(subs, id: \.messageID) { sub in
+                            Button {
+                                appState.removeSubtitleSidecar(from: file, sidecar: sub)
+                            } label: {
+                                Label(sub.name, systemImage: "minus.circle")
+                            }
+                        }
+                    } label: {
+                        Label("Subtitles (\(subs.count))", systemImage: "list.bullet")
+                    }
                 }
             }
             // Open externally: submenu listing every app that can open this file
