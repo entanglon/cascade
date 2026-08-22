@@ -2878,6 +2878,55 @@ struct CascadeTests {
                 "singletons, trash, hashless, folders and in-flight uploads never group")
     }
 
+    @Test func versionHistoryCarryOverOnReplace() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-versions-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let testDB = DatabaseManager()
+        try await testDB.start(customURL: tempURL)
+
+        // Objects carry an FK to their vault — seed one first.
+        try await testDB.save(AccountRecord(id: "acc-ver2", telegramUserID: 1, displayName: "T", state: "ready", createdAt: Date()))
+        try await testDB.save(VaultRecord(id: "v", accountID: "acc-ver2", channelID: -100, name: "Vault", wrappedKey: Data(), createdAt: Date()))
+
+        let old = ObjectRecord(
+            id: "old-file", vaultID: "v", name: "Doc.txt", size: 10,
+            mime: "text/plain", state: "ready",
+            rootHash: "hash-v1", createdAt: Date(), modifiedAt: Date()
+        )
+        try await testDB.save(old)
+        try await testDB.recordVersion(for: "old-file")
+
+        let replacement = ObjectRecord(
+            id: "new-file", vaultID: "v", name: "Doc.txt", size: 20,
+            mime: "text/plain", state: "ready",
+            rootHash: "hash-v2", createdAt: Date(), modifiedAt: Date()
+        )
+        try await testDB.save(replacement)
+
+        // The mirror's replace flow carries the retired copy's lineage over.
+        try await testDB.carryOverVersions(from: "old-file", to: "new-file")
+
+        let carried = try await testDB.versions(for: "new-file")
+        #expect(carried.count == 1)
+        #expect(carried[0].versionNumber == 1)
+        #expect(carried[0].rootHash == "hash-v1", "history reflects the REPLACED content")
+
+        // Source rows are gone with the old object — nothing dangles.
+        let orphans = try await testDB.versions(for: "old-file")
+        #expect(orphans.isEmpty)
+
+        // A second replace appends ABOVE the carried history (numbering continues).
+        var v2content = replacement
+        v2content.rootHash = "hash-v2-still"
+        try await testDB.save(v2content)
+        try await testDB.carryOverVersions(from: "old-file", to: "new-file") // no-op now
+        try await testDB.recordVersion(for: "new-file")
+        let all = try await testDB.versions(for: "new-file")
+        #expect(all.count == 2)
+        #expect(all[0].versionNumber == 2, "descending order, newest first")
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)

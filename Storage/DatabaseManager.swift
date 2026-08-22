@@ -824,6 +824,33 @@ actor DatabaseManager {
         }
     }
 
+    /// Moves every recorded version from one object to another, renumbered
+    /// above the target's existing history (used when the Finder mirror
+    /// replaces a file: the retired copy's lineage follows the file identity).
+    /// Source rows are removed after copying so nothing dangles once the old
+    /// object row is gone.
+    func carryOverVersions(from sourceID: String, to targetID: String) throws {
+        try write { db in
+            let source = try ObjectVersionRecord
+                .filter(Column("objectID") == sourceID)
+                .order(Column("versionNumber").asc)
+                .fetchAll(db)
+            guard !source.isEmpty else { return }
+            var next = try ObjectVersionRecord
+                .filter(Column("objectID") == targetID)
+                .fetchCount(db) + 1
+            for record in source {
+                var moved = record
+                moved.id = UUID().uuidString
+                moved.objectID = targetID
+                moved.versionNumber = next
+                next += 1
+                try moved.insert(db)
+            }
+            _ = try ObjectVersionRecord.filter(Column("objectID") == sourceID).deleteAll(db)
+        }
+    }
+
     /// Merge `fromID` into `toID`: every face moves to `toID`, then the empty
     /// person row is dropped.
     func mergePerson(_ fromID: String, into toID: String) throws {

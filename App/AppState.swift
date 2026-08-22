@@ -195,6 +195,8 @@ final class AppState {
     /// Video awaiting a sidecar-subtitle picker (.srt/.ass/…) — set by the file
     /// context menu's "Add Subtitles…", consumed by the browser's fileImporter.
     var subtitlePickerTarget: ObjectRecord? = nil
+    /// File whose version history sheet is open (context menu → "Version History…").
+    var versionHistoryTarget: ObjectRecord? = nil
     var isTheaterFullScreen: Bool = false
 
     /// Object whose card should flash its border after a "reveal in folder"

@@ -301,6 +301,15 @@ struct FileBrowserView: View {
                 DuplicatesReviewView()
                     .environment(appState)
             }
+            .sheet(isPresented: Binding(
+                get: { appState.versionHistoryTarget != nil },
+                set: { if !$0 { appState.versionHistoryTarget = nil } }
+            )) {
+                if let target = appState.versionHistoryTarget {
+                    VersionsSheet(file: target)
+                        .environment(appState)
+                }
+            }
     }
 
     /// The destination's content area: Transfers and Shared have their own pages;
@@ -1889,6 +1898,16 @@ struct FileItemContextMenu: View {
             } label: {
                 Label("Download", systemImage: "arrow.down.circle")
             }
+            // Wave 2 item 8 — bulk export: decrypt the selection (folders expand
+            // to their whole tree) into a user-chosen local folder.
+            Button {
+                exportSelection()
+            } label: {
+                Label(
+                    actionTargets.count > 1 ? "Export \(actionTargets.count) Items…" : "Export…",
+                    systemImage: "tray.and.arrow.down"
+                )
+            }
             if !file.trashed {
                 // The whole shareable selection shares as ONE group link — a
                 // multi-selection produces a single grouped share the recipient
@@ -2011,6 +2030,14 @@ struct FileItemContextMenu: View {
             }
         }
         Divider()
+        // Wave 2 item 8 — version history (files replaced by folder-sync edits).
+        if !file.isFolder && !file.trashed {
+            Button {
+                appState.versionHistoryTarget = file
+            } label: {
+                Label("Version History…", systemImage: "clock.arrow.circlepath")
+            }
+        }
         if file.isArchived {
             Button {
                 for target in actionTargets { appState.setArchived(target, false) }
@@ -2105,6 +2132,55 @@ struct FileItemContextMenu: View {
                         appState.alertMessage = "Download failed: \(error.localizedDescription)"
                     }
                 }
+            }
+        }
+    }
+
+    /// Wave 2 item 8 — bulk export: folder targets expand to their whole tree,
+    /// the user picks a destination, and ExportEngine streams every file there
+    /// decrypted (hierarchy preserved). Feedback rides the app's banner system.
+    private func exportSelection() {
+        var ids: [String] = []
+        let all = appState.files
+        for target in actionTargets {
+            ids.append(target.id)
+            if target.isFolder {
+                var stack = [target.id]
+                while let id = stack.popLast() {
+                    for child in all where child.parentID == id {
+                        ids.append(child.id)
+                        if child.isFolder { stack.append(child.id) }
+                    }
+                }
+            }
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Export"
+        panel.message = "Choose a destination folder for the decrypted export"
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+
+        let itemCount = ids.count
+        appState.notify(title: "Exporting \(itemCount) item\(itemCount == 1 ? "" : "s")…", kind: .info, duration: 3.0)
+        Task {
+            do {
+                let exported = try await ExportEngine.shared.export(objectIDs: ids, to: dest)
+                appState.notify(
+                    title: "Export complete",
+                    message: "\(exported) file\(exported == 1 ? "" : "s") saved to “\(dest.lastPathComponent)”",
+                    kind: .success,
+                    duration: 5.0
+                )
+            } catch {
+                appState.notify(
+                    title: "Export failed",
+                    message: error.localizedDescription,
+                    kind: .error,
+                    duration: 6.0
+                )
             }
         }
     }

@@ -355,11 +355,14 @@ final class MirrorSyncEngine: ObservableObject {
         case .replaceRemote:
             guard let old = remote else { return }
             // Replace = retire the old content, upload fresh bytes under the
-            // same name. Trashing FIRST frees the display name (UploadEngine's
-            // dedupe skips trashed siblings) and marks intent; if the upload
-            // fails we restore the old row. Permanent deletion of the retired
-            // object goes through AppState.deleteForever so EVERY safety rail
-            // stays in one place (share revocation, message deletion, purge).
+            // same name. Wave 2 item 8: the retired copy becomes VERSION
+            // HISTORY — snapshotted into object_versions (metadata travels to
+            // the replacement via carryOverVersions) and moved to TRASH with
+            // its channel messages INTACT, so recovery stays possible until
+            // the user empties Trash (Trash-is-the-backup decision). Trashing
+            // first also frees the display name (UploadEngine's dedupe skips
+            // trashed siblings); an upload failure restores the old row.
+            try? await DatabaseManager.shared.recordVersion(for: old.id)
             try await DatabaseManager.shared.updateObject(old.id) { $0.trashed = true }
             do {
                 try await UploadEngine.upload(fileURL: url, parentID: Self.configuredFolderID) { _, _ in }
@@ -371,11 +374,11 @@ final class MirrorSyncEngine: ObservableObject {
                 try? await DatabaseManager.shared.updateObject(old.id) { $0.trashed = false }
                 throw MirrorError.uploadResultNotFound
             }
+            // The old row is gone from the active catalog after this — re-home
+            // its version rows so the replacement carries the lineage.
+            try? await DatabaseManager.shared.carryOverVersions(from: old.id, to: created.id)
             if let appState {
-                await appState.deleteForever([old])
-            } else {
-                // No UI owner (shouldn't happen) — at least tombstone the old row.
-                try? await DatabaseManager.shared.markTombstone(id: old.id)
+                await appState.loadFiles()
             }
             try await recordPair(object: created, localName: name, localURL: url)
             statusText = "Updated “\(name)”"
