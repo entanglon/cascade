@@ -374,8 +374,13 @@ speed + support + legal layer, not binary secrecy.
    mpv's no-file-loaded window and the theater's late view attach), manual pick
    + Off row in the track popover. v1 follow-ups parked: upload-time same-stem
    auto-detect, sidecars in share imports, handoff re-add.
-2. **Offline pins** — per file/folder "Keep downloaded": exempt from cache LRU
-   eviction + free-space floor; pin indicator in grid/list.
+2. **Offline pins** — ✅ *implemented 2026-08-22 (`e1f359e`)*: "Keep Downloaded"
+   context action (files + folders recursively, multi-select); pinned copies
+   exempt from cache budget (cap + floor) AND launch wipe, also excluded from
+   budget accounting; visible-card downloads on pin; pin badges in browser
+   grid/list/folder cards + Photos/Videos cells; undo/redo. DEVICE-LOCAL flag
+   (stripped from remote snapshot adoption — a pin never downloads on another
+   Mac).
 3. **Finder drop-zone sync** — TWO-WAY mirrored folder (user-confirmed,
    Dropbox-style): local drops auto-upload AND cloud adds/imports materialize
    in the Finder folder. FSEvents watcher (local→cloud) + download poller

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–169 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 kickoff (item 1 sidecar subtitles). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–170 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–2 (sidecar subtitles, offline pins). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2641,14 +2641,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### Latest session state (items 155–169, 2026-08-22)
+### Latest session state (items 155–170, 2026-08-22)
 Streaming/upload/download arcs CLOSED and verified: true pause/resume both
 directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
-states. Folder sharing shipped (item 168). **Feature Wave 2 STARTED**: item 1
-sidecar subtitles done (`34db68b`); next in queue = offline pins (2), drop-zone
-sync (3), Touch ID (4). Tests: 86 unit green.
+states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
+item 1 sidecar subtitles done (`34db68b`), item 2 offline pins done
+(`e1f359e`); next = Finder drop-zone sync (3), Touch ID (4). Tests: 89 unit
+green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3687,6 +3688,28 @@ Open levers (not scheduled):
       pending: add a .srt to a video, play, verify subs render + Off works.
     - v1 limits: no upload-time same-stem auto-detect; share imports don't
       carry sidecars; headless handoff doesn't re-add subs.
+170. **Wave 2 item 2 — offline pins (2026-08-22 evening — COMMITTED `e1f359e`)**
+     (`Storage/Models.swift` v31, `Storage/DatabaseManager.swift`,
+     `Engine/DownloadEngine.swift`, `Storage/CatalogSnapshot.swift`,
+     `App/AppState.swift`, `Features/FileBrowserView.swift`,
+     `Features/PhotosGridView.swift`, `Features/VideosGridView.swift`,
+     `CascadeTests/CascadeTests.swift`)
+    - "Keep Downloaded" = complete decrypted scratch copy exempt from
+      enforceCacheBudget (cap + free-space floor) AND the launch wipe; pinned
+      bytes also excluded from budget accounting (pins can't crowd out other
+      files). isCached → mpv local-file path = true offline playback.
+    - Folders pin recursively (setArchived's walk); pinning downloads uncached
+      targets sequentially with visible transfer cards; unpin only lifts
+      protection (copy ages out naturally). Undo/redo wired.
+    - DEVICE-LOCAL: CatalogSnapshot strips isPinned from remote records at both
+      adoption sites and re-asserts the local pin after LWW fold-in — remote
+      wins never silently unpin, remote pins never download locally.
+    - Launch janitor: stem-match exemption (`isPinnedFile`); DB-not-started →
+      skip the wipe entirely (never destroy pins on an unreadable catalog).
+    - UI: menu item beside Rename (multi-select aware); badges in fileCard /
+      folderCard / FileListRow / Photos+Videos cells.
+    - Build green; **TEST SUCCEEDED** (89 unit tests, 3 new). User check:
+      pin → cards download → relaunch → opens offline.
 
 
 

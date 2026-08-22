@@ -2,7 +2,50 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (evening) — Wave 2 started: sidecar subtitles (item 1) — upload/link .srt/.ass to videos, auto-load into mpv, track-picker Off row.
+> 2026-08-22 (evening) — Wave 2 items 1–2: sidecar subtitles (upload/link/auto-load/track menu) + offline pins ("Keep Downloaded", eviction-proof, device-local).
+
+---
+
+## 2026-08-22 (evening) — Wave 2 item 2: offline pins
+
+User: "continue" → next queue item. "Keep Downloaded": pinned objects keep a
+complete decrypted copy in scratch that survives BOTH the cache budget
+(hard cap + 15 GB free-space floor) and the launch janitor's scratch wipe —
+true offline availability (isCached → mpv plays the local file).
+
+### Design decisions
+- **Device-local flag**: `ObjectRecord.isPinned` is deliberately NOT synced —
+  CatalogSnapshot strips it when adopting REMOTE records (`merge()` seeds +
+  `normalized()`) AND re-asserts the local pin after the LWW fold-in (a remote
+  win would otherwise silently unpin). A pin on one Mac must not download GBs
+  on another; it also never rides chunk captions.
+- **Budget accounting**: pinned bytes are excluded from `enforceCacheBudget`'s
+  totalSize too — the cap governs evictable data only, so pins can't pressure
+  unpinned files out (iCloud semantics).
+- **Launch-wipe safety**: `cleanScratchAndLegacyCache` spares files whose stem
+  matches a pinned object ID (`<objectID>.<ext>` naming); if the DB isn't
+  started yet the wipe is SKIPPED entirely (an unreadable DB must never look
+  like "no pins"). Legacy pre-pin cache dir still wiped unconditionally.
+
+### What was changed (`e1f359e`)
+1. Models v31 (`isPinned` boolean, defensive decode), DatabaseManager migration
+   + sync `pinnedObjectIDs()` + `hasStarted()`.
+2. DownloadEngine: `isPinnedFile(url:pinned:)` pure helper (unit-tested);
+   exemption in enforceCacheBudget + cleanScratchAndLegacyCache.
+3. AppState.setPinned — copies setArchived's recursive ID walk (folders pin all
+   descendants); then sequentially downloads every uncached target with visible
+   transfer cards (honors TDLib's ~2-big-download reality by ordering); undo/redo.
+4. UI: context menu "Keep Downloaded" / "Remove Download" beside Rename
+   (multi-select aware via actionTargets); badges — fileCard topTrailing pin
+   circle, folder card pin glyph before the ellipsis, list-row trailing badge
+   HStack, Photos/Videos cells topTrailing (when not selected).
+5. Tests: `offlinePinFlagSurvivesOldSnapshots`, `pinnedFileStemMatching`
+   (prefix-collision cases), `deviceLocalPinStrippedFromRemoteAdoption`.
+
+### Verification
+Build green; **TEST SUCCEEDED** (89 unit tests). Commit `e1f359e`. User check:
+pin a file/folder → watch cards download → badge appears → relaunch → file
+still opens with network off; unpin frees it on next launch.
 
 ---
 
