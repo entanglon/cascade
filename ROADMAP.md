@@ -366,8 +366,14 @@ speed + support + legal layer, not binary secrecy.
 
 ## Feature Wave 2 (approved 2026-08-22 — ordered implementation queue)
 
-1. **Subtitles** — sidecar `.srt/.ass` stored+uploaded alongside videos; auto-
-   load matching subs into mpv at play; manual pick from player menu. HIGH.
+1. **Subtitles** — ✅ *implemented 2026-08-22 (`34db68b`)*: sidecar `.srt/.ass/
+   .ssa/.vtt/.sub` attached via video context menu "Add Subtitles…" (multi-
+   select; same-name re-add replaces), stored as vault documents linked on the
+   object row (DB v30 JSON column, snapshot-synced, encrypted for private
+   videos), auto-materialized + `sub-add`-ed at playback start (queued past
+   mpv's no-file-loaded window and the theater's late view attach), manual pick
+   + Off row in the track popover. v1 follow-ups parked: upload-time same-stem
+   auto-detect, sidecars in share imports, handoff re-add.
 2. **Offline pins** — per file/folder "Keep downloaded": exempt from cache LRU
    eviction + free-space floor; pin indicator in grid/list.
 3. **Finder drop-zone sync** — TWO-WAY mirrored folder (user-confirmed,
@@ -392,7 +398,7 @@ Deferred by decision: FileProvider native mount (messy; revisit post-iOS),
 iOS companion (FIRST task once feature-complete), distribution/licensing
 (feature-complete milestone, see plan above).
 
-### Wave 2 kickoff notes (2026-08-22, for item 1 Subtitles — execute next session)
+### Wave 2 kickoff notes (2026-08-22, for item 1 Subtitles — executed same day)
 Existing hooks confirmed: MPVController has track-list enumeration
 (MPVVideoView:1269+) + selectTrack plumbing (both headless & view paths) —
 subtitle TRACKS already surface if present in-container. Missing pieces:
@@ -402,3 +408,7 @@ subtitle TRACKS already surface if present in-container. Missing pieces:
 (c) at playback start: if sidecar exists → materialize to scratch + mpv command
     "sub-add <path> auto" before/after loadfile; expose in existing track picker.
 Test plan: sidecar round-trip caption codec test + play-with-subs manual check.
+
+All three pieces shipped as designed (kindSidecar became `kindSub`; linkage =
+JSON column v30; materialize-to-scratch + queued sub-add). Remaining: the
+play-with-subs manual check by the user; auto-detect at upload time parked.

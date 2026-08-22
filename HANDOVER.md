@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–166 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–169 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 kickoff (item 1 sidecar subtitles). Read this first in any new chat before touching the code. It captures the repo state, the uncommitted work in flight, how to build/run/test, known gotchas, and what is still pending.
 
 ---
 
@@ -2641,12 +2641,14 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### Latest session state (items 155–166, 2026-08-22)
+### Latest session state (items 155–169, 2026-08-22)
 Streaming/upload/download arcs CLOSED and verified: true pause/resume both
 directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
-states. Tests: 83 unit green throughout.
+states. Folder sharing shipped (item 168). **Feature Wave 2 STARTED**: item 1
+sidecar subtitles done (`34db68b`); next in queue = offline pins (2), drop-zone
+sync (3), Touch ID (4). Tests: 86 unit green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -2654,6 +2656,8 @@ Open levers (not scheduled):
 - Dedupe in-flight overlapping range fetches (run vs serve double-pull).
 - Preheat currently skips private uploads (needs vault-key path).
 - ROADMAP.md still holds parked items: Argon2id KDF, TDLib whole-chunk paradigm.
+- Subtitle v1 follow-ups (only on request): upload-time same-stem .srt
+  auto-detect, sidecars in share-link imports, headless-handoff sub re-add.
 
 
 ### Phase 0: Anti-Ban & Telegram API Safety (DONE ✅ — 2026-08-20, item 120)
@@ -3654,6 +3658,35 @@ Open levers (not scheduled):
       no paths.
     - Trashed sources excluded from shares; expiry copy fixed to 24 h.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+169. **Wave 2 item 1 — sidecar subtitles (2026-08-22 evening — COMMITTED `34db68b`)**
+     (`Storage/Models.swift` v30, `Storage/DatabaseManager.swift`,
+     `Engine/ChunkCaption.swift`, `Engine/UploadEngine.swift`,
+     `Engine/AudioPlayerEngine.swift`, `Features/MPVVideoView.swift`,
+     `Features/FileBrowserView.swift`, `Features/VideoPlaybackView.swift`,
+     `App/AppState.swift`, `CascadeTests/CascadeTests.swift`)
+    - Linkage: `ObjectRecord.subtitleSidecars: String?` = JSON
+      `[SubtitleSidecar]` (`messageID`+`name`) — DB migration v30 TEXT column,
+      snapshot-synced, defensive-decoded. Multiple subs per video; same-name
+      re-add replaces.
+    - Caption: `ChunkCaption.kindSub="sub"` carries only the owning video's
+      object id. Bytes follow the video's storage mode: AES-GCM single-slice
+      for private videos, raw for public. Never an orphan-purge candidate.
+    - Upload: context menu "Add Subtitles…" on videos (browser + Videos page —
+      shared FileItemContextMenu) → multi-select fileImporter →
+      `UploadEngine.uploadSubtitleSidecar`; "Subtitles (n)" submenu removes.
+    - Playback auto-load at the single choke point
+      (`AudioPlayerEngine.setupMPVPlayer`): materialize to scratch
+      (`sub-<msgID>.<ext>`, session-cached) → `sub-add`. Two queues handle mpv's
+      "no file loaded" window and the late-attaching theater view (mirrors
+      seekOnLoad/pendingURL): layer parks until MPV_EVENT_FILE_LOADED,
+      controller parks until makeNSViewController → flushQueuedSubtitles.
+      First sidecar selects ("select"), rest attach unselected ("auto").
+    - Track picker gains an "Off" row (`sid=0`). deleteForever/cleanupPartial
+      gather sidecar messageIDs.
+    - Build green; **TEST SUCCEEDED** (86 unit tests, 3 new). User manual check
+      pending: add a .srt to a video, play, verify subs render + Off works.
+    - v1 limits: no upload-time same-stem auto-detect; share imports don't
+      carry sidecars; headless handoff doesn't re-add subs.
 
 
 

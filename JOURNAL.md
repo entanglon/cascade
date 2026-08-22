@@ -2,9 +2,63 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (afternoon) — Scrubber axis fix + relative-seek hold (item 166); preheat + flicker fix (165); seek UX round 2 (164); single-cache (159); true pause/resume up+down (156/157); discard ghosts fixed (155).
+> 2026-08-22 (evening) — Wave 2 started: sidecar subtitles (item 1) — upload/link .srt/.ass to videos, auto-load into mpv, track-picker Off row.
 
 ---
+
+## 2026-08-22 (evening) — Wave 2 item 1: sidecar subtitles
+
+User: "start Wave 2" → first queue item from ROADMAP's Feature Wave 2
+(subtitles). Kickoff notes' confirmed hooks (track enumeration + selectTrack +
+dead-code `addExternalSubtitle`) were all real; built the missing pieces.
+
+### Design
+- **Linkage**: `ObjectRecord.subtitleSidecars: String?` (DB v30, TEXT column)
+  holds a JSON `[SubtitleSidecar]` (`messageID` + original `name` per entry).
+  Multiple subs per video; re-adding a same-named sub replaces its entry.
+  Syncs via catalog snapshots (defensive decode keeps old clients safe).
+- **Caption**: `ChunkCaption.kindSub = "sub"` + `subCaption(objectID:)` /
+  `isSubCaption` — minimal `cascade:{kind:"sub",id:<videoID>}` like the thumb
+  sidecar; bytes follow the video's own storage mode (AES-GCM sealed with the
+  object key for private videos via single-slice encryptChunk, raw for public).
+- **Upload**: `UploadEngine.uploadSubtitleSidecar(video:name:data:vault:)`
+  posts an opaque document (`<uuid>.bin`, no thumbnail attachment), enqueues
+  BackupSync mirror, records linkage via `updateObject` (bumps modifiedAt →
+  LWW-safe). UI: context menu "Add Subtitles…" on any video (browser AND
+  Videos page — grids share FileItemContextMenu) → fileImporter (multi-select)
+  → `AppState.addSubtitleSidecar`. "Subtitles (n)" submenu lists attached subs,
+  click to remove (deletes vault+backup message, rewrites linkage).
+- **Playback**: `AudioPlayerEngine.setupMPVPlayer` (the single choke point —
+  theater, mini-player expand, direct fullscreen all funnel here) spawns a task
+  after play: materialize each linked sub to scratch (`sub-<msgID>.<ext>`,
+  download by messageID + decrypt when private, cached per session) →
+  `MPVController.addExternalSubtitle(url:title:mode:)`.
+- **mpv timing** (the subtle part): mpv rejects `sub-add` before a file is
+  loaded, and the theater view attaches AFTER play issues loadfile. Two queues
+  mirror the existing seekOnLoad/pendingURL patterns: MPVLayerView parks subs
+  until MPV_EVENT_FILE_LOADED (`awaitingFileLoaded` window); MPVController
+  parks them until makeNSViewController attaches (`flushQueuedSubtitles`).
+  First sidecar uses flag "select", the rest "auto".
+- **Track picker**: subtitle popover gains an "Off" row (synthetic Track id 0 →
+  `sid=0`) so sidecar/embedded subs can be hidden; sidecars appear as normal
+  tracks titled with their filename minus extension.
+- **Deletion**: deleteForever + cleanupPartialUpload gather sidecar messageIDs;
+  VaultRepair purge safety unchanged — sub captions are never isChunkCaption.
+
+### Verification
+Build green; **TEST SUCCEEDED** — 86 unit tests incl. 3 new:
+`subCaptionCodecMarksSidecarDocuments`, `subtitleSidecarJSONRoundTripAndLegacyDecode`,
+`subtitleExtensionClassification`. Commit `34db68b`.
+
+### User manual check (pending)
+Relaunch Debug app → right-click a video → Add Subtitles… → pick a .srt →
+play: subs should render; captions-bubble menu lists the track + Off.
+
+### Known v1 limits
+No auto-detect of same-stem .srt at upload time (manual pick only); share-link
+imports don't carry sidecars; headless handoff doesn't re-add subs (video
+background playback is removed anyway); scratch copy wiped at next launch
+(re-downloaded on demand).
 
 ## 2026-08-22 (night) — Zero-buffering: deep-range prefetcher (item 160)
 
