@@ -765,7 +765,13 @@ final class TelegramClient {
         // parked forever (the watchdog below never covers this because the
         // continuation is only registered after the downloadFile call).
         let cached = file.local.path
-        if !cached.isEmpty, FileManager.default.fileExists(atPath: cached) {
+        // ONLY trust TDLib's local copy when its download COMPLETED. Ranged
+        // downloads (video streaming's fetchRangeData) create the persistent
+        // local file for a fileId and fill only the requested ranges — copying
+        // such a sparse artifact yields partial ciphertext and AES-GCM fails
+        // with authenticationFailure (CryptoKit error 3) during assembly.
+        if !cached.isEmpty, file.local.isDownloadingCompleted == true,
+           FileManager.default.fileExists(atPath: cached) {
             onProgress?(1.0)
             if onProgress != nil {
                 syncLock { fileDownloadProgressHandlers.removeValue(forKey: file.id) }
