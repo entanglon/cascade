@@ -21,6 +21,8 @@ struct FileBrowserView: View {
     @FocusState private var gridFocused: Bool
     @FocusState private var searchFocused: Bool
     @State private var showEmptyTrashAlert = false
+    /// Wave 2 item 7 — duplicate finder review sheet (All Files page menu).
+    @State private var showDuplicatesFinder = false
     @State private var showMiniTransfersPopover = false
     @State private var dropTargeted = false
     @State private var columnCount = 4
@@ -294,6 +296,10 @@ struct FileBrowserView: View {
                     SharePasswordPromptSheet(targets: targets)
                         .environment(appState)
                 }
+            }
+            .sheet(isPresented: $showDuplicatesFinder) {
+                DuplicatesReviewView()
+                    .environment(appState)
             }
     }
 
@@ -654,6 +660,14 @@ struct FileBrowserView: View {
     private var pageContextMenu: some View {
         if canUploadOnThisPage {
             Button("Upload Files…") { showImporter = true }
+        }
+
+        // Wave 2 item 7 — duplicate finder (All Files only; needs the whole
+        // catalog, which that destination aggregates).
+        if appState.selectedDestination == .allFiles {
+            Button("Find Duplicates…") {
+                showDuplicatesFinder = true
+            }
         }
 
         if appState.selectedDestination == .trash {

@@ -2810,6 +2810,74 @@ struct CascadeTests {
         #expect(sizes["B"].map { $0 >= 0 } == true)
     }
 
+    // MARK: - Duplicate finder (Wave 2 item 7)
+
+    private func dupObject(
+        _ id: String, name: String, hash: String?, size: Int64,
+        trashed: Bool = false, createdDaysAgo: Int = 0
+    ) -> ObjectRecord {
+        ObjectRecord(
+            id: id, vaultID: "v", name: name, size: size,
+            mime: "video/x-matroska", state: "ready",
+            rootHash: hash, createdAt: Date().addingTimeInterval(Double(-createdDaysAgo) * 86_400),
+            modifiedAt: Date(), trashed: trashed, parentID: nil, isFolder: false
+        )
+    }
+
+    @Test func duplicateFinderGroupsByRootHash() {
+        let objects = [
+            dupObject("a1", name: "Movie.mkv", hash: "H1", size: 1000, createdDaysAgo: 10),
+            dupObject("a2", name: "Movie copy.mkv", hash: "H1", size: 1000, createdDaysAgo: 3),
+            dupObject("b1", name: "Song.flac", hash: "H2", size: 80, createdDaysAgo: 5),
+            dupObject("b2", name: "Song again.flac", hash: "H2", size: 80, createdDaysAgo: 2),
+            dupObject("b3", name: "Song third.flac", hash: "H2", size: 80, createdDaysAgo: 1)
+        ]
+        let groups = DuplicateFinder.groups(in: objects)
+
+        #expect(groups.count == 2, "two content hashes with >1 copies")
+        #expect(groups.map(\.files.count).sorted() == [2, 3], "larger sets first")
+
+        // Members sorted OLDEST FIRST — the keep candidate is the original.
+        let h1 = groups.first { $0.id == "H1" }!
+        #expect(h1.keepCandidateID == "a1")
+        #expect(h1.files.map(\.id) == ["a1", "a2"])
+        #expect(h1.wastedBytes(keeping: "a1") == 1000)
+        #expect(h1.wastedBytes(keeping: "a2") == 1000)
+
+        let h2 = groups.first { $0.id == "H2" }!
+        #expect(h2.wastedBytes(keeping: "b2") == 160, "two non-kept copies")
+
+        // Global reclaimable honors per-group overrides.
+        let reclaimable = DuplicateFinder.totalReclaimable(
+            groups: groups, keeping: ["H1": "a2"]
+        )
+        #expect(reclaimable == 1000 + 160)
+        #expect(DuplicateFinder.totalReclaimable(groups: groups, keeping: [:]) == 1000 + 160,
+                "missing selections default to the oldest copy")
+    }
+
+    @Test func duplicateFinderExclusions() {
+        let objects = [
+            // Unique file → no group.
+            dupObject("u1", name: "Unique.pdf", hash: "U1", size: 500),
+            // Hashless legacy upload → never a candidate.
+            dupObject("n1", name: "Old.mkv", hash: nil, size: 700),
+            // Trashed copy → excluded, so its twin is NOT a duplicate.
+            dupObject("t1", name: "Twin.mkv", hash: "T1", size: 300),
+            dashObject("folderX", parent: nil, isFolder: true, size: 0),
+            dupObject("t2", name: "Twin.mkv", hash: "T1", size: 300, trashed: true),
+            // Still-uploading object → excluded.
+            ObjectRecord(
+                id: "wip", vaultID: "v", name: "wip.bin", size: 99,
+                mime: "application/octet-stream", state: "uploading",
+                rootHash: "W1", createdAt: Date(), modifiedAt: Date(),
+                parentID: nil, isFolder: false
+            )
+        ]
+        #expect(DuplicateFinder.groups(in: objects).isEmpty,
+                "singletons, trash, hashless, folders and in-flight uploads never group")
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)
