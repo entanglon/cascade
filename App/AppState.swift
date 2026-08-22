@@ -1042,6 +1042,8 @@ final class AppState {
     /// launch style (open/Dock/pty) and proves exactly how far bootstrap got.
     /// Mirrored into the rotating LogManager so diagnostics survive reboots.
     static func bootLog(_ message: String) {
+        // Compile-time gated: bootstrap internals must never exist in Release.
+        #if DEBUG
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
         let line = "[\(df.string(from: Date()))] bootstrap: \(message)\n"
@@ -1057,6 +1059,7 @@ final class AppState {
             let msg = message
             Task { await LogManager.shared.log("bootstrap: \(msg)", level: .info, subsystem: "bootstrap") }
         }
+        #endif
     }
 
     /// Launch heartbeat for the crash/hang detector (audit item 6): bootstrap

@@ -334,3 +334,32 @@ Adoption notes (from docs/AUDIT_2026-08-21.md):
   the more accessible door.
 Trigger to revisit: user request, or any incident suggesting channel-data
 exfiltration attempts.
+
+## Distribution & licensing plan (feature-complete milestone — decided 2026-08-22, item 167)
+
+Ship closed-source. Compiled Swift already hides source; no vendor secrets are
+embedded (Telegram api_id/api_hash are user-entered, stored in Keychain).
+Deferred until feature-complete: license module, notarization, activation.
+
+Plan of record:
+1. Channel: Developer ID + notarized DMG (standard path). MAS optional later
+   (sandboxing audit needed for TDLib/mpv).
+2. Licensing: Ed25519-signed offline keys (public key embedded only), or
+   account-activation via a small backend if online features land first.
+   Paddle/LemonSqueezy for payments + key generation + VAT.
+3. Separate Telegram api_id registered FOR distribution builds — never ship
+   the development pair's identity anywhere user-visible.
+4. Release hardening checklist: SWIFT_REFLECTION_METADATA_LEVEL=none, symbol
+   strip, dead-strip, DEBUG-gated diagnostics (DONE 2026-08-22: streamLog +
+   bootLog compile out in Release), EULA prohibiting RE/redistribution
+   (DMCA takedown lever).
+
+Done now as cheap-now/expensive-later items:
+- streamLog/bootLog bodies wrapped in #if DEBUG (Release builds contain none
+  of the fetch-offset/object-ID internals).
+- Verified zero .md/docs files in the app bundle or pbxproj resources.
+
+Known accepted risks: determined local RE is always possible on shipped
+binaries; scattered print() statements remain in Release stdout paths
+(cosmetic; sweep into a DevLog shim if it ever matters); moat = iteration
+speed + support + legal layer, not binary secrecy.

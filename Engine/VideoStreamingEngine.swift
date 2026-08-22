@@ -110,6 +110,9 @@ final class VideoStreamingEngine {
     }()
 
     private static func streamLog(_ message: String) {
+        // Compile-time gated: stream internals (offsets, object IDs, layout)
+        // must never exist in Release builds.
+        #if DEBUG
         streamLogLock.lock()
         defer { streamLogLock.unlock() }
         let line = "[\(streamLogFormatter.string(from: Date()))] \(message)\n"
@@ -121,6 +124,7 @@ final class VideoStreamingEngine {
         } else {
             try? line.write(to: url, atomically: false, encoding: .utf8)
         }
+        #endif
     }
 
     private func plaintextSlice(
