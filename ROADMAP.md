@@ -363,3 +363,28 @@ Known accepted risks: determined local RE is always possible on shipped
 binaries; scattered print() statements remain in Release stdout paths
 (cosmetic; sweep into a DevLog shim if it ever matters); moat = iteration
 speed + support + legal layer, not binary secrecy.
+
+## Feature Wave 2 (approved 2026-08-22 — ordered implementation queue)
+
+1. **Subtitles** — sidecar `.srt/.ass` stored+uploaded alongside videos; auto-
+   load matching subs into mpv at play; manual pick from player menu. HIGH.
+2. **Offline pins** — per file/folder "Keep downloaded": exempt from cache LRU
+   eviction + free-space floor; pin indicator in grid/list.
+3. **Finder drop-zone sync** — watch local folder(s); new/changed files auto-
+   upload to a mapped cloud folder (FSEvents + hash-based change detection).
+   NOTE: this is NOT share folders — it's one-way local→cloud automation.
+4. **Touch ID for Private Vault** — LAContext evaluatePolicy; PIN stays fallback;
+   toggle in Settings.
+5. **Casting/AirPlay + PiP** — AirPlay via AVRouting/mpv output options; PiP as
+   floating always-on-top mini window.
+6. **Storage dashboard** — Settings page: usage by type/folder, cache + TDLib
+   store sizes, largest files.
+7. **Duplicate finder UI** — rootHash grouping → review/merge sheet.
+8. **Version history** (existing item 18) + **bulk export** (item 19) — as scoped.
+9. **Shared-page upgrades** — importer visibility, re-share controls, activity.
+10. **Smart search** — Vision OCR index for images; Whisper-local transcripts
+    for audio/video; semantic query box. LAST (heaviest).
+
+Deferred by decision: FileProvider native mount (messy; revisit post-iOS),
+iOS companion (FIRST task once feature-complete), distribution/licensing
+(feature-complete milestone, see plan above).
