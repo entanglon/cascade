@@ -3478,3 +3478,21 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Verification**: 83 unit tests green. Ghost BECF9132 cleaned on launch
       by the new heal step — confirmed via sqlite3 (row gone, channel dump 0
       references).
+
+156. **True pause: cancel TDLib native upload (2026-08-22 — COMMITTED
+     `8f30adc`)** (`Telegram/TelegramClient.swift`)
+    - **User test**: pause held 51% correctly, resume showed "Resuming…" then
+      jumped straight to ~90% and completed. Hypothesis: pause never actually
+      paused. CONFIRMED.
+    - **Root cause**: pause only cancelled our Swift Task; TDLib's native
+      preliminaryUploadFile kept uploading in the background
+      (cancelPreliminaryUploadFile was never called). Also explains the
+      duplicate identical-hash chunk messages in item 155's channel dump.
+    - **Fix**: uploadFile's onCancel now also fires
+      client.cancelPreliminaryUploadFile(fileId:) best-effort.
+    - **Open question for next pause→resume test**: does TDLib retain cached
+      parts after cancel (card jumps quickly to prior %) or restart the chunk
+      (slow crawl)? If parts are discarded, reconsider design (e.g., let the
+      current single giant chunk finish natively but relabel UI).
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+

@@ -2,9 +2,28 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-21 (late night) — Discard ghost fix: cleanupPartialUpload tombstones + invalidates cache + republishes catalog; post-auth heal cleans zero-chunk ghosts (item 155).
+> 2026-08-22 — True pause: TDLib native upload cancelled on pause (item 156); discard ghost fix (item 155).
 
 ---
+
+## 2026-08-22 — True pause: cancel TDLib native upload (item 156)
+
+User tested pause/resume: pause held fraction, resume showed "Resuming…" then
+jumped straight to ~90% and completed. User hypothesized pause never actually
+paused. CONFIRMED from code: UploadPauseToken was a flag + work.cancel() only —
+TDLib's native preliminaryUploadFile kept streaming after Pause (we never called
+cancelPreliminaryUploadFile). Resume found the background upload nearly done →
+instant jump. This also explains the duplicate identical-hash chunk messages
+found during item 155's channel dump (attempt #1 background-completed while
+resume re-sent the same staging file).
+
+Fix: uploadFile()'s onCancel handler now also fires
+client.cancelPreliminaryUploadFile(fileId:) (best-effort) so Pause truly stops
+network usage. Resume re-issues preliminaryUploadFile on the same staging path;
+whether TDLib retains cached parts across cancel will be visible as jump-vs-crawl
+on the next pause→resume test.
+
+Verification: build green, **TEST SUCCEEDED** (83 unit tests). Commit `8f30adc`.
 
 ## 2026-08-21 (late night) — Discard ghost fix (item 155)
 
