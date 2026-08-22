@@ -98,6 +98,7 @@ struct SettingsView: View {
                         mirrorSection
                         playbackSection
                         statsSection
+                        dashboardSection
                         storageSection
                         footer
                     }
@@ -511,6 +512,134 @@ struct SettingsView: View {
         return StorageCategory.allCases.map {
             StorageBreakdownItem(category: $0, bytes: buckets[$0] ?? 0, total: total)
         }
+    }
+
+    // MARK: - Storage Dashboard (Wave 2 item 6)
+
+    /// Top folders by RECURSIVE subtree bytes (a parent shows its whole tree's
+    /// weight), heaviest first.
+    private var dashboardFolders: [(folder: ObjectRecord, bytes: Int64)] {
+        let sizes = StorageDashboard.folderSubtreeSizes(appState.files)
+        let byID = Dictionary(appState.files.filter(\.isFolder).map { ($0.id, $0) },
+                              uniquingKeysWith: { a, _ in a })
+        return sizes
+            .compactMap { id, bytes -> (folder: ObjectRecord, bytes: Int64)? in
+                guard let folder = byID[id] else { return nil }
+                return (folder, bytes)
+            }
+            .sorted { $0.bytes > $1.bytes }
+            .prefix(6)
+            .map { $0 }
+    }
+
+    private var dashboardLargestFiles: [ObjectRecord] {
+        StorageDashboard.largestFiles(appState.files, limit: 6)
+    }
+
+    private var dashboardTotalBytes: Int64 {
+        StorageDashboard.totalBytes(appState.files)
+    }
+
+    private var dashboardSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Storage Dashboard")
+            settingsCard {
+                // Top folders — recursive subtree usage.
+                Text("TOP FOLDERS")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.bottom, 2)
+
+                if dashboardFolders.isEmpty {
+                    Text("No folders yet")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(dashboardFolders, id: \.folder.id) { entry in
+                        usageRow(
+                            icon: "folder.fill",
+                            tint: XTheme.accent,
+                            name: entry.folder.name,
+                            bytes: entry.bytes,
+                            total: max(1, dashboardTotalBytes)
+                        )
+                    }
+                }
+
+                settingsDivider.padding(.vertical, 6)
+
+                // Largest files across the vault.
+                Text("LARGEST FILES")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.bottom, 2)
+
+                if dashboardLargestFiles.isEmpty {
+                    Text("No files yet")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(dashboardLargestFiles) { file in
+                        usageRow(
+                            icon: fileIcon(for: file),
+                            tint: .white.opacity(0.55),
+                            name: file.name,
+                            bytes: file.size,
+                            total: max(1, dashboardTotalBytes),
+                            showBar: false
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func fileIcon(for file: ObjectRecord) -> String {
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        if category(of: file) == .images { return "photo" }
+        if file.mime.hasPrefix("video/") || ["mkv", "mp4", "mov", "avi", "webm"].contains(ext) { return "film" }
+        if category(of: file) == .audio { return "music.note" }
+        return "doc"
+    }
+
+    /// One dashboard row: icon · name · thin usage bar · size + share-of-vault.
+    private func usageRow(
+        icon: String,
+        tint: Color,
+        name: String,
+        bytes: Int64,
+        total: Int64,
+        showBar: Bool = true
+    ) -> some View {
+        let fraction = total > 0 ? Double(bytes) / Double(total) : 0
+        return HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            Text(name)
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            if showBar {
+                Capsule()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 56, height: 4)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(tint.opacity(0.9))
+                            .frame(width: max(3, 56 * fraction))
+                    }
+            }
+            Text("\(XTheme.formatBytes(bytes)) · \(Int((fraction * 100).rounded()))%")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white)
+        }
+        .padding(.vertical, 7)
     }
 
     // MARK: - Local Storage

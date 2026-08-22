@@ -2755,6 +2755,61 @@ struct CascadeTests {
         #expect(UserDefaults.standard.bool(forKey: key) == true)
     }
 
+    // MARK: - Storage dashboard (Wave 2 item 6)
+
+    private func dashObject(
+        _ id: String, parent: String?, isFolder: Bool, size: Int64,
+        trashed: Bool = false
+    ) -> ObjectRecord {
+        ObjectRecord(
+            id: id, vaultID: "v", name: isFolder ? id : "\(id).bin", size: size,
+            mime: isFolder ? "inode/directory" : "application/octet-stream",
+            state: "ready", createdAt: Date(), modifiedAt: Date(),
+            trashed: trashed, parentID: parent, isFolder: isFolder
+        )
+    }
+
+    @Test func storageDashboardRecursiveFolderSizes() {
+        let objects = [
+            dashObject("Movies", parent: nil, isFolder: true, size: 0),
+            dashObject("Season 1", parent: "Movies", isFolder: true, size: 0),
+            dashObject("ep1.mkv", parent: "Season 1", isFolder: false, size: 100),
+            dashObject("ep2.mkv", parent: "Season 1", isFolder: false, size: 250),
+            dashObject("trailer.mp4", parent: "Movies", isFolder: false, size: 50),
+            dashObject("Music", parent: nil, isFolder: true, size: 0),
+            dashObject("song.mp3", parent: "Music", isFolder: false, size: 10)
+        ]
+        let sizes = StorageDashboard.folderSubtreeSizes(objects)
+
+        #expect(sizes["Movies"] == 400, "parent folder sums its whole subtree")
+        #expect(sizes["Season 1"] == 350, "nested folder counts its own files")
+        #expect(sizes["Music"] == 10)
+
+        // Root-level files (parentID nil) are NOT folders — excluded from map.
+        #expect(sizes.count == 3)
+
+        // Largest files descending; trash + zero-size excluded.
+        let withTrash = objects + [
+            dashObject("huge.bin", parent: nil, isFolder: false, size: 9000),
+            dashObject("deleted.mkv", parent: "Movies", isFolder: false, size: 5000, trashed: true)
+        ]
+        let top = StorageDashboard.largestFiles(withTrash, limit: 3)
+        #expect(top.map(\.size) == [9000, 250, 100], "trash excluded, descending order")
+        #expect(StorageDashboard.totalBytes(withTrash) == 9410, "100+250+50+10+9000; trashed excluded")
+    }
+
+    @Test func storageDashboardCycleSafe() {
+        // A corrupted catalog cycle (A↔B) must not hang or crash the DFS.
+        let objects = [
+            dashObject("A", parent: "B", isFolder: true, size: 0),
+            dashObject("B", parent: "A", isFolder: true, size: 0),
+            dashObject("file.bin", parent: "A", isFolder: false, size: 42)
+        ]
+        let sizes = StorageDashboard.folderSubtreeSizes(objects)
+        #expect(sizes["A"] == 42, "cycle tolerated, files counted once")
+        #expect(sizes["B"].map { $0 >= 0 } == true)
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)
