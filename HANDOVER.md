@@ -3577,6 +3577,15 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Roadmap lever if still insufficient: multiple TDLib client instances for
       true cross-instance parallelism (heavyweight).
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+162. **Scrubber bounce fix (2026-08-22 night — COMMITTED `36dcf41`)**
+     (`Features/MPVVideoView.swift`)
+    - Seek UI danced (target → back → target): optimistic progress was being
+      overwritten by stale pre-seek time-pos updates from mpv's async seek.
+    - Fix: pendingSeekTarget hold — suppress time-pos updates until one lands
+      within ~1 s of the target or a 12 s timeout; cleared by play(url:) on new
+      files. Single funnel covers video + headless.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
     - VERIFIED: brief ~1 s startup buffer then fully smooth playback (normal
       cold start). Arc closed — no further streaming work needed for now.
 

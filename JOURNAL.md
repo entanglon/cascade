@@ -39,6 +39,22 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (night) — Scrubber bounce fix (item 162)
+
+User: seek worked but the playhead "danced" — clicked position → snapped back
+to zero → returned to target after a few seconds and played. Root cause:
+seek() set progress optimistically, but MPVController.handlePropertyChange
+kept accepting mpv's async-seek updates (old/transiently-zero positions) until
+the seek landed, overwriting the optimistic value.
+
+Fix (`36dcf41`): pendingSeekTarget hold in MPVController — user seeks record a
+target+timestamp; time-pos updates are IGNORED while one is pending until an
+update lands within ~1 s of the target (seek complete) or 12 s safety timeout.
+play(url:) clears the hold on new files. Covers video + headless paths (single
+funnel).
+
+Verification: build green; **TEST SUCCEEDED** (83 unit tests).
+
 ## 2026-08-22 (night) — Deep-range fetcher reverted (item 161)
 
 User reported buffering WORSE with item 160 and asked whether slices can be
