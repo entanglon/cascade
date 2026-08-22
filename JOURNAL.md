@@ -39,6 +39,21 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (afternoon) — Scrubber axis fix + relative-seek hold (item 166)
+
+User's final scrubber audit: the bar rode ABOVE the time labels instead of
+sharing their axis. Root cause: GeometryReader aligns children TOP-LEADING by
+default — capsule/circle sat at y=0 inside the 28 pt row while the labels
+centered. Fixed in BOTH players (VideoPlaybackView overlay + TheaterView audio
+scrubber) with an explicit .frame(width:height:alignment: .center) around the
+ZStack.
+
+Functional gap found in the same pass: mpv.seek(relative:) (±10 s buttons)
+bypassed the pending-seek hold entirely → label flicker on skips. Now routes
+through seek(absolute:) so skips get the same hold + label sync as clicks.
+
+Verification: build green; **TEST SUCCEEDED** (83 unit tests). Commit `0424965`.
+
 ## 2026-08-22 (afternoon) — Streaming round 3: preheat + flicker root cause #2 (item 165)
 
 User: MKVs play buffer-free, the MP4 (2× size) buffers; seek-label reset still

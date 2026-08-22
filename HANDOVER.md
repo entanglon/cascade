@@ -3615,6 +3615,14 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       seek(to:) delegates to absolute (label sync on fraction seeks).
     - readAheadWindowSlices 96.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+166. **Scrubber axis + relative-seek hold (2026-08-22 afternoon — COMMITTED `0424965`)**
+     (`Features/VideoPlaybackView.swift`, `Features/TheaterView.swift`,
+     `Features/MPVVideoView.swift`)
+    - Bar-above-labels fixed: GeometryReader top-leading alignment — explicit
+      centered frame on the ZStack in both players.
+    - ±10 s skips now route through seek(absolute:) → get hold + label sync.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
 
 
