@@ -25,6 +25,7 @@
 		F7A1B00500000000000000A5 /* AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A1B00600000000000000A5 /* AppPaths.swift */; };
 		F783B67D3023700000326355 /* VideoPlaybackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B67E3023700000326355 /* VideoPlaybackView.swift */; };
 		F7C0FF00000000000000A011 /* MPVVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C0FF00000000000000A010 /* MPVVideoView.swift */; };
+		F7C1AA00000000000000B001 /* PictureInPictureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C1AA00000000000000B000 /* PictureInPictureWindow.swift */; };
 		F783B6853023800000326355 /* TransfersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6863023800000326355 /* TransfersView.swift */; };
 		F783B68C3023900000326355 /* ActiveTransferHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B68D3023900000326355 /* ActiveTransferHUD.swift */; };
 		F783B6933024000000326355 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783B6943024000000326355 /* SettingsView.swift */; };
@@ -97,6 +98,7 @@
 		F783B6A43024000000326355 /* MiniTransfersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniTransfersView.swift; sourceTree = "<group>"; };
 		F783B6A63024000000326355 /* LiquidMorphingFAB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidMorphingFAB.swift; sourceTree = "<group>"; };
 		F7C0FF00000000000000A010 /* MPVVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVVideoView.swift; sourceTree = "<group>"; };
+		F7C1AA00000000000000B000 /* PictureInPictureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureWindow.swift; sourceTree = "<group>"; };
 		CASCADE0001 /* cascade.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/cascade.png; sourceTree = "<group>"; };
 		BACKUP0001 /* backup.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/backup.png; sourceTree = "<group>"; };
 		OCPNG0001 /* oc.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/oc.png; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 				F7D1B00100000000000000D2 /* PendingImportView.swift */,
 				F7A1B00400000000000000B1 /* MediaGridShared.swift */,
 				F7C0FF00000000000000A010 /* MPVVideoView.swift */,
+				F7C1AA00000000000000B000 /* PictureInPictureWindow.swift */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -410,6 +413,7 @@
 				F783B67D3023700000326355 /* VideoPlaybackView.swift in Sources */,
 				F783B69D3023700000326355 /* TheaterView.swift in Sources */,
 				F7C0FF00000000000000A011 /* MPVVideoView.swift in Sources */,
+				F7C1AA00000000000000B001 /* PictureInPictureWindow.swift in Sources */,
 				F783B6853023800000326355 /* TransfersView.swift in Sources */,
 				F783B68C3023900000326355 /* ActiveTransferHUD.swift in Sources */,
 				F783B6933024000000326355 /* SettingsView.swift in Sources */,

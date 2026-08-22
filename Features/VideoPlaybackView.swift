@@ -59,6 +59,8 @@ struct VideoPlaybackView: View {
     var onMinimize: () -> Void = {}
     var onToggleFullScreen: () -> Void = {}
     var onClose: () -> Void = {}
+    /// Wave 2 item 5 — float the live video into the PiP panel.
+    var onPiP: () -> Void = {}
     @Bindable var audioEngine = AudioPlayerEngine.shared
     @ObservedObject private var fullScreenWindow = PlayerFullScreenWindow.shared
     @State private var error: String?
@@ -83,7 +85,8 @@ struct VideoPlaybackView: View {
                                 isFullScreen: fullScreenWindow.isActive,
                                 onMinimize: onMinimize,
                                 onToggleFullScreen: onToggleFullScreen,
-                                onClose: onClose
+                                onClose: onClose,
+                                onPiP: onPiP
                             )
                         }
                 } else {
@@ -230,12 +233,15 @@ struct PlayerControlsView: View {
     var onMinimize: () -> Void = {}
     var onToggleFullScreen: () -> Void = {}
     var onClose: () -> Void = {}
+    /// Wave 2 item 5 — move the live video into the floating PiP panel.
+    var onPiP: () -> Void = {}
     @Environment(AppState.self) private var appState
 
     @State private var isControlsVisible = true
     @State private var hoverTimer: Timer?
     @State private var showSubtitlePopover = false
     @State private var showAudioPopover = false
+    @State private var showOutputPopover = false
     @State private var dragProgress: Double?
     // Holds the clicked/dragged position after release until mpv's time-pos
     // telemetry actually lands there — without it the bar snaps back to the
@@ -388,6 +394,23 @@ struct PlayerControlsView: View {
             }
             .buttonStyle(.plain)
             .help(isFullScreen ? "Exit Full Screen" : "Full Screen")
+
+            // Picture-in-Picture — float the video in an always-on-top mini
+            // window. Meaningless from inside the fullscreen window (it owns
+            // the layer), so the button only appears in the theater player.
+            if !isFullScreen {
+                Button(action: onPiP) {
+                    Image(systemName: "rectangle.bottomthird.inset.filled")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .playerHoverTint()
+                }
+                .buttonStyle(.plain)
+                .help(PictureInPictureWindow.shared.isActive ? "Exit Picture-in-Picture" : "Picture in Picture")
+            }
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -588,6 +611,31 @@ struct PlayerControlsView: View {
                             title: "Audio",
                             tracks: mpv.audioTracks,
                             onSelect: { mpv.selectTrack($0) }
+                        )
+                    }
+
+                    // Output device picker (Wave 2 item 5): AirPlay speakers,
+                    // headphones, HDMI, USB DACs — mpv switches its AO live.
+                    Divider()
+                        .frame(height: 20)
+                        .background(Color.white.opacity(0.2))
+
+                    Button {
+                        if showOutputPopover == false { mpv.refreshAudioDevices() }
+                        showOutputPopover.toggle()
+                    } label: {
+                        Image(systemName: "hifispeaker.2")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.9))
+                    }
+                    .frame(width: 44, height: 36)
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showOutputPopover, arrowEdge: .bottom) {
+                        AudioOutputList(
+                            devices: mpv.audioOutputDevices,
+                            currentID: mpv.currentAudioDeviceID,
+                            onSelect: { mpv.selectAudioDevice($0) }
                         )
                     }
                 }
@@ -829,6 +877,61 @@ private struct TrackSelectionList: View {
             }
         }
         .frame(minWidth: 200, maxHeight: 300)
+        .padding(.bottom, 8)
+    }
+}
+
+/// Output device picker (Wave 2 item 5): lists mpv's audio endpoints —
+/// built-in speakers, AirPlay speakers when connected, headphones, HDMI,
+/// USB DACs. Checkmark marks the active one; selecting switches the AO live.
+private struct AudioOutputList: View {
+    let devices: [AudioDevice]
+    let currentID: String?
+    let onSelect: (AudioDevice) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Output Device")
+                .font(.headline)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if devices.isEmpty {
+                        Text("No output devices found")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                    }
+                    ForEach(devices) { device in
+                        let isSelected = device.id == currentID
+                        Button {
+                            onSelect(device)
+                        } label: {
+                            HStack {
+                                Image(systemName: isSelected ? "checkmark" : "speaker.wave.1")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(width: 16)
+                                Text(device.label)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(isSelected ? Color.white.opacity(0.1) : Color.clear)
+                        .cornerRadius(6)
+                    }
+                }
+                .padding(8)
+            }
+        }
+        .frame(minWidth: 240, maxHeight: 300)
         .padding(.bottom, 8)
     }
 }

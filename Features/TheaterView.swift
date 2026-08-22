@@ -337,27 +337,33 @@ struct TheaterView: View {
 
     private var topControls: some View {
         HStack(spacing: 12) {
-            // Minimize button (Background play in Mini Player)
+            // Minimize button — video: float into the PiP panel (Wave 2 item 5);
+            // audio: hand off to the mini player (headless playback continues).
             Button {
                 withAnimation(.easeInOut(duration: 0.20)) {
                     if previewKind == .video {
-                        // Videos stop when the theater closes — no background handoff.
-                        AudioPlayerEngine.shared.stop()
+                        if PictureInPictureWindow.shared.isActive {
+                            PictureInPictureWindow.shared.dismiss()
+                        } else {
+                            PictureInPictureWindow.shared.presentFromEngine(title: file.name)
+                        }
                     } else if previewKind == .audio, AudioPlayerEngine.shared.currentTrack == nil {
                         AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
                     }
-                    appState.theaterFile = nil
+                    if previewKind != .video {
+                        appState.theaterFile = nil
+                    }
                 }
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .bold))
+                Image(systemName: previewKind == .video ? "rectangle.bottomthird.inset.filled" : "chevron.down")
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white.opacity(0.85))
                     .frame(width: 32, height: 32)
                     .contentShape(Circle())
                     .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
-            .help("Minimize to Background")
+            .help(previewKind == .video ? "Picture in Picture" : "Minimize to Background")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
@@ -537,7 +543,8 @@ struct TheaterView: View {
                         togglePlayerFullScreen()
                     }
                 },
-                onClose: closePlayer
+                onClose: closePlayer,
+                onPiP: { togglePictureInPicture() }
             )
         case .audio:
             TheaterAudioPlayerView(
@@ -1184,11 +1191,31 @@ struct TheaterView: View {
     }
 
     /// Stops playback and closes the theater (the player chrome's minimize and
-    /// close buttons, windowed mode).
+    /// close buttons, windowed mode). While PiP holds the video, its layer is
+    /// restored FIRST so the view teardown never destroys a core the panel is
+    /// still showing.
     private func closePlayer() {
         withAnimation(.easeInOut(duration: 0.20)) {
-            AudioPlayerEngine.shared.stop()
-            appState.theaterFile = nil
+            if PictureInPictureWindow.shared.isActive {
+                PictureInPictureWindow.shared.dismiss()
+                AudioPlayerEngine.shared.stop()
+                appState.theaterFile = nil
+            } else {
+                AudioPlayerEngine.shared.stop()
+                appState.theaterFile = nil
+            }
+        }
+    }
+
+    /// Wave 2 item 5 — float the live video into the always-on-top PiP panel
+    /// (or bring it back). The theater STAYS OPEN: its view hierarchy must
+    /// remain mounted (dismantle destroys the mpv core), and it keeps working
+    /// as the control surface while the picture floats.
+    private func togglePictureInPicture() {
+        if PictureInPictureWindow.shared.isActive {
+            PictureInPictureWindow.shared.dismiss()
+        } else {
+            guard PictureInPictureWindow.shared.presentFromEngine(title: file.name) else { return }
         }
     }
 
@@ -1198,6 +1225,11 @@ struct TheaterView: View {
         // its own two-step handler); ignore it here so windowed ESC never closes
         // the theater out from under the full-screen player.
         if PlayerFullScreenWindow.shared.isActive { return }
+        // PiP active → ESC means "stop everything": restore the layer first so
+        // the teardown below never hits a view the panel still hosts.
+        if PictureInPictureWindow.shared.isActive {
+            PictureInPictureWindow.shared.dismiss()
+        }
         withAnimation(.easeInOut(duration: 0.20)) {
             if previewKind == .video {
                 // Single ESC exits playback and closes the theater (the two-step

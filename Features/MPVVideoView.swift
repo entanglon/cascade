@@ -55,6 +55,13 @@ struct MPVVideoView: NSViewControllerRepresentable {
 
 // MARK: - Models
 
+/// One audio output endpoint from mpv's `audio-device-list` (`id` is the
+/// coreaudio device selector, `label` the human description).
+struct AudioDevice: Identifiable, Equatable {
+    let id: String
+    let label: String
+}
+
 struct Track: Identifiable, Equatable {
     let id: Int
     let type: String // "audio", "sub"
@@ -141,6 +148,10 @@ class MPVController: ObservableObject {
 
     @Published var audioTracks: [Track] = []
     @Published var subtitleTracks: [Track] = []
+    /// Audio output endpoints (Wave 2 item 5) — includes AirPlay speakers when
+    /// connected. Selecting one switches mpv's AO live.
+    @Published var audioOutputDevices: [AudioDevice] = []
+    @Published var currentAudioDeviceID: String?
 
     var onPlaybackError: (() -> Void)?
 
@@ -504,6 +515,38 @@ class MPVController: ObservableObject {
     /// (`play(url:)` runs before SwiftUI builds MPVVideoView). Flushed by
     /// `flushQueuedSubtitles()` from makeNSViewController.
     private var queuedExternalSubtitles: [(url: String, title: String, mode: String)] = []
+
+    // MARK: - Audio output devices (Wave 2 item 5)
+
+    func refreshAudioDevices() {
+        let devices: [AudioDevice]
+        if isHeadless {
+            devices = headlessView?.getAudioDeviceList() ?? []
+        } else {
+            devices = playerView?.playerView.getAudioDeviceList() ?? []
+        }
+        let current: String?
+        if isHeadless {
+            current = headlessView?.currentAudioDeviceID()
+        } else {
+            current = playerView?.playerView.currentAudioDeviceID()
+        }
+        DispatchQueue.main.async {
+            self.audioOutputDevices = devices
+            self.currentAudioDeviceID = current
+        }
+    }
+
+    func selectAudioDevice(_ device: AudioDevice) {
+        if isHeadless {
+            headlessView?.setAudioDevice(id: device.id)
+        } else {
+            playerView?.playerView.setAudioDevice(id: device.id)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.refreshAudioDevices()
+        }
+    }
 
     func addExternalSubtitle(path: String, title: String, mode: String = "select") {
         if isHeadless {
@@ -1316,6 +1359,35 @@ final class MPVLayerView: NSView {
         mpv_set_option_string(mpv, propertyName, "\(track.id)")
     }
 
+    // MARK: - Audio output devices (Wave 2 item 5)
+
+    /// Enumerates the AO's output endpoints (built-ins, AirPlay speakers,
+    /// headphones, HDMI, USB DACs…). mpv reports them as a JSON array via the
+    /// `audio-device-list` property. Pure read — safe at any playback state.
+    func getAudioDeviceList() -> [AudioDevice] {
+        guard mpv != nil,
+              let json = getPropertyString("audio-device-list"),
+              let data = json.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        return array.compactMap { entry in
+            guard let name = entry["name"] as? String else { return nil }
+            let description = entry["description"] as? String ?? name
+            return AudioDevice(id: name, label: description)
+        }
+    }
+
+    /// Switches the audio output at runtime (mpv rebuilds the AO live).
+    func setAudioDevice(id: String) {
+        guard mpv != nil else { return }
+        mpv_set_property_string(mpv, "audio-device", id)
+    }
+
+    func currentAudioDeviceID() -> String? {
+        getPropertyString("audio-device")
+    }
+
     func addExternalSubtitle(url: String, title: String) {
         command("sub-add", url, "select", title)
     }
@@ -1864,6 +1936,9 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         file: ObjectRecord? = nil
     ) {
         guard !isActive, !isDismissing else { return }
+        // Wave 2 item 5: PiP owns the live layer while its panel is up — the
+        // two windows cannot hold the same view. Exit PiP first.
+        guard !PictureInPictureWindow.shared.isActive else { return }
         entryGeneration += 1
         softResetsDone = 0
         reopensDone = 0
