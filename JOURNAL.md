@@ -2,11 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (night) — Wave 2 items 1–6 done; PiP green-button crash diagnosed (callback race) and REVERTED to known-good hover-expand.
+> 2026-08-22 (late night) — Wave 2 items 1–7 done (…+ storage dashboard, duplicate finder).
 
 ---
 
-## 2026-08-22 (night, later) — Wave 2 item 6: Storage dashboard + PiP revert
+## 2026-08-22 (late night) — Wave 2 item 7: Duplicate finder
+
+User: "Continue" → item 7.
+
+### Design (`839e62f`)
+- NEW `Engine/DuplicateFinder.swift`: pure grouping — active files (ready,
+  non-trashed, non-tombstoned, non-folder, non-empty rootHash) grouped by
+  content hash; members sorted OLDEST FIRST; wasted-bytes math honors a
+  keep-selection map. Archived/private copies DO group (real bytes).
+- NEW `Features/DuplicatesReviewView.swift` (+manual pbxproj entries): review
+  sheet — set count + reclaimable summary, per-set rows with location/add-date,
+  radio keep-selection (oldest pre-selected), one-tap "Keep 1 · Delete N".
+  Deletion routes through AppState.deleteForever → shares die, vault+backup
+  messages removed, tombstones + checkpoint republish — identical to manual
+  delete. Entry: All Files page context menu "Find Duplicates…" (whole-
+  catalog destination).
+- Tests (+2 → **97 unit green**): grouping/keep-candidates/wasted math +
+  selection overrides; exclusions (singletons/trash/hashless/folders/uploading).
+
+---
 
 User hit a SIGSEGV pressing the PiP panel's GREEN traffic light. Crash log:
 mpv thread, objc_release/Block_release during dispatch drain — an

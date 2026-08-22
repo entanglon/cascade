@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–174 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–6 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–175 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–7 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard, duplicate finder). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2647,11 +2647,12 @@ directions, no discard ghosts, single-cache architecture (app playback cache
 retired; TDLib store capped via Settings + auto-enforced after downloads +
 preheated after uploads), smooth playback + pinned seeks + visible loading
 states. Folder sharing shipped (item 168). **Feature Wave 2 in progress**:
-items 1–6 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
+items 1–7 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
 sync (`3fd4c9b`), Touch ID unlock (`938c8cb`), PiP + output picker
 (`548816c`; seamless-expand experiment REVERTED — see item 173), storage
-dashboard (`cd3cd5e`); next = Duplicate finder UI (7). **TESTING.md** tracks
-manual QA per feature. Tests: 95 unit green.
+dashboard (`cd3cd5e`), duplicate finder (`839e62f`); next = Version history +
+bulk export (8). **TESTING.md** tracks manual QA per feature. Tests: 97 unit
+green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3789,6 +3790,17 @@ Open levers (not scheduled):
       (Vault Usage) and cache/TDLib rows (Local Storage).
     - Build green; **TEST SUCCEEDED** (95 unit tests, +3). Manual QA:
       TESTING.md item 6 checklist.
+175. **Wave 2 item 7 — Duplicate finder (2026-08-22 late night — COMMITTED `839e62f`)**
+     (`Engine/DuplicateFinder.swift` NEW, `Features/DuplicatesReviewView.swift`
+     NEW + pbxproj manual entries, `Features/FileBrowserView.swift`,
+     `CascadeTests/CascadeTests.swift`)
+    - All Files page menu → "Find Duplicates…": sheet groups active files by
+      rootHash (ready/non-trashed/non-hashless only), oldest-first members,
+      radio keep-selection per set, one-tap "Keep 1 · Delete N (save X)"
+      through AppState.deleteForever (shares/messages/tombstones/checkpoint —
+      full safety rails).
+    - Build green; **TEST SUCCEEDED** (97 unit tests, +2). Manual QA:
+      TESTING.md item 7 checklist.
 
 
 

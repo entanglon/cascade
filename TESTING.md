@@ -13,6 +13,35 @@
 
 ---
 
+## Wave 2 · Item 7 — Duplicate finder — `839e62f` (2026-08-22)
+
+**Implemented:** All Files → right-click empty area → "Find Duplicates…".
+A review sheet groups every file pair/set sharing identical content (SHA-256
+rootHash) and shows: set count + total reclaimable bytes, per-set rows with
+location and add-date, a radio keep-selection (oldest copy pre-selected), and
+a one-tap "Keep 1 · Delete N (save X)" button. Deletion runs through the full
+deleteForever path — channel messages, backup mirror, share revocation,
+tombstones, fresh checkpoint. Trash/hashless/folders/in-flight uploads never
+group; archived/private copies do.
+
+**Automated tests:** `duplicateFinderGroupsByRootHash` (grouping, oldest-first
+keep candidates, wasted-bytes math, selection overrides),
+`duplicateFinderExclusions` (singletons, trash, hashless, folders, uploading).
+
+### Manual QA checklist
+
+- [ ] All Files → right-click background → "Find Duplicates…" opens the review sheet.
+- [ ] Upload the same file twice into different folders → both appear as one 2-copy set with correct locations.
+- [ ] The OLDEST copy is pre-selected as "keep" (checkmark filled).
+- [ ] Selecting the other copy moves the checkmark and updates the "(save X)" amount.
+- [ ] "Keep 1 · Delete N" → copies disappear from the grid, one remains playable; sheet shows the cleaned-up count.
+- [ ] After cleanup, re-open Find Duplicates → that set is gone.
+- [ ] A vault with no duplicates shows the "No duplicates found" state.
+- [ ] Deleting a duplicate that had an active share link → the link stops working (share dies with the file).
+
+---
+
+
 ## Wave 2 · Item 6 — Storage dashboard — `cd3cd5e` (2026-08-22)
 
 **Implemented:** Settings → new "Storage Dashboard" card between Vault Usage

@@ -405,7 +405,11 @@ speed + support + legal layer, not binary secrecy.
    card with TOP FOLDERS by recursive subtree bytes (cycle-safe DFS) and
    LARGEST FILES, each with share-of-vault bars; complements the existing
    by-type bar and cache/TDLib-store rows.
-7. **Duplicate finder UI** — rootHash grouping → review/merge sheet.
+7. **Duplicate finder UI** — ✅ *implemented 2026-08-22 (`839e62f`)*: All
+   Files page menu → review sheet grouping files by content hash (rootHash),
+   keep-selection per set (oldest pre-picked), one-tap "Keep 1 · Delete N"
+   through the full deleteForever path. Upload-side dedupe (skip identical
+   upload entirely) remains open as a separate future item.
 8. **Version history** (existing item 18) + **bulk export** (item 19) — as scoped.
 9. **Shared-page upgrades** — importer visibility, re-share controls, activity.
 10. **Smart search** — Vision OCR index for images; Whisper-local transcripts
