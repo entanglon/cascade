@@ -1912,6 +1912,14 @@ struct FileItemContextMenu: View {
         } label: {
             Label("Rename…", systemImage: "pencil")
         }
+        // Offline pin ("Keep Downloaded") — files AND folders (folders apply
+        // recursively). Pinning downloads uncached targets with visible cards.
+        Button {
+            let makePinned = !file.isPinned
+            for target in actionTargets { appState.setPinned(target, makePinned) }
+        } label: {
+            Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "pin.slash" : "pin")
+        }
         if !file.isFolder {
             Button {
                 for target in actionTargets { appState.toggleFavorite(target) }
@@ -2320,6 +2328,12 @@ struct FileGridItem: View {
 
             Spacer(minLength: 0)
 
+            if file.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(XTheme.accent)
+            }
+
             Menu {
                 FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
             } label: {
@@ -2523,6 +2537,13 @@ struct FileGridItem: View {
         )
         .overlay(alignment: .topTrailing) {
             HStack(spacing: 4) {
+                if file.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(Circle().fill(XTheme.accent))
+                }
                 if file.isPrivate {
                     Image(systemName: "number")
                         .font(.system(size: 8, weight: .bold))
@@ -2684,14 +2705,23 @@ struct FileListRow: View {
             if file.id == appState.revealObjectID { startRevealFlash() }
         }
         .overlay(alignment: .trailing) {
-            if file.isPrivate {
-                Image(systemName: "number")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(3)
-                    .background(Circle().fill(XTheme.categoryRed.opacity(0.9)))
-                    .padding(.trailing, 6)
+            HStack(spacing: 4) {
+                if file.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(3)
+                        .background(Circle().fill(XTheme.accent.opacity(0.9)))
+                }
+                if file.isPrivate {
+                    Image(systemName: "number")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(3)
+                        .background(Circle().fill(XTheme.categoryRed.opacity(0.9)))
+                }
             }
+            .padding(.trailing, 6)
         }
         .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
             thumbURL = await ThumbnailService.shared.thumbnailURL(for: file)

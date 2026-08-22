@@ -45,6 +45,13 @@ actor DatabaseManager {
         try start()
     }
 
+    /// True once `start()` has opened the pool. DownloadEngine's launch janitor
+    /// checks this before wiping scratch — an unreadable DB must never look like
+    /// "no pins", or pinned files would be destroyed on early launch.
+    func hasStarted() -> Bool {
+        pool != nil
+    }
+
     func databasePath() throws -> String {
         guard let pool else { throw StorageError.notStarted }
         return pool.path
@@ -467,6 +474,13 @@ actor DatabaseManager {
             try db.alter(table: "objects") { t in
                 // JSON-encoded [SubtitleSidecar] (messageID + name per entry).
                 t.add(column: "subtitleSidecars", .text)
+            }
+        }
+
+        migrator.registerMigration("v31-offline-pins") { db in
+            try db.alter(table: "objects") { t in
+                // "Keep Downloaded": exempt from cache eviction + launch wipe.
+                t.add(column: "isPinned", .boolean).notNull().defaults(to: false)
             }
         }
     }
@@ -1109,6 +1123,16 @@ actor DatabaseManager {
 
     func object(_ id: String) throws -> ObjectRecord? {
         try read { db in try ObjectRecord.fetchOne(db, id: id) }
+    }
+
+    /// Object IDs currently flagged "Keep Downloaded" — read SYNCHRONOUSLY by
+    /// DownloadEngine's eviction paths (enforceCacheBudget and the launch janitor
+    /// are sync statics and must not block on an async hop).
+    func pinnedObjectIDs() -> Set<String> {
+        let ids = (try? read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM objects WHERE isPinned = 1")
+        }) ?? []
+        return Set(ids)
     }
 
     @discardableResult

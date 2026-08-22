@@ -215,6 +215,9 @@ enum CatalogSnapshot {
             rec.vaultID = localVaultID
             rec.sourcePath = nil
             rec.state = "ready"
+            // Offline pins ("Keep Downloaded") are DEVICE-LOCAL — another Mac's
+            // pin must not silently download its gigabytes here.
+            rec.isPinned = false
             // Empty wrappedKey (public files carry "") must be nil, not empty Data —
             // unwrap() throws a CryptoKit error on a zero-length sealed box.
             if rec.wrappedKey?.isEmpty == true { rec.wrappedKey = nil }
@@ -278,6 +281,12 @@ enum CatalogSnapshot {
                     if o.modifiedAt > remoteWinner.modifiedAt {
                         objectsByID[o.id] = o
                     }
+                }
+                // Offline pins are device-local state, NOT catalog content: even
+                // when a remote record wins the LWW contest (newer modification,
+                // or a tie), this device's pin survives the merge.
+                if o.isPinned {
+                    objectsByID[o.id]?.isPinned = true
                 }
             } else {
                 objectsByID[o.id] = o
@@ -549,6 +558,7 @@ enum CatalogSnapshot {
                 o.vaultID = vaultID
                 o.sourcePath = nil
                 o.state = "ready"
+                o.isPinned = false // device-local (see merge)
                 if o.wrappedKey?.isEmpty == true { o.wrappedKey = nil }
                 return o
             },

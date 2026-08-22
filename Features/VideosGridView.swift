@@ -242,6 +242,13 @@ private struct VideoCellView: View {
                         .font(.system(size: 18))
                         .foregroundStyle(Color.accentColor, .white)
                         .padding(5)
+                } else if video.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(Circle().fill(Color.accentColor.opacity(0.85)))
+                        .padding(4)
                 }
             }
             .overlay {

@@ -2504,6 +2504,116 @@ struct CascadeTests {
         #expect(!record("notes.txt").isSubtitleFile)
     }
 
+    // MARK: - Offline pins (Wave 2 item 2)
+
+    @Test func offlinePinFlagSurvivesOldSnapshots() throws {
+        var record = ObjectRecord(
+            id: "obj-\(UUID().uuidString)",
+            vaultID: "vault",
+            name: "Movie.mkv",
+            size: 1234,
+            mime: "video/x-matroska",
+            state: "ready",
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        #expect(!record.isPinned, "no flag column → not pinned")
+
+        // Round-trip through Codable.
+        record.isPinned = true
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let data = try encoder.encode(record)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        #expect(try decoder.decode(ObjectRecord.self, from: data).isPinned)
+
+        // Legacy JSON without the key decodes to false (defensive decoding).
+        let legacyJSON = """
+        {"id":"\(record.id)","vaultID":"vault","name":"Movie.mkv","size":1234,"mime":"video/x-matroska","state":"ready","createdAt":\(Int(record.createdAt.timeIntervalSince1970)),"modifiedAt":\(Int(record.modifiedAt.timeIntervalSince1970))}
+        """
+        #expect(try decoder.decode(ObjectRecord.self, from: Data(legacyJSON.utf8)).isPinned == false)
+    }
+
+    @Test func pinnedFileStemMatching() {
+        let id = UUID().uuidString
+        let pinned: Set<String> = [id]
+        let base = URL(fileURLWithPath: "/tmp/scratch")
+
+        // Materialized copy naming: <objectID>.<ext> and bare <objectID>.
+        #expect(DownloadEngine.isPinnedFile(base.appendingPathComponent("\(id).mkv"), pinned: pinned))
+        #expect(DownloadEngine.isPinnedFile(base.appendingPathComponent(id), pinned: pinned))
+
+        // Non-pinned and collision cases.
+        #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("other-id.mp4"), pinned: pinned))
+        #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("\(id)-extra.mp4"), pinned: pinned),
+                "a longer stem sharing the ID as prefix must NOT match")
+        #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("prefix-\(id).mp4"), pinned: pinned))
+
+        // Scratch neighbors that are never pins: subtitle sidecars, thumb temps.
+        #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("sub-123456.srt"), pinned: pinned))
+        #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("\(id)-thumb.bin"), pinned: pinned))
+
+        // Empty pin set short-circuits.
+        #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("\(id).mkv"), pinned: []))
+    }
+
+    @Test func deviceLocalPinStrippedFromRemoteAdoption() {
+        // merge() normalizes REMOTE records for adoption — a pin made on another
+        // Mac must never arrive here as pinned (device-local semantics).
+        var remote = ObjectRecord(
+            id: "obj-\(UUID().uuidString)",
+            vaultID: "other-vault",
+            name: "Big.mkv",
+            size: 999,
+            mime: "video/x-matroska",
+            state: "ready",
+            createdAt: Date(),
+            modifiedAt: Date(),
+            isPinned: true
+        )
+        remote.vaultID = "remote"
+        let local = ObjectRecord(
+            id: "local-\(UUID().uuidString)",
+            vaultID: "local-vault",
+            name: "Mine.txt",
+            size: 1,
+            mime: "text/plain",
+            state: "ready",
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let localPayload = CatalogSnapshot.Payload(version: 1, objects: [local], chunks: [])
+        let remotePayload = CatalogSnapshot.Payload(version: 1, objects: [remote], chunks: [])
+        let merged = CatalogSnapshot.merge(local: localPayload, remote: remotePayload, localVaultID: "local-vault")
+        let mergedRemoteCopy = merged.objects.first { $0.id == remote.id }
+        #expect(mergedRemoteCopy?.isPinned == false, "remote pins are stripped on adoption")
+        #expect(mergedRemoteCopy?.sourcePath == nil)
+
+        // Local pin survives even when the REMOTE record wins LWW (newer timestamp).
+        remote.modifiedAt = local.modifiedAt.addingTimeInterval(60)
+        remote.name = "Renamed remotely.mkv"
+        let localPinned = ObjectRecord(
+            id: remote.id,
+            vaultID: "local-vault",
+            name: "Big.mkv",
+            size: 999,
+            mime: "video/x-matroska",
+            state: "ready",
+            createdAt: remote.createdAt,
+            modifiedAt: remote.modifiedAt.addingTimeInterval(-120),
+            isPinned: true
+        )
+        let mergedAgain = CatalogSnapshot.merge(
+            local: CatalogSnapshot.Payload(version: 1, objects: [localPinned], chunks: []),
+            remote: CatalogSnapshot.Payload(version: 1, objects: [remote], chunks: []),
+            localVaultID: "local-vault"
+        )
+        let winner = mergedAgain.objects.first { $0.id == remote.id }
+        #expect(winner?.name == "Renamed remotely.mkv", "remote content wins LWW")
+        #expect(winner?.isPinned == true, "…but this device's pin survives")
+    }
+
     @Test func appNotificationLifecycle() async {
         let appState = await AppState()
         await appState.notify(title: "Upload Failed", message: "Network timeout", kind: .error, duration: 10.0)

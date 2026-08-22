@@ -2424,6 +2424,60 @@ final class AppState {
         }
     }
 
+    /// Wave 2 item 2 — offline pins ("Keep Downloaded"). Folders pin
+    /// recursively (every descendant object row gets the flag). Pinning also
+    /// materializes the bytes: each not-yet-cached file downloads with a visible
+    /// transfer card (a folder pin can be gigabytes — the user must see that).
+    /// Unpinning only lifts protection; the copy then ages out like any other.
+    /// The flag itself is DEVICE-LOCAL (CatalogSnapshot strips it on merge), so
+    /// this never triggers downloads on other machines.
+    @MainActor
+    func setPinned(_ file: ObjectRecord, _ pinned: Bool) {
+        Task {
+            let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+            var ids = [file.id]
+            var stack = [file.id]
+            while let id = stack.popLast() {
+                for child in all where child.parentID == id {
+                    ids.append(child.id)
+                    stack.append(child.id)
+                }
+            }
+            for id in ids {
+                // updateObject bumps modifiedAt → the LWW snapshot merge keeps
+                // the new flag instead of reverting to the channel's copy.
+                try? await DatabaseManager.shared.updateObject(id) { $0.isPinned = pinned }
+            }
+            await self.loadFiles()
+            if pinned {
+                // Materialize: download every pinned file that has no complete
+                // scratch copy yet. Sequential so a mass pin can't storm TDLib's
+                // parallel-download limits (~2 big files — honored here by order).
+                let objectsByID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+                for id in ids {
+                    guard let record = objectsByID[id], !record.isFolder else { continue }
+                    if DownloadEngine.isCached(record) { continue }
+                    do {
+                        _ = try await DownloadEngine.download(object: record) { _, _ in }
+                    } catch {
+                        print("Cascade pin download failed \(record.name): \(error.localizedDescription)")
+                    }
+                }
+            }
+            registerUndo(pinned ? "Keep Downloaded \(ids.count) Item\(ids.count == 1 ? "" : "s")" : "Remove Download") {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.isPinned = !pinned }
+                }
+                await self.loadFiles()
+            } redo: {
+                for id in ids {
+                    try? await DatabaseManager.shared.updateObject(id) { $0.isPinned = pinned }
+                }
+                await self.loadFiles()
+            }
+        }
+    }
+
     @MainActor
     func rename(_ file: ObjectRecord, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)

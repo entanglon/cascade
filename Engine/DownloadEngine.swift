@@ -50,7 +50,10 @@ enum DownloadEngine {
 
     /// Launch janitor for the single-cache architecture: wipes last session's
     /// scratch files and the LEGACY playback cache (pre-item-159) so its bytes
-    /// are reclaimed without user action.
+    /// are reclaimed without user action. Offline-pinned objects' files are
+    /// SPARED — "Keep Downloaded" must survive relaunch. If the database is not
+    /// readable yet the wipe is skipped entirely: silently deleting pinned data
+    /// to save a few MB would break the guarantee the user explicitly asked for.
     static func cleanScratchAndLegacyCache() {
         let fm = FileManager.default
         if let legacy = try? fm.url(
@@ -67,9 +70,21 @@ enum DownloadEngine {
                 logger.error("Janitor: legacy cache removal failed: \(error.localizedDescription)")
             }
         }
-        if let scratch = try? scratchDirectory() {
-            if let entries = try? fm.contentsOfDirectory(at: scratch, includingPropertiesForKeys: nil) {
-                for url in entries { try? fm.removeItem(at: url) }
+        // Legacy cache holds no pins by definition (pre-pin architecture) — wipe.
+        guard let scratch = try? scratchDirectory() else { return }
+        let pinned = DatabaseManager.shared.pinnedObjectIDs()
+        if pinned.isEmpty && DatabaseManager.shared.hasStarted() == false {
+            logger.info("Janitor: DB not started — skipping scratch wipe to protect pins")
+            return
+        }
+        if let entries = try? fm.contentsOfDirectory(at: scratch, includingPropertiesForKeys: nil) {
+            var removed = 0
+            for url in entries where !isPinnedFile(url, pinned: pinned) {
+                try? fm.removeItem(at: url)
+                removed += 1
+            }
+            if removed > 0 {
+                logger.info("Janitor: wiped \(removed) scratch file(s), kept \(pinned.count) pin(s)")
             }
         }
     }
@@ -83,6 +98,14 @@ enum DownloadEngine {
         let ext = (object.name as NSString).pathExtension
         let fileName = ext.isEmpty ? object.id : "\(object.id).\(ext)"
         return base.appendingPathComponent(fileName)
+    }
+
+    /// True when `url` is the materialized copy of one of `pinned` object IDs —
+    /// scratch names objects `<objectID>.<ext>` (or bare `<objectID>` with no
+    /// extension), so the stem is the ID. Unit-testable pure helper.
+    static func isPinnedFile(_ url: URL, pinned: Set<String>) -> Bool {
+        guard !pinned.isEmpty else { return false }
+        return pinned.contains(url.deletingPathExtension().lastPathComponent)
     }
 
     /// True only when a COMPLETE cached copy exists — non-empty AND exactly the
@@ -415,6 +438,10 @@ enum DownloadEngine {
     /// floor are both satisfied. Runs at launch, on a periodic timer, and around
     /// downloads. Files modified within the last 15 minutes are skipped — they
     /// are almost certainly in-flight downloads being written to the cache dir.
+    /// Offline-pinned files ("Keep Downloaded") are exempt BOTH from eviction and
+    /// from the size accounting: the budgets govern evictable data only, so pins
+    /// never pressure unpinned files out of the cache (iCloud-style semantics —
+    /// if pinned data fills the disk, that is what the user asked for).
     static func enforceCacheBudget() {
         guard let dir = try? cacheDirectory() else { return }
         let fm = FileManager.default
@@ -424,10 +451,14 @@ enum DownloadEngine {
             options: .skipsHiddenFiles
         ) else { return }
 
+        let pinned = DatabaseManager.shared.pinnedObjectIDs()
+
         var totalSize: Int64 = 0
         var items: [(url: URL, size: Int64, date: Date)] = []
 
         for file in files {
+            // Pinned copies are permanent by definition.
+            if isPinnedFile(file, pinned: pinned) { continue }
             let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentAccessDateKey, .attributeModificationDateKey])
             let size = Int64(values?.fileSize ?? 0)
             let date = values?.contentAccessDate ?? values?.attributeModificationDate ?? .distantPast

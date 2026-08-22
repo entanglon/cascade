@@ -105,12 +105,16 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// deleted objects from being resurrected on delta replay or multi-device sync.
     var tombstoneAt: Date? = nil
     /// Sidecar subtitle files attached to this video, JSON-encoded as a
-    /// `[SubtitleSidecar]` array (GRDB TEXT column — keeps the record mapping
-    /// flat and old rows decode to nil). Each entry links one uploaded
-    /// `.srt/.ass/.vtt` document by its vault-channel message ID; at playback
-    /// the sidecars are materialized to scratch and handed to mpv (`sub-add`).
+    /// `[SubtitleSidecar]` array (GRDB TEXT column) so old rows decode to nil.
     /// Synced through the catalog snapshot like every other ObjectRecord field.
     var subtitleSidecars: String? = nil
+    /// Offline pin ("Keep Downloaded"): the object keeps a complete decrypted
+    /// copy in scratch that is exempt from cache eviction AND the launch wipe,
+    /// so it opens with no network. DEVICE-LOCAL by design — CatalogSnapshot
+    /// strips it from remote records on merge/restore (a pin on one Mac must
+    /// not silently download gigabytes on another). Folders pin recursively
+    /// (the flag lives on every descendant object row).
+    var isPinned: Bool = false
 
     // Custom decoding so records missing newer fields (old catalog snapshots in the
     // channel, or rows read before a migration) still decode — every optional-ish
@@ -119,6 +123,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         case id, vaultID, name, size, mime, state, rootHash, wrappedKey, createdAt, modifiedAt
         case isFavorite, trashed, parentID, isFolder, isPrivate, sourcePath, chunkSize, isArchived, isInLibrary, coverObjectID, thumbMessageID, tombstoneAt
         case subtitleSidecars
+        case isPinned
     }
 
     init(from decoder: Decoder) throws {
@@ -146,6 +151,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         thumbMessageID = try c.decodeIfPresent(Int64.self, forKey: .thumbMessageID)
         tombstoneAt = try c.decodeIfPresent(Date.self, forKey: .tombstoneAt)
         subtitleSidecars = try c.decodeIfPresent(String.self, forKey: .subtitleSidecars)
+        isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
 
     // Explicit memberwise init (matching the old synthesized one, in property
@@ -173,7 +179,8 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         coverObjectID: String? = nil,
         thumbMessageID: Int64? = nil,
         tombstoneAt: Date? = nil,
-        subtitleSidecars: String? = nil
+        subtitleSidecars: String? = nil,
+        isPinned: Bool = false
     ) {
         self.id = id
         self.vaultID = vaultID
@@ -198,6 +205,7 @@ struct ObjectRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.thumbMessageID = thumbMessageID
         self.tombstoneAt = tombstoneAt
         self.subtitleSidecars = subtitleSidecars
+        self.isPinned = isPinned
     }
 }
 
