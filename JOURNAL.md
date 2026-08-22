@@ -254,6 +254,27 @@ still opens with network off; unpin frees it on next launch.
 
 ---
 
+## 2026-08-22 — SESSION CLOSE
+
+One-session arc: **Feature Wave 2 executed start-to-finish** (9 of 10 items
+shipped; item 10 smart-search deferred by decision — see ROADMAP). Feature
+commits, in order:
+`34db68b` subtitles · `e1f359e` offline pins · `3fd4c9b` Finder drop-zone sync
+· `938c8cb` Touch ID unlock · `548816c` PiP + output picker (`4d97421`
+seamless-expand attempt REVERTED in `3fa714c` after an mpv-thread callback
+race — postmortem in item 173) · `cd3cd5e` storage dashboard · `839e62f`
+duplicate finder · `6e0be76` version history + bulk export · `2c1412b`
+Shared-page upgrades.
+
+Also new: **TESTING.md** — per-feature manual-QA tracker (checklists for all
+9 items). Final tally: **100 unit tests green**. DB migrations this session:
+v30 subtitles, v31 pins, v32 mirror_state, v33 share_activity.
+
+Next arcs (user-selected order): iOS companion first, then
+distribution/licensing. User still owes manual QA on items 1–9 via TESTING.md.
+
+---
+
 ## 2026-08-22 (evening) — Wave 2 item 1: sidecar subtitles
 
 User: "start Wave 2" → first queue item from ROADMAP's Feature Wave 2
