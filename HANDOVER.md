@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–176 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–8 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard, duplicate finder, version history + bulk export). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-22: Session covered items 142–177 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–9 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard, duplicate finder, version history + bulk export, Shared-page upgrades). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2651,8 +2651,9 @@ items 1–7 done — subtitles (`34db68b`), pins (`e1f359e`), Finder drop-zone
 sync (`3fd4c9b`), Touch ID unlock (`938c8cb`), PiP + output picker
 (`548816c`; seamless-expand experiment REVERTED — see item 173), storage
 dashboard (`cd3cd5e`), duplicate finder (`839e62f`), versions + bulk export
-(`6e0be76`); next = Shared-page upgrades (9). **TESTING.md** tracks manual QA
-per feature. Tests: 98 unit green.
+(`6e0be76`), Shared-page upgrades (`2c1412b`); next = Smart search (10, LAST
+and heaviest). **TESTING.md** tracks manual QA per feature. Tests: 100 unit
+green.
 
 Open levers (not scheduled):
 - Multi-TDLib-instance parallelism for cross-chunk fetches if cold high-bitrate
@@ -3818,6 +3819,21 @@ Open levers (not scheduled):
       banner feedback.
     - Build green; **TEST SUCCEEDED** (98 unit tests, +1). Manual QA:
       TESTING.md item 8 checklist.
+177. **Wave 2 item 9 — Shared-page upgrades (2026-08-22 late night — COMMITTED `2c1412b`)**
+     (`Storage/Models.swift` v33 `ShareActivityRecord`,
+     `Storage/DatabaseManager.swift`, `Engine/ShareEngine.swift`,
+     `Features/ShareManagerView.swift`, `CascadeTests/CascadeTests.swift`)
+    - share_activity log: created/join/revoked/expired/password_added. Join
+      hook extends handleShareChannelMemberJoined beyond its private-only
+      cancel-on-use role: private joins attribute (shareID + Telegram user);
+      public joins are channel-level (shareID="", every public link shares one
+      channel). Cards show an imports badge; menu "Activity…" opens a timeline
+      sheet.
+    - Re-share control: Add Password on unprotected private single-file links
+      via pure remintLinkWithPassword (re-wrap under derived key, new salt,
+      same channel/messages/expiry; old link dead). Protected/group excluded.
+    - Build green; **TEST SUCCEEDED** (100 unit tests, +2). Manual QA:
+      TESTING.md item 9 checklist.
 
 
 

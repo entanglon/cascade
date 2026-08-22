@@ -416,7 +416,11 @@ speed + support + legal layer, not binary secrecy.
    in Trash (bytes intact) for recovery; "Version History…" sheet per file.
    Bulk export via context menu (multi-select + folder trees) into a chosen
    folder through ExportEngine with banner feedback.
-9. **Shared-page upgrades** — importer visibility, re-share controls, activity.
+9. **Shared-page upgrades** — ✅ *implemented 2026-08-22 (`2c1412b`)*:
+   share_activity log (created/joins/revoked/expired/password events; private
+   joins attribute the importer's Telegram user, public joins stay
+   channel-level), import badges + Activity timeline sheet per card, and
+   "Add Password…" rotation for unprotected private links.
 10. **Smart search** — Vision OCR index for images; Whisper-local transcripts
     for audio/video; semantic query box. LAST (heaviest).
 

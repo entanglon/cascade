@@ -2,11 +2,36 @@
 
 >> Chronological log of the work on the Cascade macOS app. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (late night) — Wave 2 items 1–8 done (…+ duplicate finder, version history + bulk export).
+> 2026-08-22 (late night) — Wave 2 items 1–9 done (…+ duplicate finder, versions/export, Shared-page upgrades).
 
 ---
 
-## 2026-08-22 (late night, later) — Wave 2 item 8: Version history + bulk export
+## 2026-08-22 (late night, latest) — Wave 2 item 9: Shared-page upgrades
+
+User: "yes please, continue" → item 9 (importer visibility / re-share
+controls / activity).
+
+### Design (`2c1412b`)
+- **Activity log** (DB v33 `share_activity`): kinds created / join / revoked /
+  expired / password_added. Joins hook the EXISTING updateChatMember signal:
+  private pool joins attribute to the active share on that slot (+ Telegram
+  userID); PUBLIC joins record channel-level entries with shareID="" because
+  every public link shares one channel (per-link attribution impossible —
+  documented). cancelShare/revokeExpired/creation success all log too.
+- **Importer visibility**: private cards show an "N imports" badge;
+  per-share "Activity…" menu opens a timeline sheet (icon/kind/date/importer
+  ID; public rows say "Someone joined…").
+- **Re-share control**: "Add Password…" on unprotected PRIVATE single-file
+  links only. `remintLinkWithPassword` (pure, unit-tested): unwrap object key
+  under current link key → new salt → deriveLinkKey(pw) re-wrap → new
+  obfuscated blob; old link invalidated immediately (key no longer unwraps).
+  Wrapper persists record+blob and logs the event. Protected/group links are
+  excluded (old key unrecoverable / manifest re-wrap out of scope).
+
+Tests (+2 → **100 unit green**): activity round-trip incl. public-channel
+fallback; add-password rotation crypto.
+
+---
 
 User: "continue" → item 8 ("as scoped" = item 18 snapshot-on-overwrite + item
 19 one-click bulk export).

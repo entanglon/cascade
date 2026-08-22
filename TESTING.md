@@ -13,6 +13,37 @@
 
 ---
 
+## Wave 2 · Item 9 — Shared-page upgrades — `2c1412b` (2026-08-22)
+
+**Implemented:**
+1. **Importer visibility / activity log** (DB v33 `share_activity`): every
+   observed event lands per share — link created, importer joined (PRIVATE
+   links attribute the recipient's Telegram user; public links are
+   channel-level since every public link shares one channel), password added,
+   revoked, expired. Cards show an import badge ("N imports"); the card menu's
+   "Activity…" opens a timeline sheet with icons, dates and importer IDs.
+2. **Re-share control** — "Add Password…" on unprotected PRIVATE single-file
+   links: re-mints the obfuscated link under a password-derived key (same
+   channel/messages/expiry), invalidating the old link immediately; the new
+   link is auto-copied. Protected/group links are excluded by design.
+
+**Automated tests:** `shareActivityLogRoundTripAndChannelFallback` (own rows +
+unattributed public-channel rows),
+`addPasswordToShareRotatesLinkAndInvalidatesOld` (re-mint parses, new password
+recovers the object key, old key fails).
+
+### Manual QA checklist
+
+- [ ] Share a file PRIVATELY → open the link from another account/device → within ~5 min the Shared page card shows an import badge and "Activity…" lists "Importer joined" with the recipient's Telegram user ID.
+- [ ] The private link then self-cancels after the 300 s grace (existing behavior) → Activity shows "Link cancelled".
+- [ ] Share PUBLICLY → import from elsewhere → Activity shows "Someone joined the public share channel via a link" (channel-level, no user attribution).
+- [ ] Card menu "Add Password…" on an UNPROTECTED private link → set one → new link is copied automatically; opening the OLD link now fails; opening the NEW link prompts for the password.
+- [ ] Protected or group shares do NOT show "Add Password…" in their menu.
+- [ ] Every share's menu shows "Activity…"; a fresh share's sheet shows only its "created" row.
+
+---
+
+
 ## Wave 2 · Item 8 — Version history + bulk export — `6e0be76` (2026-08-22)
 
 **Implemented:**
