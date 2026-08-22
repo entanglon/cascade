@@ -64,6 +64,8 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var showClearCacheConfirm = false
+    @State private var showClearTdlibConfirm = false
+    @State private var tdlibCacheSize: Int64?
     @State private var isExporting = false
     @State private var exportProgressText = ""
     @AppStorage("xc.audioPassthrough") private var audioPassthrough = false
@@ -114,6 +116,30 @@ struct SettingsView: View {
             isPresented: $showClearCacheConfirm, titleVisibility: .visible
         ) {
             Button("Clear Cache", role: .destructive) { appState.clearLocalCache() }
+        }
+        .confirmationDialog(
+            "Delete Telegram's download store (\(tdlibSizeLabel))? Anything you open later re-downloads from your channel.",
+            isPresented: $showClearTdlibConfirm, titleVisibility: .visible
+        ) {
+            Button("Delete Telegram Cache", role: .destructive) {
+                appState.clearTdlibFileCache()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { refreshTdlibSize() }
+            }
+        }
+        .task { refreshTdlibSize() }
+        .onReceive(NotificationCenter.default.publisher(for: .tdlibCacheChanged)) { _ in
+            refreshTdlibSize()
+        }
+    }
+
+    private var tdlibSizeLabel: String {
+        tdlibCacheSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "…"
+    }
+
+    private func refreshTdlibSize() {
+        Task.detached(priority: .utility) {
+            let size = await TelegramClient.shared.tdlibFilesSize()
+            await MainActor.run { tdlibCacheSize = size }
         }
     }
 
@@ -445,6 +471,25 @@ struct SettingsView: View {
                         Text("Clear Local Cache")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.red.opacity(0.85))
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                settingsDivider
+                Button(role: .destructive) {
+                    showClearTdlibConfirm = true
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Delete Telegram Download Store")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.red.opacity(0.85))
+                            Text("TDLib keeps every downloaded file here — currently \(tdlibSizeLabel). Your channel is unaffected; files re-download on demand.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer()
                     }
                     .padding(.vertical, 10)

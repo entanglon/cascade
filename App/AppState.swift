@@ -47,6 +47,8 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
 extension Notification.Name {
     /// Posted when a user-facing toast/banner notification should be shown.
     static let cascadeAppNotification = Notification.Name("cascadeAppNotification")
+    /// Posted after TDLib's downloaded-file store was purged so Settings can refresh the size label.
+    static let tdlibCacheChanged = Notification.Name("tdlibCacheChanged")
 }
 
 @Observable
@@ -2378,6 +2380,28 @@ final class AppState {
     }
 
     @MainActor
+    /// Clears TDLib's persistent downloaded-file store (~/Library/Caches/
+    /// .../tdlib-files). Safe: the vault channel is the source of truth and
+    /// anything requested later is simply re-downloaded. Surfaces bytes freed.
+    func clearTdlibFileCache() {
+        Task {
+            do {
+                let freed = try await TelegramClient.shared.purgeDownloadedFiles()
+                let gb = Double(freed) / 1_073_741_824
+                let label = gb >= 0.1 ? String(format: "%.1f GB", gb)
+                    : String(format: "%.0f MB", Double(freed) / 1_048_576)
+                notify(
+                    title: "Telegram cache cleared",
+                    message: "Freed \(label). Files stay in your channel — they'll re-download on demand.",
+                    kind: .success
+                )
+            } catch {
+                notify(title: "Couldn't clear Telegram cache", message: error.localizedDescription, kind: .error)
+            }
+            NotificationCenter.default.post(name: .tdlibCacheChanged, object: nil)
+        }
+    }
+
     func deleteForever(_ file: ObjectRecord) {
         deleteForever([file])
     }

@@ -856,6 +856,48 @@ final class TelegramClient {
         return file.id
     }
 
+    // MARK: - TDLib file-cache maintenance
+
+    /// Size of TDLib's persistent downloaded-file store on disk
+    /// (~/Library/Caches/<dataFolder>/tdlib-files). Grows unbounded by default:
+    /// TDLib keeps every fully-downloaded document until explicitly optimized.
+    func tdlibFilesSize() -> Int64 {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: filesPath())
+        guard let en = fm.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let url as URL in en {
+            guard let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  vals.isRegularFile == true else { continue }
+            total += Int64(vals.fileSize ?? 0)
+        }
+        return total
+    }
+
+    /// Deletes downloaded documents from TDLib's file cache via the official
+    /// optimizeStorage API. TDLib updates its internal file database and simply
+    /// re-downloads anything requested later, so this is always safe for data
+    /// integrity (the vault channel remains the source of truth). Returns bytes freed.
+    func purgeDownloadedFiles() async throws -> Int64 {
+        guard let client else { throw TelegramError.notInitialized }
+        let stats = try await client.optimizeStorage(
+            chatIds: nil,
+            chatLimit: nil,
+            count: -1,
+            excludeChatIds: nil,
+            // Only documents: our chunks/sidecars/thumbnails are all documents.
+            // Leaves profile photos and other account files untouched.
+            fileTypes: [.fileTypeDocument],
+            immunityDelay: 0,
+            returnDeletedFileStatistics: true,
+            size: 0,
+            ttl: -1
+        )
+        return stats.size
+    }
+
     func fileId(forMessage messageId: Int64, chatId: Int64) async throws -> Int32 {
         let message = try await getOrFetchMessage(chatId: chatId, messageId: messageId)
         guard let file = primaryFile(from: message.content) else {
