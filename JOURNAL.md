@@ -39,6 +39,36 @@ window/served/reissue" for behavior.
 Build green; **TEST SUCCEEDED** (83 unit tests). Commit `1366284`. User to
 verify with heavy files (TrueHD+HEVC): seek around, long playback, no buffering.
 
+## 2026-08-22 (night) — Seek UX round 2 + buffering-honesty (item 164)
+
+User: seek label still flickered (target → initial → target) and asked whether
+buffering can be eliminated entirely "like YouTube".
+
+Root causes found:
+1. FLICKER: TheaterView's scrubber has its OWN seek hold
+   (holdProgressUntilSeekLands) that gave up after 1.5 s, falling back to the
+   stale engine time while mpv was still fetching — fighting MPVController's
+   12 s hold from item 162.
+2. SEEK LATENCY REGRESSION from item 161's batch bump: the serve path used
+   readAheadBatchSlices (now 32) for sequential serves — but a synchronous
+   fetch must fully complete before mpv sees its FIRST slice, so every
+   start/seek waited on up to 32 MB.
+
+Fixes (`08f145a`):
+1. New serveBatchSlices = 8: serve path batches stay small for fast first byte;
+   read-ahead runs keep 32-slice batches for throughput.
+2. Theater hold extended 1.5 s → 12 s to mirror MPVController.
+
+On "YouTube-level": honest framing given to user — YouTube = global CDN edges +
+adaptive bitrate + multi-connection QUIC. Cascade is single-file VOD over
+MTProto/TDLib with no parallel ranged calls per fileId (td#1498). Current
+architecture already achieves steady-state smoothness; residual waits are only
+cold start + seek fetch, now with visible feedback and small-batch fast first
+byte. Remaining future lever if needed: multiple TDLib instances for true
+cross-chunk parallelism (ROADMAP).
+
+Verification: build green; **TEST SUCCEEDED** (83 unit tests). Commit `08f145a`.
+
 ## 2026-08-22 (night) — Player load/seek UX polish (item 163)
 
 User follow-ups after scrubber fix: (1) time label didn't follow the scrubber

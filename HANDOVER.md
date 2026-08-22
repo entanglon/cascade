@@ -3592,6 +3592,17 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       pendingSeek — covers cold start and seek fetch waits that paused-for-
       cache misses; seek overlay exclusion removed in VideoPlaybackView.
     - Build green; **TEST SUCCEEDED** (83 unit tests).
+164. **Seek UX round 2 (2026-08-22 night — COMMITTED `08f145a`)**
+     (`Engine/VideoStreamingEngine.swift`, `Features/TheaterView.swift`)
+    - Label flicker root cause #2: TheaterView's own scrubber hold gave up at
+      1.5 s vs controller's 12 s — extended to match.
+    - Seek-latency regression from item 161 fixed: serve-path batches split
+      from run batches (serveBatchSlices=8 fast first byte; runs keep 32).
+    - YouTube-comparison answered honestly: CDN/ABR/multi-conn vs MTProto VOD;
+      steady state already smooth; ROADMAP lever = multi-TDLib-instance
+      parallelism.
+    - Build green; **TEST SUCCEEDED** (83 unit tests).
+
 
 
     - VERIFIED: brief ~1 s startup buffer then fully smooth playback (normal
