@@ -15,16 +15,23 @@ import SwiftUI
 ///      the MPVViewController — this window RETAINS that controller-view so
 ///      play/pause/seek/tracks keep working after the theater unmounts.
 ///
-/// Hover over the panel for controls: play/pause · title · expand back.
-/// Expand (or re-opening the same file in Cascade) tears the floating core
-/// down cleanly and reopens the theater resuming at the exact position.
-/// Closing the panel stops playback entirely. Mutual exclusion with the
+/// EXPAND (green traffic light, hover expand, or re-opening the file in
+/// Cascade) is SEAMLESS: the panel closes, the theater remounts, and
+/// `MPVViewController.viewDidLoad` ADOPTS the live layer — same core, same
+/// GL surface, zero restart. Closing the red traffic light stops playback.
+/// The middle (minimize) button is greyed out. Mutual exclusion with the
 /// fullscreen player: both own the same render surface.
 @MainActor
 final class PictureInPictureWindow {
     static let shared = PictureInPictureWindow()
 
+    private enum Mode {
+        case floating   // panel up; this window owns layer + core + controller-view
+        case expanding  // panel closed; theater remounting — viewDidLoad will adopt
+    }
+
     private var panel: NSPanel?
+    private var mode: Mode = .floating
     private var hostView: NSView?
     private(set) var playerView: MPVLayerView?
     /// Retained on purpose — see contract above (weak on MPVController side).
@@ -34,7 +41,7 @@ final class PictureInPictureWindow {
     private weak var appState: AppState?
     private var willCloseObserver: NSObjectProtocol?
 
-    var isActive: Bool { panel != nil }
+    var isActive: Bool { panel != nil || mode == .expanding }
 
     func isShowing(_ fileID: String) -> Bool { isActive && file?.id == fileID }
 
@@ -71,13 +78,15 @@ final class PictureInPictureWindow {
         controller = mpv
         self.file = file
         self.appState = appState
+        mode = .floating
 
         let size = NSSize(width: 480, height: 270)
         let content = PiPContentView(frame: NSRect(origin: .zero, size: size), player: player)
+        content.onZoom = { [weak self] in self?.expandToTheater() }
 
         let pip = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -91,6 +100,18 @@ final class PictureInPictureWindow {
         pip.hidesOnDeactivate = false
         pip.backgroundColor = .black
         pip.contentView = content
+        // Keep the floating picture 16:9 no matter how the user stretches it.
+        pip.contentAspectRatio = NSSize(width: 16, height: 9)
+
+        // Traffic lights (user request): RED close = exit PiP (stop), YELLOW
+        // minimize = greyed out (nothing to miniaturize into), GREEN zoom =
+        // seamless expand back into the Cascade theater.
+        pip.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+        if let zoom = pip.standardWindowButton(.zoomButton) {
+            zoom.target = content
+            zoom.action = #selector(PiPContentView.handleZoom)
+        }
+
         // The close traffic light must route through the same exit logic as
         // everything else (restore if possible, otherwise stop).
         willCloseObserver = NotificationCenter.default.addObserver(
@@ -112,6 +133,7 @@ final class PictureInPictureWindow {
     /// Leaves PiP: restores the video into its theater host when one still
     /// exists; otherwise stops playback and destroys the orphaned core.
     func dismiss() {
+        guard mode == .floating else { return }
         guard panel != nil else { return }
         guard let player = playerView else { clearAll(); return }
 
@@ -132,27 +154,29 @@ final class PictureInPictureWindow {
         }
     }
 
-    /// Called by AudioPlayerEngine.play() when the file being opened is the one
-    /// currently floating here: tears the panel down (full stop) and returns
-    /// the position to resume at, so "re-opening" behaves as EXPAND. Returns
-    /// nil when this window isn't showing that file.
-    func takeOverForReopen(fileID: String) -> Double? {
-        guard isActive, file?.id == fileID else { return nil }
-        let pos = controller?.timePos ?? 0
-        performFullStop()
-        return pos
-    }
-
-    /// Hover/expand action: leave PiP back INTO a reopened theater — stops the
-    /// floating core and arms its position so the fresh stream resumes exactly
-    /// where the panel left off.
+    /// SEAMLESS expand: close the panel, reopen the theater, and hand the live
+    /// layer over to the fresh view controller — the mpv core NEVER stops, so
+    /// playback continues without a single buffered frame lost.
     func expandToTheater() {
         guard isActive, let file else { dismiss(); return }
-        let pos = controller?.timePos ?? 0
+        guard mode == .floating else { return }
         let state = appState
-        performFullStop()
-        AudioPlayerEngine.shared.resumeVideoAt(pos)
+        guard state != nil else { performFullStop(); return }
+        mode = .expanding
+        teardownPanelOnly()
         state?.theaterFile = file
+    }
+
+    /// Called by MPVViewController.viewDidLoad when the expanding theater's
+    /// fresh view boots: hands the LIVE layer over (core still running) and
+    /// ends PiP ownership. Returns nil unless an expand handoff is in flight.
+    func takePendingLayer(for newVC: MPVViewController) -> MPVLayerView? {
+        guard mode == .expanding, let live = playerView else { return nil }
+        // Command routing moves to the fresh controller-view (the engine's
+        // controller.playerView already points at it).
+        viewController = newVC
+        finishHandoff()
+        return live
     }
 
     // MARK: - Internals
@@ -167,6 +191,17 @@ final class PictureInPictureWindow {
         print("Cascade PiP: stopped playback (no theater to return to)")
     }
 
+    private func finishHandoff() {
+        mode = .floating
+        playerView = nil     // ownership → the theater's VC hierarchy
+        controller = nil
+        file = nil
+        appState = nil
+        // NOTE: viewController intentionally kept until clearAll/finish — the
+        // fresh VC replaced it above; dropping our strong ref lets it dealloc.
+        viewController = nil
+    }
+
     private func teardownPanelOnly() {
         if let willCloseObserver {
             NotificationCenter.default.removeObserver(willCloseObserver)
@@ -179,6 +214,7 @@ final class PictureInPictureWindow {
 
     private func clearAll() {
         teardownPanelOnly()
+        mode = .floating
         playerView = nil
         viewController = nil
         controller = nil
@@ -188,14 +224,14 @@ final class PictureInPictureWindow {
 }
 
 /// Panel content: the live render view plus a control strip revealed on hover.
-private final class PiPContentView: NSView {
+final class PiPContentView: NSView {
+    var onZoom: (() -> Void)?
+
     private let controlsHost: NSHostingView<PiPControlsOverlay>
 
     init(frame: NSRect, player: NSView) {
         controlsHost = NSHostingView(rootView: PiPControlsOverlay(
-            title: "",
-            onTogglePlay: { AudioPlayerEngine.shared.togglePlayPause() },
-            onExpand: { PictureInPictureWindow.shared.expandToTheater() }
+            onTogglePlay: { AudioPlayerEngine.shared.togglePlayPause() }
         ))
         super.init(frame: frame)
         wantsLayer = true
@@ -226,13 +262,15 @@ private final class PiPContentView: NSView {
 
     override func mouseEntered(with event: NSEvent) { controlsHost.isHidden = false }
     override func mouseExited(with event: NSEvent) { controlsHost.isHidden = true }
+
+    /// Target of the GREEN traffic-light button — seamless expand.
+    @objc func handleZoom() { onZoom?() }
 }
 
-/// Bottom strip shown on hover: transport + expand back into Cascade.
+/// Bottom strip shown on hover: transport + title. Expand lives on the green
+/// traffic light (user request); close lives on the red one.
 private struct PiPControlsOverlay: View {
-    var title: String
     var onTogglePlay: () -> Void
-    var onExpand: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -246,23 +284,13 @@ private struct PiPControlsOverlay: View {
             .buttonStyle(.plain)
             .help(AudioPlayerEngine.shared.isPlaying ? "Pause" : "Play")
 
-            Text(title)
+            Text("Playing in Picture-in-Picture")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
                 .shadow(radius: 2)
 
             Spacer(minLength: 0)
-
-            Button(action: onExpand) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Back to Cascade")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

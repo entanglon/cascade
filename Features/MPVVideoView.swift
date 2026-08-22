@@ -604,8 +604,32 @@ class MPVViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.playerView.setupContext()
+        // Wave 2 item 5: seamless PiP expand — adopt the floating LIVE layer
+        // instead of booting a fresh empty core. The placeholder layer loadView
+        // just created has no context/core yet; discard it WITHOUT cleanup.
+        if let live = PictureInPictureWindow.shared.takePendingLayer(for: self) {
+            self.playerView.removeFromSuperview()
+            self.playerView = live
+            self.view.addSubview(live)
+            live.frame = self.view.bounds
+            live.autoresizingMask = [.width, .height]
+            wireLayerCallbacks()
+            return // adopted layer already has its GL context AND running core
+        }
 
+        self.playerView.setupContext()
+        wireLayerCallbacks()
+
+        // Kick off core initialization LAST — it runs on the background queue, so
+        // this call returns immediately and the theater's open animation is never
+        // blocked; onCoreReady (above) fires once init completes.
+        self.playerView.setupMpv()
+    }
+
+    /// Wires the CURRENT playerView's event callbacks to this controller-view.
+    /// Extracted so the PiP-adoption path re-points the live layer's closures
+    /// at the fresh VC (they captured the old one weakly).
+    private func wireLayerCallbacks() {
         self.playerView.onPropertyChange = { [weak self] name, value in
             self?.delegate?.handlePropertyChange(name: name, value: value)
         }
@@ -644,11 +668,6 @@ class MPVViewController: NSViewController {
                 self.playerView.loadFile(handoff.url, startAt: handoff.position)
             }
         }
-
-        // Kick off core initialization LAST — it runs on the background queue, so
-        // this call returns immediately and the theater's open animation is never
-        // blocked; onCoreReady (above) fires once init completes.
-        self.playerView.setupMpv()
     }
 
     func play(_ url: URL) { playerView.loadFile(url) }

@@ -469,17 +469,14 @@ final class AudioPlayerEngine {
             if isLoading { return }
             if let mpv = mpvController {
                 if !mpv.isHeadless {
-                    // Re-opening the video that is floating in PiP = EXPAND:
-                    // tear the panel down and restart the stream at the floating
-                    // position (a fresh render view must not bind to this core).
-                    if let pipPos = PictureInPictureWindow.shared.takeOverForReopen(fileID: file.id) {
-                        resumePos = max(resumePos, pipPos)
-                        // fall through to the full start path with resumePos armed
-                    } else {
-                        mpv.play()
-                        isPlaying = true
-                        return
-                    }
+                    // Already playing this exact track. NOTE: re-opening a video
+                    // that's floating in PiP never lands here as a restart —
+                    // FileBrowserView expands it first, and after the seamless
+                    // handoff this unpause simply resumes the SAME core through
+                    // the freshly adopted render view.
+                    mpv.play()
+                    isPlaying = true
+                    return
                 } else {
                     // Transitioning from headless background audio to full video player
                     resumePos = max(currentTime, mpv.timePos)
