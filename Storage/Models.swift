@@ -452,3 +452,26 @@ struct ObjectVersionRecord: Codable, FetchableRecord, PersistableRecord, Identif
 extension ObjectVersionRecord {
     static let databaseTableName = "object_versions"
 }
+
+// MARK: - Finder mirror (Wave 2 item 3)
+
+/// One row per file paired between the Finder mirror folder and its cloud
+/// counterpart (two-way sync folder, flat v1). Holds the SYNCED BASELINE —
+/// sizes and modification dates of both sides at reconciliation time — so the
+/// next pass can tell who changed since ("hash-based change detection": size +
+/// mtime + remote modifiedAt; rootHash rides along when known). Local-only
+/// state; never synced to Telegram.
+struct MirrorStateRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    /// == objectID (the cloud object this local file mirrors).
+    var id: String
+    var name: String
+    var size: Int64
+    var remoteModifiedAt: Date
+    var localModifiedAt: Date
+    var rootHash: String?
+    var lastSyncedAt: Date
+}
+
+extension MirrorStateRecord {
+    static let databaseTableName = "mirror_state"
+}

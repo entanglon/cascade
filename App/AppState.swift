@@ -957,6 +957,9 @@ final class AppState {
         // scene / Telegram were ready) are drained now that everything is up.
         drainPendingShareLinks()
         startTransferCleanupLoop()
+        // Finder mirror (Wave 2 item 3): FSEvents watcher + 30 s cloud poller,
+        // only when the user configured and enabled the sync folder.
+        MirrorSyncEngine.shared.start(appState: self)
         await self.loadFiles()
 
         // Re-surface a share file that was staged (pending import) in an

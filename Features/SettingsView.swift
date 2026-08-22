@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import AppKit
 
 // MARK: - Vault storage breakdown (Apple-style "About This Mac" categories)
@@ -93,6 +94,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 26) {
                         accountSection
                         syncSection
+                        mirrorSection
                         playbackSection
                         statsSection
                         storageSection
@@ -255,6 +257,122 @@ struct SettingsView: View {
             return "\(h)h ago"
         }
         return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    // MARK: - Finder Sync Folder (Wave 2 item 3)
+
+    @AppStorage(MirrorSyncEngine.enabledKey) private var mirrorEnabled = false
+    @AppStorage(MirrorSyncEngine.localPathKey) private var mirrorLocalPath = ""
+    @AppStorage(MirrorSyncEngine.folderIDKey) private var mirrorFolderID = ""
+    @State private var isMirrorPickingFolder = false
+    @ObservedObject private var mirrorEngine = MirrorSyncEngine.shared
+
+    /// Non-private, non-trashed folders the mirror can target (root included).
+    private var mirrorFolderChoices: [(id: String?, name: String)] {
+        var choices: [(String?, String)] = [(nil, "Vault Root")]
+        let folders = appState.files.filter { $0.isFolder && !$0.trashed && !$0.isPrivate }
+        for folder in folders.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+            choices.append((folder.id, folder.name))
+        }
+        return choices
+    }
+
+    private var mirrorSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Finder Sync")
+            settingsCard {
+                settingsRow(
+                    title: "Mirror a Finder Folder",
+                    subtitle: "Keep one Mac folder two-way synced with your vault. New files upload; cloud files appear locally. Deletions are NOT propagated."
+                ) {
+                    Toggle("", isOn: $mirrorEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(XTheme.accent)
+                        .onChange(of: mirrorEnabled) { _, enabled in
+                            applyMirrorConfig(needsFolderPick: enabled && mirrorLocalPath.isEmpty)
+                        }
+                }
+                settingsDivider
+                settingsRow(title: "Mac Folder", subtitle: mirrorDisplayPath) {
+                    Button("Choose…") { pickMirrorFolder() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(XTheme.accent))
+                }
+                settingsDivider
+                settingsRow(title: "Cloud Destination", subtitle: "Files in the mirrored folder pair with this vault folder.") {
+                    Menu {
+                        ForEach(mirrorFolderChoices, id: \.name) { choice in
+                            Button(choice.name) {
+                                mirrorFolderID = choice.id ?? ""
+                                applyMirrorConfig()
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(currentMirrorDestinationName)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                    }
+                }
+                if mirrorEnabled {
+                    settingsDivider
+                    settingsRow(
+                        title: "Status",
+                        subtitle: mirrorEngine.lastError ?? ("Last event: \(mirrorEngine.statusText)")
+                    ) {
+                        if mirrorEngine.isWatching {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                        } else {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $isMirrorPickingFolder,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                mirrorLocalPath = url.path(percentEncoded: false)
+                applyMirrorConfig()
+            }
+        }
+    }
+
+    private var mirrorDisplayPath: String {
+        guard !mirrorLocalPath.isEmpty else { return "No folder chosen yet." }
+        return mirrorLocalPath
+    }
+
+    private var currentMirrorDestinationName: String {
+        if mirrorFolderID.isEmpty { return "Vault Root" }
+        return appState.files.first { $0.id == mirrorFolderID }?.name ?? "Vault folder"
+    }
+
+    private func pickMirrorFolder() {
+        isMirrorPickingFolder = true
+    }
+
+    private func applyMirrorConfig(needsFolderPick: Bool = false) {
+        if needsFolderPick {
+            isMirrorPickingFolder = true
+        }
+        MirrorSyncEngine.shared.start(appState: appState)
     }
 
     // MARK: - Playback

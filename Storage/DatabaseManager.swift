@@ -483,6 +483,21 @@ actor DatabaseManager {
                 t.add(column: "isPinned", .boolean).notNull().defaults(to: false)
             }
         }
+
+        migrator.registerMigration("v32-mirror-state") { db in
+            // Finder mirror (two-way sync folder) paired-file baselines. No
+            // foreign keys — snapshot sync does deleteAll+reinsert on objects
+            // and must never cascade here (v13 lesson).
+            try db.create(table: "mirror_state") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("size", .integer).notNull()
+                t.column("remoteModifiedAt", .datetime).notNull()
+                t.column("localModifiedAt", .datetime).notNull()
+                t.column("rootHash", .text)
+                t.column("lastSyncedAt", .datetime).notNull()
+            }
+        }
     }
 
     private func ensureStarted() throws -> DatabasePool {
@@ -1133,6 +1148,30 @@ actor DatabaseManager {
             try String.fetchAll(db, sql: "SELECT id FROM objects WHERE isPinned = 1")
         }) ?? []
         return Set(ids)
+    }
+
+    // MARK: - Finder mirror state (Wave 2 item 3)
+
+    func mirrorStates() throws -> [MirrorStateRecord] {
+        try read { db in try MirrorStateRecord.fetchAll(db) }
+    }
+
+    func saveMirrorState(_ record: MirrorStateRecord) throws {
+        try write { db in
+            try record.save(db)
+        }
+    }
+
+    func deleteMirrorState(objectID: String) throws {
+        try write { db in
+            _ = try MirrorStateRecord.deleteOne(db, id: objectID)
+        }
+    }
+
+    func clearMirrorStates() throws {
+        try write { db in
+            _ = try MirrorStateRecord.deleteAll(db)
+        }
     }
 
     @discardableResult

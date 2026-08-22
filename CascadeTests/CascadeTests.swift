@@ -2558,8 +2558,7 @@ struct CascadeTests {
         #expect(!DownloadEngine.isPinnedFile(base.appendingPathComponent("\(id).mkv"), pinned: []))
     }
 
-    @Test func deviceLocalPinStrippedFromRemoteAdoption() {
-        // merge() normalizes REMOTE records for adoption — a pin made on another
+    @Test func deviceLocalPinStrippedFromRemoteAdoption() {        // merge() normalizes REMOTE records for adoption — a pin made on another
         // Mac must never arrive here as pinned (device-local semantics).
         var remote = ObjectRecord(
             id: "obj-\(UUID().uuidString)",
@@ -2612,6 +2611,129 @@ struct CascadeTests {
         let winner = mergedAgain.objects.first { $0.id == remote.id }
         #expect(winner?.name == "Renamed remotely.mkv", "remote content wins LWW")
         #expect(winner?.isPinned == true, "…but this device's pin survives")
+    }
+
+    // MARK: - Finder mirror sync (Wave 2 item 3)
+
+    @Test func mirrorStateTableRoundTrip() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-mirror-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let testDB = DatabaseManager()
+        try await testDB.start(customURL: tempURL)
+
+        // Empty at first.
+        #expect(try await testDB.mirrorStates().isEmpty)
+
+        let now = Date()
+        let entry = MirrorStateRecord(
+            id: "obj-mirror-1",
+            name: "Report.pdf",
+            size: 4096,
+            remoteModifiedAt: now,
+            localModifiedAt: now.addingTimeInterval(-5),
+            rootHash: "hash-1",
+            lastSyncedAt: now
+        )
+        try await testDB.saveMirrorState(entry)
+
+        var fetched = try await testDB.mirrorStates()
+        #expect(fetched.count == 1)
+        #expect(fetched[0].id == "obj-mirror-1")
+        #expect(fetched[0].name == "Report.pdf")
+        #expect(fetched[0].size == 4096)
+        // GRDB persists dates as millisecond text — compare with tolerance.
+        #expect(abs(fetched[0].remoteModifiedAt.timeIntervalSince(now)) < 0.01)
+        #expect(abs(fetched[0].localModifiedAt.timeIntervalSince(now.addingTimeInterval(-5))) < 0.01)
+
+        // Upsert replaces (save on the same PK).
+        var updated = entry
+        updated.size = 8192
+        updated.remoteModifiedAt = now.addingTimeInterval(120)
+        try await testDB.saveMirrorState(updated)
+        fetched = try await testDB.mirrorStates()
+        #expect(fetched.count == 1, "upsert must not duplicate the pairing row")
+        #expect(fetched[0].size == 8192)
+
+        try await testDB.deleteMirrorState(objectID: "obj-mirror-1")
+        #expect(try await testDB.mirrorStates().isEmpty)
+    }
+
+    @Test func mirrorDecisionMatrix() {
+        let base = Date()
+        func record(size: Int64, modifiedAt: Date) -> ObjectRecord {
+            ObjectRecord(
+                id: UUID().uuidString, vaultID: "v", name: "f.bin", size: size,
+                mime: "application/octet-stream", state: "ready",
+                createdAt: base, modifiedAt: modifiedAt
+            )
+        }
+        func side(size: Int64 = 100, mtime: Date) -> MirrorSide {
+            MirrorSide(exists: true, size: size, modifiedAt: mtime)
+        }
+
+        // Nothing anywhere.
+        #expect(MirrorSyncEngine.decide(entry: nil, remote: nil, local: nil) == .none)
+        // Local-only file → upload.
+        #expect(MirrorSyncEngine.decide(entry: nil, remote: nil, local: side(mtime: base)) == .uploadNew)
+        // Cloud-only file → materialize locally.
+        #expect(MirrorSyncEngine.decide(entry: nil, remote: record(size: 10, modifiedAt: base), local: nil) == .pullOverwrite)
+        // Same-named both sides, identical size, never paired → adopt silently.
+        #expect(MirrorSyncEngine.decide(
+            entry: nil, remote: record(size: 100, modifiedAt: base), local: side(mtime: base)) == .adoptPair)
+        // Different sizes, remote newer → LWW overwrite local.
+        #expect(MirrorSyncEngine.decide(
+            entry: nil, remote: record(size: 200, modifiedAt: base.addingTimeInterval(50)),
+            local: side(mtime: base)) == .pullOverwrite)
+        // Different sizes, local newer → keep local (no destructive push on adoption).
+        #expect(MirrorSyncEngine.decide(
+            entry: nil, remote: record(size: 200, modifiedAt: base),
+            local: side(mtime: base.addingTimeInterval(50))) == .conflictLocalKeeps)
+
+        // Paired trio — baselines recorded at t=base.
+        let entry = MirrorStateRecord(
+            id: "obj-x", name: "f.bin", size: 100,
+            remoteModifiedAt: base, localModifiedAt: base,
+            rootHash: nil, lastSyncedAt: base
+        )
+        let unchangedRemote = record(size: 100, modifiedAt: base)
+        // Nothing changed since baseline.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: unchangedRemote, local: side(mtime: base)) == .none)
+        // Local edited only → replace remote content.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: unchangedRemote, local: side(mtime: base.addingTimeInterval(30))) == .replaceRemote)
+        // Remote changed only → pull over local.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: record(size: 140, modifiedAt: base.addingTimeInterval(30)),
+            local: side(mtime: base)) == .pullOverwrite)
+        // Both changed, local newer → replace wins LWW.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: record(size: 140, modifiedAt: base.addingTimeInterval(20)),
+            local: side(size: 160, mtime: base.addingTimeInterval(40))) == .replaceRemote)
+        // Both changed, remote newer → pull wins LWW.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: record(size: 180, modifiedAt: base.addingTimeInterval(60)),
+            local: side(size: 160, mtime: base.addingTimeInterval(40))) == .pullOverwrite)
+        // Paired but local file deleted → v1 skips delete propagation.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: unchangedRemote, local: nil) == .dropEntry)
+        // Paired but remote gone → v1 keeps the local file, forgets pairing.
+        #expect(MirrorSyncEngine.decide(
+            entry: entry, remote: nil, local: side(mtime: base)) == .dropEntry)
+    }
+
+    @Test func mirrorNameFilter() {
+        #expect(MirrorSyncEngine.shouldTrackName("movie.mp4"))
+        #expect(MirrorSyncEngine.shouldTrackName("Report FINAL.pdf"))
+        #expect(!MirrorSyncEngine.shouldTrackName(".DS_Store"))
+        #expect(!MirrorSyncEngine.shouldTrackName(".~lock.Report.docx#"))
+        #expect(!MirrorSyncEngine.shouldTrackName("setup.crdownload"))
+        #expect(!MirrorSyncEngine.shouldTrackName("export.part"))
+        #expect(!MirrorSyncEngine.shouldTrackName("notes.tmp"))
+        #expect(!MirrorSyncEngine.shouldTrackName("~$Quarterly.xlsx"))
+        #expect(!MirrorSyncEngine.shouldTrackName(".#hidden-edit"))
+        #expect(MirrorSyncEngine.shouldTrackName("my.partfile.txt"), ".partfile is part of the stem, not a partial suffix")
     }
 
     @Test func appNotificationLifecycle() async {
