@@ -24,7 +24,7 @@ struct RootView: View {
         ZStack {
             if appState.isInitialLoading {
                 loadingView
-            } else if appState.isAuthorized {
+            } else if TelegramClient.shared.isAuthorized {
                 mainTabs
             } else {
                 LoginGateView()
@@ -61,6 +61,12 @@ struct RootView: View {
                 .tabItem {
                     Label("Settings", systemImage: "gearshape")
                 }
+        }
+        .task {
+            // Run post-auth setup when we first see the main tabs
+            if appState.allFiles.isEmpty {
+                await appState.completePostAuthSetup()
+            }
         }
     }
 }

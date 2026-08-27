@@ -128,7 +128,7 @@ final class AppState {
         }
     }
 
-    private func completePostAuthSetup() async {
+    func completePostAuthSetup() async {
         isInitialLoading = true
         defer { isInitialLoading = false }
 
