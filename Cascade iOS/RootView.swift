@@ -323,7 +323,7 @@ struct LoginStepsView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            TextField("000000", text: $authCode)
+            TextField("00000", text: $authCode)
                 .textFieldStyle(.plain)
                 .font(.title2.monospacedDigit().bold())
                 .multilineTextAlignment(.center)
@@ -333,7 +333,7 @@ struct LoginStepsView: View {
                 .keyboardType(.numberPad)
                 .focused($focusedField, equals: .code)
                 .onChange(of: authCode) { _, newValue in
-                    authCode = String(newValue.prefix(6).filter(\.isNumber))
+                    authCode = String(newValue.prefix(5).filter(\.isNumber))
                 }
 
             Button {
@@ -351,10 +351,10 @@ struct LoginStepsView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(authCode.count < 6 ? Color.gray.opacity(0.3) : Color.accentColor)
+                .background(authCode.count < 5 ? Color.gray.opacity(0.3) : Color.accentColor)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .disabled(authCode.count < 6 || isLoading)
+            .disabled(authCode.count < 5 || isLoading)
         }
         .onAppear {
             authCode = ""
