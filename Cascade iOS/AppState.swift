@@ -211,7 +211,7 @@ final class AppState {
         let hasLocalPIN = KeychainStore.loadVaultPINHash() != nil
         if !hasLocalPIN && hasRecoveryBlob {
             isVaultLocked = true
-            showVaultUnlockSheet = true
+            // Note: Vault PIN is ONLY for Private Vault files. Open files do not require any PIN.
         } else if hasLocalPIN {
             await VaultManager.autoRecoverWithDeviceSeal()
         }

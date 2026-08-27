@@ -19,6 +19,7 @@ User: Investigating why thumbnails and file names on iOS aren't appearing proper
    - Differentiated `meta.kind == ChunkCaption.kindThumb` and `meta.kind == ChunkCaption.kindSub` to skip data chunk insertion.
    - Preserved sidecar message IDs into `thumbMessageID` on the associated `ObjectRecord`.
 2. **`Cascade iOS/AppState.swift`**:
+   - Vault PIN scoping: Clarified that Vault PIN is strictly for Private Vault files. Startup never shows a PIN modal; open files decrypt immediately with local DB keys.
    - Added `isVaultLocked`, `showVaultUnlockSheet`, `hasRecoveryBlob`.
    - Implemented `unlockVault(pin:)` (PBKDF2-HMAC-SHA256 derivation + seal unwrap) and `unlockWithBiometrics()`.
    - Added automatic catalog reconcile via `CatalogSnapshot.upload()` upon auth to restore filenames and metadata.

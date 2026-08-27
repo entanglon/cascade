@@ -482,7 +482,7 @@ struct RootView: View {
                 VaultPINView {
                     appState.showVaultUnlockSheet = false
                 }
-                .navigationTitle("Cascade Vault")
+                .navigationTitle("Private Vault")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -492,7 +492,6 @@ struct RootView: View {
                     }
                 }
             }
-            .interactiveDismissDisabled(appState.isVaultLocked)
         }
     }
 }
