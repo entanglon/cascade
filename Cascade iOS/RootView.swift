@@ -332,25 +332,34 @@ struct LoginStepsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .keyboardType(.numberPad)
                 .focused($focusedField, equals: .code)
+                .onChange(of: authCode) { _, newValue in
+                    authCode = String(newValue.prefix(6).filter(\.isNumber))
+                }
 
             Button {
+                focusedField = nil
                 Task { await verifyCode() }
             } label: {
-                if isLoading {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Verify")
+                HStack(spacing: 6) {
+                    if isLoading {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Verify")
+                    }
                 }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(authCode.count < 6 ? Color.gray.opacity(0.3) : Color.accentColor)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(authCode.count < 6 ? Color.gray.opacity(0.3) : Theme.accent)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
             .disabled(authCode.count < 6 || isLoading)
         }
-        .onAppear { focusedField = .code }
+        .onAppear {
+            authCode = ""
+            focusedField = .code
+        }
     }
 
     private var passwordView: some View {
