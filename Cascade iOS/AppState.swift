@@ -1,33 +1,76 @@
 #if os(iOS)
+import CryptoKit
 import Foundation
 import GRDB
 import SwiftUI
+import TDLibKit
 
-struct FileItem: Identifiable {
+typealias Date = Foundation.Date
+typealias Notification = Foundation.Notification
+
+extension Foundation.Notification.Name {
+    static let tdlibCacheChanged = Foundation.Notification.Name("tdlibCacheChanged")
+}
+
+struct FileItem: Identifiable, Hashable {
     let id: String
     let name: String
     let isFolder: Bool
     let size: Int64
     let mime: String
-    let thumbnailData: Data?
     let isPrivate: Bool
     let createdAt: Date
     let parentID: String?
+    var thumbnailData: Data?
+    let isFavorite: Bool
+    let isArchived: Bool
+    let trashed: Bool
+    let isPinned: Bool
+
+    static func == (lhs: FileItem, rhs: FileItem) -> Bool {
+        lhs.id == rhs.id && (lhs.thumbnailData != nil) == (rhs.thumbnailData != nil) && lhs.isFavorite == rhs.isFavorite && lhs.isPinned == rhs.isPinned && lhs.name == rhs.name
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 
     var isVideo: Bool {
         guard !isFolder else { return false }
+        if mime.hasPrefix("video/") { return true }
         let ext = (name as NSString).pathExtension.lowercased()
-        return ["mp4", "mov", "m4v", "mkv", "webm", "avi"].contains(ext)
+        return ["mp4", "mov", "m4v", "mkv", "webm", "avi", "ts", "m2ts", "flv", "wmv", "3gp"].contains(ext)
     }
 
     var isImage: Bool {
+        guard !isFolder else { return false }
+        if mime.hasPrefix("image/") { return true }
         let ext = (name as NSString).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp"].contains(ext)
+        return ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg"].contains(ext)
     }
 
     var isAudio: Bool {
+        guard !isFolder else { return false }
+        if mime.hasPrefix("audio/") { return true }
         let ext = (name as NSString).pathExtension.lowercased()
         return ["mp3", "m4a", "flac", "wav", "aac", "ogg", "wma", "aiff", "opus", "alac"].contains(ext)
+    }
+
+    var isDocument: Bool {
+        guard !isFolder else { return false }
+        if mime.hasPrefix("application/pdf") || mime.hasPrefix("text/") { return true }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["pdf", "txt", "md", "doc", "docx", "pages", "xls", "xlsx", "numbers", "ppt", "pptx", "key", "rtf", "csv", "json"].contains(ext)
+    }
+
+    private static let shortDateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "dd/MM/yy"
+        return df
+    }()
+
+    var formattedDate: String {
+        Self.shortDateFormatter.string(from: createdAt)
     }
 
     var systemIcon: String {
@@ -64,6 +107,10 @@ struct FileItem: Identifiable {
         self.isPrivate = record.isPrivate
         self.createdAt = record.createdAt
         self.parentID = record.parentID
+        self.isFavorite = record.isFavorite
+        self.isArchived = record.isArchived
+        self.trashed = record.trashed
+        self.isPinned = record.isPinned
     }
 }
 
@@ -82,9 +129,16 @@ final class AppState {
     var uploadProgress: Double = 0
     var isAuthorized = false
     var isAuthResolved = false
+    var isVaultConnected = false
     var databaseError: String?
     var identity: TelegramClient.AccountIdentity?
     var profilePhotoData: Data?
+    var theaterFile: FileItem?
+    var presentedFile: FileItem?
+    var thumbnailVersion: Int = 0
+    var isVaultLocked: Bool = false
+    var showVaultUnlockSheet: Bool = false
+    var hasRecoveryBlob: Bool = false
 
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
@@ -137,20 +191,135 @@ final class AppState {
 
         guard let vault = try? await VaultManager.ensureVault() else {
             databaseError = "Vault not found. Set up Cascade on another device first."
+            isVaultConnected = false
             return
         }
 
+        isVaultConnected = true
         await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
         _ = await VaultManager.ensureBackupChannel()
-        await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
+
+        // Start the byte-range streaming server for video/audio playback
+        await VaultStreamServer.shared.startServer()
+
+        // Prewarm populates the scan cache used by restore/repair
+        _ = await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
         await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
 
+        // Check if vault recovery is needed on this device
+        hasRecoveryBlob = await VaultManager.hasRecoveryBlob()
+        let hasLocalPIN = KeychainStore.loadVaultPINHash() != nil
+        if !hasLocalPIN && hasRecoveryBlob {
+            isVaultLocked = true
+            showVaultUnlockSheet = true
+        } else if hasLocalPIN {
+            await VaultManager.autoRecoverWithDeviceSeal()
+        }
+
+        // iCloud-style instant restore: if this device has no catalog yet, fetch
+        // the newest cascade:dbsnapshot:v1: document.
         let restored = await CatalogSnapshot.restore()
         if !restored {
-            _ = await VaultRepair.run()
+            // Reconcile channel state to update any existing objects with latest cloud metadata
+            _ = await CatalogSnapshot.upload()
+            let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
+            if objects.isEmpty {
+                _ = await VaultRepair.run()
+            }
         }
 
         await loadAllFiles()
+
+        // Listen for thumbnail-ready notifications to incrementally update the UI
+        observeThumbnailNotifications()
+    }
+
+    private func observeThumbnailNotifications() {
+        NotificationCenter.default.addObserver(
+            forName: .xcThumbnailReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.thumbnailVersion += 1
+        }
+    }
+
+    func unlockVault(pin: String) async -> Bool {
+        if KeychainStore.loadVaultPINHash() != nil {
+            guard KeychainStore.pinAttemptAllowed() else { return false }
+            let ok = KeychainStore.verifyVaultPIN(pin)
+            KeychainStore.registerPINResult(success: ok)
+            if ok {
+                Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
+                isVaultLocked = false
+                showVaultUnlockSheet = false
+                await loadAllFiles()
+                Task { await loadThumbnails() }
+                return true
+            } else {
+                return false
+            }
+        } else if hasRecoveryBlob {
+            let recovered = await VaultManager.attemptRecovery(pin: pin)
+            if recovered {
+                KeychainStore.saveVaultPIN(pin)
+                KeychainStore.registerPINResult(success: true)
+                isVaultLocked = false
+                showVaultUnlockSheet = false
+                await loadAllFiles()
+                Task { await loadThumbnails() }
+                return true
+            } else {
+                return false
+            }
+        } else {
+            // Setting a new PIN
+            KeychainStore.saveVaultPIN(pin)
+            Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
+            isVaultLocked = false
+            showVaultUnlockSheet = false
+            return true
+        }
+    }
+
+    func unlockWithBiometrics() async -> Bool {
+        guard KeychainStore.loadVaultPINHash() != nil else { return false }
+        guard BiometricUnlock.isAvailable() else { return false }
+        guard KeychainStore.pinAttemptAllowed() else { return false }
+
+        let success = await BiometricUnlock.authenticate(reason: "Unlock your Cascade Vault")
+        if success {
+            KeychainStore.registerPINResult(success: true)
+            isVaultLocked = false
+            showVaultUnlockSheet = false
+            await loadAllFiles()
+            Task { await loadThumbnails() }
+            return true
+        }
+        return false
+    }
+
+    /// Fetches the thumbnail for a single file on demand (called by per-cell .task).
+    /// Returns the thumbnail Data if successfully loaded from disk or Telegram.
+    func fetchSingleThumbnail(for fileID: String) async -> Data? {
+        // 1. Check disk cache first
+        if let diskURL = UploadEngine.thumbnailURL(for: fileID),
+           let data = try? Data(contentsOf: diskURL), !data.isEmpty {
+            return data
+        }
+
+        // 2. Fetch from Telegram
+        guard let vault = try? await DatabaseManager.shared.firstVault(),
+              let object = try? await DatabaseManager.shared.object(fileID) else {
+            return nil
+        }
+        let fileItem = FileItem(record: object)
+        let data = await fetchThumbnailData(for: fileItem, vault: vault)
+        if data != nil {
+            NotificationCenter.default.post(name: .xcThumbnailReady, object: nil)
+        }
+        return data
     }
 
     func loadAllFiles() async {
@@ -158,17 +327,155 @@ final class AppState {
         defer { isLoadingFiles = false }
         do {
             let objects = try await DatabaseManager.shared.allObjects()
-                .filter { $0.tombstoneAt == nil && !$0.trashed }
+                .filter { $0.tombstoneAt == nil }
             self.allFiles = objects.map { FileItem(record: $0) }
             self.files = currentFiles
+            print("[iOS] loadAllFiles: loaded \(allFiles.count) files (\(files.count) in current folder)")
+
+            // If vault is connected but catalog is empty, retry repair
+            if allFiles.isEmpty && isVaultConnected {
+                print("[iOS] Catalog empty after restore — running VaultRepair")
+                _ = await VaultRepair.run()
+                let retryObjects = try await DatabaseManager.shared.allObjects()
+                    .filter { $0.tombstoneAt == nil }
+                self.allFiles = retryObjects.map { FileItem(record: $0) }
+                self.files = currentFiles
+                print("[iOS] After retry: \(allFiles.count) files")
+            }
+
+            // Load thumbnails asynchronously
+            await loadThumbnails()
         } catch {
             print("[iOS] loadAllFiles failed: \(error)")
         }
     }
 
+    func loadThumbnails() async {
+        guard let vault = try? await DatabaseManager.shared.firstVault() else {
+            print("[iOS] loadThumbnails: no vault found")
+            return
+        }
+
+        print("[iOS] loadThumbnails: \(allFiles.count) files to process")
+
+        // 1. Fast pass: load from local disk cache
+        var diskUpdated = false
+        for i in 0..<allFiles.count {
+            let file = allFiles[i]
+            guard file.thumbnailData == nil, !file.isFolder else { continue }
+            if let diskURL = UploadEngine.thumbnailURL(for: file.id),
+               let data = try? Data(contentsOf: diskURL), !data.isEmpty {
+                allFiles[i].thumbnailData = data
+                diskUpdated = true
+            }
+        }
+        if diskUpdated {
+            files = currentFiles
+            thumbnailVersion += 1
+        }
+
+        // 2. Fetch missing thumbnails from Telegram in the background
+        let missingFiles = allFiles.filter { $0.thumbnailData == nil && !$0.isFolder }
+        guard !missingFiles.isEmpty else { return }
+
+        await withTaskGroup(of: (String, Data?).self) { group in
+            var iterator = missingFiles.makeIterator()
+            let maxConcurrent = 4
+
+            for _ in 0..<maxConcurrent {
+                if let next = iterator.next() {
+                    group.addTask {
+                        let data = await self.fetchThumbnailData(for: next, vault: vault)
+                        return (next.id, data)
+                    }
+                }
+            }
+
+            while let (fileID, data) = await group.next() {
+                if let data {
+                    await MainActor.run {
+                        if let idx = self.allFiles.firstIndex(where: { $0.id == fileID }) {
+                            self.allFiles[idx].thumbnailData = data
+                        }
+                        self.files = self.currentFiles
+                    }
+                }
+                if let next = iterator.next() {
+                    group.addTask {
+                        let data = await self.fetchThumbnailData(for: next, vault: vault)
+                        return (next.id, data)
+                    }
+                }
+            }
+        }
+    }
+
+    private func fetchThumbnailData(for file: FileItem, vault: VaultRecord) async -> Data? {
+        guard let object = try? await DatabaseManager.shared.object(file.id) else {
+            return nil
+        }
+
+        var sidecarID = object.thumbMessageID
+        if sidecarID == nil {
+            let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
+            if let match = messages.first(where: {
+                guard let cap = VaultRepair.caption(of: $0) else { return false }
+                guard ChunkCaption.isThumbCaption(cap), let meta = ChunkCaption.parse(cap) else { return false }
+                return meta.id == file.id
+            }) {
+                sidecarID = match.id
+                var updated = object
+                updated.thumbMessageID = match.id
+                try? await DatabaseManager.shared.save(updated)
+                print("[iOS] discovered thumbnail sidecar msg \(match.id) for \(file.name)")
+            }
+        }
+
+        // Path 1: Encrypted sidecar document (thumbMessageID)
+        if let sidecarID,
+           let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty,
+           let vaultKey = try? VaultManager.vaultKey(for: vault),
+           let objectKey = try? CryptoEngine.unwrap(wrappedKey, with: vaultKey) {
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("thumb-\(file.id).bin")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            do {
+                try await TelegramClient.shared.downloadMessageFile(messageId: sidecarID, chatId: vault.channelID, to: tmp)
+                let encrypted = try Data(contentsOf: tmp)
+                let plain = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: 0)
+                if !plain.isEmpty {
+                    if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
+                        let dest = thumbDir.appendingPathComponent("\(file.id)-tg.jpg")
+                        try? plain.write(to: dest)
+                    }
+                    return plain
+                }
+            } catch {
+                print("[iOS] sidecar fetch failed for \(file.name): \(error.localizedDescription)")
+            }
+        }
+
+        // Path 2: Attached thumbnail from chunk messages
+        let chunks = (try? await DatabaseManager.shared.chunks(for: file.id)) ?? []
+        for chunk in chunks {
+            guard let messageId = chunk.messageID else { continue }
+            if let thumbData = try? await TelegramClient.shared.thumbnailData(
+                forMessage: messageId,
+                chatId: vault.channelID
+            ), !thumbData.isEmpty {
+                if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
+                    let dest = thumbDir.appendingPathComponent("\(file.id)-tg.jpg")
+                    try? thumbData.write(to: dest)
+                }
+                return thumbData
+            }
+        }
+
+        return nil
+    }
+
     var currentFiles: [FileItem] {
         allFiles
-            .filter { ($0.parentID ?? "") == currentFolderID }
+            .filter { !$0.trashed && !$0.isArchived && ($0.parentID ?? "") == currentFolderID }
             .sorted { lhs, rhs in
                 if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
                 return lhs.createdAt > rhs.createdAt
@@ -198,10 +505,174 @@ final class AppState {
         !folderStack.isEmpty
     }
 
-    func openTheater(_ file: FileItem) {}
-    func closeTheater() {}
-    func logout() { isAuthorized = false }
-    func clearLocalCache() {}
+    func openTheater(_ file: FileItem) {
+        theaterFile = file
+    }
+
+    func closeTheater() {
+        theaterFile = nil
+        presentedFile = nil
+    }
+
+    func openFile(_ file: FileItem) {
+        presentedFile = file
+        if file.isVideo || file.isAudio {
+            theaterFile = file
+        }
+    }
+
+    func trashFile(_ file: FileItem) {
+        Task {
+            do {
+                guard var obj = try await DatabaseManager.shared.object(file.id) else { return }
+                obj.trashed = true
+                try await DatabaseManager.shared.save(obj)
+                await loadAllFiles()
+            } catch {
+                print("[iOS] trashFile failed: \(error)")
+            }
+        }
+    }
+
+    func renameFile(_ file: FileItem, to newName: String) {
+        Task {
+            do {
+                guard var obj = try await DatabaseManager.shared.object(file.id) else { return }
+                obj.name = newName
+                try await DatabaseManager.shared.save(obj)
+                await loadAllFiles()
+            } catch {
+                print("[iOS] renameFile failed: \(error)")
+            }
+        }
+    }
+
+    func getInfo(_ file: FileItem) -> String {
+        var info = "Name: \(file.name)\n"
+        if let size = file.formattedSize {
+            info += "Size: \(size)\n"
+        }
+        info += "Type: \(file.mime)\n"
+        info += "Created: \(file.createdAt.formatted())\n"
+        return info
+    }
+
+    func logout() {
+        isAuthorized = false
+        isVaultConnected = false
+        files = []
+        allFiles = []
+    }
+
+    func toggleFavorite(_ file: FileItem) {
+        Task {
+            do {
+                guard var obj = try await DatabaseManager.shared.object(file.id) else { return }
+                obj.isFavorite.toggle()
+                try await DatabaseManager.shared.save(obj)
+                await loadAllFiles()
+            } catch {
+                print("[iOS] toggleFavorite failed: \(error)")
+            }
+        }
+    }
+
+    func togglePin(_ file: FileItem) {
+        Task {
+            do {
+                guard var obj = try await DatabaseManager.shared.object(file.id) else { return }
+                let newPinned = !obj.isPinned
+                obj.isPinned = newPinned
+                try await DatabaseManager.shared.save(obj)
+                await loadAllFiles()
+                if newPinned {
+                    _ = try? await DownloadEngine.download(object: obj) { _, _ in }
+                } else {
+                    let url = cachedURL(for: file)
+                    try? FileManager.default.removeItem(at: url)
+                }
+            } catch {
+                print("[iOS] togglePin failed: \(error)")
+            }
+        }
+    }
+
+    func cachedURL(for file: FileItem) -> URL {
+        let base = (try? DownloadEngine.cacheDirectory()) ?? URL.temporaryDirectory
+        let ext = (file.name as NSString).pathExtension
+        let fileName = ext.isEmpty ? file.id : "\(file.id).\(ext)"
+        return base.appendingPathComponent(fileName)
+    }
+
+    func isCached(_ file: FileItem) -> Bool {
+        let url = cachedURL(for: file)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let sz = attrs[.size] as? Int64, sz > 0 else { return false }
+        return file.size <= 0 || sz == file.size
+    }
+
+    func downloadFile(_ file: FileItem, progress: @escaping @Sendable (String, Double) -> Void) async throws -> URL? {
+        guard let obj = try await DatabaseManager.shared.object(file.id) else { return nil }
+        return try await DownloadEngine.download(object: obj, progress: progress)
+    }
+
+    func deleteFilePermanently(_ file: FileItem) {
+        Task {
+            do {
+                try await DatabaseManager.shared.deleteObjectWithChunks(id: file.id)
+                let url = cachedURL(for: file)
+                try? FileManager.default.removeItem(at: url)
+                await loadAllFiles()
+            } catch {
+                print("[iOS] deleteFilePermanently failed: \(error)")
+            }
+        }
+    }
+
+    func clearLocalCache() {
+        Task {
+            if let scratch = try? DownloadEngine.cacheDirectory() {
+                try? FileManager.default.removeItem(at: scratch)
+                try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            }
+            if let thumbs = try? UploadEngine.thumbnailsDirectory() {
+                try? FileManager.default.removeItem(at: thumbs)
+                try? FileManager.default.createDirectory(at: thumbs, withIntermediateDirectories: true)
+            }
+            try? await TelegramClient.shared.purgeDownloadedFiles()
+            NotificationCenter.default.post(name: .tdlibCacheChanged, object: nil)
+            await MainActor.run {
+                for i in files.indices { files[i].thumbnailData = nil }
+                for i in allFiles.indices { allFiles[i].thumbnailData = nil }
+                thumbnailVersion += 1
+            }
+            await loadThumbnails()
+        }
+    }
+
+    func calculateCacheSize() -> Int64 {
+        var total: Int64 = 0
+        let fm = FileManager.default
+        if let scratch = try? DownloadEngine.cacheDirectory(),
+           let items = try? fm.subpathsOfDirectory(atPath: scratch.path) {
+            for item in items {
+                let p = scratch.appendingPathComponent(item).path
+                if let attr = try? fm.attributesOfItem(atPath: p), let sz = attr[.size] as? Int64 {
+                    total += sz
+                }
+            }
+        }
+        if let thumbs = try? UploadEngine.thumbnailsDirectory(),
+           let items = try? fm.subpathsOfDirectory(atPath: thumbs.path) {
+            for item in items {
+                let p = thumbs.appendingPathComponent(item).path
+                if let attr = try? fm.attributesOfItem(atPath: p), let sz = attr[.size] as? Int64 {
+                    total += sz
+                }
+            }
+        }
+        return total
+    }
 
     func startTelegram(apiID: Int, apiHash: String) async {
         TelegramClient.shared.configure(apiID: apiID, apiHash: apiHash)

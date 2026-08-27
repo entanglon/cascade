@@ -3846,6 +3846,18 @@ Open levers (not scheduled):
     - VERIFIED: brief ~1 s startup buffer then fully smooth playback (normal
       cold start). Arc closed — no further streaming work needed for now.
 
+178. **iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet (2026-08-27 evening)**
+     (`Storage/VaultRepair.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`, `Cascade iOS/Features/SettingsView.swift`, `Cascade.xcodeproj/project.pbxproj`)
+    - Root cause 1 (encrypted files unrecognized): The account's genuine `vaultKey` was sealed under the 4-digit Vault PIN in `cascade:vaultkey:v2:`. Without entering this PIN on iOS, `attemptRecovery(pin:)` was never triggered, leaving the vault locked and unable to decrypt files or thumbnails.
+    - Root cause 2 (`File-XXXX` phantom files): In `Storage/VaultRepair.swift`, thumbnail sidecars (`meta.kind == ChunkCaption.kindThumb`) were treated as regular file data chunks, overwriting chunk index 0 with thumbnail data and creating phantom `File-XXXX` objects.
+    - Fixes:
+      - `Storage/VaultRepair.swift`: Ignored thumbnail/subtitle sidecars as data chunks, saved `thumbMessageID` directly to `ObjectRecord`.
+      - `Cascade iOS/AppState.swift`: Added vault recovery PIN & biometric unlock (`unlockVault(pin:)`, `unlockWithBiometrics()`), cloud catalog reconcile (`CatalogSnapshot.upload()`), download/cache helpers, and cache size/purge.
+      - `Cascade iOS/RootView.swift`: Added `VaultPINView` (4-dot PIN pad with Face ID / Touch ID integration and error shake), embedded in `PrivateVaultView` and `.sheet(isPresented: $appState.showVaultUnlockSheet)`. Upgraded `FilePreviewView` with zoomable image viewer, native `PDFKit` (`PDFView`) document rendering, monospaced text/markdown/code viewer, download progress, and native iOS `ShareSheet` (`UIActivityViewController`). Added Favorite and Keep Downloaded ("Pin") actions to `FileRow` and `FileGridItem` context menus.
+      - `Cascade iOS/Features/SettingsView.swift`: Added "Security" (Vault status, PIN unlock button, Face ID toggle) and "Storage & Cache" (cache size, "Clear Cache").
+      - `Cascade.xcodeproj/project.pbxproj`: Added `INFOPLIST_KEY_NSFaceIDUsageDescription`.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS, `platform=macOS`) **BUILD SUCCEEDED**.
+
 
 
 

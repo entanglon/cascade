@@ -1,8 +1,43 @@
 # Cascade — Development Journal
 
->> Chronological log of the work on the Cascade macOS app. Companion to
+>> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-22 (late night) — WAVE 2 COMPLETE: items 1–9 shipped; item 10 (smart search) deferred by decision (see ROADMAP for the OCR-only slice if revisited).
+> 2026-08-27 (evening) — iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet.
+
+---
+
+## 2026-08-27 (evening) — iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet
+
+User: Investigating why thumbnails and file names on iOS aren't appearing properly ("unrecognized format, names aren't correct").
+
+### Findings & Root Cause Analysis
+1. **Multi-device Cryptographic Boundary**: Files and sidecars are encrypted with AES-256 `objectKey` wrapped by `vaultKey`. On iOS, `ensureVault()` generated a fresh local key; the account's genuine `vaultKey` was sealed under the 4-digit Vault PIN in `cascade:vaultkey:v2:`. Without entering this PIN, `attemptRecovery(pin:)` was never triggered, leaving the vault locked and unable to unwrap keys or decrypt files/thumbnails.
+2. **Sidecar Collision in Vault Repair**: In `Storage/VaultRepair.swift`, thumbnail sidecars (`meta.kind == ChunkCaption.kindThumb`) were treated as regular file data chunks, overwriting chunk index 0 with thumbnail data and creating phantom `File-XXXX` objects.
+
+### Changes
+1. **`Storage/VaultRepair.swift`**:
+   - Differentiated `meta.kind == ChunkCaption.kindThumb` and `meta.kind == ChunkCaption.kindSub` to skip data chunk insertion.
+   - Preserved sidecar message IDs into `thumbMessageID` on the associated `ObjectRecord`.
+2. **`Cascade iOS/AppState.swift`**:
+   - Added `isVaultLocked`, `showVaultUnlockSheet`, `hasRecoveryBlob`.
+   - Implemented `unlockVault(pin:)` (PBKDF2-HMAC-SHA256 derivation + seal unwrap) and `unlockWithBiometrics()`.
+   - Added automatic catalog reconcile via `CatalogSnapshot.upload()` upon auth to restore filenames and metadata.
+   - Added thumbnail sidecar fallback discovery in `fetchThumbnailData(for:vault:)`.
+   - Added file operations: `cachedURL(for:)`, `isCached(_:)`, `downloadFile(_:progress:)`, `toggleFavorite(_:)`, `togglePin(_:)`, `deleteFilePermanently(_:)`, `calculateCacheSize()`, `clearLocalCache()`.
+3. **`Cascade.xcodeproj/project.pbxproj`**:
+   - Added `INFOPLIST_KEY_NSFaceIDUsageDescription` for iOS target Debug & Release configurations.
+4. **`Cascade iOS/RootView.swift`**:
+   - Built `VaultPINView` (4-dot indicator, numeric keypad, Face ID button, error shake).
+   - Embedded `VaultPINView` in `PrivateVaultView` and wired `.sheet(isPresented: $appState.showVaultUnlockSheet)` to `RootView`.
+   - Upgraded `FilePreviewView` with zoomable image viewer, native `PDFKit` (`PDFView`) document rendering, monospaced text/markdown/code viewer, download progress, and native iOS `ShareSheet` (`UIActivityViewController`).
+   - Added Favorite and Keep Downloaded ("Pin") actions to `FileRow` and `FileGridItem` context menus.
+5. **`Cascade iOS/Features/SettingsView.swift`**:
+   - Added "Security" section with Vault Key unlock button and Face ID toggle.
+   - Added "Storage & Cache" section displaying cache size and "Clear Cache" button.
+
+### Build Verification
+- `Cascade iOS` (arm64, `sdk iphoneos`): **BUILD SUCCEEDED**
+- `Cascade` (macOS, `platform=macOS`): **BUILD SUCCEEDED**
 
 ---
 

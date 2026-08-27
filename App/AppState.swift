@@ -21,7 +21,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         case .transfers: return "Transfers"
         case .shared: return "Shared"
         case .archive: return "Archive"
-        case .trash: return "Trash"
+        case .trash: return "Recently Deleted"
         }
     }
 

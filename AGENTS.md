@@ -47,21 +47,26 @@
 # Kill a running app before rebuilding or replacing it
 pkill -9 -f "xCloud.app/Contents/MacOS/xCloud"
 
-# Build (always Debug unless approved)
-xcodebuild -configuration Debug \
-  -derivedDataPath ~/Library/Developer/Xcode/DerivedData/xCloud-cdpcjcegyfsbheeztqhmjnnukgcv \
-  -scheme xCloud -destination 'platform=macOS' build
+# Build macOS (always Debug unless approved)
+xcodebuild -project /Users/zainulnazir/Projects/Cascade/Cascade.xcodeproj \
+  -scheme Cascade -destination 'platform=macOS' build
 
-# Full test suite (unit + UI + launch). Runs against the REAL Debug DB
-# (~/Library/Application Support/xCloud/xCloud.sqlite), which holds real
-# active shares — pool/count tests are baseline-relative by design.
-xcodebuild -configuration Debug \
-  -derivedDataPath ~/Library/Developer/Xcode/DerivedData/xCloud-cdpcjcegyfsbheeztqhmjnnukgcv \
-  -scheme xCloud -destination 'platform=macOS' test
+# Build iOS (signed for physical device)
+xcodebuild -project /Users/zainulnazir/Projects/Cascade/Cascade.xcodeproj \
+  -scheme "Cascade iOS" -sdk iphoneos -configuration Debug build
 
-# Run the Debug app
-open ~/Library/Developer/Xcode/DerivedData/xCloud-cdpcjcegyfsbheeztqhmjnnukgcv/Build/Products/Debug/xCloud.app
+# Install to iPhone XS Max
+devicectl device install app --device 8F28E614-EA35-5B10-8DC9-E390026D4599 \
+  /Users/zainulnazir/Library/Developer/Xcode/DerivedData/Cascade-ezedzhfojrwwyhefeufajkbrtlll/Build/Products/Debug-iphoneos/Cascade.app
+
+# Launch on iPhone
+devicectl device process launch --device 8F28E614-EA35-5B10-8DC9-E390026D4599 com.cascade.app.ios
+
+# Run the Debug macOS app
+open ~/Library/Developer/Xcode/DerivedData/Cascade-ezedzhfojrwwyhefeufajkbrtlll/Build/Products/Debug/Cascade.app
 ```
+
+**iOS device note:** If `devicectl` fails with error 10003, the iPhone screen is locked — user must unlock first.
 
 - Report the test tally (e.g. "67: 59 unit + 4 UI + 4 launch", `** TEST
   SUCCEEDED **`) whenever you run the suite.

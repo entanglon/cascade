@@ -37,7 +37,8 @@ enum VaultRepair {
         let chunks = (try? await DatabaseManager.shared.allChunks()) ?? []
         let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
 
-        let objectDict = Dictionary(uniqueKeysWithValues: objects.map { ($0.id, $0) })
+        var objectDict = Dictionary(uniqueKeysWithValues: objects.map { ($0.id, $0) })
+        var pendingThumbMessageIDs: [String: Int64] = [:]
 
         // Folder IDs the CHANNEL knows about (folder metadata messages AND the
         // parentID carried by any file caption). Used to guard the orphan
@@ -88,6 +89,28 @@ enum VaultRepair {
                 // Cascade caption variant parses through one path.
                 if let caption = captionText, let meta = ChunkCaption.parse(caption) {
                     let objectID = meta.id
+
+                    if meta.kind == ChunkCaption.kindThumb {
+                        pendingThumbMessageIDs[objectID] = message.id
+                        if var existing = objectDict[objectID] {
+                            if existing.thumbMessageID != message.id {
+                                existing.thumbMessageID = message.id
+                                do {
+                                    try await DatabaseManager.shared.save(existing)
+                                    objectDict[objectID] = existing
+                                    changed = true
+                                } catch {
+                                    logger.error("VaultRepair: failed to save thumbMessageID for \(objectID): \(error.localizedDescription)")
+                                }
+                            }
+                        }
+                        continue
+                    }
+
+                    if meta.kind == ChunkCaption.kindSub {
+                        continue
+                    }
+
                     let name = meta.name
                     let size = meta.size
                     let mime = meta.mime
@@ -169,10 +192,12 @@ enum VaultRepair {
                             parentID: cleanParentID,
                             isFolder: isFolder,
                             isPrivate: isPrivate,
-                            sourcePath: nil
+                            sourcePath: nil,
+                            thumbMessageID: pendingThumbMessageIDs[objectID]
                         )
                         do {
                             try await DatabaseManager.shared.save(newObj)
+                            objectDict[objectID] = newObj
                         } catch {
                             logger.error("VaultRepair: failed to save reconstructed object \(objectID): \(error.localizedDescription)")
                         }
@@ -275,6 +300,17 @@ enum VaultRepair {
                             changed = true
                         }
                     }
+                }
+            }
+        }
+
+        for (objID, thumbMsgID) in pendingThumbMessageIDs {
+            if var obj = objectDict[objID] {
+                if obj.thumbMessageID != thumbMsgID {
+                    obj.thumbMessageID = thumbMsgID
+                    try? await DatabaseManager.shared.save(obj)
+                    objectDict[objID] = obj
+                    changed = true
                 }
             }
         }
