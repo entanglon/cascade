@@ -97,8 +97,43 @@ final class AppState {
         isAuthResolved = TelegramClient.shared.isAuthResolved
 
         if isAuthorized {
-            await loadFiles()
+            await completePostAuthSetup()
         }
+    }
+
+    private func completePostAuthSetup() async {
+        isInitialLoading = true
+        defer { isInitialLoading = false }
+
+        // Ensure vault channel exists
+        guard let vault = try? await VaultManager.ensureVault() else {
+            print("iOS: vault ensure failed")
+            return
+        }
+        print("iOS: vault ready (channel \(vault.channelID))")
+
+        // Archive vault channel from chat list
+        await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
+
+        // Ensure backup channel
+        _ = await VaultManager.ensureBackupChannel()
+
+        // Prewarm channel scan
+        await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
+
+        // Prune old snapshots
+        await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
+
+        // Try instant restore from snapshot, fall back to full repair scan
+        let restored = await CatalogSnapshot.restore()
+        if restored {
+            print("iOS: catalog restored from snapshot")
+        } else {
+            let changed = await VaultRepair.run()
+            print("iOS: repair scan changed=\(changed)")
+        }
+
+        await loadFiles()
     }
 
     func loadFiles() async {
