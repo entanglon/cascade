@@ -11,6 +11,7 @@ struct FileItem: Identifiable {
     let mime: String
     let thumbnailData: Data?
     let isPrivate: Bool
+    let createdAt: Date
 
     var isVideo: Bool {
         guard !isFolder else { return false }
@@ -41,6 +42,7 @@ struct FileItem: Identifiable {
         self.mime = record.mime
         self.thumbnailData = thumbnailData
         self.isPrivate = record.isPrivate
+        self.createdAt = record.createdAt
     }
 }
 
@@ -58,6 +60,10 @@ final class AppState {
     var isAuthorized = false
     var isAuthResolved = false
     var databaseError: String?
+
+    var identity: TelegramClient.AccountIdentity?
+    var profilePhotoData: Data?
+
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
     }
@@ -68,11 +74,12 @@ final class AppState {
         do {
             try await DatabaseManager.shared.start()
         } catch {
-            print("DB start failed: \(error)")
+            print("[iOS] DB start failed: \(error)")
+            databaseError = "Database failed: \(error.localizedDescription)"
+            return
         }
 
         guard let creds = try? KeychainStore.loadTelegramCredentials() else {
-            // No credentials — show setup screen immediately
             isAuthResolved = true
             isAuthorized = false
             return
@@ -82,12 +89,12 @@ final class AppState {
         do {
             try await TelegramClient.shared.start()
         } catch {
-            print("Telegram start failed: \(error)")
+            print("[iOS] Telegram start failed: \(error)")
+            databaseError = "Telegram failed: \(error.localizedDescription)"
             isAuthResolved = true
             return
         }
 
-        // Poll until auth is resolved (TDLib reports state async)
         for _ in 0..<60 {
             if TelegramClient.shared.isAuthResolved { break }
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -105,44 +112,69 @@ final class AppState {
         isInitialLoading = true
         defer { isInitialLoading = false }
 
-        // Ensure vault channel exists
+        // 1. Fetch identity
+        do {
+            identity = try await TelegramClient.shared.fetchIdentity()
+            print("[iOS] identity: \(identity?.firstName ?? "?") \(identity?.lastName ?? "")")
+        } catch {
+            print("[iOS] fetchIdentity failed: \(error)")
+        }
+
+        // 2. Fetch profile photo
+        do {
+            profilePhotoData = try await TelegramClient.shared.fetchProfilePhotoData()
+        } catch {
+            print("[iOS] fetchProfilePhoto failed: \(error)")
+        }
+
+        // 3. Ensure vault
         guard let vault = try? await VaultManager.ensureVault() else {
-            print("iOS: vault ensure failed")
+            print("[iOS] vault ensure failed")
+            databaseError = "Vault not found. Make sure you've set up Cascade on another device first."
             return
         }
-        print("iOS: vault ready (channel \(vault.channelID))")
+        print("[iOS] vault ready (channel \(vault.channelID))")
 
-        // Archive vault channel from chat list
+        // 4. Archive vault from chat list
         await TelegramClient.shared.archiveVaultChannel(chatId: vault.channelID)
 
-        // Ensure backup channel
+        // 5. Backup channel
         _ = await VaultManager.ensureBackupChannel()
 
-        // Prewarm channel scan
+        // 6. Prewarm + snapshot prune
         await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
-
-        // Prune old snapshots
         await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
 
-        // Try instant restore from snapshot, fall back to full repair scan
+        // 7. Restore catalog
         let restored = await CatalogSnapshot.restore()
         if restored {
-            print("iOS: catalog restored from snapshot")
+            print("[iOS] catalog restored from snapshot")
         } else {
+            print("[iOS] no snapshot, running repair scan...")
             let changed = await VaultRepair.run()
-            print("iOS: repair scan changed=\(changed)")
+            print("[iOS] repair scan changed=\(changed)")
         }
 
+        // 8. Load files
         await loadFiles()
+        print("[iOS] loaded \(files.count) files")
     }
 
     func loadFiles() async {
         isLoadingFiles = true
         defer { isLoadingFiles = false }
-        let all = (try? await DatabaseManager.shared.allObjects()) ?? []
-        files = all
-            .filter { $0.parentID == currentFolderID && !$0.trashed }
-            .map { FileItem(record: $0) }
+        do {
+            let objects = try await DatabaseManager.shared.allObjects()
+                .filter { $0.tombstoneAt == nil }
+            self.files = objects
+                .sorted { lhs, rhs in
+                    if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
+                    return lhs.createdAt > rhs.createdAt
+                }
+                .map { FileItem(record: $0) }
+        } catch {
+            print("[iOS] loadFiles failed: \(error)")
+        }
     }
 
     func navigateToFolder(_ file: FileItem) {
