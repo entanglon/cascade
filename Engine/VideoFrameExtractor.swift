@@ -333,7 +333,7 @@ enum VideoFrameExtractor {
         let rowBytes = dstW * 4
 
         guard let sws = sws_getContext(srcW, srcH, srcFmt, Int32(dstW), Int32(dstH),
-                                       AV_PIX_FMT_RGBA, SWS_BILINEAR, nil, nil, nil) else { return nil }
+                                       AV_PIX_FMT_RGBA, Int32(SWS_BILINEAR.rawValue), nil, nil, nil) else { return nil }
         defer { sws_freeContext(sws) }
 
         // Colorspace/range: never trust swscale's BT.601 default for HD content.

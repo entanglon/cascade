@@ -1,0 +1,4 @@
+framework module Libuavs3d [system] {
+    umbrella "."
+    export *
+}
