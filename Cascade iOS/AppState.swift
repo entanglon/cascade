@@ -70,18 +70,21 @@ final class AppState {
             print("DB start failed: \(error)")
         }
 
-        if let creds = try? KeychainStore.loadTelegramCredentials() {
-            TelegramClient.shared.configure(apiID: creds.apiID, apiHash: creds.apiHash)
-            do {
-                try await TelegramClient.shared.start()
-            } catch {
-                print("Telegram start failed: \(error)")
-            }
+        guard let creds = try? KeychainStore.loadTelegramCredentials() else {
+            // No credentials — show setup screen immediately
+            isAuthResolved = true
+            isAuthorized = false
+            return
         }
 
-        // Observe auth state
-        isAuthorized = TelegramClient.shared.isAuthorized
-        isAuthResolved = TelegramClient.shared.isAuthResolved
+        TelegramClient.shared.configure(apiID: creds.apiID, apiHash: creds.apiHash)
+        do {
+            try await TelegramClient.shared.start()
+        } catch {
+            print("Telegram start failed: \(error)")
+            isAuthResolved = true
+            return
+        }
 
         // Poll until auth is resolved (TDLib reports state async)
         for _ in 0..<60 {
