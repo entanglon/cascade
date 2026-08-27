@@ -57,6 +57,7 @@ final class AppState {
     var uploadProgress: Double = 0
     var isAuthorized = false
     var isAuthResolved = false
+    var databaseError: String?
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
     }
@@ -126,6 +127,15 @@ final class AppState {
     }
 
     func clearLocalCache() {
+    }
+
+    func startTelegram(apiID: Int, apiHash: String) async {
+        TelegramClient.shared.configure(apiID: apiID, apiHash: apiHash)
+        do {
+            try await TelegramClient.shared.start()
+        } catch {
+            databaseError = "Telegram init failed: \(error.localizedDescription)"
+        }
     }
 }
 #endif

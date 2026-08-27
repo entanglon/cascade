@@ -50,31 +50,19 @@ struct LoginGateView: View {
             Text("Welcome to Cascade")
                 .font(.title.bold())
 
-            Text("Sign in with your Telegram account to access your encrypted vault.")
+            Text("Your private cloud storage, encrypted and synced through Telegram.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
             if !appState.hasTelegramCredentials {
-                VStack(spacing: 12) {
-                    Text("No Telegram account configured on this device.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Button("Set Up Telegram") {
-                        showSetup = true
-                    }
-                    .buttonStyle(.borderedProminent)
+                Button("Set Up Telegram") {
+                    showSetup = true
                 }
-            } else if appState.isAuthResolved && !appState.isAuthorized {
-                Text("Authorization failed. Please check your Telegram credentials.")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+                .buttonStyle(.borderedProminent)
             } else {
-                ProgressView("Connecting to Telegram…")
+                LoginStepsView()
             }
         }
         .sheet(isPresented: $showSetup) {
@@ -88,40 +76,19 @@ struct TelegramSetupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var apiID: String = ""
     @State private var apiHash: String = ""
-    @State private var phoneNumber: String = ""
-    @State private var code: String = ""
-    @State private var step: Step = .credentials
     @State private var errorMessage: String?
-
-    enum Step {
-        case credentials, phone, code
-    }
+    @State private var isConnecting = false
 
     var body: some View {
         NavigationStack {
             Form {
-                switch step {
-                case .credentials:
-                    Section("Telegram API Credentials") {
-                        Text("Get these from my.telegram.org")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("API ID", text: $apiID)
-                            .keyboardType(.numberPad)
-                        SecureField("API Hash", text: $apiHash)
-                    }
-
-                case .phone:
-                    Section("Phone Number") {
-                        TextField("+1 234 567 8900", text: $phoneNumber)
-                            .keyboardType(.phonePad)
-                    }
-
-                case .code:
-                    Section("Verification Code") {
-                        TextField("Code", text: $code)
-                            .keyboardType(.numberPad)
-                    }
+                Section("Telegram API Credentials") {
+                    Text("Get these from my.telegram.org → API Development Tools")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("API ID", text: $apiID)
+                        .keyboardType(.numberPad)
+                    SecureField("API Hash", text: $apiHash)
                 }
 
                 if let errorMessage {
@@ -137,40 +104,156 @@ struct TelegramSetupSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    switch step {
-                    case .credentials:
-                        Button("Next") {
-                            guard let id = Int(apiID), !apiHash.isEmpty else {
-                                errorMessage = "Enter valid API ID and Hash"
-                                return
-                            }
+                    Button("Connect") {
+                        guard let id = Int(apiID), !apiHash.isEmpty else {
+                            errorMessage = "Enter valid API ID and Hash"
+                            return
+                        }
+                        errorMessage = nil
+                        isConnecting = true
+                        Task {
                             TelegramClient.shared.configure(apiID: id, apiHash: apiHash)
                             try? KeychainStore.saveTelegramCredentials(apiID: id, apiHash: apiHash)
-                            step = .phone
-                        }
-                    case .phone:
-                        Button("Next") {
-                            Task {
-                                do {
-                                    try await TelegramClient.shared.start()
-                                    // TODO: TDLib will prompt for code
-                                    step = .code
-                                } catch {
-                                    errorMessage = error.localizedDescription
-                                }
-                            }
-                        }
-                    case .code:
-                        Button("Sign In") {
-                            Task {
-                                // TODO: send code to TDLib
+                            await appState.startTelegram(apiID: id, apiHash: apiHash)
+                            isConnecting = false
+                            if appState.hasTelegramCredentials {
                                 dismiss()
-                                await appState.bootstrap()
+                            } else {
+                                errorMessage = appState.databaseError ?? "Connection failed"
                             }
                         }
                     }
+                    .disabled(apiID.isEmpty || apiHash.isEmpty || isConnecting)
                 }
             }
+        }
+    }
+}
+
+struct LoginStepsView: View {
+    @Environment(AppState.self) private var appState
+    @State private var phoneNumber = ""
+    @State private var authCode = ""
+    @State private var password = ""
+    @State private var errorMessage: String?
+    @State private var isLoading = false
+
+    private var currentStep: String {
+        TelegramClient.shared.authStep.rawValue
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            switch TelegramClient.shared.authStep {
+            case .phone:
+                phoneView
+            case .code:
+                codeView
+            case .password:
+                passwordView
+            case .confirmation:
+                confirmationView
+            default:
+                ProgressView("Connecting…")
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding()
+    }
+
+    private var phoneView: some View {
+        VStack(spacing: 12) {
+            Text("Enter your phone number")
+                .font(.headline)
+
+            TextField("+1 234 567 8900", text: $phoneNumber)
+                .keyboardType(.phonePad)
+                .textFieldStyle(.roundedBorder)
+
+            Button("Send Code") {
+                Task {
+                    isLoading = true
+                    errorMessage = nil
+                    do {
+                        try await TelegramClient.shared.setAuthenticationPhoneNumber(phoneNumber)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(phoneNumber.isEmpty || isLoading)
+        }
+    }
+
+    private var codeView: some View {
+        VStack(spacing: 12) {
+            Text("Enter verification code")
+                .font(.headline)
+
+            TextField("Code", text: $authCode)
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+
+            Button("Verify") {
+                Task {
+                    isLoading = true
+                    errorMessage = nil
+                    do {
+                        try await TelegramClient.shared.checkAuthenticationCode(authCode)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(authCode.isEmpty || isLoading)
+        }
+    }
+
+    private var passwordView: some View {
+        VStack(spacing: 12) {
+            Text("Two-Step Verification")
+                .font(.headline)
+
+            SecureField("Password", text: $password)
+                .textFieldStyle(.roundedBorder)
+
+            Button("Verify") {
+                Task {
+                    isLoading = true
+                    errorMessage = nil
+                    do {
+                        try await TelegramClient.shared.checkAuthenticationPassword(password)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(password.isEmpty || isLoading)
+        }
+    }
+
+    private var confirmationView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "iphone.gen3")
+                .font(.system(size: 48))
+                .foregroundStyle(.blue)
+            Text("Confirm Login")
+                .font(.headline)
+            Text("Open Telegram on another device and approve this login.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 }
