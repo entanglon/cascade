@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Libavformat
 import Libavcodec
@@ -481,3 +482,4 @@ enum VideoFrameExtractor {
         return dst
     }
 }
+#endif

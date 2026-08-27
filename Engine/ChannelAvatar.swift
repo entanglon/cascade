@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import AppKit
 import CoreGraphics
@@ -116,3 +117,4 @@ enum ChannelAvatar {
         return cached
     }
 }
+#endif

@@ -497,3 +497,25 @@ struct ShareActivityRecord: Codable, FetchableRecord, PersistableRecord, Identif
 extension ShareActivityRecord {
     static let databaseTableName = "share_activity"
 }
+
+extension Notification.Name {
+    static let cascadeAppNotification = Notification.Name("cascadeAppNotification")
+    static let xcThumbnailReady = Notification.Name("xc.thumbnailReady")
+}
+
+enum AppPaths {
+    static var dataFolder: String {
+        if Bundle.main.bundleIdentifier?.hasSuffix(".prod") == true {
+            return "Cascade-Prod"
+        }
+        return "Cascade"
+    }
+}
+
+#if canImport(AppKit)
+import AppKit
+typealias PlatformImage = NSImage
+#elseif canImport(UIKit)
+import UIKit
+typealias PlatformImage = UIImage
+#endif

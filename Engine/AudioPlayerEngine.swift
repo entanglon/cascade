@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import SwiftUI
 import AppKit
@@ -749,3 +750,4 @@ final class AudioPlayerEngine {
         pendingVideoSeek = seconds
     }
 }
+#endif

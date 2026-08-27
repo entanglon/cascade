@@ -1,13 +1,10 @@
+#if os(macOS)
 import Foundation
 import AppKit
 import Vision
 import OSLog
 import UniformTypeIdentifiers
 import QuickLookThumbnailing
-
-extension Notification.Name {
-    static let xcThumbnailReady = Notification.Name("xc.thumbnailReady")
-}
 
 /// Squares and downscales an image for thumbnails, centering the crop on the
 /// SUBJECT so the important content (a model's face!) stays visible instead of
@@ -672,3 +669,4 @@ actor ThumbnailService {
         }
     }
 }
+#endif

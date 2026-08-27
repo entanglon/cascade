@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Foundation
 import ImageIO
@@ -246,3 +247,4 @@ enum AudioArtworkParser {
         return nil
     }
 }
+#endif

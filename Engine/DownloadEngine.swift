@@ -1,6 +1,11 @@
 import Foundation
 import CryptoKit
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 import os
 import UniformTypeIdentifiers
 
@@ -276,7 +281,16 @@ enum DownloadEngine {
                             // hashing may mismatch — accept a decodable image.
                             try handle.seek(toOffset: UInt64(writtenBytes))
                             let probe = try handle.read(upToCount: 64 * 1024 * 1024) ?? Data()
-                            if !(object.mime.hasPrefix("image/") && NSImage(data: probe) != nil) {
+                            let imageOK: Bool = {
+                                #if canImport(AppKit)
+                                return NSImage(data: probe) != nil
+                                #elseif canImport(UIKit)
+                                return UIImage(data: probe) != nil
+                                #else
+                                return false
+                                #endif
+                            }()
+                            if !(object.mime.hasPrefix("image/") && imageOK) {
                                 throw DownloadError.hashMismatch
                             }
                             try handle.seekToEndOfFile()
@@ -313,7 +327,9 @@ enum DownloadEngine {
                 if capGB > 0 {
                     await TelegramClient.shared.enforceDownloadStoreCap(bytes: Int64(capGB) * 1_073_741_824)
                 }
+                #if os(macOS)
                 await ThumbnailService.shared.generateAndSaveThumbnail(for: object, from: dest)
+                #endif
                 // Books: the download IS the trigger for cover generation (covers
                 // are otherwise made at upload time; older uploads have none until
                 // the book is next downloaded).

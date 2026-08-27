@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import CoreServices
 import Combine
@@ -458,3 +459,4 @@ enum MirrorError: Error, LocalizedError {
         }
     }
 }
+#endif

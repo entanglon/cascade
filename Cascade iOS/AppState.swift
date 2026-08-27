@@ -1,0 +1,95 @@
+#if os(iOS)
+import Foundation
+import GRDB
+import SwiftUI
+
+struct FileItem: Identifiable {
+    let id: String
+    let name: String
+    let isFolder: Bool
+    let size: Int64
+    let mime: String
+    let thumbnailData: Data?
+    let isPrivate: Bool
+
+    var isVideo: Bool {
+        guard !isFolder else { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["mp4", "mov", "m4v", "mkv", "webm", "avi"].contains(ext)
+    }
+
+    var systemIcon: String {
+        if isFolder { return "folder.fill" }
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ["mp4", "mov", "m4v", "mkv"].contains(ext) { return "film" }
+        if ["mp3", "m4a", "flac", "wav", "aac", "ogg"].contains(ext) { return "music.note" }
+        if ["jpg", "jpeg", "png", "gif", "heic", "webp"].contains(ext) { return "photo" }
+        if ["pdf"].contains(ext) { return "doc.text" }
+        return "doc"
+    }
+
+    var formattedSize: String? {
+        guard size > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+
+    init(record: ObjectRecord, thumbnailData: Data? = nil) {
+        self.id = record.id
+        self.name = record.name
+        self.isFolder = record.isFolder
+        self.size = record.size
+        self.mime = record.mime
+        self.thumbnailData = thumbnailData
+        self.isPrivate = record.isPrivate
+    }
+}
+
+@Observable
+final class AppState {
+    var currentFolderID: String = ""
+    var files: [FileItem] = []
+    var isLoadingFiles = false
+    var currentFolderName = "My Files"
+    var currentNotification: String?
+    var isUploading = false
+    var uploadStatus = ""
+    var uploadProgress: Double = 0
+    var isAuthorized = false
+    var hasTelegramCredentials: Bool {
+        UserDefaults.standard.string(forKey: "tdlibDatabaseEncryptionKey") != nil
+    }
+
+    func bootstrap() async {
+        isAuthorized = TelegramClient.shared.isAuthorized
+        if isAuthorized { await loadFiles() }
+    }
+
+    func loadFiles() async {
+        isLoadingFiles = true
+        defer { isLoadingFiles = false }
+        let all = (try? await DatabaseManager.shared.allObjects()) ?? []
+        files = all
+            .filter { $0.parentID == currentFolderID && !$0.trashed }
+            .map { FileItem(record: $0) }
+    }
+
+    func navigateToFolder(_ file: FileItem) {
+        currentFolderID = file.id
+        currentFolderName = file.name
+        Task { await loadFiles() }
+    }
+
+    func openTheater(_ file: FileItem) {
+    }
+
+    func closeTheater() {
+    }
+
+    func logout() {
+        isAuthorized = false
+    }
+
+    func clearLocalCache() {
+    }
+}
+#endif

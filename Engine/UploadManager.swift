@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import CryptoKit
 
@@ -139,3 +140,4 @@ final class UploadManager {
         }
     }
 }
+#endif

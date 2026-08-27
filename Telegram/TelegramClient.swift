@@ -1075,6 +1075,7 @@ final class TelegramClient {
     /// Sets a branded profile photo on a channel (creator-only, needs
     /// can_change_info). The avatar is generated locally and uploaded by TDLib.
     /// Best-effort — failures are logged, never fatal.
+    #if os(macOS)
     func setChannelPhoto(chatId: Int64, label: String, hue: Double) async {
         guard let client else { return }
         guard NSClassFromString("XCTestCase") == nil else { return }
@@ -1114,6 +1115,10 @@ final class TelegramClient {
             logger.error("Channel photo failed for \(chatId) (\(pngNamed)): \(error.localizedDescription)")
         }
     }
+    #else
+    func setChannelPhoto(chatId: Int64, label: String, hue: Double) async {}
+    func setChannelPhoto(chatId: Int64, pngNamed: String) async {}
+    #endif
 
     /// True when the chat already has a profile photo (used to avoid re-setting
     /// photos on legacy channels — TDLib throttles photo changes).
@@ -1303,10 +1308,12 @@ final class TelegramClient {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
                 let stillWaiting = syncLock { fileUploadContinuations[file.id] != nil }
                 if stillWaiting {
+                    #if os(macOS)
                     await LogManager.shared.log(
                         "uploadFile: file \(file.id) still incomplete 20s after start",
                         level: .warning, subsystem: "upload"
                     )
+                    #endif
                 }
             }
         }

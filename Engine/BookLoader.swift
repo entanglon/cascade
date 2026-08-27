@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// Loads book payloads for the reader: extracts zip-based formats (EPUB/CBZ) and
@@ -250,3 +251,4 @@ enum BookLoader {
         }
     }
 }
+#endif

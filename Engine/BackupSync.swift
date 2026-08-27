@@ -182,12 +182,12 @@ actor BackupDrainer {
                     try? await DatabaseManager.shared.markBackupFailed(messageID: pending.messageID)
                     BackupSync.mirrorLog("skipping \(pending.messageID) (exceeded \(maxForwardAttempts) attempts)")
                     print("Cascade backup: skipping dead message \(pending.messageID)")
-                    // Surface it: a permanently unmirrored message is a real
-                    // redundancy gap the user should know about (throttled).
+                    #if os(macOS)
                     await LogManager.shared.log(
                         "backup mirror failed permanently for message \(pending.messageID)",
                         level: .error, subsystem: "backup"
                     )
+                    #endif
                     await BackupSync.notifyThrottled(
                         title: "Backup mirror incomplete",
                         message: "A change couldn't be mirrored to the backup channel. Local data is unaffected.",

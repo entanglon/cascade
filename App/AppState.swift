@@ -45,8 +45,6 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
 }
 
 extension Notification.Name {
-    /// Posted when a user-facing toast/banner notification should be shown.
-    static let cascadeAppNotification = Notification.Name("cascadeAppNotification")
     /// Posted after TDLib's downloaded-file store was purged so Settings can refresh the size label.
     static let tdlibCacheChanged = Notification.Name("tdlibCacheChanged")
 }

@@ -3,7 +3,12 @@ import CryptoKit
 import os
 import UniformTypeIdentifiers
 import QuickLookThumbnailing
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 enum UploadError: Error, Sendable, LocalizedError {
     case notAuthorized
@@ -608,7 +613,8 @@ enum UploadEngine {
     /// (never QuickLook's black first frame); everything else (audio/docs) uses
     /// QuickLook's artwork thumbnail as the source, then the same face/saliency-aware
     /// square crop (ThumbnailCrop).
-    private static func subjectThumbnail(for url: URL, isVideo: Bool) async -> NSImage? {
+    private static func subjectThumbnail(for url: URL, isVideo: Bool) async -> PlatformImage? {
+#if os(macOS)
         let ext = url.pathExtension.lowercased()
         let imageExts = ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp"]
         if imageExts.contains(ext), let loaded = NSImage(contentsOf: url) {
@@ -652,6 +658,9 @@ enum UploadEngine {
         guard let thumb = try? await QLThumbnailGenerator.shared
             .generateBestRepresentation(for: request) else { return nil }
         return NSImage(cgImage: thumb.cgImage, size: NSSize(width: thumb.cgImage.width, height: thumb.cgImage.height))
+#else
+        return nil
+#endif
     }
 
     /// One source image, one subject-aware crop, two outputs: the 2x grid preview
@@ -661,6 +670,7 @@ enum UploadEngine {
     /// chunk message — Telegram permanently stores it, so after a local cache
     /// clear the app re-fetches it instead of losing the preview forever.
     static func generateThumbnails(for url: URL, objectID: String, isVideo: Bool = false) async -> String? {
+#if os(macOS)
         guard let source = await subjectThumbnail(for: url, isVideo: isVideo),
               let dir = try? thumbnailsDirectory() else { return nil }
         var uploadPath: String? = nil
@@ -680,6 +690,9 @@ enum UploadEngine {
             }
         }
         return uploadPath
+#else
+        return nil
+#endif
     }
 
     /// Book covers are portrait: QuickLook gives us the cover page/artwork, then
@@ -687,6 +700,7 @@ enum UploadEngine {
     /// shape exactly (imperfect art is cropped, never letterboxed). Stored as
     /// `<id>-cover.jpg`.
     static func generateBookCover(for url: URL, objectID: String) async {
+#if os(macOS)
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
             size: CGSize(width: 360, height: 540),
@@ -701,6 +715,7 @@ enum UploadEngine {
               let dir = try? thumbnailsDirectory() else { return }
         let dest = dir.appendingPathComponent("\(objectID)-cover.jpg")
         try? jpg.write(to: dest)
+#endif
     }
 
     // MARK: - Thumbnail sidecar
