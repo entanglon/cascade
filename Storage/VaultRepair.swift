@@ -147,7 +147,7 @@ enum VaultRepair {
                         // older immutable chunk captions (e.g. moves into folders, renames, favorites).
                         // Only fill in if existing fields are empty/missing, or if a previously unparented
                         // object gains a parent from the cloud caption.
-                        let nameRepaired = existing.name.isEmpty && !name.isEmpty
+                        let nameRepaired = (existing.name.isEmpty || existing.name.hasPrefix("File-")) && (!name.isEmpty && !name.hasPrefix("File-"))
                         let mimeRepaired = (existing.mime.isEmpty || existing.mime == "application/octet-stream") && (!mime.isEmpty && mime != "application/octet-stream")
                         let parentRepaired = existing.parentID == nil && cleanParentID != nil
                         if nameRepaired || mimeRepaired || parentRepaired {

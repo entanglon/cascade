@@ -139,6 +139,11 @@ final class AppState {
     var isVaultLocked: Bool = false
     var showVaultUnlockSheet: Bool = false
     var hasRecoveryBlob: Bool = false
+    var currentAudioTrack: FileItem?
+    var isAudioPlaying: Bool = false
+    var audioCurrentTime: Double = 0
+    var audioDuration: Double = 0
+    var showFullAudioPlayer: Bool = false
 
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
@@ -220,12 +225,12 @@ final class AppState {
         // the newest cascade:dbsnapshot:v1: document.
         let restored = await CatalogSnapshot.restore()
         if !restored {
-            // Reconcile channel state to update any existing objects with latest cloud metadata
-            _ = await CatalogSnapshot.upload()
             let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
-            if objects.isEmpty {
+            if objects.isEmpty || objects.contains(where: { $0.name.hasPrefix("File-") }) {
+                print("[iOS] Detected empty or File- phantom names — running VaultRepair heal")
                 _ = await VaultRepair.run()
             }
+            _ = await CatalogSnapshot.upload()
         }
 
         await loadAllFiles()
@@ -515,10 +520,60 @@ final class AppState {
     }
 
     func openFile(_ file: FileItem) {
-        presentedFile = file
-        if file.isVideo || file.isAudio {
+        if file.isVideo {
             theaterFile = file
+        } else if file.isAudio {
+            playAudio(file)
+        } else {
+            presentedFile = file
         }
+    }
+
+    func playAudio(_ file: FileItem) {
+        currentAudioTrack = file
+        isAudioPlaying = true
+        showFullAudioPlayer = true
+
+        Task {
+            await VaultStreamServer.shared.startServer()
+            guard let obj = try? await DatabaseManager.shared.object(file.id),
+                  let streamURL = await VideoStreamingEngine.shared.mpvStreamURL(for: obj) else {
+                return
+            }
+            await MainActor.run {
+                AudioPlaybackManager.shared.onTimeUpdate = { [weak self] time, duration, playing in
+                    self?.audioCurrentTime = time
+                    if duration > 0 { self?.audioDuration = duration }
+                    self?.isAudioPlaying = playing
+                }
+                AudioPlaybackManager.shared.onEnded = { [weak self] in
+                    self?.isAudioPlaying = false
+                }
+                AudioPlaybackManager.shared.play(url: streamURL)
+            }
+        }
+    }
+
+    func toggleAudioPlayPause() {
+        if isAudioPlaying {
+            AudioPlaybackManager.shared.pause()
+            isAudioPlaying = false
+        } else {
+            AudioPlaybackManager.shared.resume()
+            isAudioPlaying = true
+        }
+    }
+
+    func seekAudio(to seconds: Double) {
+        AudioPlaybackManager.shared.seek(to: seconds)
+        audioCurrentTime = seconds
+    }
+
+    func stopAudio() {
+        AudioPlaybackManager.shared.stop()
+        currentAudioTrack = nil
+        isAudioPlaying = false
+        showFullAudioPlayer = false
     }
 
     func trashFile(_ file: FileItem) {
@@ -681,6 +736,60 @@ final class AppState {
         } catch {
             databaseError = "Telegram init failed: \(error.localizedDescription)"
         }
+    }
+}
+
+@MainActor
+final class AudioPlaybackManager {
+    static let shared = AudioPlaybackManager()
+    private var playerView: MPVPlayerView?
+    private var pollTimer: Timer?
+    var onTimeUpdate: ((Double, Double, Bool) -> Void)?
+    var onEnded: (() -> Void)?
+
+    init() {
+        let pv = MPVPlayerView(frame: .zero)
+        pv.onEndReached = { [weak self] in
+            Task { @MainActor in
+                self?.onEnded?()
+            }
+        }
+        self.playerView = pv
+    }
+
+    func play(url: URL) {
+        playerView?.play(url)
+        startPolling()
+    }
+
+    func pause() {
+        playerView?.pause()
+    }
+
+    func resume() {
+        playerView?.resume()
+    }
+
+    func seek(to seconds: Double) {
+        playerView?.seek(to: seconds)
+    }
+
+    func stop() {
+        stopPolling()
+        playerView?.stop()
+    }
+
+    private func startPolling() {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+            guard let self, let pv = self.playerView else { return }
+            self.onTimeUpdate?(pv.currentTime, pv.duration, !pv.isPaused)
+        }
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 }
 #endif

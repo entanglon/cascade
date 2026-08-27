@@ -2,7 +2,51 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-27 (evening) — iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet.
+> 2026-08-27 (late evening) — iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock.
+
+---
+
+## 2026-08-27 (late evening) — iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock
+
+User:
+1. Long pressing an item shows "Move to Recently Deleted", change to "Delete".
+2. Fix photo view mode (was showing share/export button & size instead of opening photo).
+3. Fix image file names not matching macOS app.
+4. Port audio and video player UI overlays from macOS, ensuring streaming without downloading.
+5. Auto-lock Private Vault so it asks for the PIN again upon re-entry.
+
+### Findings & Root Causes
+1. **Context Menu Label**: Multiple `Label("Move to Recently Deleted", systemImage: "trash")` instances in `RootView.swift`.
+2. **Image Preview Fallback**: `FilePreviewView` only checked `file.isImage && UIImage(contentsOfFile: url.path)`. Because initial repair left some items with `mime == "application/octet-stream"` and `name == "File-XXXX"`, `file.isImage` evaluated to false, falling through to `cachedFileFallback` with share/export button.
+3. **Image Filename Discrepancy**: In `Storage/VaultRepair.swift`, `nameRepaired` checked `existing.name.isEmpty`. Since existing items were set to `File-XXXX` by an earlier run, they were not considered empty and were never overwritten with genuine names from chunk captions.
+4. **Media Player UI & Streaming**: Audio played headlessly with no visual controls or mini player. Video playback view had only minimal play/pause and no timeline scrubber or skip controls. Both needed byte-range streaming via `VaultStreamServer` and `VideoStreamingEngine.mpvStreamURL`.
+5. **Private Vault Lock Persistence**: In `PrivateVaultView`, `isUnlocked` was kept in local view state without resetting on disappear or backgrounding.
+
+### Changes
+1. **`Cascade iOS/RootView.swift`**:
+   - Replaced `"Move to Recently Deleted"` with `"Delete"` in `FileRow`, `FileGridItem`, and `FilePreviewView`.
+   - Upgraded `FilePreviewView` with `loadedImage(for: url)` checking byte data directly, always rendering full-resolution zoomable image viewer when image bytes are present.
+   - Added `PrivateVaultView.onDisappear` auto-lock resetting `isUnlocked = false` and `appState.isVaultLocked = true`.
+   - Added `scenePhase` observer on `mainTabs` locking vault when app enters `.background`.
+   - Added `AudioMiniPlayerView` docked above tab bar with album art, `EqualizerWaveformView`, timecode, play/pause and close buttons.
+   - Added `FullAudioPlayerView` sheet with ambient glow, hero album art, track details, scrubber timeline slider, skip -15s / +15s, and play/pause controls.
+2. **`Storage/VaultRepair.swift`**:
+   - Updated `nameRepaired` to heal `File-` prefixed names: `(existing.name.isEmpty || existing.name.hasPrefix("File-")) && (!name.isEmpty && !name.hasPrefix("File-"))`.
+3. **`Cascade iOS/AppState.swift`**:
+   - Added audio state (`currentAudioTrack`, `isAudioPlaying`, `audioCurrentTime`, `audioDuration`, `showFullAudioPlayer`).
+   - Added `AudioPlaybackManager` driving audio through `MPVPlayerView` with periodic telemetry updates and end-of-track detection.
+   - Implemented `playAudio(_:)`, `toggleAudioPlayPause()`, `seekAudio(to:)`, `stopAudio()`.
+   - Updated `openFile(_:)` to route audio to `playAudio` and video to `theaterFile`.
+   - Added post-auth catalog heal checking for `File-` phantom names and invoking `VaultRepair.run()`.
+4. **`Cascade iOS/Features/VideoPlaybackView.swift`**:
+   - Built full controls overlay with top bar (back/close buttons, video title), center transport (-10s seek, play/pause circle, +10s seek), and bottom timeline scrubber (interactive slider with elapsed/total timecode).
+   - Added tap-to-show / tap-to-hide gestures and 4-second auto-hide timer.
+   - Guaranteed byte-range streaming via `VaultStreamServer.shared.startServer()` and `VideoStreamingEngine.shared.mpvStreamURL(for: object)`.
+
+### Build & Deployment
+- `Cascade iOS` (arm64, `sdk iphoneos`): **BUILD SUCCEEDED**
+- `Cascade` (macOS, `platform=macOS`): **BUILD SUCCEEDED**
+- Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 ---
 

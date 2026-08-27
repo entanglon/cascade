@@ -127,7 +127,7 @@ struct FilePreviewView: View {
             Color(.systemBackground).ignoresSafeArea()
 
             if let localURL {
-                if file.isImage, let uiImage = UIImage(contentsOfFile: localURL.path) {
+                if let uiImage = loadedImage(for: localURL) {
                     ScrollView([.horizontal, .vertical], showsIndicators: false) {
                         Image(uiImage: uiImage)
                             .resizable()
@@ -200,7 +200,7 @@ struct FilePreviewView: View {
                             appState.trashFile(file)
                             dismiss()
                         } label: {
-                            Label("Move to Recently Deleted", systemImage: "trash")
+                            Label("Delete", systemImage: "trash")
                         }
                     }
 
@@ -227,6 +227,16 @@ struct FilePreviewView: View {
                 startDownload()
             }
         }
+    }
+
+    private func loadedImage(for url: URL) -> UIImage? {
+        if let img = UIImage(contentsOfFile: url.path) {
+            return img
+        }
+        if let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
+            return img
+        }
+        return nil
     }
 
     private func checkLocalFile() {
@@ -402,6 +412,7 @@ struct FilePreviewView: View {
 
 struct RootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: Tab = .browse
 
     enum Tab: Hashable {
@@ -477,20 +488,23 @@ struct RootView: View {
                 FilePreviewView(file: file)
             }
         }
-        .sheet(isPresented: $appState.showVaultUnlockSheet) {
-            NavigationStack {
-                VaultPINView {
-                    appState.showVaultUnlockSheet = false
-                }
-                .navigationTitle("Private Vault")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Cancel") {
-                            appState.showVaultUnlockSheet = false
-                        }
-                    }
-                }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                appState.isVaultLocked = true
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let track = appState.currentAudioTrack {
+                AudioMiniPlayerView(track: track)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .sheet(isPresented: $appState.showFullAudioPlayer) {
+            if let track = appState.currentAudioTrack {
+                FullAudioPlayerView(track: track)
+                    .presentationDragIndicator(.visible)
             }
         }
     }
@@ -1625,16 +1639,21 @@ struct PrivateVaultView: View {
 
     var body: some View {
         Group {
-            if isUnlocked || !appState.isVaultLocked {
+            if isUnlocked {
                 FileBrowserView(folderID: "", folderTitle: "Private Vault", filterPrivate: true)
             } else {
                 VaultPINView {
                     isUnlocked = true
+                    appState.isVaultLocked = false
                 }
             }
         }
         .navigationTitle("Private Vault")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear {
+            isUnlocked = false
+            appState.isVaultLocked = true
+        }
     }
 }
 
@@ -2103,7 +2122,7 @@ struct FileRow: View {
             }
             Divider()
             Button(role: .destructive) { appState.trashFile(file) } label: {
-                Label("Move to Recently Deleted", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
         }
         .alert("Rename", isPresented: $showRename) {
@@ -2276,7 +2295,7 @@ struct FileGridItem: View {
             }
             Divider()
             Button(role: .destructive) { appState.trashFile(file) } label: {
-                Label("Move to Recently Deleted", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
         }
         .alert("Rename", isPresented: $showRename) {
@@ -2695,6 +2714,330 @@ struct LoginStepsView: View {
         do { try await TelegramClient.shared.checkAuthenticationPassword(password) }
         catch { errorMessage = error.localizedDescription }
         isLoading = false
+    }
+}
+
+// MARK: - Audio Player Views & Components
+
+private func formatPlayerTime(_ seconds: Double) -> String {
+    guard !seconds.isNaN && !seconds.isInfinite && seconds >= 0 else { return "00:00" }
+    let total = Int(seconds)
+    let s = total % 60
+    let m = (total / 60) % 60
+    let h = total / 3600
+    if h > 0 {
+        return String(format: "%d:%02d:%02d", h, m, s)
+    }
+    return String(format: "%02d:%02d", m, s)
+}
+
+struct EqualizerWaveformView: View {
+    let barCount: Int
+    var isPlaying: Bool = true
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let date = timeline.date.timeIntervalSince1970
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    let factor: Double = {
+                        guard isPlaying else { return 0.15 }
+                        let phase = Double(index) * 0.9
+                        let speed = 4.0 + Double(index % 3) * 1.5
+                        let primary = sin(date * speed + phase) * 0.45 + 0.55
+                        let secondary = sin(date * 7.5 + phase * 2.0) * 0.25
+                        return max(0.2, min(1.0, primary + secondary))
+                    }()
+
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Color.white)
+                        .frame(width: 3, height: CGFloat(factor * 16))
+                }
+            }
+        }
+    }
+}
+
+struct AudioMiniPlayerView: View {
+    let track: FileItem
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Artwork / Equalizer Icon
+            ZStack {
+                if let thumb = track.thumbnailData, let uiImage = UIImage(data: thumb) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 42, height: 42)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 42, height: 42)
+                        .overlay {
+                            Image(systemName: "music.note")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                }
+
+                if appState.isAudioPlaying {
+                    EqualizerWaveformView(barCount: 3, isPlaying: true)
+                        .frame(width: 16, height: 16)
+                        .background(Color.black.opacity(0.4), in: Circle())
+                }
+            }
+
+            // Track info and time
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.name)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(formatPlayerTime(appState.audioCurrentTime) + " / " + formatPlayerTime(appState.audioDuration))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 4)
+
+            // Play / Pause Button
+            Button {
+                appState.toggleAudioPlayPause()
+            } label: {
+                Image(systemName: appState.isAudioPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+            }
+
+            // Close Button
+            Button {
+                appState.stopAudio()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30, height: 30)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture {
+            appState.showFullAudioPlayer = true
+        }
+    }
+}
+
+struct FullAudioPlayerView: View {
+    let track: FileItem
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @State private var isScrubbing = false
+    @State private var scrubTime: Double = 0
+
+    var body: some View {
+        ZStack {
+            // Ambient dynamic background glow
+            LinearGradient(
+                colors: [Color.blue.opacity(0.35), Color.purple.opacity(0.25), Color(.systemBackground)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Top Bar
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .padding(10)
+                            .background(Circle().fill(Color.primary.opacity(0.08)))
+                    }
+
+                    Spacer()
+
+                    Text("NOW PLAYING")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .tracking(1.5)
+
+                    Spacer()
+
+                    Button {
+                        appState.stopAudio()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .padding(10)
+                            .background(Circle().fill(Color.primary.opacity(0.08)))
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+
+                Spacer(minLength: 20)
+
+                // Hero Artwork
+                ZStack {
+                    if let thumb = track.thumbnailData, let uiImage = UIImage(data: thumb) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 240, height: 240)
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .shadow(color: Color.blue.opacity(0.4), radius: 24, y: 12)
+                    } else {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 240, height: 240)
+                            .overlay {
+                                if appState.isAudioPlaying {
+                                    EqualizerWaveformView(barCount: 5, isPlaying: true)
+                                        .frame(width: 60, height: 50)
+                                } else {
+                                    Image(systemName: "music.note")
+                                        .font(.system(size: 72, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                            .shadow(color: Color.purple.opacity(0.35), radius: 24, y: 12)
+                    }
+                }
+                .scaleEffect(appState.isAudioPlaying ? 1.0 : 0.94)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: appState.isAudioPlaying)
+
+                Spacer(minLength: 24)
+
+                // Track Title & Details
+                VStack(spacing: 6) {
+                    Text(track.name)
+                        .font(.title3.bold())
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+
+                    HStack(spacing: 8) {
+                        Text((track.name as NSString).pathExtension.uppercased())
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+
+                        if let size = track.formattedSize {
+                            Text(size)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 20)
+
+                // Scrubber Slider & Timers
+                VStack(spacing: 6) {
+                    Slider(
+                        value: Binding(
+                            get: { isScrubbing ? scrubTime : appState.audioCurrentTime },
+                            set: { newValue in
+                                isScrubbing = true
+                                scrubTime = newValue
+                            }
+                        ),
+                        in: 0...max(1, appState.audioDuration),
+                        onEditingChanged: { editing in
+                            if !editing {
+                                appState.seekAudio(to: scrubTime)
+                                isScrubbing = false
+                            }
+                        }
+                    )
+                    .tint(.blue)
+
+                    HStack {
+                        Text(formatPlayerTime(isScrubbing ? scrubTime : appState.audioCurrentTime))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Text(formatPlayerTime(appState.audioDuration))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 32)
+
+                Spacer(minLength: 16)
+
+                // Playback Transport Controls
+                HStack(spacing: 36) {
+                    // Skip -15s
+                    Button {
+                        appState.seekAudio(to: max(0, appState.audioCurrentTime - 15))
+                    } label: {
+                        Image(systemName: "gobackward.15")
+                            .font(.system(size: 26, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
+
+                    // Play / Pause Circle
+                    Button {
+                        appState.toggleAudioPlayPause()
+                    } label: {
+                        Image(systemName: appState.isAudioPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 68, height: 68)
+                            .background(Circle().fill(Color.blue))
+                            .shadow(color: Color.blue.opacity(0.4), radius: 12, y: 6)
+                    }
+
+                    // Skip +15s
+                    Button {
+                        appState.seekAudio(to: min(appState.audioDuration, appState.audioCurrentTime + 15))
+                    } label: {
+                        Image(systemName: "goforward.15")
+                            .font(.system(size: 26, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
+                }
+                .padding(.bottom, 40)
+            }
+        }
     }
 }
 #endif

@@ -3856,7 +3856,24 @@ Open levers (not scheduled):
       - `Cascade iOS/RootView.swift`: Added `VaultPINView` (4-dot PIN pad with Face ID / Touch ID integration and error shake), embedded in `PrivateVaultView` and dismissible `.sheet(isPresented: $appState.showVaultUnlockSheet)`. Upgraded `FilePreviewView` with zoomable image viewer, native `PDFKit` (`PDFView`) document rendering, monospaced text/markdown/code viewer, download progress, and native iOS `ShareSheet` (`UIActivityViewController`). Added Favorite and Keep Downloaded ("Pin") actions to `FileRow` and `FileGridItem` context menus.
       - `Cascade iOS/Features/SettingsView.swift`: Added "Security" (Vault status, PIN unlock button, Face ID toggle) and "Storage & Cache" (cache size, "Clear Cache").
       - `Cascade.xcodeproj/project.pbxproj`: Added `INFOPLIST_KEY_NSFaceIDUsageDescription`.
-    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS, `platform=macOS`) **BUILD SUCCEEDED**.
+179. **iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock (2026-08-27 late evening)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/VideoPlaybackView.swift`, `Cascade iOS/RootView.swift`, `Storage/VaultRepair.swift`)
+    - Context Menu Label: Changed "Move to Recently Deleted" to "Delete" in `FileRow`, `FileGridItem`, and `FilePreviewView`.
+    - Image View Mode & Filename Healing:
+      - In `Storage/VaultRepair.swift`, updated `nameRepaired` condition to replace leftover `File-` prefixed names with genuine filenames from chunk captions. Added post-auth check in `AppState.completePostAuthSetup()` running `VaultRepair.run()` if phantom names are detected.
+      - In `Cascade iOS/RootView.swift`, upgraded `FilePreviewView` with `loadedImage(for:)` which checks raw image bytes directly, always rendering full-resolution zoomable image viewer even if the catalog mime type was previously generic.
+    - Video Player Controls Overlay (`Cascade iOS/Features/VideoPlaybackView.swift`):
+      - Built interactive controls overlay with top bar (back and close buttons, video title), center transport controls (-10s rewind `gobackward.10`, play/pause circle, +10s forward `goforward.10`), and bottom timeline scrubber (interactive slider, elapsed and duration timecode).
+      - Added tap-to-show / tap-to-hide gestures with 4-second auto-hide.
+      - Guaranteed byte-range localhost streaming via `VaultStreamServer.shared.startServer()` and `VideoStreamingEngine.shared.mpvStreamURL(for: object)` without full file downloads.
+    - Audio Player UI (`Cascade iOS/RootView.swift`, `Cascade iOS/AppState.swift`):
+      - Added `AudioMiniPlayerView` docked above tab bar with album art, `EqualizerWaveformView`, timecode, play/pause and close buttons, and tap-to-expand.
+      - Added `FullAudioPlayerView` sheet with ambient gradient glow, hero album art/waveform, bold track title, format badge, size, interactive scrubber timeline slider, skip -15s / +15s, and play/pause controls.
+      - Wired `AudioPlaybackManager` running audio through `MPVPlayerView` streaming via `VaultStreamServer`.
+    - Private Vault Auto-Relock:
+      - `PrivateVaultView.onDisappear` automatically resets `isUnlocked = false` and sets `appState.isVaultLocked = true`.
+      - `RootView` observes `scenePhase`: entering `.background` locks `appState.isVaultLocked = true`.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS, `platform=macOS`) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 
