@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-27 (late evening) — iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock
+## 2026-08-27 (late evening) — iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock (`334956d`)
 
 User:
 1. Long pressing an item shows "Move to Recently Deleted", change to "Delete".

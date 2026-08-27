@@ -3856,7 +3856,7 @@ Open levers (not scheduled):
       - `Cascade iOS/RootView.swift`: Added `VaultPINView` (4-dot PIN pad with Face ID / Touch ID integration and error shake), embedded in `PrivateVaultView` and dismissible `.sheet(isPresented: $appState.showVaultUnlockSheet)`. Upgraded `FilePreviewView` with zoomable image viewer, native `PDFKit` (`PDFView`) document rendering, monospaced text/markdown/code viewer, download progress, and native iOS `ShareSheet` (`UIActivityViewController`). Added Favorite and Keep Downloaded ("Pin") actions to `FileRow` and `FileGridItem` context menus.
       - `Cascade iOS/Features/SettingsView.swift`: Added "Security" (Vault status, PIN unlock button, Face ID toggle) and "Storage & Cache" (cache size, "Clear Cache").
       - `Cascade.xcodeproj/project.pbxproj`: Added `INFOPLIST_KEY_NSFaceIDUsageDescription`.
-179. **iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock (2026-08-27 late evening)**
+179. **iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock (2026-08-27 late evening — COMMITTED `334956d`)**
      (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/VideoPlaybackView.swift`, `Cascade iOS/RootView.swift`, `Storage/VaultRepair.swift`)
     - Context Menu Label: Changed "Move to Recently Deleted" to "Delete" in `FileRow`, `FileGridItem`, and `FilePreviewView`.
     - Image View Mode & Filename Healing:
