@@ -49,19 +49,52 @@ final class AppState {
     var currentFolderID: String = ""
     var files: [FileItem] = []
     var isLoadingFiles = false
+    var isInitialLoading = true
     var currentFolderName = "My Files"
     var currentNotification: String?
     var isUploading = false
     var uploadStatus = ""
     var uploadProgress: Double = 0
     var isAuthorized = false
+    var isAuthResolved = false
     var hasTelegramCredentials: Bool {
-        UserDefaults.standard.string(forKey: "tdlibDatabaseEncryptionKey") != nil
+        (try? KeychainStore.loadTelegramCredentials()) != nil
     }
 
     func bootstrap() async {
+        isInitialLoading = true
+        defer { isInitialLoading = false }
+        do {
+            try await DatabaseManager.shared.start()
+        } catch {
+            print("DB start failed: \(error)")
+        }
+
+        if let creds = try? KeychainStore.loadTelegramCredentials() {
+            TelegramClient.shared.configure(apiID: creds.apiID, apiHash: creds.apiHash)
+            do {
+                try await TelegramClient.shared.start()
+            } catch {
+                print("Telegram start failed: \(error)")
+            }
+        }
+
+        // Observe auth state
         isAuthorized = TelegramClient.shared.isAuthorized
-        if isAuthorized { await loadFiles() }
+        isAuthResolved = TelegramClient.shared.isAuthResolved
+
+        // Poll until auth is resolved (TDLib reports state async)
+        for _ in 0..<60 {
+            if TelegramClient.shared.isAuthResolved { break }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+
+        isAuthorized = TelegramClient.shared.isAuthorized
+        isAuthResolved = TelegramClient.shared.isAuthResolved
+
+        if isAuthorized {
+            await loadFiles()
+        }
     }
 
     func loadFiles() async {
