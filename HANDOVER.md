@@ -3846,7 +3846,7 @@ Open levers (not scheduled):
     - VERIFIED: brief ~1 s startup buffer then fully smooth playback (normal
       cold start). Arc closed — no further streaming work needed for now.
 
-178. **iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet (2026-08-27 evening)**
+178. **iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet (2026-08-27 evening — COMMITTED `a6a9e54`)**
      (`Storage/VaultRepair.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`, `Cascade iOS/Features/SettingsView.swift`, `Cascade.xcodeproj/project.pbxproj`)
     - Root cause 1 (encrypted files unrecognized): The account's genuine `vaultKey` was sealed under the 4-digit Vault PIN in `cascade:vaultkey:v2:`. Without entering this PIN on iOS, `attemptRecovery(pin:)` was never triggered, leaving the vault locked and unable to decrypt files or thumbnails.
     - Root cause 2 (`File-XXXX` phantom files): In `Storage/VaultRepair.swift`, thumbnail sidecars (`meta.kind == ChunkCaption.kindThumb`) were treated as regular file data chunks, overwriting chunk index 0 with thumbnail data and creating phantom `File-XXXX` objects.

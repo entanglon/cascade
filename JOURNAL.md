@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-27 (evening) — iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet
+## 2026-08-27 (evening) — iOS Vault Decryption & Recovery PIN, Sidecar Chunk Repair, Native Previews & Share Sheet (`a6a9e54`)
 
 User: Investigating why thumbnails and file names on iOS aren't appearing properly ("unrecognized format, names aren't correct").
 
