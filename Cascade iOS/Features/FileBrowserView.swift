@@ -1,197 +1,150 @@
 #if os(iOS)
 import SwiftUI
-import os
 
 struct FileBrowserView: View {
     @Environment(AppState.self) private var appState
-    @State private var viewMode: ViewMode = .grid
-    @State private var showImportPicker = false
-
-    enum ViewMode {
-        case grid, list
-    }
 
     var body: some View {
         NavigationStack {
             Group {
-                if appState.files.isEmpty && !appState.isLoadingFiles {
+                if appState.isLoadingFiles && appState.files.isEmpty {
+                    ProgressView("Loading files…")
+                } else if appState.files.isEmpty {
                     emptyState
                 } else {
-                    contentView
+                    fileList
                 }
             }
             .navigationTitle(appState.currentFolderName)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+                ToolbarItem(placement: .topBarLeading) {
+                    if appState.canNavigateBack {
                         Button {
-                            viewMode = viewMode == .grid ? .list : .grid
+                            appState.navigateBack()
                         } label: {
-                            Label(viewMode == .grid ? "List View" : "Grid View",
-                                  systemImage: viewMode == .grid ? "list.bullet" : "square.grid.2x2")
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                Text(backButtonTitle)
+                            }
                         }
-
-                        Button {
-                            showImportPicker = true
-                        } label: {
-                            Label("Import Files", systemImage: "plus.circle")
-                        }
-
-                        Button {
-                            Task { await appState.loadFiles() }
-                        } label: {
-                            Label("Refresh", systemImage: "arrow.clockwise")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
+            .refreshable {
+                await appState.loadAllFiles()
+            }
         }
+    }
+
+    private var backButtonTitle: String {
+        if appState.folderStack.count >= 2 {
+            return appState.folderStack[appState.folderStack.count - 2].name
+        }
+        return "Back"
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "folder.badge.questionmark")
-                .font(.system(size: 64))
-                .foregroundStyle(.secondary)
-            Text("No files yet")
-                .font(.title2.bold())
-            Text("Import files or upload from your vault to get started.")
+        VStack(spacing: 12) {
+            Image(systemName: "folder")
+                .font(.system(size: 48))
+                .foregroundStyle(.blue.opacity(0.6))
+            Text("No files")
+                .font(.headline)
+            Text("Upload files from the Mac app to see them here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Import Files") { showImportPicker = true }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding()
-    }
-
-    @ViewBuilder
-    private var contentView: some View {
-        switch viewMode {
-        case .grid:
-            gridView
-        case .list:
-            listView
+                .padding(.horizontal, 40)
         }
     }
 
-    private var gridView: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
-                ForEach(appState.files) { file in
-                    FileGridCard(file: file) {
-                        handleTap(file)
-                    }
-                }
-            }
-            .padding()
-        }
-        .refreshable { await appState.loadFiles() }
-    }
-
-    private var listView: some View {
+    private var fileList: some View {
         List {
-            ForEach(appState.files) { file in
-                FileListRow(file: file) {
-                    handleTap(file)
+            // Folders first
+            let folders = appState.files.filter { $0.isFolder }
+            let items = appState.files.filter { !$0.isFolder }
+
+            if !folders.isEmpty {
+                Section {
+                    ForEach(folders) { file in
+                        FileRow(file: file) {
+                            appState.navigateToFolder(file)
+                        }
+                    }
+                } header: {
+                    Text("Folders")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-        }
-        .refreshable { await appState.loadFiles() }
-        .listStyle(.plain)
-    }
 
-    private func handleTap(_ file: FileItem) {
-        if file.isFolder {
-            appState.navigateToFolder(file)
-        } else if file.isVideo {
-            appState.openTheater(file)
-        }
-    }
-}
-
-// MARK: - Grid Card
-
-private struct FileGridCard: View {
-    let file: FileItem
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 8) {
-                if let thumbData = file.thumbnailData,
-                   let img = UIImage(data: thumbData) {
-                    Image(uiImage: img)
-                        .resizable()
-                        .aspectRatio(16/9, contentMode: .fill)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .frame(height: 100)
-                } else {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.secondary.opacity(0.15))
-                        .frame(height: 100)
-                        .overlay {
-                            Image(systemName: file.isFolder ? "folder.fill" : file.systemIcon)
-                                .font(.title2)
-                                .foregroundStyle(.secondary)
+            if !items.isEmpty {
+                Section {
+                    ForEach(items) { file in
+                        FileRow(file: file) {
+                            if file.isVideo {
+                                appState.openTheater(file)
+                            }
                         }
-                }
-
-                VStack(spacing: 2) {
-                    Text(file.name)
-                        .font(.caption.weight(.medium))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-
-                    if !file.isFolder, let size = file.formattedSize {
-                        Text(size)
-                            .font(.caption2)
+                    }
+                } header: {
+                    if !folders.isEmpty {
+                        Text("Files")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(8)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .listStyle(.plain)
     }
 }
 
-// MARK: - List Row
+// MARK: - File Row (Files-app style)
 
-private struct FileListRow: View {
+private struct FileRow: View {
     let file: FileItem
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                if let thumbData = file.thumbnailData,
-                   let img = UIImage(data: thumbData) {
+                // Icon / Thumbnail
+                if let thumbData = file.thumbnailData, let img = UIImage(data: thumbData) {
                     Image(uiImage: img)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 44, height: 44)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                 } else {
-                    Image(systemName: file.isFolder ? "folder.fill" : file.systemIcon)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(file.iconColor.opacity(0.15))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: file.systemIcon)
+                            .font(.system(size: 18))
+                            .foregroundStyle(file.iconColor)
+                    }
                 }
 
+                // Name + meta
                 VStack(alignment: .leading, spacing: 2) {
                     Text(file.name)
-                        .font(.subheadline.weight(.medium))
+                        .font(.body)
                         .lineLimit(1)
+                        .foregroundStyle(.primary)
 
-                    if !file.isFolder, let size = file.formattedSize {
-                        Text(size)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if !file.isFolder {
+                        HStack(spacing: 4) {
+                            if let size = file.formattedSize {
+                                Text(size)
+                            }
+                            Text("•")
+                            Text(file.createdAt, style: .relative)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                     }
                 }
 
@@ -199,7 +152,7 @@ private struct FileListRow: View {
 
                 if file.isFolder {
                     Image(systemName: "chevron.right")
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
