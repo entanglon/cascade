@@ -20,6 +20,7 @@ struct FileBrowserView: View {
 
     @State private var showFileImporter = false
     @State private var showPhotosPicker = false
+    @State private var showCameraPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
 
     enum ViewMode: String, CaseIterable {
@@ -87,16 +88,28 @@ struct FileBrowserView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Section {
-                            Button {
-                                showFileImporter = true
+                            Menu {
+                                Button {
+                                    showFileImporter = true
+                                } label: {
+                                    Label("Choose Files", systemImage: "folder")
+                                }
+
+                                Button {
+                                    showPhotosPicker = true
+                                } label: {
+                                    Label("Photo Library", systemImage: "photo.on.rectangle")
+                                }
+
+                                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                    Button {
+                                        showCameraPicker = true
+                                    } label: {
+                                        Label("Take Photo or Video", systemImage: "camera")
+                                    }
+                                }
                             } label: {
                                 Label("Upload Files", systemImage: "arrow.up.doc")
-                            }
-
-                            Button {
-                                showPhotosPicker = true
-                            } label: {
-                                Label("Upload Photos & Videos", systemImage: "photo.badge.plus")
                             }
 
                             Button {
@@ -194,6 +207,14 @@ struct FileBrowserView: View {
                 await handlePhotosPicked(items)
                 selectedPhotoItems.removeAll()
             }
+        }
+        .fullScreenCover(isPresented: $showCameraPicker) {
+            CameraMediaPicker { capturedURL in
+                Task {
+                    await appState.uploadBatch(urls: [capturedURL], parentID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
+                }
+            }
+            .ignoresSafeArea()
         }
         .safeAreaInset(edge: .bottom) {
             if isSelecting {
@@ -458,6 +479,58 @@ struct FileBrowserView: View {
             selectedFileIDs.remove(id)
         } else {
             selectedFileIDs.insert(id)
+        }
+    }
+}
+
+// MARK: - Camera Capture Picker
+
+struct CameraMediaPicker: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+    let onMediaCaptured: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.mediaTypes = ["public.image", "public.movie"]
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraMediaPicker
+
+        init(_ parent: CameraMediaPicker) {
+            self.parent = parent
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
+
+            if let videoURL = info[.mediaURL] as? URL {
+                let filename = "Video_\(Int(Date().timeIntervalSince1970)).\(videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension)"
+                let dest = tempDir.appendingPathComponent(filename)
+                try? FileManager.default.removeItem(at: dest)
+                try? FileManager.default.copyItem(at: videoURL, to: dest)
+                parent.onMediaCaptured(dest)
+            } else if let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.9) {
+                let filename = "Photo_\(Int(Date().timeIntervalSince1970)).jpg"
+                let dest = tempDir.appendingPathComponent(filename)
+                try? FileManager.default.removeItem(at: dest)
+                try? data.write(to: dest)
+                parent.onMediaCaptured(dest)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
         }
     }
 }
