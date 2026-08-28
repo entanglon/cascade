@@ -4089,6 +4089,11 @@ Open levers (not scheduled):
     - Wired `openFile(_ file: FileItem)` to automatically record accessed files without generating network/cloud delta traffic.
     - `RecentsView` displays native empty state until files are opened, dynamically presenting opened files in most-recently-used order.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+190. **Sticky Viewport Bottom Footers & Recents/Shared Cleanup (2026-08-28 night — COMMITTED `0111995`)**
+     (`Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
+    - Implemented background viewport height measurement (`.background { GeometryReader { proxy in Color.clear ... } }`) so that `FileBrowserView` and media browsing pages push the footer (`X items`, `Synced with Cascade`) to the bottom of the screen when files do not fill the viewport, and naturally scroll after all content when files fill the screen.
+    - Removed item count and sync status footers from `RecentsView` and verified `SharedView` has no redundant bottom count.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 

@@ -2,7 +2,31 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Implemented on-device Recents MRU tracking with instant updates and zero network polling (Round 189, aae3b19).
+> 2026-08-28 (night) — Stick item count & sync status footer to bottom when files do not fill screen, and removed footers from Recents/Shared (Round 190, 0111995).
+
+---
+
+## 2026-08-28 (night) — Sticky viewport bottom footers & Recents/Shared cleanup (Round 190, commit `0111995`)
+
+User requested:
+1. Item count and "Synced with Cascade" footer should sit at the bottom of the screen when files do not fill the page, and sit at the end of the scrollable content when files fill the page (matching Apple Files app).
+2. Recents and Shared should not display item count or "Synced with Cascade" footers.
+
+### Implementation Details
+1. **Background Viewport Height Measurement (`Cascade iOS/Features/FileBrowserView.swift:205`, `Cascade iOS/RootView.swift:1130`)**:
+   - Added `.background { GeometryReader { proxy in Color.clear ... } }` to measure visible scroll container viewport height without wrapping or interfering with `ScrollView` / `UIRefreshControl`.
+   - Set `.frame(minHeight: max(0, viewportHeight - 16), alignment: .top)` on the inner content `VStack`.
+   - With few items: `VStack` expands to `viewportHeight`, `Spacer` pushes the footer (`X items`, `Synced with Cascade`) to the bottom of the visible screen with proper bottom padding.
+   - With many items: `LazyVGrid` naturally exceeds `viewportHeight`, `Spacer` collapses to `40pt`, and the footer is reached at the end of scroll content.
+2. **Removed Footers from Recents & Shared (`Cascade iOS/RootView.swift:945-975`)**:
+   - Removed `PageItemCountFooter` from `RecentsView` grid and list modes.
+   - Verified `SharedView` does not display bottom item count or cloud sync status.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `0111995`.
 
 ---
 
