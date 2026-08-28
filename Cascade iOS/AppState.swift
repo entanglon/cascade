@@ -688,6 +688,75 @@ final class AppState {
         }
     }
 
+    func uploadBatch(urls: [URL], parentID: String? = nil, isPrivate: Bool = false) async {
+        guard !urls.isEmpty else { return }
+        await MainActor.run {
+            self.isUploading = true
+            self.uploadStatus = "Preparing \(urls.count) file\(urls.count == 1 ? "" : "s")..."
+            self.uploadProgress = 0
+        }
+
+        var completedCount = 0
+        let totalCount = urls.count
+        let effectiveParentID = (parentID?.isEmpty == true) ? nil : parentID
+
+        for (index, rawURL) in urls.enumerated() {
+            let accessing = rawURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    rawURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let filename = rawURL.lastPathComponent
+            await MainActor.run {
+                self.uploadStatus = "Uploading \(filename) (\(index + 1)/\(totalCount))..."
+            }
+
+            let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
+            let workingURL = tempDir.appendingPathComponent("\(UUID().uuidString)_\(filename)")
+
+            do {
+                if FileManager.default.fileExists(atPath: workingURL.path) {
+                    try? FileManager.default.removeItem(at: workingURL)
+                }
+                try FileManager.default.copyItem(at: rawURL, to: workingURL)
+
+                try await UploadEngine.upload(
+                    fileURL: workingURL,
+                    parentID: effectiveParentID,
+                    isPrivate: isPrivate
+                ) { [weak self] status, fraction in
+                    Task { @MainActor in
+                        let overallProgress = (Double(completedCount) + fraction) / Double(totalCount)
+                        self?.uploadProgress = overallProgress
+                        self?.uploadStatus = "\(status) (\(index + 1)/\(totalCount))"
+                    }
+                }
+
+                try? FileManager.default.removeItem(at: workingURL)
+                completedCount += 1
+
+                let objects = try await DatabaseManager.shared.allObjects().filter { $0.tombstoneAt == nil }
+                await MainActor.run {
+                    self.allFiles = objects.map { FileItem(record: $0) }
+                    self.files = self.currentFiles
+                    self.thumbnailVersion += 1
+                }
+            } catch {
+                print("[iOS] Upload failed for \(filename): \(error)")
+            }
+        }
+
+        _ = await CatalogSnapshot.upload()
+        await MainActor.run {
+            self.isUploading = false
+            self.uploadStatus = ""
+            self.uploadProgress = 0
+            self.thumbnailVersion += 1
+        }
+    }
+
     func trashFiles(_ fileIDs: Set<String>) {
         guard !fileIDs.isEmpty else { return }
         Task {

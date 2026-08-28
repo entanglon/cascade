@@ -19,6 +19,11 @@ struct CascadeApp: App {
                 .environment(appState)
                 .preferredColorScheme(.dark)
                 .task { await appState.bootstrap() }
+                .onOpenURL { url in
+                    Task {
+                        await appState.uploadBatch(urls: [url], parentID: nil)
+                    }
+                }
         }
     }
 }

@@ -511,12 +511,37 @@ struct RootView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if let track = appState.currentAudioTrack {
-                AudioMiniPlayerView(track: track)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
+            VStack(spacing: 6) {
+                if appState.isUploading {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(appState.uploadStatus.isEmpty ? "Uploading..." : appState.uploadStatus)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                            ProgressView(value: max(0.02, appState.uploadProgress))
+                                .progressViewStyle(.linear)
+                                .tint(.blue)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
+                    .padding(.horizontal, 16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if let track = appState.currentAudioTrack {
+                    AudioMiniPlayerView(track: track)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 4)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(.easeInOut(duration: 0.25), value: appState.isUploading)
         }
         .sheet(isPresented: $appState.showFullAudioPlayer) {
             if let track = appState.currentAudioTrack {
@@ -3203,9 +3228,20 @@ struct FileRow: View {
     private var rowContent: some View {
         HStack(spacing: 12) {
             if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+                ZStack {
+                    if isSelected {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 22, height: 22)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                    } else {
+                        Circle()
+                            .strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1.5)
+                            .frame(width: 22, height: 22)
+                    }
+                }
             }
 
             // Thumbnail / Icon tap target (opens file/folder)
@@ -3452,18 +3488,32 @@ struct FileGridItem: View {
                     onTap?()
                 }
             } label: {
-                ZStack(alignment: .topTrailing) {
+                ZStack(alignment: .bottom) {
                     thumbnailView
                         .frame(height: 94, alignment: .bottom)
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
 
                     if isSelecting {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 20))
-                            .foregroundStyle(isSelected ? Color.blue : Color.secondary)
-                            .background(Circle().fill(Color.white).padding(2))
-                            .padding(2)
+                        ZStack {
+                            if isSelected {
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 24, height: 24)
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                            } else {
+                                Circle()
+                                    .fill(Color.black.opacity(0.18))
+                                    .frame(width: 24, height: 24)
+                                Circle()
+                                    .strokeBorder(Color.white.opacity(0.85), lineWidth: 1.5)
+                                    .frame(width: 24, height: 24)
+                                    .shadow(color: .black.opacity(0.20), radius: 1, x: 0, y: 1)
+                            }
+                        }
+                        .padding(.bottom, 6)
                     }
                 }
             }

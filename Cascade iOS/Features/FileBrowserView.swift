@@ -1,5 +1,7 @@
 #if os(iOS)
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 struct FileBrowserView: View {
     @Environment(AppState.self) private var appState
@@ -15,6 +17,10 @@ struct FileBrowserView: View {
 
     @State private var isSelecting = false
     @State private var selectedFileIDs: Set<String> = []
+
+    @State private var showFileImporter = false
+    @State private var showPhotosPicker = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
 
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
@@ -42,8 +48,9 @@ struct FileBrowserView: View {
                 listView
             }
         }
-        .navigationTitle(folderTitle)
+        .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : folderTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isSelecting)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
@@ -57,70 +64,99 @@ struct FileBrowserView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        isSelecting = false
-                        selectedFileIDs.removeAll()
+                    HStack(spacing: 16) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                viewMode = (viewMode == .grid ? .list : .grid)
+                            }
+                        } label: {
+                            Image(systemName: viewMode == .grid ? "list.bullet" : "square.grid.2x2")
+                                .font(.system(size: 16, weight: .regular))
+                        }
+
+                        Button("Done") {
+                            withAnimation {
+                                isSelecting = false
+                                selectedFileIDs.removeAll()
+                            }
+                        }
+                        .fontWeight(.semibold)
                     }
-                    .fontWeight(.semibold)
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
-                        }
-
-                        Button {
-                            appState.startCreatingFolder(in: folderID)
-                        } label: {
-                            Label("New Folder", systemImage: "folder.badge.plus")
-                        }
-
-                        Button { } label: {
-                            Label("Scan Documents", systemImage: "document.viewfinder")
-                        }
-
-                        Divider()
-
-                        Button {
-                            viewMode = .grid
-                        } label: {
-                            HStack {
-                                Text("Icons")
-                                if viewMode == .grid {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-
-                        Button {
-                            viewMode = .list
-                        } label: {
-                            HStack {
-                                Text("List")
-                                if viewMode == .list {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        ForEach(SortOption.allCases, id: \.self) { option in
+                        Section {
                             Button {
-                                if sortBy == option {
-                                    sortAscending.toggle()
-                                } else {
-                                    sortBy = option
-                                    sortAscending = true
-                                }
+                                showFileImporter = true
+                            } label: {
+                                Label("Upload Files", systemImage: "arrow.up.doc")
+                            }
+
+                            Button {
+                                showPhotosPicker = true
+                            } label: {
+                                Label("Upload Photos & Videos", systemImage: "photo.badge.plus")
+                            }
+
+                            Button {
+                                appState.startCreatingFolder(in: folderID)
+                            } label: {
+                                Label("New Folder", systemImage: "folder.badge.plus")
+                            }
+
+                            Button { } label: {
+                                Label("Scan Documents", systemImage: "document.viewfinder")
+                            }
+                        }
+
+                        Section {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
+                        }
+
+                        Section {
+                            Button {
+                                viewMode = .grid
                             } label: {
                                 HStack {
-                                    Text(option.rawValue)
+                                    Text("Icons")
+                                    if viewMode == .grid {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+
+                            Button {
+                                viewMode = .list
+                            } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+
+                        Section {
+                            ForEach(SortOption.allCases, id: \.self) { option in
+                                Button {
                                     if sortBy == option {
-                                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        sortAscending.toggle()
+                                    } else {
+                                        sortBy = option
+                                        sortAscending = true
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if sortBy == option {
+                                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        }
                                     }
                                 }
                             }
@@ -133,6 +169,32 @@ struct FileBrowserView: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task {
+                    await appState.uploadBatch(urls: urls, parentID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
+                }
+            case .failure(let err):
+                print("[iOS] File importer error: \(err)")
+            }
+        }
+        .photosPicker(
+            isPresented: $showPhotosPicker,
+            selection: $selectedPhotoItems,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task {
+                await handlePhotosPicked(items)
+                selectedPhotoItems.removeAll()
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if isSelecting {
                 selectionBottomBar
@@ -140,6 +202,25 @@ struct FileBrowserView: View {
         }
         .refreshable {
             await appState.loadAllFiles()
+        }
+    }
+
+    private func handlePhotosPicked(_ items: [PhotosPickerItem]) async {
+        var tempURLs: [URL] = []
+        let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
+
+        for (idx, item) in items.enumerated() {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                let filename = "Photo_\(Int(Date().timeIntervalSince1970))_\(idx + 1).\(ext)"
+                let dest = tempDir.appendingPathComponent(filename)
+                try? data.write(to: dest)
+                tempURLs.append(dest)
+            }
+        }
+
+        if !tempURLs.isEmpty {
+            await appState.uploadBatch(urls: tempURLs, parentID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
         }
     }
 
