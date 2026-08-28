@@ -2,7 +2,26 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Implemented cross-device recents.json cloud sync with LWW merge and debounced channel uploads (Round 192, 94ba75a).
+> 2026-08-28 (night) — Fixed macOS recents recording and MRU ordering (Round 193, 249e726).
+
+---
+
+## 2026-08-28 (night) — Fixed macOS recents recording and MRU ordering (Round 193, commit `249e726`)
+
+User reported that on macOS opening a file did not cause it to jump to the top of the Recents page.
+
+### Root Cause & Fix
+1. **Root Cause 1 (`FileBrowserView.swift:89, 150`)**: `FileBrowserView.visibleFiles` had its own `.recent` branch that fell back to `prefix(20)` from catalog files rather than querying `RecentsSyncEngine.loadLocalEntries()`. Furthermore, the default name/date sort in `visibleFiles` was overriding the recents order.
+2. **Root Cause 2 (`AppState.swift:190, 192`)**: On macOS, opening photos/videos/books sets `theaterFile` and `readerFile` rather than calling `openFile`. `theaterFile` and `readerFile` were plain properties without access recording hooks.
+3. **Fix**:
+   - Added `didSet` access recording and debounced cloud upload to `appState.theaterFile` and `appState.readerFile` in `App/AppState.swift`.
+   - Added `RecentsSyncEngine.recordAccess` to `AudioPlayerEngine.play(file:in:)` in `Engine/AudioPlayerEngine.swift`.
+   - Updated `FileBrowserView.visibleFiles` on macOS to query `RecentsSyncEngine.loadLocalEntries()` and preserve the MRU ordering when viewing `.recent`.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**, relaunched.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**, installed and launched on iPhone XS Max.
+- Commit: `249e726`.
 
 ---
 

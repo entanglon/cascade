@@ -4105,6 +4105,12 @@ Open levers (not scheduled):
     - Automatic LWW timestamp merging (`max(local, remote)` per `fileID`), 5-second debounced uploads, and automatic channel message pruning.
     - Fully wired on macOS and iOS with on-demand cloud sync on tab navigation and pull-to-refresh.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+193. **Fix macOS Recents Recording & MRU Ordering (2026-08-28 night — COMMITTED `249e726`)**
+     (`App/AppState.swift`, `Engine/AudioPlayerEngine.swift`, `Features/FileBrowserView.swift`)
+    - Added `didSet` access tracking and debounced channel upload triggers on `appState.theaterFile` and `appState.readerFile` on macOS so previewing images/videos/books marks them as recent.
+    - Added recents recording on `AudioPlayerEngine.play(file:in:)`.
+    - Updated `FileBrowserView.visibleFiles` to query `RecentsSyncEngine.loadLocalEntries()` and preserve the strict MRU ordering (bypassing secondary name/date sorting on Recents page).
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 
