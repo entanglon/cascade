@@ -2,7 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (afternoon) — iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing.
+> 2026-08-28 (afternoon) — iOS Browse Folder Navigation Tap Fix.
+
+---
+
+## 2026-08-28 (afternoon) — iOS Browse Folder Navigation Tap Fix
+
+User: Unable to open folders in Browse.
+
+### Findings & Root Causes
+- In `Cascade iOS/RootView.swift`, `FileRow` and `FileGridItem` unconditionally wrapped their entire visual layout inside a `Button(action: onTap)`.
+- In `FileBrowserView.swift`, folder rows/items were embedded inside a `NavigationLink` label with an empty closure (`FileGridItem(file: folder) {}` and `FileRow(file: folder) {}`).
+- In SwiftUI, the nested `Button` inside `NavigationLink`'s label intercepted all tap events and executed the empty closure `{}` instead of allowing `NavigationLink` to trigger the navigation transition.
+
+### Changes
+1. **`Cascade iOS/RootView.swift`**:
+   - Made `onTap` optional in `FileRow` and `FileGridItem` (`var onTap: (() -> Void)? = nil`).
+   - Only wrap layout in `Button(action: onTap)` when `onTap != nil`. When `onTap` is nil, render raw content directly so enclosing `NavigationLink` receives taps cleanly.
+2. **`Cascade iOS/Features/FileBrowserView.swift`**:
+   - Updated folder rows and grid items in `FileBrowserView` to pass `FileGridItem(file: folder)` and `FileRow(file: folder)` without closures, enabling seamless folder navigation transitions.
 
 ---
 

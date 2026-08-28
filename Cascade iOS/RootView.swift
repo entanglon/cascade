@@ -2054,44 +2054,23 @@ struct TrashView: View {
 struct FileRow: View {
     @Environment(AppState.self) private var appState
     let file: FileItem
-    let onTap: () -> Void
+    var onTap: (() -> Void)? = nil
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showInfo = false
     @State private var thumbData: Data?
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                thumbnailView
-                    .frame(width: 36, height: 36)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.name)
-                        .font(.body)
-                        .lineLimit(1)
-                        .foregroundStyle(.primary)
-
-                    if file.isFolder {
-                        Text("\(countChildren) items")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        HStack(spacing: 6) {
-                            Text(file.formattedDate)
-                            if let size = file.formattedSize {
-                                Text(size)
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
+        Group {
+            if let onTap {
+                Button(action: onTap) {
+                    rowContent
                 }
-
-                Spacer()
+                .buttonStyle(.plain)
+            } else {
+                rowContent
             }
         }
-        .buttonStyle(.plain)
         .contentShape(Rectangle())
         .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
             guard !file.isFolder else { return }
@@ -2151,6 +2130,37 @@ struct FileRow: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(appState.getInfo(file))
+        }
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 12) {
+            thumbnailView
+                .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.name)
+                    .font(.body)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+
+                if file.isFolder {
+                    Text("\(countChildren) items")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 6) {
+                        Text(file.formattedDate)
+                        if let size = file.formattedSize {
+                            Text(size)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
         }
     }
 
@@ -2222,49 +2232,23 @@ struct FileRow: View {
 struct FileGridItem: View {
     @Environment(AppState.self) private var appState
     let file: FileItem
-    let onTap: () -> Void
+    var onTap: (() -> Void)? = nil
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showInfo = false
     @State private var thumbData: Data?
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 6) {
-                // Card container
-                thumbnailView
-                    .frame(height: 105)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-
-                // Labels
-                VStack(spacing: 2) {
-                    Text(file.name)
-                        .font(.system(size: 13, weight: .regular))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.primary)
-
-                    if file.isFolder {
-                        Text("\(countChildren) \(countChildren == 1 ? "item" : "items")")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(file.formattedDate)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        if let size = file.formattedSize {
-                            Text(size)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+        Group {
+            if let onTap {
+                Button(action: onTap) {
+                    gridContent
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+                .buttonStyle(.plain)
+            } else {
+                gridContent
             }
         }
-        .buttonStyle(.plain)
         .contentShape(Rectangle())
         .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
             guard !file.isFolder else { return }
@@ -2324,6 +2308,42 @@ struct FileGridItem: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(appState.getInfo(file))
+        }
+    }
+
+    private var gridContent: some View {
+        VStack(spacing: 6) {
+            // Card container
+            thumbnailView
+                .frame(height: 105)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+
+            // Labels
+            VStack(spacing: 2) {
+                Text(file.name)
+                    .font(.system(size: 13, weight: .regular))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.primary)
+
+                if file.isFolder {
+                    Text("\(countChildren) \(countChildren == 1 ? "item" : "items")")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(file.formattedDate)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    if let size = file.formattedSize {
+                        Text(size)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 

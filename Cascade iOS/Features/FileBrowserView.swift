@@ -175,7 +175,7 @@ struct FileBrowserView: View {
                             NavigationLink {
                                 FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
                             } label: {
-                                FileGridItem(file: folder) {}
+                                FileGridItem(file: folder)
                             }
                             .buttonStyle(.plain)
                         }
@@ -219,7 +219,7 @@ struct FileBrowserView: View {
                         NavigationLink {
                             FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
                         } label: {
-                            FileRow(file: folder) {}
+                            FileRow(file: folder)
                         }
                     }
                 }
