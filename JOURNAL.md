@@ -2,7 +2,29 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (afternoon) — iOS Browse Folder Navigation Tap Fix.
+> 2026-08-28 (afternoon) — Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation.
+
+---
+
+## 2026-08-28 (afternoon) — Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation
+
+User:
+1. Currently thumbnails appear as squares. We need proper Apple Files-style thumbnails that preserve their natural aspect ratio (e.g. 16:9 for video) contained within an invisible bounding box.
+2. Check whether current thumbnails in the Telegram channel are squares and fix the generator pipeline.
+
+### Findings & Root Causes
+- **Telegram Channel Thumbnails Diagnosis**: In `Engine/UploadEngine.swift:678`, `generateThumbnails(for:objectID:isVideo:)` was calling `ThumbnailCrop.subjectSquare(source, target: 640)`. In `Engine/ThumbnailService.swift:15`, `ThumbnailCrop.subjectSquare` cropped all source images and video frames to a `1:1` square before generating the `-up.jpg` document thumbnail uploaded to the Telegram channel. As a result, all previews previously uploaded to Telegram were indeed 1:1 squares.
+- **Generator Aspect Ratio Fix**: `ThumbnailCrop.aspectFit(_:maxDimension:)` already existed in `ThumbnailService.swift` but was bypassed in favor of `subjectSquare`.
+- **UI Grid Presentation**: In `Cascade iOS/RootView.swift`, `FileGridItem`'s `thumbnailView` had hardcoded `88x88` square placeholder cards for uncached video and photo items.
+
+### Changes
+1. **`Engine/UploadEngine.swift`**:
+   - Switched upload thumbnail generation from `ThumbnailCrop.subjectSquare` to `ThumbnailCrop.aspectFit(source, maxDimension: 640)` and `ThumbnailCrop.aspectFit(fitted, maxDimension: 320)` so all uploaded thumbnails preserve natural widescreen, landscape, and portrait proportions.
+2. **`Engine/ThumbnailService.swift`**:
+   - Replaced `ThumbnailCrop.subjectSquare` with `ThumbnailCrop.aspectFit` in video, audio, and photo thumbnail generator methods (`generateAndSaveThumbnail`, `generateAndSaveAudioThumbnail`).
+3. **`Cascade iOS/RootView.swift`**:
+   - Updated `FileGridItem`'s `thumbnailView` to render thumbnails with `.aspectRatio(contentMode: .fit)` floating inside the invisible 105pt cell container with smooth corner rounding and subtle drop shadows.
+   - Updated fallback placeholder cards for videos (16:9 96×60), photos (4:3 88×66), and documents (3:4 72×94) to reflect their natural media geometry.
 
 ---
 

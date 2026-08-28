@@ -2356,35 +2356,35 @@ struct FileGridItem: View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
             Image(systemName: "folder.fill")
-                .font(.system(size: 68))
+                .font(.system(size: 64))
                 .foregroundStyle(Color(red: 0.28, green: 0.65, blue: 0.98))
                 .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxHeight: 100)
+                .frame(maxWidth: .infinity, maxHeight: 100)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .shadow(color: .black.opacity(0.16), radius: 2.5, x: 0, y: 1)
+                .shadow(color: .black.opacity(0.16), radius: 3, x: 0, y: 1.5)
         } else if file.isAudio {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 82, height: 96)
+                    .frame(width: 76, height: 92)
                     .shadow(color: .black.opacity(0.15), radius: 3, x: 0, y: 1.5)
                 Image(systemName: "music.note")
-                    .font(.system(size: 38, weight: .regular))
+                    .font(.system(size: 34, weight: .regular))
                     .foregroundStyle(Color(white: 0.70))
             }
         } else if file.isDocument {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 76, height: 98)
+                    .frame(width: 72, height: 94)
                     .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1.5)
                 VStack(spacing: 6) {
                     Image(systemName: "doc.text")
-                        .font(.system(size: 30))
+                        .font(.system(size: 28))
                         .foregroundStyle(Color(white: 0.65))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -2398,11 +2398,11 @@ struct FileGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color(red: 0.13, green: 0.13, blue: 0.15))
-                    .frame(width: 88, height: 88)
+                    .frame(width: 96, height: 60)
                     .shadow(color: .black.opacity(0.20), radius: 3, x: 0, y: 1.5)
-                VStack(spacing: 5) {
+                VStack(spacing: 4) {
                     Image(systemName: "film")
-                        .font(.system(size: 32))
+                        .font(.system(size: 26))
                         .foregroundStyle(.white.opacity(0.75))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -2416,11 +2416,11 @@ struct FileGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color(red: 0.16, green: 0.18, blue: 0.22))
-                    .frame(width: 88, height: 88)
+                    .frame(width: 88, height: 66)
                     .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1.5)
-                VStack(spacing: 5) {
+                VStack(spacing: 4) {
                     Image(systemName: "photo")
-                        .font(.system(size: 32))
+                        .font(.system(size: 28))
                         .foregroundStyle(.white.opacity(0.70))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -2434,11 +2434,11 @@ struct FileGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color(.secondarySystemGroupedBackground))
-                    .frame(width: 78, height: 96)
+                    .frame(width: 74, height: 92)
                     .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
                 VStack(spacing: 6) {
                     Image(systemName: file.systemIcon)
-                        .font(.system(size: 30))
+                        .font(.system(size: 28))
                         .foregroundStyle(.blue)
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {

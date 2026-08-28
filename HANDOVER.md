@@ -3892,6 +3892,12 @@ Open levers (not scheduled):
     - Root Cause: `FileRow` and `FileGridItem` were unconditionally wrapping their UI inside a `Button(action: onTap)` which intercepted tap gestures inside `NavigationLink`'s label and ran an empty closure instead of triggering the push transition.
     - Fix: Made `onTap` optional in both `FileRow` and `FileGridItem` (`var onTap: (() -> Void)? = nil`). When `onTap` is nil, raw layout is rendered directly, allowing `NavigationLink` to intercept tap gestures and open folders normally.
     - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+182. **Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation (2026-08-28 afternoon)**
+     (`Engine/UploadEngine.swift`, `Engine/ThumbnailService.swift`, `Cascade iOS/RootView.swift`)
+    - Pipeline Diagnosis: Verified that Telegram document thumbnails (`-up.jpg`) were previously cropped into 1:1 squares by `ThumbnailCrop.subjectSquare` in `UploadEngine.swift:678`.
+    - Generator Aspect Ratio Fix: Updated `UploadEngine.generateThumbnails` and `ThumbnailService.generateAndSaveThumbnail` / `generateAndSaveAudioThumbnail` to use `ThumbnailCrop.aspectFit` instead of `subjectSquare`, preserving true 16:9, 4:3, 9:16, and portrait/landscape geometry across all generated previews.
+    - Files-Style Grid UI (`Cascade iOS/RootView.swift`): Updated `FileGridItem`'s `thumbnailView` to render thumbnails with `.aspectRatio(contentMode: .fit)` floating inside the invisible 105pt cell container with rounded corners and subtle drop shadows. Updated fallback placeholders for videos (16:9), photos (4:3), and documents (3:4) to reflect their natural proportions.
+    - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`.
 
 
 

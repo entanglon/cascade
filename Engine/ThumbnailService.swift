@@ -450,12 +450,12 @@ actor ThumbnailService {
               let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
-        if let square = ThumbnailCrop.subjectSquare(frame, target: 320) {
-            if let jpg = ThumbnailCrop.jpegData(from: square, quality: 0.85) {
+        if let fitted = ThumbnailCrop.aspectFit(frame, maxDimension: 320) {
+            if let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85) {
                 try? jpg.write(to: destJPG)
                 cache[object.id] = destJPG
             }
-            if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+            if let tiff = fitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: destPNG)
             }
@@ -497,12 +497,12 @@ actor ThumbnailService {
               let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
-        if let square = ThumbnailCrop.subjectSquare(frame, target: 320) {
-            if let jpg = ThumbnailCrop.jpegData(from: square, quality: 0.85) {
+        if let fitted = ThumbnailCrop.aspectFit(frame, maxDimension: 320) {
+            if let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85) {
                 try? jpg.write(to: destJPG)
                 cache[object.id] = destJPG
             }
-            if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+            if let tiff = fitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: destPNG)
             }
@@ -515,10 +515,7 @@ actor ThumbnailService {
         return ["mp3", "m4a", "wav", "flac", "aac", "ogg", "wma", "aiff", "opus", "alac", "dsf", "ape"].contains(ext)
     }
 
-    /// Squares + downscales a PHOTO into its thumbnail. Videos and audio are
-    /// deliberately not handled here: their previews come from Telegram's
-    /// attached thumbnail (AVFoundation — the only local frame/artwork
-    /// extractor — is fully removed from the app; mpv is the sole media engine).
+    /// Downscales a PHOTO into its thumbnail, preserving aspect ratio.
     func generateAndSaveThumbnail(for object: ObjectRecord, from fileURL: URL) {
         guard object.mime.hasPrefix("image/") else { return }
         guard let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
@@ -526,7 +523,7 @@ actor ThumbnailService {
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
 
         if let image = NSImage(contentsOf: fileURL) {
-            if let resized = ThumbnailCrop.subjectSquare(image, target: 320) {
+            if let resized = ThumbnailCrop.aspectFit(image, maxDimension: 320) {
                 if let jpg = ThumbnailCrop.jpegData(from: resized, quality: 0.85) {
                     try? jpg.write(to: destJPG)
                     cache[object.id] = destJPG

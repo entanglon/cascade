@@ -674,14 +674,14 @@ enum UploadEngine {
         guard let source = await subjectThumbnail(for: url, isVideo: isVideo),
               let dir = try? thumbnailsDirectory() else { return nil }
         var uploadPath: String? = nil
-        // Single Vision pass at 2x; the JPEG is a cheap downscale of the same crop.
-        if let square = ThumbnailCrop.subjectSquare(source, target: 640) ?? ThumbnailCrop.aspectFit(source, maxDimension: 640) {
-            if let tiff = square.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+        // Preserves natural aspect ratio (16:9, 4:3, 9:16, etc.) instead of square crop.
+        if let fitted = ThumbnailCrop.aspectFit(source, maxDimension: 640) {
+            if let tiff = fitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: dir.appendingPathComponent("\(objectID).png"))
             }
-            if let jpgSquare = ThumbnailCrop.aspectFit(square, maxDimension: 320),
-               let jpg = ThumbnailCrop.jpegData(from: jpgSquare, quality: 0.85) {
+            if let jpgFitted = ThumbnailCrop.aspectFit(fitted, maxDimension: 320),
+               let jpg = ThumbnailCrop.jpegData(from: jpgFitted, quality: 0.85) {
                 let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
                 try? jpg.write(to: dest)
                 if FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) {
