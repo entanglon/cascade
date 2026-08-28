@@ -51,11 +51,9 @@ final class MPVPlayerView: UIView {
         mpv_set_option_string(mpv, "ytdl", "no")
         mpv_set_option_string(mpv, "osc", "no")
         mpv_set_option_string(mpv, "vd-lavc-dr", "no")
-        mpv_set_option_string(mpv, "hwdec", "videotoolbox")
         mpv_set_option_string(mpv, "vo", "libmpv")
         mpv_set_option_string(mpv, "ao", "avfoundation")
         mpv_set_option_string(mpv, "input-vo-keyboard", "no")
-        mpv_set_option_string(mpv, "force-window", "immediate")
 
         mpv_set_wakeup_callback(mpv, { ctx in
             guard let ctx else { return }
@@ -68,6 +66,15 @@ final class MPVPlayerView: UIView {
             log.error("mpv_initialize failed: \(err)")
             return
         }
+
+        // Post-initialization properties (matching macOS and Stremio)
+        mpv_set_property_string(mpv, "hwdec", "auto")
+        mpv_set_property_string(mpv, "profile", "fast")
+        mpv_set_property_string(mpv, "video-sync", "audio")
+        mpv_set_property_string(mpv, "keep-open", "yes")
+        mpv_set_property_string(mpv, "cache", "yes")
+        mpv_set_property_string(mpv, "demuxer-max-bytes", "134217728")
+        mpv_set_property_string(mpv, "demuxer-max-back-bytes", "33554432")
 
         setupOpenGL()
         startDisplayLink()
@@ -90,15 +97,15 @@ final class MPVPlayerView: UIView {
             log.error("Layer is not CAEAGLLayer")
             return
         }
+        eaglLayer.isOpaque = true
         eaglLayer.drawableProperties = [
             kEAGLDrawablePropertyRetainedBacking: false,
             kEAGLDrawablePropertyColorFormat: kEAGLColorFormatRGBA8
         ]
-        eaglContext.renderbufferStorage(Int(GL_RENDERBUFFER), from: eaglLayer)
+
+        updateRenderbufferSize()
 
         glFramebufferRenderbuffer(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_RENDERBUFFER), colorRenderBuffer)
-        glGetRenderbufferParameteriv(GLenum(GL_RENDERBUFFER), GLenum(GL_RENDERBUFFER_WIDTH), &backingWidth)
-        glGetRenderbufferParameteriv(GLenum(GL_RENDERBUFFER), GLenum(GL_RENDERBUFFER_HEIGHT), &backingHeight)
 
         var initParams = mpv_opengl_init_params(
             get_proc_address: { _, name in
@@ -130,6 +137,37 @@ final class MPVPlayerView: UIView {
         }, Unmanaged.passUnretained(self).toOpaque())
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateRenderbufferSize()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            updateRenderbufferSize()
+        }
+    }
+
+    private func updateRenderbufferSize() {
+        guard let eaglContext, let eaglLayer = self.layer as? CAEAGLLayer else { return }
+        guard bounds.width > 0 && bounds.height > 0 else { return }
+
+        let scale = window?.screen.scale ?? UIScreen.main.scale
+        eaglLayer.contentsScale = scale
+
+        EAGLContext.setCurrent(eaglContext)
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), colorRenderBuffer)
+        eaglContext.renderbufferStorage(Int(GL_RENDERBUFFER), from: eaglLayer)
+
+        glGetRenderbufferParameteriv(GLenum(GL_RENDERBUFFER), GLenum(GL_RENDERBUFFER_WIDTH), &backingWidth)
+        glGetRenderbufferParameteriv(GLenum(GL_RENDERBUFFER), GLenum(GL_RENDERBUFFER_HEIGHT), &backingHeight)
+
+        glViewport(0, 0, backingWidth, backingHeight)
+        requestRender()
+    }
+
     // MARK: - Display Link
 
     private func startDisplayLink() {
@@ -140,6 +178,7 @@ final class MPVPlayerView: UIView {
 
     @objc private func renderFrame() {
         guard let mpvGL, let eaglContext else { return }
+        guard backingWidth > 0 && backingHeight > 0 else { return }
         EAGLContext.setCurrent(eaglContext)
 
         glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)

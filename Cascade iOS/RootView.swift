@@ -4058,147 +4058,151 @@ struct FileGridItem: View {
     }
 
     var body: some View {
-        gridContent
-            .contentShape(Rectangle())
-            .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
-                guard !file.isFolder else { return }
-                // Use already-loaded data from the bulk pass if available
-                if let existing = file.thumbnailData {
-                    thumbData = existing
-                    return
+        Group {
+            if let onTap {
+                Button {
+                    if isRenaming {
+                        commitRename()
+                    } else {
+                        onTap()
+                    }
+                } label: {
+                    gridContent
                 }
-                // Lazy on-demand fetch
-                if let data = await appState.fetchSingleThumbnail(for: file.id) {
-                    await MainActor.run {
-                        thumbData = data
-                        if let idx = appState.allFiles.firstIndex(where: { $0.id == file.id }) {
-                            appState.allFiles[idx].thumbnailData = data
-                        }
+                .buttonStyle(.plain)
+            } else {
+                gridContent
+            }
+        }
+        .contentShape(Rectangle())
+        .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
+            guard !file.isFolder else { return }
+            // Use already-loaded data from the bulk pass if available
+            if let existing = file.thumbnailData {
+                thumbData = existing
+                return
+            }
+            // Lazy on-demand fetch
+            if let data = await appState.fetchSingleThumbnail(for: file.id) {
+                await MainActor.run {
+                    thumbData = data
+                    if let idx = appState.allFiles.firstIndex(where: { $0.id == file.id }) {
+                        appState.allFiles[idx].thumbnailData = data
                     }
                 }
             }
-            .contextMenu {
-                ControlGroup {
-                    Button {
-                        appState.duplicateFile(file)
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-
-                    Button {
-                        appState.presentMoveSheet(for: [file.id])
-                    } label: {
-                        Label("Move", systemImage: "folder")
-                    }
-
-                    Button {
-                        appState.presentShareSheet(for: file)
-                    } label: {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                    }
-                }
-
-                if !file.isFolder {
-                    Button {
-                        appState.openFile(file)
-                    } label: {
-                        Label("Quick Look", systemImage: "eye")
-                    }
-                }
-
-                Button {
-                    showInfo = true
-                } label: {
-                    Label("Get Info", systemImage: "info.circle")
-                }
-
-                Button {
-                    startRenaming()
-                } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
-
-                Button {
-                    appState.toggleArchive([file.id])
-                } label: {
-                    Label(file.isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
-                }
-
+        }
+        .contextMenu {
+            ControlGroup {
                 Button {
                     appState.duplicateFile(file)
                 } label: {
-                    Label("Duplicate", systemImage: "plus.square.on.square")
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
 
                 Button {
-                    appState.createFolderWithItem(file)
+                    appState.presentMoveSheet(for: [file.id])
                 } label: {
-                    Label("New Folder with Item", systemImage: "folder.badge.plus")
+                    Label("Move", systemImage: "folder")
                 }
 
                 Button {
-                    appState.toggleFavorite(file)
+                    appState.presentShareSheet(for: file)
                 } label: {
-                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "star.fill" : "star")
-                }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    appState.trashFile(file)
-                } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label("Share", systemImage: "square.and.arrow.up")
                 }
             }
-            .alert("File Info", isPresented: $showInfo) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(appState.getInfo(file))
+
+            if !file.isFolder {
+                Button {
+                    appState.openFile(file)
+                } label: {
+                    Label("Quick Look", systemImage: "eye")
+                }
             }
+
+            Button {
+                showInfo = true
+            } label: {
+                Label("Get Info", systemImage: "info.circle")
+            }
+
+            Button {
+                startRenaming()
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
+            Button {
+                appState.toggleArchive([file.id])
+            } label: {
+                Label(file.isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
+            }
+
+            Button {
+                appState.duplicateFile(file)
+            } label: {
+                Label("Duplicate", systemImage: "plus.square.on.square")
+            }
+
+            Button {
+                appState.createFolderWithItem(file)
+            } label: {
+                Label("New Folder with Item", systemImage: "folder.badge.plus")
+            }
+
+            Button {
+                appState.toggleFavorite(file)
+            } label: {
+                Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "star.fill" : "star")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                appState.trashFile(file)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .alert("File Info", isPresented: $showInfo) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(appState.getInfo(file))
+        }
     }
 
     private var gridContent: some View {
         VStack(spacing: 5) {
-            // Card container / thumbnail (tapping opens file/folder)
-            Button {
-                if isSelecting {
-                    onTap?()
-                } else if isRenaming {
-                    commitRename()
-                } else {
-                    onTap?()
-                }
-            } label: {
-                ZStack(alignment: .bottom) {
-                    thumbnailView
-                        .frame(height: 94, alignment: .bottom)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
+            // Card container / thumbnail
+            ZStack(alignment: .bottom) {
+                thumbnailView
+                    .frame(height: 94, alignment: .bottom)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
 
-                    if isSelecting {
-                        ZStack {
-                            if isSelected {
-                                Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 24, height: 24)
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(.white)
-                            } else {
-                                Circle()
-                                    .fill(Color.black.opacity(0.18))
-                                    .frame(width: 24, height: 24)
-                                Circle()
-                                    .strokeBorder(Color.white.opacity(0.85), lineWidth: 1.5)
-                                    .frame(width: 24, height: 24)
-                                    .shadow(color: .black.opacity(0.20), radius: 1, x: 0, y: 1)
-                            }
+                if isSelecting {
+                    ZStack {
+                        if isSelected {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 24, height: 24)
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.white)
+                        } else {
+                            Circle()
+                                .fill(Color.black.opacity(0.18))
+                                .frame(width: 24, height: 24)
+                            Circle()
+                                .strokeBorder(Color.white.opacity(0.85), lineWidth: 1.5)
+                                .frame(width: 24, height: 24)
+                                .shadow(color: .black.opacity(0.20), radius: 1, x: 0, y: 1)
                         }
-                        .padding(.bottom, 6)
                     }
+                    .padding(.bottom, 6)
                 }
             }
-            .buttonStyle(.plain)
 
             // Labels
             VStack(spacing: 2) {
@@ -4229,22 +4233,12 @@ struct FileGridItem: View {
                             }
                         }
                 } else {
-                    // Tapping filename directly starts inline rename (or selects if in selection mode)
-                    Button {
-                        if isSelecting {
-                            onTap?()
-                        } else {
-                            startRenaming()
-                        }
-                    } label: {
-                        Text(file.name)
-                            .font(.system(size: 13, weight: .regular))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.primary)
-                    }
-                    .buttonStyle(.plain)
+                    Text(file.name)
+                        .font(.system(size: 13, weight: .regular))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.primary)
                 }
 
                 if file.isFolder {

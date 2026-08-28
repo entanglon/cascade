@@ -2,11 +2,27 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204, 1ed7c52).
+> 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205).
 
 ---
 
-## 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204, commit `1ed7c52`)
+## 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205)
+
+User requested:
+1. Fix folder clicking: clicking on folder icon / name was not opening folders, only tapping the item count worked.
+2. Fix video playback: when opening MKV video, audio played but the video screen remained blank.
+
+### Root Cause Analysis & Fixes
+1. **Folder Clicking Issue** ([`RootView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/RootView.swift#L4058-L4170)):
+   - **Root Cause**: `FileBrowserView` wraps folder items in `NavigationLink { ... } label: { FileGridItem(file: folder) }` with `onTap = nil`. Inside `FileGridItem`, the thumbnail card was wrapped in an inner `Button { onTap?() }` and the name was in `Button { startRenaming() }`. SwiftUI prioritized the inner Buttons and swallowed the touch event without executing `NavigationLink` (only the item count text was outside any button).
+   - **Fix**: Removed inner nested `Button`s from `gridContent`. `FileGridItem` now wraps `gridContent` in a single outer `Button` only when `onTap != nil`. When `onTap == nil` (under `NavigationLink`), the entire folder card (icon, name, item count) transparently triggers the `NavigationLink`.
+2. **Blank Video Playback Issue** ([`MPVPlayerView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/Features/MPVPlayerView.swift#L70-L140)):
+   - **Root Cause**: `MPVPlayerView` initialized its OpenGL ES framebuffer during `init(frame: .zero)` when layer bounds were 0x0. Because `layoutSubviews()` was never implemented, `backingWidth` and `backingHeight` stayed 0x0, causing mpv to render into a zero-sized FBO. Audio played through `ao: avfoundation` while the video remained blank.
+   - **Fix**: Added `layoutSubviews()` and `didMoveToWindow()` to update renderbuffer storage (`eaglContext.renderbufferStorage`), query physical backing dimensions via `glGetRenderbufferParameteriv`, adjust `glViewport`, and configure post-initialization mpv properties (`hwdec = auto`, `profile = fast`, `video-sync = audio`, `keep-open = yes`).
+
+### Verification
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **` (Deployed and launched on iPhone XS Max).
+- macOS target: `** BUILD SUCCEEDED **`.
 
 User requested:
 - Add a way for users to import / open share links in the iOS app (via in-app menu and handling shared links).
