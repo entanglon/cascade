@@ -2,7 +2,29 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (afternoon) — Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation.
+> 2026-08-28 (afternoon) — Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile.
+
+---
+
+## 2026-08-28 (afternoon) — Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile
+
+User:
+1. "Browse Vault" in Settings should not be there.
+2. Uploaded a file on macOS app, but doing refreshes on iOS did not show the file.
+
+### Findings & Root Causes
+- **Upload Publishing Gap (`UploadEngine.swift:540`)**: When an upload completed on macOS, `UploadEngine` updated the local SQLite database to `ready` but did not call `CatalogSnapshot.upload()`. As a result, the delta/snapshot containing the new object was not published to the Telegram channel until a manual force-sync or debounced schedule was triggered.
+- **iOS Refresh Local-Only Gap (`Cascade iOS/AppState.swift:344,504`)**: On iOS, pulling to refresh (`.refreshable` in `FileBrowserView` and `RootView`) called `loadAllFiles()`, which only queried `DatabaseManager.shared.allObjects()` from the iPhone's local SQLite database. It never invalidated the scan cache or ran `CatalogSnapshot.upload()` to pull remote deltas/checkpoints from Telegram.
+- **Redundant Settings Item (`Cascade iOS/Features/SettingsView.swift:85-92`)**: Settings contained a duplicate "Browse Vault" navigation link under the Vault section.
+
+### Changes
+1. **`Engine/UploadEngine.swift`**:
+   - Added `_ = await CatalogSnapshot.upload()` immediately upon completing an upload so the new object record is published to the Telegram channel right away for other devices.
+2. **`Cascade iOS/AppState.swift`**:
+   - Updated `loadAllFiles(reconcileCloud: Bool = true)` to invalidate the channel scan cache (`TelegramClient.shared.invalidateScanCache(chatId:)`) and run `CatalogSnapshot.upload()` to pull and merge remote changes before loading files from SQLite and updating the UI.
+   - Updated `refreshFiles()` to invoke `loadAllFiles(reconcileCloud: true)`.
+3. **`Cascade iOS/Features/SettingsView.swift`**:
+   - Removed the duplicate "Browse Vault" navigation link from Settings.
 
 ---
 

@@ -3898,6 +3898,17 @@ Open levers (not scheduled):
     - Generator Aspect Ratio Fix: Updated `UploadEngine.generateThumbnails` and `ThumbnailService.generateAndSaveThumbnail` / `generateAndSaveAudioThumbnail` to use `ThumbnailCrop.aspectFit` instead of `subjectSquare`, preserving true 16:9, 4:3, 9:16, and portrait/landscape geometry across all generated previews.
     - Files-Style Grid UI (`Cascade iOS/RootView.swift`): Updated `FileGridItem`'s `thumbnailView` to render thumbnails with `.aspectRatio(contentMode: .fit)` floating inside the invisible 105pt cell container with rounded corners and subtle drop shadows. Updated fallback placeholders for videos (16:9), photos (4:3), and documents (3:4) to reflect their natural proportions.
     - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`.
+183. **Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile (2026-08-28 afternoon)**
+     (`Engine/UploadEngine.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/Features/SettingsView.swift`)
+    - Root Causes:
+      1. `UploadEngine.swift:540` finished upload tasks without calling `CatalogSnapshot.upload()`, leaving newly uploaded objects unpublished to Telegram until a later manual or debounced sync.
+      2. `Cascade iOS/AppState.swift:344` `loadAllFiles()` only queried local SQLite data and never fetched Telegram channel updates on pull-to-refresh.
+      3. Settings contained a redundant "Browse Vault" navigation link.
+    - Fixes:
+      1. In `UploadEngine.swift`, trigger `_ = await CatalogSnapshot.upload()` immediately upon completing an upload.
+      2. In `Cascade iOS/AppState.swift`, update `loadAllFiles(reconcileCloud: true)` to invalidate scan cache and run `CatalogSnapshot.upload()` before reading SQLite so pull-to-refresh pulls all new objects/deltas from Telegram.
+      3. In `Cascade iOS/Features/SettingsView.swift`, removed duplicate "Browse Vault" navigation link.
+    - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`. Installed & launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 

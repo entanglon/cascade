@@ -81,15 +81,6 @@ struct SettingsView: View {
                             }
                         }
                     }
-
-                    if appState.isVaultConnected {
-                        NavigationLink {
-                            FileBrowserView()
-                                .navigationTitle("Cascade Vault")
-                        } label: {
-                            Label("Browse Vault", systemImage: "folder")
-                        }
-                    }
                 }
 
                 // Security section

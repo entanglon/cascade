@@ -341,10 +341,16 @@ final class AppState {
         return data
     }
 
-    func loadAllFiles() async {
+    func loadAllFiles(reconcileCloud: Bool = true) async {
         isLoadingFiles = true
         defer { isLoadingFiles = false }
         do {
+            if reconcileCloud && TelegramClient.shared.isAuthorized,
+               let vault = try? await DatabaseManager.shared.firstVault() {
+                TelegramClient.shared.invalidateScanCache(chatId: vault.channelID)
+                _ = await CatalogSnapshot.upload()
+            }
+
             let objects = try await DatabaseManager.shared.allObjects()
                 .filter { $0.tombstoneAt == nil }
             self.allFiles = objects.map { FileItem(record: $0) }
@@ -503,6 +509,7 @@ final class AppState {
 
     func refreshFiles() {
         files = currentFiles
+        Task { await loadAllFiles(reconcileCloud: true) }
     }
 
     func navigateToFolder(_ file: FileItem) {

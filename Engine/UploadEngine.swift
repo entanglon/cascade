@@ -538,6 +538,7 @@ enum UploadEngine {
 
                 report("Complete", 1.0)
                 Task { @MainActor in TransferCenter.shared.finish(transferID, success: true) }
+                _ = await CatalogSnapshot.upload()
                 logger.info("Upload complete: \(plan.items.count) chunk(s) stored in vault")
                 // TDLib preheat (item 164): pull each chunk document into TDLib's
                 // local store in the background at low priority. Streaming then
