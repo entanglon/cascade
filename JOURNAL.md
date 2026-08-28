@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (afternoon) — Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation
+## 2026-08-28 (afternoon) — Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation (`bd6a53c`)
 
 User:
 1. Currently thumbnails appear as squares. We need proper Apple Files-style thumbnails that preserve their natural aspect ratio (e.g. 16:9 for video) contained within an invisible bounding box.
