@@ -107,22 +107,33 @@ devicectl device process launch --device 8F28E614-EA35-5B10-8DC9-E390026D4599 co
 
 ## Recent Changes
 
-### Round 183: Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile (`12842e6`)
-- Added `CatalogSnapshot.upload()` immediately upon completing uploads in `UploadEngine.swift`.
-- Updated `Cascade iOS/AppState.swift` `loadAllFiles(reconcileCloud: true)` to invalidate scan cache and reconcile cloud catalog snapshots on pull-to-refresh.
-- Removed duplicate "Browse Vault" link from `SettingsView`.
+### Round 205: Fix Folder Tap Opening & MKV Video Playback Renderbuffer Sizing (`7e09cfc`)
+- **Folder Tap Fix**: Removed inner nested `Button` elements inside `FileGridItem.gridContent` that were swallowing touch events meant for the outer `NavigationLink`. Now tapping anywhere on a folder card immediately opens the folder.
+- **MKV / Video Playback Fix**: Implemented `layoutSubviews()`, `didMoveToWindow()`, and `updateRenderbufferSize()` in `MPVPlayerView.swift` to properly resize the `CAEAGLLayer` OpenGL ES renderbuffer upon view sizing, eliminating the blank video screen issue. Configured post-init mpv properties (`hwdec = auto`, `profile = fast`, `video-sync = audio`, `keep-open = yes`).
 
-### Round 182: Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation (`bd6a53c`)
-- Switched `UploadEngine.generateThumbnails` and `ThumbnailService` from `ThumbnailCrop.subjectSquare` to `ThumbnailCrop.aspectFit`, preserving 16:9, 4:3, 9:16, etc.
-- Updated `FileGridItem.thumbnailView` on iOS to render aspect-fit thumbnails floating inside invisible 105pt containers with natural proportioned fallback cards for video (16:9), photos (4:3), and documents (3:4).
+### Round 204: Share Link Importing, Deep Link cascade:// Scheme, & In-App "Add from Share Link" Sheet (`1ed7c52`)
+- Registered `cascade://` URL scheme in `project.pbxproj` and wired deep link handling in `CascadeApp.swift`.
+- Added `ImportShareLinkSheet` with clipboard auto-detection, paste button, password support, and "Import to Drive" action.
+- Added "Add from Share Link..." into `...` menus in `SharedView` and `FileBrowserView`, plus quick buttons in the Shared banner and empty state.
 
-### Round 181: Folder Navigation Gesture Fix (`8c8c6ff`)
-- Made `onTap` optional in `FileRow` and `FileGridItem` so `NavigationLink` receives taps directly and pushes folder views smoothly.
+### Round 203: Functional Shared Page (Public/Private Shares, Copy Link, Revoke) & Native Apple Files Context Menu (`ab1df9e`)
+- Overhauled `SharedView` with Public and Private share sections, status badges, countdowns, search, icons/list view modes, sorting, and pull-to-refresh.
+- Added `ShareGridCard` and `ShareListRow` with `Copy Link`, `Share Link...` (`UIActivityViewController`), and `Revoke Share` context menu actions.
+- Implemented native Apple Files context menu on `FileGridItem` and `FileRow`: top horizontal `ControlGroup` (`Copy`, `Move`, `Share`) and vertical list (`Quick Look`, `Get Info`, `Rename`, `Archive`, `Duplicate`, `New Folder with Item`, `Favorite`, `Delete`).
+- Added `ShareFileSheet` and `MoveDestinationPickerSheet`.
 
-### Round 180: Native Apple Files Image Viewer & Video Player Fix (`9824092`)
-- Native Apple Files image viewer (pure black canvas, aspect-fit, hidden bars toggled on tap).
-- Dismiss crash fix in `VideoPlaybackView` by routing dismiss through `appState.closeTheater()`.
-- Cloud catalog name healing in `CatalogSnapshot.merge()` ensuring authentic filenames always override `File-` phantoms.
+### Round 202: Consolidated Upload Files Nested Menu with Choose Files, Photo Library, & Take Photo or Video (`6569f15`)
+- Consolidated upload actions under a single "Upload Files" menu item that opens a submenu matching native Apple Files: Choose Files (`folder`), Photo Library (`photo.on.rectangle`), and Take Photo or Video (`camera`).
+- Implemented `CameraMediaPicker` with photo/video camera capture.
+
+### Round 201: Apple Files Selection Circles, Hidden Back Button, Batch Uploads, & Direct Sharing (`dff03e7`)
+- Fixed grid selection indicators to match native Apple Files: bottom-centered translucent circular rings when unselected, blue checkmarks when selected.
+- Hid back arrow during selection mode, with "Select All" leading, dynamic count title, and "Done" trailing.
+- Added location-aware batch uploading honoring current subfolder `parentID` and wired `.onOpenURL` for direct file sharing from other apps.
+
+### Round 200: Apple Files Grid Spacing (3.5 Rows) & Folder Creation Smooth Transition (`507f354`)
+- Updated `LazyVGrid` row spacing to `28pt` and thumbnail height to `94pt` matching native Apple Files ~3.5 rows per screen ratio.
+- Fixed folder creation lag by removing `withAnimation` collision on creation and deferring keyboard focus.
 
 ## Dual-Platform Verification
 - `Cascade iOS` scheme (`sdk iphoneos`, Debug): **BUILD SUCCEEDED**

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-22: Session covered items 142–177 — uniform ~1.9 GiB chunks, streaming rounds 1–7 (deep-range experiment reverted; final arch = serial chain + large sync batches), audit hardening, upload/download true pause+resume, discard-ghost fixes, single-cache architecture (TDLib store is THE cache, capped via optimizeStorage + post-upload preheat), player UX (seek hold, buffering overlay, scrubber axis), folder sharing, and Wave 2 items 1–9 (sidecar subtitles, offline pins, Finder drop-zone two-way sync, Touch ID vault unlock, PiP + audio output picker, storage dashboard, duplicate finder, version history + bulk export, Shared-page upgrades). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-08-28: Session covered items 178–205 — Apple Files UI redesign (tab bar, grid dimensions, circular selection, folder creation lag fix, batch uploads with photo library and camera capture, functional Shared page with Public/Private shares, native Files context menus with Copy/Move/Share bar and folder picker, deep-link share importing cascade:// scheme, folder tap opening fix, and MKV video player OpenGL renderbuffer sizing). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
 
 ---
 
