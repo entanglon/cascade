@@ -4159,6 +4159,11 @@ Open levers (not scheduled):
     - Added "Upload Files" and "Upload Photos & Videos" to the `...` menu with location-aware batch uploading honoring current subfolder `parentID`.
     - Added floating upload progress banner and wired `.onOpenURL` in `CascadeApp.swift` for direct file sharing from other apps.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed to iPhone XS Max.
+202. **Consolidated Upload Files Nested Menu with Choose Files, Photo Library, & Take Photo or Video (2026-08-28 night — COMMITTED `6569f15`)**
+     (`Cascade iOS/Features/FileBrowserView.swift`, `Cascade.xcodeproj/project.pbxproj`)
+    - Consolidated upload actions under a single "Upload Files" menu item that opens a submenu matching `media_1787926822665.png`: Choose Files (`folder`), Photo Library (`photo.on.rectangle`), and Take Photo or Video (`camera`).
+    - Implemented `CameraMediaPicker` with photo/video camera capture and added NSCameraUsageDescription & NSMicrophoneUsageDescription.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed to iPhone XS Max.
 
 
 

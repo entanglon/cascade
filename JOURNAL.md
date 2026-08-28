@@ -2,7 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Apple Files selection circles, hidden back button, batch uploads with location respect, and direct sharing (Round 201, dff03e7).
+> 2026-08-28 (night) — Consolidated Upload Files menu with Choose Files, Photo Library, and Take Photo or Video (Round 202, 6569f15).
+
+---
+
+## 2026-08-28 (night) — Consolidated Upload Files menu with Choose Files, Photo Library, and Take Photo or Video (Round 202, commit `6569f15`)
+
+User requested:
+- Consolidate upload into a single "Upload Files" option in the `...` menu, which expands/presents the choices matching screenshot `media_1787926822665.png`:
+  - **Choose Files** (systemImage: `folder`) -> triggers `.fileImporter` (batch document picker)
+  - **Photo Library** (systemImage: `photo.on.rectangle`) -> triggers `.photosPicker` (media gallery)
+  - **Take Photo or Video** (systemImage: `camera`) -> triggers direct camera capture
+
+### Changes Implemented
+1. **Consolidated Nested Upload Submenu** ([`FileBrowserView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/Features/FileBrowserView.swift#L85-L115)):
+   - Nested `Menu` under "Upload Files" with `Choose Files`, `Photo Library`, and `Take Photo or Video`.
+2. **Camera Media Capture Component** ([`FileBrowserView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/Features/FileBrowserView.swift#L485-L535)):
+   - Implemented `CameraMediaPicker: UIViewControllerRepresentable` for capturing photos and videos directly with camera and auto-uploading them to the active folder location.
+3. **Usage Descriptions** ([`project.pbxproj`](file:///Users/zainulnazir/Projects/Cascade/Cascade.xcodeproj/project.pbxproj#L865-L910)):
+   - Added `INFOPLIST_KEY_NSCameraUsageDescription` and `INFOPLIST_KEY_NSMicrophoneUsageDescription` to iOS Debug & Release configurations.
+
+### Verification
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **` (Deployed and launched on iPhone XS Max).
+- macOS target: `** BUILD SUCCEEDED **`.
+- Commit: `6569f15`.
 
 ---
 
