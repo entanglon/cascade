@@ -113,6 +113,12 @@ struct FileBrowserView: View {
                             }
 
                             Button {
+                                appState.showImportShareSheet = true
+                            } label: {
+                                Label("Add from Share Link", systemImage: "link.badge.plus")
+                            }
+
+                            Button {
                                 appState.startCreatingFolder(in: folderID)
                             } label: {
                                 Label("New Folder", systemImage: "folder.badge.plus")

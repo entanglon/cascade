@@ -155,6 +155,9 @@ final class AppState {
     var shareSheetTargetFile: FileItem? = nil
     var moveSheetFileIDs: Set<String>? = nil
     var shareActivityItems: [Any]? = nil
+    var showImportShareSheet: Bool = false
+    var isImportingShareLink: Bool = false
+    var pendingPasswordLink: String? = nil
 
     var activeOutgoingShares: [ShareRecord] {
         outgoingShares.filter { $0.state == "active" && !$0.isArchived }
@@ -1025,6 +1028,82 @@ final class AppState {
         let link = try await ShareEngine.share(object: obj, isPublic: isPublic, password: password)
         await loadShares()
         return link
+    }
+
+    func importShareLink(_ raw: String, password: String? = nil, destinationFolderID: String? = nil) async {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        await MainActor.run {
+            self.isImportingShareLink = true
+        }
+
+        defer {
+            Task { @MainActor in
+                self.isImportingShareLink = false
+            }
+        }
+
+        do {
+            let outcome = try await ShareEngine.importLink(
+                trimmed,
+                password: password,
+                destinationFolderID: destinationFolderID
+            )
+
+            switch outcome {
+            case .pending(let objectID):
+                let finalName = try await ShareEngine.confirmImport(objectID: objectID)
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+                await loadShares()
+                await MainActor.run {
+                    self.pendingPasswordLink = nil
+                    self.showImportShareSheet = false
+                    self.currentNotification = "Imported \"\(finalName)\""
+                }
+            case .imported:
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+                await loadShares()
+                await MainActor.run {
+                    self.pendingPasswordLink = nil
+                    self.showImportShareSheet = false
+                    self.currentNotification = "Shared file imported successfully"
+                }
+            case .selfOpen(let objectID):
+                await loadAllFiles()
+                await MainActor.run {
+                    self.pendingPasswordLink = nil
+                    self.showImportShareSheet = false
+                    if let file = self.allFiles.first(where: { $0.id == objectID }) {
+                        self.currentNotification = "This is your own file: \(file.name)"
+                        self.openFile(file)
+                    }
+                }
+            case .alreadyImported(let objectID):
+                await loadAllFiles()
+                await MainActor.run {
+                    self.pendingPasswordLink = nil
+                    self.showImportShareSheet = false
+                    if let file = self.allFiles.first(where: { $0.id == objectID }) {
+                        self.currentNotification = "Already in your drive: \(file.name)"
+                        self.openFile(file)
+                    }
+                }
+            }
+        } catch ShareEngine.ShareError.passwordRequired {
+            await MainActor.run {
+                self.pendingPasswordLink = trimmed
+                self.showImportShareSheet = true
+                self.currentNotification = "Password required for this share link"
+            }
+        } catch {
+            await MainActor.run {
+                self.currentNotification = "Import failed: \(ShareEngine.describe(error))"
+            }
+            print("[iOS] importShareLink error: \(error)")
+        }
     }
 
     func getInfo(_ file: FileItem) -> String {

@@ -4171,6 +4171,13 @@ Open levers (not scheduled):
     - Implemented native Apple Files context menu on `FileGridItem` and `FileRow`: top horizontal `ControlGroup` (`Copy`, `Move`, `Share`) and vertical list (`Quick Look`, `Get Info`, `Rename`, `Archive`, `Duplicate`, `New Folder with Item`, `Favorite`, `Delete`).
     - Added `ShareFileSheet` with Public/Private picker + password protection, `MoveDestinationPickerSheet` with interactive folder hierarchy navigation, and backend mutation methods (`duplicateFile`, `createFolderWithItem`, `moveFiles`, `shareFile`, `cancelShare`).
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
+204. **Share Link Importing, Deep Link cascade:// Handler, & In-App "Add from Share Link" Sheet (2026-08-28 night)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/CascadeApp.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`, `Cascade.xcodeproj/project.pbxproj`)
+    - Registered `cascade://` URL scheme in `project.pbxproj` and wired deep link routing in `CascadeApp.swift`.
+    - Added `ImportShareLinkSheet` with clipboard detection, paste shortcut, and password support.
+    - Added "Add from Share Link..." into `...` menus across `SharedView` and `FileBrowserView`, plus quick action buttons in `SharedView` banner and empty state.
+    - Implemented `AppState.importShareLink(...)` with `ShareEngine.importLink(...)` auto-confirmation, own file self-open, already-imported reveal, and snapshot sync.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
 
 
 

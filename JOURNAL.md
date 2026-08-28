@@ -2,11 +2,30 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203, ab1df9e).
+> 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204).
 
 ---
 
-## 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203, commit `ab1df9e`)
+## 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204)
+
+User requested:
+- Add a way for users to import / open share links in the iOS app (via in-app menu and handling shared links).
+
+### Changes Implemented
+1. **Deep Link URL Scheme Registration** ([`project.pbxproj`](file:///Users/zainulnazir/Projects/Cascade/Cascade.xcodeproj/project.pbxproj#L865), [`CascadeApp.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/CascadeApp.swift#L20-L30)):
+   - Added `INFOPLIST_KEY_CFBundleURLTypes` registering the `cascade` scheme for `com.cascade.app.ios`.
+   - Wired `.onOpenURL` to detect `url.scheme == "cascade"` and invoke `appState.importShareLink(url.absoluteString)`.
+2. **In-App "Add from Share Link" UI & Sheets** ([`RootView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/RootView.swift#L4980-L5080), [`FileBrowserView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/Features/FileBrowserView.swift#L115-L125)):
+   - Added `ImportShareLinkSheet`: text field with automatic clipboard detection / paste button, password support, and "Import to Drive" action with live progress indicator.
+   - Added "Add from Share Link..." to `...` menu in `SharedView` and `FileBrowserView` (Cascade Drive).
+   - Added "Add from Share Link" buttons in the `SharedView` empty state and information banner.
+3. **Backend Import Engine Integration** ([`AppState.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/AppState.swift#L1030-L1100)):
+   - Added `AppState.importShareLink(_:password:destinationFolderID:)` connecting to `ShareEngine.importLink(...)` and `ShareEngine.confirmImport(objectID:)`.
+   - Handles auto-confirming pending imports, self-opening own files, revealing already-imported objects, password unlock flow, and catalog snapshot republishing.
+
+### Verification
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **` (Deployed and launched on iPhone XS Max).
+- macOS target: `** BUILD SUCCEEDED **`.
 
 User requested:
 1. Make the **Shared** page fully functional on iOS:

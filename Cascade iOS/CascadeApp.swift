@@ -20,8 +20,14 @@ struct CascadeApp: App {
                 .preferredColorScheme(.dark)
                 .task { await appState.bootstrap() }
                 .onOpenURL { url in
-                    Task {
-                        await appState.uploadBatch(urls: [url], parentID: nil)
+                    if url.scheme == "cascade" {
+                        Task {
+                            await appState.importShareLink(url.absoluteString)
+                        }
+                    } else {
+                        Task {
+                            await appState.uploadBatch(urls: [url], parentID: nil)
+                        }
                     }
                 }
         }

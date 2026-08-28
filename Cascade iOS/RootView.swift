@@ -564,6 +564,9 @@ struct RootView: View {
         )) { wrapper in
             ShareSheet(items: wrapper.items)
         }
+        .sheet(isPresented: $appState.showImportShareSheet) {
+            ImportShareLinkSheet()
+        }
     }
 }
 
@@ -1205,6 +1208,14 @@ struct SharedView: View {
                     Menu {
                         Section {
                             Button {
+                                appState.showImportShareSheet = true
+                            } label: {
+                                Label("Add from Share Link...", systemImage: "link.badge.plus")
+                            }
+                        }
+
+                        Section {
+                            Button {
                                 isSelecting = true
                             } label: {
                                 Label("Select", systemImage: "checkmark.circle")
@@ -1282,6 +1293,15 @@ struct SharedView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
+
+            Button {
+                appState.showImportShareSheet = true
+            } label: {
+                Label("Add from Share Link", systemImage: "link.badge.plus")
+                    .font(.headline)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 8)
         }
         .padding(.top, showBanner ? 20 : 80)
     }
@@ -1379,6 +1399,18 @@ struct SharedView: View {
                 Text("Long-press any file in your drive and choose Share to generate a secure link.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Button {
+                    appState.showImportShareSheet = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link.badge.plus")
+                        Text("Add from Share Link")
+                    }
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.blue)
+                    .padding(.top, 2)
+                }
             }
 
             Spacer()
@@ -4975,6 +5007,103 @@ struct FullAudioPlayerView: View {
                 }
                 .padding(.bottom, 40)
             }
+        }
+    }
+}
+
+// MARK: - Import Share Link Modal Sheet
+
+struct ImportShareLinkSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var linkText: String = ""
+    @State private var passwordText: String = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Paste a Cascade share link (cascade://share#...) to import shared files directly into your drive.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 8) {
+                            TextField("cascade://share#...", text: $linkText)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+
+                            if UIPasteboard.general.hasStrings {
+                                Button {
+                                    if let string = UIPasteboard.general.string {
+                                        linkText = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    }
+                                } label: {
+                                    Label("Paste", systemImage: "doc.on.clipboard")
+                                        .labelStyle(.iconOnly)
+                                        .font(.system(size: 16))
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if appState.pendingPasswordLink != nil || !passwordText.isEmpty {
+                    Section("Password Protected") {
+                        SecureField("Enter Password", text: $passwordText)
+                    }
+                }
+
+                Section {
+                    Button {
+                        importLink()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if appState.isImportingShareLink {
+                                ProgressView()
+                                    .padding(.trailing, 6)
+                            }
+                            Text(appState.isImportingShareLink ? "Importing..." : "Import to Drive")
+                                .font(.headline)
+                                .foregroundStyle(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.isImportingShareLink ? Color.secondary : Color.blue)
+                            Spacer()
+                        }
+                    }
+                    .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.isImportingShareLink)
+                }
+            }
+            .navigationTitle("Add from Share Link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        appState.pendingPasswordLink = nil
+                        dismiss()
+                    }
+                    .disabled(appState.isImportingShareLink)
+                }
+            }
+            .onAppear {
+                if let pending = appState.pendingPasswordLink {
+                    linkText = pending
+                } else if linkText.isEmpty, let clip = UIPasteboard.general.string, clip.hasPrefix("cascade://") {
+                    linkText = clip.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+    }
+
+    private func importLink() {
+        let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Task {
+            await appState.importShareLink(
+                trimmed,
+                password: passwordText.isEmpty ? nil : passwordText
+            )
         }
     }
 }
