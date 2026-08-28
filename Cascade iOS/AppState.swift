@@ -647,29 +647,41 @@ final class AppState {
     func createFolder(named name: String, parentID: String? = nil, isPrivate: Bool = false) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let vault = try? DatabaseManager.shared.firstVault()
+        let folder = ObjectRecord(
+            id: UUID().uuidString,
+            vaultID: vault?.id ?? "local",
+            name: trimmed,
+            size: 0,
+            mime: "cascade/folder",
+            state: "ready",
+            rootHash: nil,
+            wrappedKey: nil,
+            createdAt: .now,
+            modifiedAt: .now,
+            isFavorite: false,
+            trashed: false,
+            parentID: (parentID?.isEmpty == true) ? nil : parentID,
+            isFolder: true,
+            isPrivate: isPrivate
+        )
+
+        // Optimistic UI update: insert folder into memory immediately so there is no flicker or disappearance
+        let newFileItem = FileItem(record: folder)
+        self.allFiles.insert(newFileItem, at: 0)
+        self.files = currentFiles
+        self.isCreatingFolder = false
+        self.creatingFolderParentID = nil
+
         Task {
             do {
-                let vault = try? await DatabaseManager.shared.firstVault()
-                let folder = ObjectRecord(
-                    id: UUID().uuidString,
-                    vaultID: vault?.id ?? "local",
-                    name: trimmed,
-                    size: 0,
-                    mime: "cascade/folder",
-                    state: "ready",
-                    rootHash: nil,
-                    wrappedKey: nil,
-                    createdAt: .now,
-                    modifiedAt: .now,
-                    isFavorite: false,
-                    trashed: false,
-                    parentID: (parentID?.isEmpty == true) ? nil : parentID,
-                    isFolder: true,
-                    isPrivate: isPrivate
-                )
                 try await DatabaseManager.shared.save(folder)
                 _ = await CatalogSnapshot.upload()
-                await loadAllFiles()
+                let objects = try await DatabaseManager.shared.allObjects().filter { $0.tombstoneAt == nil }
+                await MainActor.run {
+                    self.allFiles = objects.map { FileItem(record: $0) }
+                    self.files = self.currentFiles
+                }
             } catch {
                 print("[iOS] createFolder failed: \(error)")
             }

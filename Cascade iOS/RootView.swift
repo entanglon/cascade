@@ -2997,20 +2997,20 @@ struct InlineNewFolderGridItem: View {
     @State private var isCommitted: Bool = false
 
     var body: some View {
-        VStack(spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                AppleFolderIcon(width: 86, height: 68)
+        VStack(spacing: 4) {
+            ZStack(alignment: .bottom) {
+                AppleFolderIcon(width: 82, height: 64)
                     .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1.5)
             }
-            .frame(height: 105)
+            .frame(height: 86, alignment: .bottom)
             .frame(maxWidth: .infinity)
 
-            VStack(spacing: 2) {
+            VStack(spacing: 1.5) {
                 TextField("Folder Name", text: $folderName)
                     .font(.system(size: 13, weight: .regular))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(Color(uiColor: .systemGray5))
@@ -3025,15 +3025,10 @@ struct InlineNewFolderGridItem: View {
                             commit()
                         }
                     }
-                    .frame(height: 34, alignment: .top)
 
                 Text("0 items")
-                    .font(.system(size: 11))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.secondary)
-                    .frame(height: 14)
-                Text("")
-                    .font(.system(size: 11))
-                    .frame(height: 14)
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -3051,7 +3046,6 @@ struct InlineNewFolderGridItem: View {
         let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? "untitled folder" : trimmed
         appState.createFolder(named: finalName, parentID: parentID, isPrivate: filterPrivate)
-        appState.isCreatingFolder = false
     }
 }
 
@@ -3108,7 +3102,6 @@ struct InlineNewFolderRow: View {
         let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmed.isEmpty ? "untitled folder" : trimmed
         appState.createFolder(named: finalName, parentID: parentID, isPrivate: filterPrivate)
-        appState.isCreatingFolder = false
     }
 }
 
@@ -3431,7 +3424,7 @@ struct FileGridItem: View {
     }
 
     private var gridContent: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             // Card container / thumbnail (tapping opens file/folder)
             Button {
                 if isSelecting {
@@ -3444,23 +3437,23 @@ struct FileGridItem: View {
             } label: {
                 ZStack(alignment: .topTrailing) {
                     thumbnailView
-                        .frame(height: 105)
+                        .frame(height: 86, alignment: .bottom)
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
 
                     if isSelecting {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 22))
+                            .font(.system(size: 20))
                             .foregroundStyle(isSelected ? Color.blue : Color.secondary)
                             .background(Circle().fill(Color.white).padding(2))
-                            .padding(4)
+                            .padding(2)
                     }
                 }
             }
             .buttonStyle(.plain)
 
             // Labels
-            VStack(spacing: 2) {
+            VStack(spacing: 1.5) {
                 if isRenaming {
                     TextField("Name", text: $renameText)
                         .font(.system(size: 13, weight: .regular))
@@ -3487,7 +3480,6 @@ struct FileGridItem: View {
                                 isRenameFocused = true
                             }
                         }
-                        .frame(height: 34, alignment: .top)
                 } else {
                     // Tapping filename directly starts inline rename (or selects if in selection mode)
                     Button {
@@ -3503,33 +3495,22 @@ struct FileGridItem: View {
                             .multilineTextAlignment(.center)
                             .truncationMode(.middle)
                             .foregroundStyle(.primary)
-                            .frame(height: 34, alignment: .top)
                     }
                     .buttonStyle(.plain)
                 }
 
                 if file.isFolder {
                     Text("\(countChildren) \(countChildren == 1 ? "item" : "items")")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(.secondary)
-                        .frame(height: 14)
-                    Text("")
-                        .font(.system(size: 11))
-                        .frame(height: 14)
                 } else {
                     Text(file.formattedDate)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(.secondary)
-                        .frame(height: 14)
                     if let size = file.formattedSize {
                         Text(size)
-                            .font(.system(size: 11))
+                            .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(.secondary)
-                            .frame(height: 14)
-                    } else {
-                        Text("")
-                            .font(.system(size: 11))
-                            .frame(height: 14)
                     }
                 }
             }
@@ -3561,52 +3542,52 @@ struct FileGridItem: View {
     private var thumbnailView: some View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
-            AppleFolderIcon(width: 86, height: 68)
+            AppleFolderIcon(width: 82, height: 64)
                 .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1.5)
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: 100)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .shadow(color: .black.opacity(0.16), radius: 3, x: 0, y: 1.5)
+                .frame(maxWidth: .infinity, maxHeight: 86)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .shadow(color: .black.opacity(0.16), radius: 2.5, x: 0, y: 1.5)
         } else if file.isAudio {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 76, height: 92)
-                    .shadow(color: .black.opacity(0.15), radius: 3, x: 0, y: 1.5)
+                    .frame(width: 66, height: 86)
+                    .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
                 Image(systemName: "music.note")
-                    .font(.system(size: 34, weight: .regular))
-                    .foregroundStyle(Color(white: 0.70))
+                    .font(.system(size: 32, weight: .regular))
+                    .foregroundStyle(Color(white: 0.76))
             }
         } else if file.isDocument {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 72, height: 94)
-                    .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1.5)
-                VStack(spacing: 6) {
+                    .frame(width: 66, height: 86)
+                    .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                VStack(spacing: 4) {
                     Image(systemName: "doc.text")
-                        .font(.system(size: 28))
+                        .font(.system(size: 26))
                         .foregroundStyle(Color(white: 0.65))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
                         Text(ext)
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(Color(white: 0.45))
                     }
                 }
             }
         } else if file.isVideo {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(red: 0.13, green: 0.13, blue: 0.15))
-                    .frame(width: 96, height: 60)
-                    .shadow(color: .black.opacity(0.20), radius: 3, x: 0, y: 1.5)
-                VStack(spacing: 4) {
+                    .frame(width: 86, height: 58)
+                    .shadow(color: .black.opacity(0.20), radius: 2.5, x: 0, y: 1.5)
+                VStack(spacing: 3) {
                     Image(systemName: "film")
-                        .font(.system(size: 26))
+                        .font(.system(size: 24))
                         .foregroundStyle(.white.opacity(0.75))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -3618,13 +3599,13 @@ struct FileGridItem: View {
             }
         } else if file.isImage {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(red: 0.16, green: 0.18, blue: 0.22))
-                    .frame(width: 88, height: 66)
-                    .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1.5)
-                VStack(spacing: 4) {
+                    .frame(width: 80, height: 60)
+                    .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                VStack(spacing: 3) {
                     Image(systemName: "photo")
-                        .font(.system(size: 28))
+                        .font(.system(size: 26))
                         .foregroundStyle(.white.opacity(0.70))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -3636,18 +3617,18 @@ struct FileGridItem: View {
             }
         } else {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(.secondarySystemGroupedBackground))
-                    .frame(width: 74, height: 92)
+                    .frame(width: 66, height: 86)
                     .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
-                VStack(spacing: 6) {
+                VStack(spacing: 4) {
                     Image(systemName: file.systemIcon)
-                        .font(.system(size: 28))
+                        .font(.system(size: 26))
                         .foregroundStyle(.blue)
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
                         Text(ext)
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.secondary)
                     }
                 }

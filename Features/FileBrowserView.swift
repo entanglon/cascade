@@ -463,7 +463,7 @@ struct FileBrowserView: View {
         .onKeyPress("r", phases: .down) { press in
             if press.modifiers.contains(.command) {
                 Task {
-                    await appState.loadFiles()
+                    await appState.loadFiles(reconcileCloud: true)
                     appState.thumbnailVersion += 1
                 }
                 return .handled

@@ -301,6 +301,10 @@ final class AppState {
             if let syncedAt = await CatalogSnapshot.upload() {
                 self.lastSyncDate = syncedAt
             }
+            if selectedDestination == .recent {
+                await RecentsSyncEngine.shared.syncFromCloud()
+            }
+            self.thumbnailVersion += 1
         }
         do {
             let objects = try await DatabaseManager.shared.allObjects().filter { $0.tombstoneAt == nil }
