@@ -891,6 +891,7 @@ struct RecentsView: View {
                     }
                 }
             }
+            .toolbarBackground(.visible, for: .navigationBar)
             .refreshable {
                 await appState.loadAllFiles()
             }
@@ -1015,6 +1016,7 @@ struct SharedView: View {
                     }
                 }
             }
+            .toolbarBackground(.visible, for: .navigationBar)
         }
     }
 
