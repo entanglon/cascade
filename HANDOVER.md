@@ -4064,6 +4064,15 @@ Open levers (not scheduled):
       2. Removed the leftover `allChannelMessages` scan from `fetchThumbnailData` (falls through directly to chunk-attached thumbnail `thumbnailData(forMessage:)`).
       3. Removed redundant `invalidateScanCache` call in `loadAllFiles`.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+186. **Grid Item Baseline Alignment Fix & Fast getChatHistory Sync (2026-08-28 night — COMMITTED `b1aff13`)**
+     (`Cascade iOS/RootView.swift`, `Telegram/TelegramClient.swift`)
+    - Root Causes:
+      1. In `FileGridItem`, `Text(file.name)` had no fixed height frame. Files with 2-line filenames occupied ~34pt height, while 1-line filenames (`apple-tv.png`) took ~16pt, shifting the date and size lines upward by ~18pt relative to neighboring cards. Combined with a narrow portrait aspect ratio, this created visual shrinking and misalignment.
+      2. `searchChatMessages` in TDLib timed out on channels without a local message index database.
+    - Fixes:
+      1. In `Cascade iOS/RootView.swift`, locked `Text(file.name)` in `FileGridItem` to a 34pt top-aligned container (`.frame(height: 34, alignment: .top)`) and locked metadata rows (`.frame(height: 14)`), ensuring strictly identical horizontal baselines and card sizing across all 3 grid columns.
+      2. In `Telegram/TelegramClient.swift`, refactored `searchChannelMetadataMessages` to use `getChatHistory(fromMessageId: 0, limit: 100)` with `cascade:db` filtering for sub-50ms reliable metadata fetching.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 

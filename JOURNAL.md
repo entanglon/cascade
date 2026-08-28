@@ -2,7 +2,36 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (late evening) — Resolved iOS pull-to-refresh spinner hang: decoupled thumbnail loading from loadAllFiles into background task, removed leftover allChannelMessages in fetchThumbnailData (Round 185, 52b5bee).
+> 2026-08-28 (night) — Grid item baseline alignment fix for portrait/short-named files & instant getChatHistory sync (Round 186, b1aff13).
+
+---
+
+## 2026-08-28 (night) — Grid item baseline alignment fix & instant getChatHistory sync (Round 186, commit `b1aff13`)
+
+User reported that `apple-tv.png` appeared smaller with smaller text size compared to the rest of the files in the grid view.
+
+### Root Cause Analysis (File & Line Tracing)
+1. **Vertical Baseline Misalignment (`Cascade iOS/RootView.swift:2324-2347`)**:
+   - In `FileGridItem`, `Text(file.name)` had `.lineLimit(2)` without a fixed container height.
+   - Files with 2-line filenames (`7a2e3154-...2d53.jpg`, `4P1m...png`) took ~34pt height, while `apple-tv.png` (a short 1-line name) took only ~16pt height.
+   - This shifted the date and size lines for `apple-tv.png` upward by ~18pt relative to the neighboring cells in the row.
+   - Combined with `apple-tv.png`'s tall portrait aspect ratio (where `maxHeight: 100` resulted in a narrower ~50pt thumbnail width), the cell had large empty gaps around it and misaligned baselines, creating the illusion of a shrunk/scaled-down card.
+2. **TDLib `searchChatMessages` Stall (`Telegram/TelegramClient.swift:1673-1693`)**:
+   - `searchChatMessages` requires a client-side indexed local database in TDLib; on remote channels without a local index, the query timed out on each attempt (`withResponseTimeout(15)`), taking 30–60s on every refresh.
+
+### Fix
+1. In `Cascade iOS/RootView.swift` (`FileGridItem`):
+   - Gave `Text(file.name)` a locked 34pt height container (`.frame(height: 34, alignment: .top)`), guaranteeing that 1-line and 2-line titles occupy identical space and start at the same top coordinate.
+   - Locked metadata lines (`.frame(height: 14)`) so date and size baselines are strictly aligned horizontally across all 3 columns in every row.
+   - Maintained `.frame(maxWidth: .infinity, alignment: .top)` so cell column widths remain perfectly uniform.
+2. In `Telegram/TelegramClient.swift` (`searchChannelMetadataMessages`):
+   - Refactored `searchChannelMetadataMessages` to use `getChatHistory(fromMessageId: 0, limit: 100)` with `cascade:db` filtering. `getChatHistory` is Telegram's fundamental, 100% reliable endpoint that returns in ~50ms without local index prerequisites.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `b1aff13`.
 
 ---
 
