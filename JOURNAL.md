@@ -2,11 +2,11 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204).
+> 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204, 1ed7c52).
 
 ---
 
-## 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204)
+## 2026-08-28 (night) — Share Link importing, deep link cascade:// scheme handler, and in-app Add from Share Link modal sheet (Round 204, commit `1ed7c52`)
 
 User requested:
 - Add a way for users to import / open share links in the iOS app (via in-app menu and handling shared links).
