@@ -347,7 +347,6 @@ final class AppState {
         do {
             if reconcileCloud && TelegramClient.shared.isAuthorized,
                let vault = try? await DatabaseManager.shared.firstVault() {
-                TelegramClient.shared.invalidateScanCache(chatId: vault.channelID)
                 _ = await CatalogSnapshot.upload()
             }
 
@@ -368,22 +367,24 @@ final class AppState {
                 print("[iOS] After retry: \(allFiles.count) files")
             }
 
-            // Load thumbnails asynchronously
-            await loadThumbnails()
+            // 1. Fast pass: load from local disk cache immediately on main thread
+            loadThumbnailsFromDisk()
+
+            // 2. Fetch missing thumbnails asynchronously in background so pull-to-refresh returns immediately
+            Task.detached(priority: .utility) { [weak self] in
+                await self?.loadMissingThumbnailsFromNetwork()
+            }
         } catch {
             print("[iOS] loadAllFiles failed: \(error)")
         }
     }
 
     func loadThumbnails() async {
-        guard let vault = try? await DatabaseManager.shared.firstVault() else {
-            print("[iOS] loadThumbnails: no vault found")
-            return
-        }
+        loadThumbnailsFromDisk()
+        await loadMissingThumbnailsFromNetwork()
+    }
 
-        print("[iOS] loadThumbnails: \(allFiles.count) files to process")
-
-        // 1. Fast pass: load from local disk cache
+    private func loadThumbnailsFromDisk() {
         var diskUpdated = false
         for i in 0..<allFiles.count {
             let file = allFiles[i]
@@ -398,14 +399,16 @@ final class AppState {
             files = currentFiles
             thumbnailVersion += 1
         }
+    }
 
-        // 2. Fetch missing thumbnails from Telegram in the background
+    func loadMissingThumbnailsFromNetwork() async {
+        guard let vault = try? await DatabaseManager.shared.firstVault() else { return }
         let missingFiles = allFiles.filter { $0.thumbnailData == nil && !$0.isFolder }
         guard !missingFiles.isEmpty else { return }
 
         await withTaskGroup(of: (String, Data?).self) { group in
             var iterator = missingFiles.makeIterator()
-            let maxConcurrent = 4
+            let maxConcurrent = 3
 
             for _ in 0..<maxConcurrent {
                 if let next = iterator.next() {
@@ -423,6 +426,7 @@ final class AppState {
                             self.allFiles[idx].thumbnailData = data
                         }
                         self.files = self.currentFiles
+                        self.thumbnailVersion += 1
                     }
                 }
                 if let next = iterator.next() {
@@ -440,21 +444,7 @@ final class AppState {
             return nil
         }
 
-        var sidecarID = object.thumbMessageID
-        if sidecarID == nil {
-            let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
-            if let match = messages.first(where: {
-                guard let cap = VaultRepair.caption(of: $0) else { return false }
-                guard ChunkCaption.isThumbCaption(cap), let meta = ChunkCaption.parse(cap) else { return false }
-                return meta.id == file.id
-            }) {
-                sidecarID = match.id
-                var updated = object
-                updated.thumbMessageID = match.id
-                try? await DatabaseManager.shared.save(updated)
-                print("[iOS] discovered thumbnail sidecar msg \(match.id) for \(file.name)")
-            }
-        }
+        let sidecarID = object.thumbMessageID
 
         // Path 1: Encrypted sidecar document (thumbMessageID)
         if let sidecarID,
