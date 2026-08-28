@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (afternoon) — iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing
+## 2026-08-28 (afternoon) — iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing (`9824092`)
 
 User:
 1. File names still showing incorrect phantom names.

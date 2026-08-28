@@ -3874,7 +3874,7 @@ Open levers (not scheduled):
       - `PrivateVaultView.onDisappear` automatically resets `isUnlocked = false` and sets `appState.isVaultLocked = true`.
       - `RootView` observes `scenePhase`: entering `.background` locks `appState.isVaultLocked = true`.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS, `platform=macOS`) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
-180. **iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing (2026-08-28 afternoon)**
+180. **iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing (2026-08-28 afternoon — COMMITTED `9824092`)**
      (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/VideoPlaybackView.swift`, `Cascade iOS/RootView.swift`, `Storage/CatalogSnapshot.swift`)
     - Image Viewer Redesign (`Cascade iOS/RootView.swift`):
       - Rebuilt image viewer in `FilePreviewView` to mirror native Apple Files app: pure black canvas, unzoomed centered `aspectRatio(contentMode: .fit)` fitting entire image inside screen bounds without scroll view distortion.
