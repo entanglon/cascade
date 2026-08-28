@@ -144,7 +144,7 @@ final class AppState {
     var audioCurrentTime: Double = 0
     var audioDuration: Double = 0
     var showFullAudioPlayer: Bool = false
-    var recentFileIDs: [String] = UserDefaults.standard.stringArray(forKey: "cascade_recent_file_ids") ?? []
+    var recentFileIDs: [String] = RecentsSyncEngine.loadLocalEntries().map(\.id)
 
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
@@ -539,12 +539,17 @@ final class AppState {
     }
 
     func markFileAsRecent(_ fileID: String) {
-        recentFileIDs.removeAll { $0 == fileID }
-        recentFileIDs.insert(fileID, at: 0)
-        if recentFileIDs.count > 50 {
-            recentFileIDs = Array(recentFileIDs.prefix(50))
+        let updated = RecentsSyncEngine.recordAccess(fileID: fileID)
+        recentFileIDs = updated.map(\.id)
+        RecentsSyncEngine.shared.scheduleUpload()
+    }
+
+    func syncRecentsFromCloud() async {
+        let merged = await RecentsSyncEngine.shared.syncFromCloud()
+        let ids = merged.map(\.id)
+        await MainActor.run {
+            self.recentFileIDs = ids
         }
-        UserDefaults.standard.set(recentFileIDs, forKey: "cascade_recent_file_ids")
     }
 
     func openFile(_ file: FileItem) {

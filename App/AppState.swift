@@ -1282,6 +1282,8 @@ final class AppState {
 
     @MainActor
     func openFile(_ file: ObjectRecord) {
+        _ = RecentsSyncEngine.recordAccess(fileID: file.id)
+        RecentsSyncEngine.shared.scheduleUpload()
         Task {
             isDownloading = true
             downloadStatus = "Fetching from Telegram…"
@@ -1318,6 +1320,9 @@ final class AppState {
     func selectDestination(_ destination: SidebarDestination) {
         selectedDestination = destination
         currentFolderID = nil
+        if destination == .recent {
+            Task { await RecentsSyncEngine.shared.syncFromCloud() }
+        }
         selectedFiles.removeAll()
     }
 
@@ -1807,7 +1812,9 @@ final class AppState {
         case .photos:
             base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.isPhoto }
         case .recent:
-            base = Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
+            let entries = RecentsSyncEngine.loadLocalEntries()
+            let fileMap = Dictionary(uniqueKeysWithValues: files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.map { ($0.id, $0) })
+            base = entries.compactMap { fileMap[$0.id] }
         case .video:
             base = files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate && $0.isVideo }
         case .audio:

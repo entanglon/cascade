@@ -1929,7 +1929,7 @@ final class TelegramClient {
     }
 
     /// Extracts the caption text of a message (document caption, not just text-only).
-    private func messageCaption(_ message: Message) -> String? {
+    func messageCaption(_ message: Message) -> String? {
         switch message.content {
         case .messageText(let text):
             return text.text.text

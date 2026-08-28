@@ -892,24 +892,32 @@ struct RecentsView: View {
                 }
             }
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
+            .task {
+                await appState.syncRecentsFromCloud()
+            }
             .refreshable {
-                await appState.loadAllFiles()
+                async let f1: () = appState.loadAllFiles()
+                async let f2: () = appState.syncRecentsFromCloud()
+                _ = await (f1, f2)
             }
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "clock")
-                .font(.system(size: 48))
-                .foregroundStyle(.blue)
-            Text("No Recent Files")
-                .font(.title2.bold())
-            Text("Files you open or add will appear here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "clock")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.blue)
+                Text("No Recent Files")
+                    .font(.title2.bold())
+                Text("Files you open or add will appear here.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 100)
         }
     }
 
@@ -1017,6 +1025,7 @@ struct SharedView: View {
                 }
             }
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
         }
     }
 
