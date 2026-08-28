@@ -4164,6 +4164,13 @@ Open levers (not scheduled):
     - Consolidated upload actions under a single "Upload Files" menu item that opens a submenu matching `media_1787926822665.png`: Choose Files (`folder`), Photo Library (`photo.on.rectangle`), and Take Photo or Video (`camera`).
     - Implemented `CameraMediaPicker` with photo/video camera capture and added NSCameraUsageDescription & NSMicrophoneUsageDescription.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed to iPhone XS Max.
+203. **Functional Shared Page (Public/Private Shares, Copy Link, Revoke) & Native Apple Files Context Menu (2026-08-28 night)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`)
+    - Overhauled `SharedView` to display active Public shares and Private shares loaded from `DatabaseManager.shared.shares(role:)` with status badges, expiry countdowns, search, icons/list view modes, sorting, and pull-to-refresh.
+    - Added `ShareGridCard` and `ShareListRow` with `Copy Link`, `Share Link...` (`UIActivityViewController`), and `Revoke Share` context menu actions.
+    - Implemented native Apple Files context menu on `FileGridItem` and `FileRow`: top horizontal `ControlGroup` (`Copy`, `Move`, `Share`) and vertical list (`Quick Look`, `Get Info`, `Rename`, `Archive`, `Duplicate`, `New Folder with Item`, `Favorite`, `Delete`).
+    - Added `ShareFileSheet` with Public/Private picker + password protection, `MoveDestinationPickerSheet` with interactive folder hierarchy navigation, and backend mutation methods (`duplicateFile`, `createFolderWithItem`, `moveFiles`, `shareFile`, `cancelShare`).
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
 
 
 

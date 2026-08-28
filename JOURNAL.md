@@ -2,11 +2,51 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Consolidated Upload Files menu with Choose Files, Photo Library, and Take Photo or Video (Round 202, 6569f15).
+> 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203).
 
 ---
 
-## 2026-08-28 (night) — Consolidated Upload Files menu with Choose Files, Photo Library, and Take Photo or Video (Round 202, commit `6569f15`)
+## 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203)
+
+User requested:
+1. Make the **Shared** page fully functional on iOS:
+   - Display active Public shares (permanent, public channel) and Private shares (expiring 24h, pool channel) created by the user + imported shares.
+   - Match Apple Files style layout: banner with information, cards with share status/expiry, context menu with Copy Share Link, Share Link via system share sheet, and Revoke Share.
+   - Add `...` menu in `SharedView` with Select, Icons/List toggle, and Sort options (Date, Name, Kind, Size).
+2. Implement native Apple Files style context menu on grid and list items matching screenshots `media_1787927254944.png`, `media_1787927269362.png`, `media_1787927284759.png`, and `media_1787927302168.png`:
+   - **Top Horizontal Action Bar** (`ControlGroup`): `Copy` (`doc.on.doc`), `Move` (`folder`), and `Share` (`square.and.arrow.up`).
+   - **Vertical Actions**:
+     - `Quick Look` (`eye`) (files only)
+     - `Get Info` (`info.circle`)
+     - `Rename` (`pencil`)
+     - `Archive` (`archivebox`) *(replaces compress)*
+     - `Duplicate` (`plus.square.on.square`)
+     - `New Folder with Item` (`folder.badge.plus`)
+     - `Favorite` / `Unfavorite` (`star.fill` / `star`)
+     - `Delete` (role: `.destructive`, `trash`)
+3. Connect backend logic for all context menu actions:
+   - `duplicateFile(_:)`: clones object record with `" Copy"` appended and replicates chunk records.
+   - `createFolderWithItem(_:)`: creates new folder in current directory and moves the item inside.
+   - `moveFiles(_:to:)`: presents hierarchical `MoveDestinationPickerSheet` allowing the user to select any vault directory and updates `parentID`.
+   - `shareFile(_:isPublic:password:)`: presents `ShareFileSheet` with Public/Private picker and optional password protection, calls `ShareEngine.share(...)`, and presents `UIActivityViewController`.
+
+### Changes Implemented
+1. **Shared View Overhaul & Backend State** ([`RootView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/RootView.swift#L1128-L1220), [`AppState.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/AppState.swift#L150-L165)):
+   - Connected `SharedView` to `DatabaseManager.shared.shares(role:)` via `AppState.loadShares()`.
+   - Added `ShareGridCard` and `ShareListRow` with Public/Private badges, expiration countdowns, and context menus (`Copy Link`, `Share Link...`, `Revoke Share`).
+   - Added dynamic sort & view mode controls in the `...` menu and pull-to-refresh.
+2. **Apple Files Context Menu** ([`RootView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/RootView.swift#L3200-L3300), [`RootView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/RootView.swift#L3500-L3600)):
+   - Updated `FileGridItem` and `FileRow` to use `ControlGroup` top row for Copy, Move, Share.
+   - Added full vertical action list: Quick Look, Get Info, Rename, Archive, Duplicate, New Folder with Item, Favorite, and Delete.
+3. **Modal Sheets for Operations** ([`RootView.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/RootView.swift#L1350-L1600)):
+   - `ShareFileSheet`: Public/Private segmented control, password toggle, share creation with `ShareEngine`, and auto-clipboard + `UIActivityViewController` presentation.
+   - `MoveDestinationPickerSheet`: Folder hierarchy navigation with back navigation and "Move Here" button.
+4. **Backend Action Methods** ([`AppState.swift`](file:///Users/zainulnazir/Projects/Cascade/Cascade%20iOS/AppState.swift#L880-L1030)):
+   - Implemented `duplicateFile`, `createFolderWithItem`, `moveFiles`, `shareFile`, and `cancelShare`.
+
+### Verification
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **` (Installed and launched on iPhone XS Max).
+- macOS target: `** BUILD SUCCEEDED **`.
 
 User requested:
 - Consolidate upload into a single "Upload Files" option in the `...` menu, which expands/presents the choices matching screenshot `media_1787926822665.png`:

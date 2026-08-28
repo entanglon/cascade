@@ -149,6 +149,21 @@ final class AppState {
     var isCreatingFolder: Bool = false
     var creatingFolderParentID: String? = nil
 
+    // Share & Move Presentation State
+    var outgoingShares: [ShareRecord] = []
+    var incomingShares: [ShareRecord] = []
+    var shareSheetTargetFile: FileItem? = nil
+    var moveSheetFileIDs: Set<String>? = nil
+    var shareActivityItems: [Any]? = nil
+
+    var activeOutgoingShares: [ShareRecord] {
+        outgoingShares.filter { $0.state == "active" && !$0.isArchived }
+    }
+
+    var archivedOutgoingShares: [ShareRecord] {
+        outgoingShares.filter { $0.state == "active" && $0.isArchived }
+    }
+
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
     }
@@ -862,6 +877,154 @@ final class AppState {
                 print("[iOS] renameFile failed: \(error)")
             }
         }
+    }
+
+    func duplicateFile(_ file: FileItem) {
+        Task {
+            do {
+                guard let original = try await DatabaseManager.shared.object(file.id) else { return }
+                let name = original.name
+                let baseName: String
+                let ext: String
+                if original.isFolder {
+                    baseName = name
+                    ext = ""
+                } else if let dotIdx = name.lastIndex(of: ".") {
+                    baseName = String(name[..<dotIdx])
+                    ext = String(name[dotIdx...])
+                } else {
+                    baseName = name
+                    ext = ""
+                }
+
+                let newName = "\(baseName) Copy\(ext)"
+                let duplicate = ObjectRecord(
+                    id: UUID().uuidString,
+                    vaultID: original.vaultID,
+                    name: newName,
+                    size: original.size,
+                    mime: original.mime,
+                    state: original.state,
+                    rootHash: original.rootHash,
+                    wrappedKey: original.wrappedKey,
+                    createdAt: .now,
+                    modifiedAt: .now,
+                    isFavorite: original.isFavorite,
+                    trashed: false,
+                    parentID: original.parentID,
+                    isFolder: original.isFolder,
+                    isPrivate: original.isPrivate,
+                    isArchived: original.isArchived
+                )
+
+                if !original.isFolder {
+                    let chunks = try await DatabaseManager.shared.chunks(for: original.id)
+                    for chunk in chunks {
+                        var newChunk = chunk
+                        newChunk.id = UUID().uuidString
+                        newChunk.objectID = duplicate.id
+                        newChunk.createdAt = .now
+                        try await DatabaseManager.shared.save(newChunk)
+                    }
+                }
+
+                try await DatabaseManager.shared.save(duplicate)
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] duplicateFile failed: \(error)")
+            }
+        }
+    }
+
+    func createFolderWithItem(_ file: FileItem) {
+        Task {
+            do {
+                guard var targetObj = try await DatabaseManager.shared.object(file.id) else { return }
+                let vault = try? await DatabaseManager.shared.firstVault()
+                let folder = ObjectRecord(
+                    id: UUID().uuidString,
+                    vaultID: vault?.id ?? "local",
+                    name: "New Folder",
+                    size: 0,
+                    mime: "cascade/folder",
+                    state: "ready",
+                    rootHash: nil,
+                    wrappedKey: nil,
+                    createdAt: .now,
+                    modifiedAt: .now,
+                    isFavorite: false,
+                    trashed: false,
+                    parentID: targetObj.parentID,
+                    isFolder: true,
+                    isPrivate: targetObj.isPrivate
+                )
+
+                try await DatabaseManager.shared.save(folder)
+                targetObj.parentID = folder.id
+                try await DatabaseManager.shared.save(targetObj)
+
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] createFolderWithItem failed: \(error)")
+            }
+        }
+    }
+
+    func moveFiles(_ fileIDs: Set<String>, to destinationParentID: String?) {
+        guard !fileIDs.isEmpty else { return }
+        let effectiveDest = (destinationParentID?.isEmpty == true) ? nil : destinationParentID
+        Task {
+            do {
+                for id in fileIDs {
+                    if id == effectiveDest { continue }
+                    if var obj = try await DatabaseManager.shared.object(id) {
+                        obj.parentID = effectiveDest
+                        try await DatabaseManager.shared.save(obj)
+                    }
+                }
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] moveFiles failed: \(error)")
+            }
+        }
+    }
+
+    func presentMoveSheet(for fileIDs: Set<String>) {
+        moveSheetFileIDs = fileIDs
+    }
+
+    func presentShareSheet(for file: FileItem) {
+        shareSheetTargetFile = file
+    }
+
+    func loadShares() async {
+        do {
+            let out = (try? await DatabaseManager.shared.shares(role: "outgoing")) ?? []
+            let inc = (try? await DatabaseManager.shared.shares(role: "incoming")) ?? []
+            await MainActor.run {
+                self.outgoingShares = out
+                self.incomingShares = inc
+            }
+        }
+    }
+
+    func cancelShare(_ share: ShareRecord) {
+        Task {
+            await ShareEngine.cancelShare(share)
+            await loadShares()
+        }
+    }
+
+    func shareFile(_ file: FileItem, isPublic: Bool = false, password: String? = nil) async throws -> String {
+        guard let obj = try await DatabaseManager.shared.object(file.id) else {
+            throw ShareEngine.ShareError.notShareable
+        }
+        let link = try await ShareEngine.share(object: obj, isPublic: isPublic, password: password)
+        await loadShares()
+        return link
     }
 
     func getInfo(_ file: FileItem) -> String {

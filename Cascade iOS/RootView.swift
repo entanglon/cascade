@@ -549,6 +549,21 @@ struct RootView: View {
                     .presentationDragIndicator(.visible)
             }
         }
+        .sheet(item: $appState.shareSheetTargetFile) { file in
+            ShareFileSheet(file: file)
+        }
+        .sheet(item: Binding(
+            get: { appState.moveSheetFileIDs.map { MoveSheetWrapper(ids: $0) } },
+            set: { appState.moveSheetFileIDs = $0?.ids }
+        )) { wrapper in
+            MoveDestinationPickerSheet(fileIDs: wrapper.ids)
+        }
+        .sheet(item: Binding(
+            get: { appState.shareActivityItems.map { ActivityItemsWrapper(items: $0) } },
+            set: { appState.shareActivityItems = $0?.items }
+        )) { wrapper in
+            ShareSheet(items: wrapper.items)
+        }
     }
 }
 
@@ -1113,50 +1128,237 @@ struct SharedView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var showBanner = true
+    @State private var viewMode: ViewMode = .grid
+    @State private var sortBy: SortOption = .date
+    @State private var sortAscending = false
+    @State private var isSelecting = false
+
+    enum ViewMode: String, CaseIterable {
+        case grid = "Icons"
+        case list = "List"
+    }
+
+    enum SortOption: String, CaseIterable {
+        case date = "Date"
+        case name = "Name"
+        case kind = "Kind"
+        case size = "Size"
+    }
+
+    private var activeShares: [ShareRecord] {
+        let shares = appState.activeOutgoingShares
+        var filtered = shares
+        if !searchText.isEmpty {
+            filtered = filtered.filter { $0.fileName.localizedCaseInsensitiveContains(searchText) }
+        }
+        return filtered.sorted { a, b in
+            switch sortBy {
+            case .date:
+                return sortAscending ? a.createdAt < b.createdAt : a.createdAt > b.createdAt
+            case .name:
+                return sortAscending ? a.fileName < b.fileName : a.fileName > b.fileName
+            case .kind:
+                return sortAscending ? (!a.isPublic && b.isPublic) : (a.isPublic && !b.isPublic)
+            case .size:
+                return sortAscending ? a.createdAt < b.createdAt : a.createdAt > b.createdAt
+            }
+        }
+    }
+
+    private var publicShares: [ShareRecord] { activeShares.filter { $0.isPublic } }
+    private var privateShares: [ShareRecord] { activeShares.filter { !$0.isPublic } }
+
+    private let gridColumns = [
+        GridItem(.adaptive(minimum: 104, maximum: 120), spacing: 16)
+    ]
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    if showBanner {
-                        familyBanner
-                    }
+            Group {
+                if activeShares.isEmpty {
+                    ScrollView {
+                        VStack(spacing: 24) {
+                            if showBanner {
+                                familyBanner
+                            }
 
-                    VStack(spacing: 16) {
-                        Image(systemName: "folder.badge.person.crop")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.blue)
-                        Text("No Shared Files")
-                            .font(.title2.bold())
-                        Text("Files and folders shared with you will appear here.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
+                            if !searchText.isEmpty {
+                                NoSearchResultsView(query: searchText)
+                            } else {
+                                emptyState
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
                     }
-                    .padding(.top, showBanner ? 20 : 80)
+                } else if viewMode == .grid {
+                    gridView
+                } else {
+                    listView
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
             }
             .navigationTitle("Shared")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button { } label: {
-                            Label("Select", systemImage: "checkmark.circle")
+                    Menu {
+                        Section {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
                         }
-                        Button { } label: {
-                            Label("Scan Documents", systemImage: "document.viewfinder")
+
+                        Section {
+                            Button {
+                                viewMode = .grid
+                            } label: {
+                                HStack {
+                                    Text("Icons")
+                                    if viewMode == .grid {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+
+                            Button {
+                                viewMode = .list
+                            } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
                         }
+
+                        Section {
+                            ForEach(SortOption.allCases, id: \.self) { option in
+                                Button {
+                                    if sortBy == option {
+                                        sortAscending.toggle()
+                                    } else {
+                                        sortBy = option
+                                        sortAscending = (option == .name)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if sortBy == option {
+                                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(.blue)
                     }
                 }
             }
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
+            .task {
+                await appState.loadShares()
+            }
+            .refreshable {
+                await appState.loadShares()
+            }
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "folder.badge.person.crop")
+                .font(.system(size: 48))
+                .foregroundStyle(.blue)
+            Text("No Shared Files")
+                .font(.title2.bold())
+            Text("Files and folders shared with you or shared by you will appear here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        }
+        .padding(.top, showBanner ? 20 : 80)
+    }
+
+    private var gridView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if showBanner {
+                    familyBanner
+                        .padding(.horizontal, 16)
+                }
+
+                if !publicShares.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Public Shares (\(publicShares.count))")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+
+                        LazyVGrid(columns: gridColumns, spacing: 28) {
+                            ForEach(publicShares) { share in
+                                ShareGridCard(share: share)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+
+                if !privateShares.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Private Shares (\(privateShares.count))")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+
+                        LazyVGrid(columns: gridColumns, spacing: 28) {
+                            ForEach(privateShares) { share in
+                                ShareGridCard(share: share)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var listView: some View {
+        List {
+            if showBanner {
+                familyBanner
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+
+            if !publicShares.isEmpty {
+                Section("Public Shares") {
+                    ForEach(publicShares) { share in
+                        ShareListRow(share: share)
+                    }
+                }
+            }
+
+            if !privateShares.isEmpty {
+                Section("Private Shares") {
+                    ForEach(privateShares) { share in
+                        ShareListRow(share: share)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
     }
 
     private var familyBanner: some View {
@@ -1171,19 +1373,12 @@ struct SharedView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Share Files with Family")
+                Text("Share Files with Anyone")
                     .font(.headline)
                     .foregroundStyle(.primary)
-                Text("Invite family members to share files in one place.")
+                Text("Long-press any file in your drive and choose Share to generate a secure link.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                Button { } label: {
-                    Text("Create a Family Folder")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.blue)
-                        .padding(.top, 4)
-                }
             }
 
             Spacer()
@@ -1202,6 +1397,382 @@ struct SharedView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
+}
+
+// MARK: - Share Grid Card
+
+struct ShareGridCard: View {
+    let share: ShareRecord
+    @Environment(AppState.self) private var appState
+
+    private var shareLinkURL: String {
+        share.linkBlob ?? share.inviteLink
+    }
+
+    var body: some View {
+        VStack(spacing: 5) {
+            ZStack(alignment: .bottom) {
+                ZStack(alignment: .topTrailing) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemGroupedBackground))
+
+                        Image(systemName: share.isPublic ? "globe" : "lock.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(share.isPublic ? Color.green : Color.orange)
+                    }
+                    .frame(height: 94)
+                    .frame(maxWidth: .infinity)
+
+                    HStack(spacing: 3) {
+                        Image(systemName: share.isPublic ? "lock.open.fill" : "lock.fill")
+                            .font(.system(size: 9))
+                        Text(share.isPublic ? "Public" : "Private")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(share.isPublic ? Color.green.opacity(0.85) : Color.orange.opacity(0.85), in: Capsule())
+                    .foregroundStyle(.white)
+                    .padding(6)
+                }
+            }
+
+            VStack(spacing: 2) {
+                Text(share.fileName)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.primary)
+
+                Text(share.isPublic ? "Never expires" : "Expires \(share.expiry.formatted(.relative(presentation: .named)))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = shareLinkURL
+            } label: {
+                Label("Copy Link", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                UIPasteboard.general.string = shareLinkURL
+                appState.shareActivityItems = [URL(string: shareLinkURL) ?? shareLinkURL]
+            } label: {
+                Label("Share Link...", systemImage: "square.and.arrow.up")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                appState.cancelShare(share)
+            } label: {
+                Label("Revoke Share", systemImage: "xmark.circle")
+            }
+        }
+    }
+}
+
+// MARK: - Share List Row
+
+struct ShareListRow: View {
+    let share: ShareRecord
+    @Environment(AppState.self) private var appState
+
+    private var shareLinkURL: String {
+        share.linkBlob ?? share.inviteLink
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(share.isPublic ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+                Image(systemName: share.isPublic ? "globe" : "lock.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(share.isPublic ? Color.green : Color.orange)
+            }
+            .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(share.fileName)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(share.isPublic ? "Public Share • Never expires" : "Private Share • Expires \(share.expiry.formatted(.relative(presentation: .named)))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                UIPasteboard.general.string = shareLinkURL
+                appState.shareActivityItems = [URL(string: shareLinkURL) ?? shareLinkURL]
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+        }
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = shareLinkURL
+            } label: {
+                Label("Copy Link", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                UIPasteboard.general.string = shareLinkURL
+                appState.shareActivityItems = [URL(string: shareLinkURL) ?? shareLinkURL]
+            } label: {
+                Label("Share Link...", systemImage: "square.and.arrow.up")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                appState.cancelShare(share)
+            } label: {
+                Label("Revoke Share", systemImage: "xmark.circle")
+            }
+        }
+    }
+}
+
+// MARK: - Share File Modal Sheet
+
+struct ShareFileSheet: View {
+    let file: FileItem
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var isPublic: Bool = false
+    @State private var usePassword: Bool = false
+    @State private var passwordText: String = ""
+    @State private var isGenerating: Bool = false
+    @State private var errorMessage: String? = nil
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.blue.opacity(0.12))
+                            Image(systemName: file.isFolder ? "folder.fill" : "doc.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.blue)
+                        }
+                        .frame(width: 40, height: 40)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.name)
+                                .font(.headline)
+                                .lineLimit(1)
+                            if let size = file.formattedSize {
+                                Text(size)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section("Share Type") {
+                    Picker("Type", selection: $isPublic) {
+                        Text("Private (Expiring)").tag(false)
+                        Text("Public (Permanent)").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+
+                    if isPublic {
+                        Text("Creates a permanent link in the persistent public channel. Does not expire.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Takes a dedicated channel from the private pool. Expires in 24 hours.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Security") {
+                    Toggle("Password Protect Link", isOn: $usePassword)
+                    if usePassword {
+                        SecureField("Enter Password", text: $passwordText)
+                    }
+                }
+
+                if let err = errorMessage {
+                    Section {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Button {
+                        createShare()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isGenerating {
+                                ProgressView()
+                                    .padding(.trailing, 6)
+                            }
+                            Text(isGenerating ? "Creating Share Link..." : "Create & Share Link")
+                                .font(.headline)
+                                .foregroundStyle(isGenerating ? Color.secondary : Color.blue)
+                            Spacer()
+                        }
+                    }
+                    .disabled(isGenerating || (usePassword && passwordText.isEmpty))
+                }
+            }
+            .navigationTitle("Share")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func createShare() {
+        isGenerating = true
+        errorMessage = nil
+
+        Task {
+            do {
+                let link = try await appState.shareFile(
+                    file,
+                    isPublic: isPublic,
+                    password: usePassword && !passwordText.isEmpty ? passwordText : nil
+                )
+                await MainActor.run {
+                    self.isGenerating = false
+                    self.dismiss()
+                    UIPasteboard.general.string = link
+                    appState.shareActivityItems = [URL(string: link) ?? link]
+                }
+            } catch {
+                await MainActor.run {
+                    self.isGenerating = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Move Destination Picker Sheet
+
+struct MoveDestinationPickerSheet: View {
+    let fileIDs: Set<String>
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var currentFolderID: String? = nil
+    @State private var folderStack: [(id: String?, name: String)] = [(nil, "Cascade Drive")]
+
+    private var currentFolders: [FileItem] {
+        appState.allFiles.filter { $0.isFolder && !$0.trashed && !fileIDs.contains($0.id) && $0.parentID == currentFolderID }
+    }
+
+    private var currentFolderName: String {
+        folderStack.last?.name ?? "Cascade Drive"
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if folderStack.count > 1 {
+                    Button {
+                        _ = folderStack.popLast()
+                        currentFolderID = folderStack.last?.id ?? nil
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "arrow.backward.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.blue)
+                            Text("Back to \(folderStack[folderStack.count - 2].name)")
+                                .font(.body)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+
+                Section("Folders in \(currentFolderName)") {
+                    if currentFolders.isEmpty {
+                        Text("No subfolders")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(currentFolders) { folder in
+                            Button {
+                                folderStack.append((folder.id, folder.name))
+                                currentFolderID = folder.id
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(.blue)
+                                    Text(folder.name)
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Move to \(currentFolderName)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Move Here") {
+                        appState.moveFiles(fileIDs, to: currentFolderID)
+                        dismiss()
+                    }
+                    .font(.headline)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Sheet Wrappers
+
+struct MoveSheetWrapper: Identifiable {
+    let id = UUID()
+    let ids: Set<String>
+}
+
+struct ActivityItemsWrapper: Identifiable {
+    let id = UUID()
+    let items: [Any]
 }
 
 // MARK: - Photos View
@@ -3185,36 +3756,75 @@ struct FileRow: View {
                 }
             }
             .contextMenu {
+                ControlGroup {
+                    Button {
+                        appState.duplicateFile(file)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+
+                    Button {
+                        appState.presentMoveSheet(for: [file.id])
+                    } label: {
+                        Label("Move", systemImage: "folder")
+                    }
+
+                    Button {
+                        appState.presentShareSheet(for: file)
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                }
+
                 if !file.isFolder {
-                    Button { appState.openFile(file) } label: {
-                        Label("Open", systemImage: "arrow.up.forward")
+                    Button {
+                        appState.openFile(file)
+                    } label: {
+                        Label("Quick Look", systemImage: "eye")
                     }
                 }
-                if file.isFolder {
-                    Button { appState.navigateToFolder(file) } label: {
-                        Label("Open", systemImage: "folder")
-                    }
+
+                Button {
+                    showInfo = true
+                } label: {
+                    Label("Get Info", systemImage: "info.circle")
                 }
-                Divider()
-                Button { appState.toggleFavorite(file) } label: {
-                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "heart.slash" : "heart")
-                }
-                if !file.isFolder {
-                    Button { appState.togglePin(file) } label: {
-                        Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
-                    }
-                }
-                Divider()
+
                 Button {
                     startRenaming()
                 } label: {
                     Label("Rename", systemImage: "pencil")
                 }
-                Button { showInfo = true } label: {
-                    Label("Get Info", systemImage: "info.circle")
+
+                Button {
+                    appState.toggleArchive([file.id])
+                } label: {
+                    Label(file.isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
                 }
+
+                Button {
+                    appState.duplicateFile(file)
+                } label: {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+
+                Button {
+                    appState.createFolderWithItem(file)
+                } label: {
+                    Label("New Folder with Item", systemImage: "folder.badge.plus")
+                }
+
+                Button {
+                    appState.toggleFavorite(file)
+                } label: {
+                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "star.fill" : "star")
+                }
+
                 Divider()
-                Button(role: .destructive) { appState.trashFile(file) } label: {
+
+                Button(role: .destructive) {
+                    appState.trashFile(file)
+                } label: {
                     Label("Delete", systemImage: "trash")
                 }
             }
@@ -3436,36 +4046,75 @@ struct FileGridItem: View {
                 }
             }
             .contextMenu {
+                ControlGroup {
+                    Button {
+                        appState.duplicateFile(file)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+
+                    Button {
+                        appState.presentMoveSheet(for: [file.id])
+                    } label: {
+                        Label("Move", systemImage: "folder")
+                    }
+
+                    Button {
+                        appState.presentShareSheet(for: file)
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                }
+
                 if !file.isFolder {
-                    Button { appState.openFile(file) } label: {
-                        Label("Open", systemImage: "arrow.up.forward")
+                    Button {
+                        appState.openFile(file)
+                    } label: {
+                        Label("Quick Look", systemImage: "eye")
                     }
                 }
-                if file.isFolder {
-                    Button { appState.navigateToFolder(file) } label: {
-                        Label("Open", systemImage: "folder")
-                    }
+
+                Button {
+                    showInfo = true
+                } label: {
+                    Label("Get Info", systemImage: "info.circle")
                 }
-                Divider()
-                Button { appState.toggleFavorite(file) } label: {
-                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "heart.slash" : "heart")
-                }
-                if !file.isFolder {
-                    Button { appState.togglePin(file) } label: {
-                        Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
-                    }
-                }
-                Divider()
+
                 Button {
                     startRenaming()
                 } label: {
                     Label("Rename", systemImage: "pencil")
                 }
-                Button { showInfo = true } label: {
-                    Label("Get Info", systemImage: "info.circle")
+
+                Button {
+                    appState.toggleArchive([file.id])
+                } label: {
+                    Label(file.isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
                 }
+
+                Button {
+                    appState.duplicateFile(file)
+                } label: {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+
+                Button {
+                    appState.createFolderWithItem(file)
+                } label: {
+                    Label("New Folder with Item", systemImage: "folder.badge.plus")
+                }
+
+                Button {
+                    appState.toggleFavorite(file)
+                } label: {
+                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "star.fill" : "star")
+                }
+
                 Divider()
-                Button(role: .destructive) { appState.trashFile(file) } label: {
+
+                Button(role: .destructive) {
+                    appState.trashFile(file)
+                } label: {
                     Label("Delete", systemImage: "trash")
                 }
             }
