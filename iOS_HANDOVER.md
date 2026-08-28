@@ -101,40 +101,26 @@ devicectl device process launch --device 8F28E614-EA35-5B10-8DC9-E390026D4599 co
 - **Trash section** is labeled "Recently Deleted" (not "Trash")
 - **Loading screen** shows SVG cascade icon + spinner (no text)
 - **App opens directly to Cascade Drive page** (not Browse)
+- **Image preview** (`FilePreviewView`): Native Apple Files-style presentation on a pure black background with hidden navigation/status bars that toggle on tap without auto-hide timers.
+- **Folder navigation** (`FileBrowserView`): `NavigationLink` triggers smooth folder navigation hierarchy without button capture interference.
+- **Grid thumbnail presentation** (`FileGridItem`): Media thumbnails float centered inside an invisible 105pt container with `.aspectRatio(contentMode: .fit)`, continuous rounded corners, realistic drop shadows, and natural proportioned placeholder cards.
 
-## Files Changed in This Session
+## Recent Changes
 
-### `Storage/VaultRepair.swift`
-- Differentiated `kindThumb` and `kindSub` captions to prevent data chunk 0 corruption and phantom `File-XXXX` generation.
-- Correctly parsed and persisted `thumbMessageID` for encrypted thumbnail sidecars.
+### Round 182: Aspect-Ratio Preserving Thumbnails & Files-Style Grid Presentation (`bd6a53c`)
+- Switched `UploadEngine.generateThumbnails` and `ThumbnailService` from `ThumbnailCrop.subjectSquare` to `ThumbnailCrop.aspectFit`, preserving 16:9, 4:3, 9:16, etc.
+- Updated `FileGridItem.thumbnailView` on iOS to render aspect-fit thumbnails floating inside invisible 105pt containers with natural proportioned fallback cards for video (16:9), photos (4:3), and documents (3:4).
 
-### `Cascade iOS/AppState.swift`
-- Added Vault PIN recovery & biometric unlock (`unlockVault(pin:)`, `unlockWithBiometrics()`).
-- Added vault lock state tracking (`isVaultLocked`, `showVaultUnlockSheet`, `hasRecoveryBlob`).
-- Cloud catalog reconcile (`CatalogSnapshot.upload()`) on startup restores true filenames, extensions, and metadata.
-- Added fallback thumbnail sidecar discovery in `fetchThumbnailData(for:vault:)`.
-- Added `cachedURL(for:)`, `isCached(_:)`, `downloadFile(_:progress:)`, `toggleFavorite(_:)`, `togglePin(_:)`, `deleteFilePermanently(_:)`.
-- Added `calculateCacheSize()` and `clearLocalCache()`.
+### Round 181: Folder Navigation Gesture Fix (`8c8c6ff`)
+- Made `onTap` optional in `FileRow` and `FileGridItem` so `NavigationLink` receives taps directly and pushes folder views smoothly.
 
-### `Cascade iOS/RootView.swift`
-- Added `VaultPINView` (4-digit PIN pad with Face ID / Touch ID integration and error shake).
-- Embedded `VaultPINView` in `PrivateVaultView` and wired `.sheet(isPresented: $appState.showVaultUnlockSheet)` to `RootView`.
-- Upgraded `FilePreviewView`:
-  - Full-resolution pinch-to-zoom image viewer.
-  - Native `PDFKit` (`PDFView`) document rendering.
-  - Monospaced text/markdown/code viewer.
-  - On-demand download with progress indicator.
-  - Native iOS Share Sheet (`UIActivityViewController`).
-- Added Favorite and Keep Downloaded ("Pin") actions to `FileRow` and `FileGridItem` context menus.
-
-### `Cascade iOS/Features/SettingsView.swift`
-- Added "Security" section: Vault status, PIN unlock button, and Face ID toggle.
-- Added "Storage & Cache" section: Cache size display and "Clear Cache" button.
-
-### `Cascade.xcodeproj/project.pbxproj`
-- Added `INFOPLIST_KEY_NSFaceIDUsageDescription` to `Cascade iOS` Debug and Release configurations.
+### Round 180: Native Apple Files Image Viewer & Video Player Fix (`9824092`)
+- Native Apple Files image viewer (pure black canvas, aspect-fit, hidden bars toggled on tap).
+- Dismiss crash fix in `VideoPlaybackView` by routing dismiss through `appState.closeTheater()`.
+- Cloud catalog name healing in `CatalogSnapshot.merge()` ensuring authentic filenames always override `File-` phantoms.
 
 ## Dual-Platform Verification
 - `Cascade iOS` scheme (`sdk iphoneos`, Debug): **BUILD SUCCEEDED**
 - `Cascade` macOS scheme (`platform=macOS`, Debug): **BUILD SUCCEEDED**
+- Installed & running on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
