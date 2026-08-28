@@ -144,6 +144,7 @@ final class AppState {
     var audioCurrentTime: Double = 0
     var audioDuration: Double = 0
     var showFullAudioPlayer: Bool = false
+    var recentFileIDs: [String] = UserDefaults.standard.stringArray(forKey: "cascade_recent_file_ids") ?? []
 
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
@@ -537,7 +538,17 @@ final class AppState {
         presentedFile = nil
     }
 
+    func markFileAsRecent(_ fileID: String) {
+        recentFileIDs.removeAll { $0 == fileID }
+        recentFileIDs.insert(fileID, at: 0)
+        if recentFileIDs.count > 50 {
+            recentFileIDs = Array(recentFileIDs.prefix(50))
+        }
+        UserDefaults.standard.set(recentFileIDs, forKey: "cascade_recent_file_ids")
+    }
+
     func openFile(_ file: FileItem) {
+        markFileAsRecent(file.id)
         if file.isVideo {
             theaterFile = file
         } else if file.isAudio {

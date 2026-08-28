@@ -913,15 +913,15 @@ struct RecentsView: View {
     }
 
     private var recentFiles: [FileItem] {
-        let base = appState.allFiles
-            .filter { !$0.isFolder && !$0.trashed && !$0.isArchived }
+        let fileMap = Dictionary(uniqueKeysWithValues: appState.allFiles.filter { !$0.isFolder && !$0.trashed && !$0.isArchived }.map { ($0.id, $0) })
+        let ordered = appState.recentFileIDs.compactMap { fileMap[$0] }
         switch sortBy {
         case .date:
-            return base.sorted { sortAscending ? ($0.createdAt > $1.createdAt) : ($0.createdAt < $1.createdAt) }
+            return sortAscending ? ordered : ordered.reversed()
         case .name:
-            return base.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == (sortAscending ? .orderedAscending : .orderedDescending) }
+            return ordered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == (sortAscending ? .orderedAscending : .orderedDescending) }
         case .size:
-            return base.sorted { sortAscending ? ($0.size > $1.size) : ($0.size < $1.size) }
+            return ordered.sorted { sortAscending ? ($0.size > $1.size) : ($0.size < $1.size) }
         }
     }
 
