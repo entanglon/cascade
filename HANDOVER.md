@@ -2697,7 +2697,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       confirmation (not automatable from this session).
 
 124. **iOS pull-to-refresh hanging forever — REAL fix, `withResponseTimeout`
-    itself was broken (2026-08-28 evening, PLACEHOLDER_HASH):**
+    itself was broken (2026-08-28 evening, `e02ea08`):**
     - Item 123's fix (wrapping `searchChatMessages` in `withResponseTimeout`)
       did NOT resolve the hang — the user confirmed with a screenshot showing
       the refresh control still stuck.

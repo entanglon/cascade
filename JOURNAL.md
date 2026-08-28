@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever, take 2 — `withResponseTimeout` itself was broken (PLACEHOLDER_HASH)
+## 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever, take 2 — `withResponseTimeout` itself was broken (`e02ea08`)
 
 User reported the previous fix (`9df76a3`) did NOT resolve it — pull-to-refresh
 still spun forever, screenshot showed the refresh control stuck mid-pull with
