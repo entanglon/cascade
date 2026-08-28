@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (evening) — Fast Search-Based Catalog Sync & Alpha-Preserving Thumbnails (PLACEHOLDER_HASH)
+## 2026-08-28 (evening) — Fast Search-Based Catalog Sync & Alpha-Preserving Thumbnails (`2941dcf`)
 
 Executed `SYNC_SEARCH_PLAN.md` end-to-end (Task A: search-based catalog sync;
 Task B: alpha-preserving thumbnails).

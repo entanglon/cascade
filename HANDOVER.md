@@ -2640,7 +2640,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - Verification: 65 tests passed (62 unit + 2 UI + 1 launch, 0 failures).
 
 122. **Fast search-based catalog sync + alpha-preserving thumbnails (2026-08-28
-    evening, `SYNC_SEARCH_PLAN.md`, PLACEHOLDER_HASH):**
+    evening, `SYNC_SEARCH_PLAN.md`, `2941dcf`):**
     - **Root cause 1 (multi-minute pull-to-refresh)**: `CatalogSnapshot.fetchChannelState`
       called `TelegramClient.allChannelMessages` — a full backward page of the
       ENTIRE channel history (up to 2000x100 messages, 200ms/page) — just to find
