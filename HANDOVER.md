@@ -4111,6 +4111,10 @@ Open levers (not scheduled):
     - Added recents recording on `AudioPlayerEngine.play(file:in:)`.
     - Updated `FileBrowserView.visibleFiles` to query `RecentsSyncEngine.loadLocalEntries()` and preserve the strict MRU ordering (bypassing secondary name/date sorting on Recents page).
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+194. **Update iOS Folder Icons to Match Apple Files App (2026-08-28 night — COMMITTED `1a1fe6b`)**
+     (`Cascade iOS/RootView.swift`)
+    - Updated `FileGridItem` and `FileRow` folder icons with `.symbolRenderingMode(.hierarchical)` and `Color(uiColor: .systemBlue)` to match Apple Files app's signature two-tone multi-layer flap shading and system blue color.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
 
 
 

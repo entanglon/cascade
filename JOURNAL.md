@@ -2,7 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fixed macOS recents recording and MRU ordering (Round 193, 249e726).
+> 2026-08-28 (night) — Updated iOS folder icons to match Apple Files app (Round 194, 1a1fe6b).
+
+---
+
+## 2026-08-28 (night) — Updated iOS folder icons to match Apple Files app (Round 194, commit `1a1fe6b`)
+
+User requested updating folder icons in the iOS app to match the Apple Files app.
+
+### Root Cause & Changes
+1. **Previous State**: `FileGridItem` and `FileRow` used `folder.fill` with a custom flat pastel sky-blue color (`(0.28, 0.65, 0.98)`) and default monochrome rendering, which lacked the distinctive multi-layered depth, flap shading, and system accent color of Apple Files.
+2. **Fix**:
+   - In `Cascade iOS/RootView.swift` (`FileGridItem.thumbnailView`), updated the folder icon to `Image(systemName: "folder.fill").font(.system(size: 68, weight: .regular)).symbolRenderingMode(.hierarchical).foregroundStyle(Color(uiColor: .systemBlue))`.
+   - In `Cascade iOS/RootView.swift` (`FileRow.thumbnailView`), updated list view folder icon to `.symbolRenderingMode(.hierarchical).foregroundStyle(Color(uiColor: .systemBlue))`.
+   - This provides the native two-tone flap depth (translucent rear tab, solid vibrant front pocket) and dynamic iOS system blue hue matching Apple Files exactly.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Commit: `1a1fe6b`.
 
 ---
 
