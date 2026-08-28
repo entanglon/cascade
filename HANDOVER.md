@@ -3887,7 +3887,7 @@ Open levers (not scheduled):
       - Updated `restore(force:)` to accept `force: Bool` and trigger restore when local catalog has phantom-only objects.
       - In `AppState.completePostAuthSetup()`, added post-restore check that detects `File-` phantom names and forces a re-restore from cloud snapshot.
     - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`. Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
-181. **iOS Browse Folder Navigation Tap Fix (2026-08-28 afternoon)**
+181. **iOS Browse Folder Navigation Tap Fix (2026-08-28 afternoon — COMMITTED `8c8c6ff`)**
      (`Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
     - Root Cause: `FileRow` and `FileGridItem` were unconditionally wrapping their UI inside a `Button(action: onTap)` which intercepted tap gestures inside `NavigationLink`'s label and ran an empty closure instead of triggering the push transition.
     - Fix: Made `onTap` optional in both `FileRow` and `FileGridItem` (`var onTap: (() -> Void)? = nil`). When `onTap` is nil, raw layout is rendered directly, allowing `NavigationLink` to intercept tap gestures and open folders normally.

@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (afternoon) — iOS Browse Folder Navigation Tap Fix
+## 2026-08-28 (afternoon) — iOS Browse Folder Navigation Tap Fix (`8c8c6ff`)
 
 User: Unable to open folders in Browse.
 
