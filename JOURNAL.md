@@ -2,7 +2,34 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fix macOS Cmd+R focus intercept, optimistic folder creation, and Files app pixel-perfect spacing (Round 199, 23ce1e5).
+> 2026-08-28 (night) — Files app 3.5 rows spacing, AppleFolderTabShape optimization, and smooth folder creation focus (Round 200, 3bdd149).
+
+---
+
+## 2026-08-28 (night) — Files app 3.5 rows spacing, AppleFolderTabShape optimization, and smooth folder creation focus (Round 200, commit `3bdd149`)
+
+User feedback:
+1. Row spacing was too compact; in native iOS Files app, exactly ~3.5 rows fit per viewport instead of 4 crowded rows.
+2. Lag and stutter when creating a folder.
+
+### Root Causes & Fixes
+1. **Grid Row Spacing (~3.5 rows per screen)**:
+   - *Root cause*: `LazyVGrid` had `spacing: 20` and thumbnail container was overly compressed to `86pt`, packing 4 full rows on screen.
+   - *Fix*: Standardized `LazyVGrid(..., spacing: 28)` across all grid views (`FileBrowserView`, `RecentsView`, `PhotosView`, `VideosView`, `AudioView`, `DocumentsView`, `VaultBrowserView`, `TrashView`). Increased thumbnail region to `94pt` (`AppleFolderIcon(84x66)` and document previews `70x92`), creating ~170pt row step that matches Apple Files' 3.5 rows per screen on iPhone.
+2. **Eliminated Folder Creation Stutter**:
+   - *Root cause*:
+     1. Tapping "New Folder" had `withAnimation(.easeInOut)` triggering layout animations across all grid items concurrently with the UIKit menu dismiss animation.
+     2. `InlineNewFolderGridItem` requested keyboard focus at 0.1s while the menu popover was still animating its dismissal window, causing responder chain contention and frame drops.
+     3. `AppleFolderIcon` re-computed dynamic Bezier paths on every frame.
+   - *Fix*:
+     1. Removed explicit `withAnimation` on `startCreatingFolder`.
+     2. Deferred keyboard focus to 0.25s after menu dismiss completes.
+     3. Extracted `AppleFolderTabShape: Shape` so CoreGraphics compiles and caches the vector path geometry.
+
+### Verification
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **`.
+- macOS target: `** BUILD SUCCEEDED **`.
+- Commit: `3bdd149`.
 
 ---
 

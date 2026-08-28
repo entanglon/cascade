@@ -4146,6 +4146,12 @@ Open levers (not scheduled):
     - Implemented optimistic folder insertion in `Cascade iOS/AppState.swift` inserting the `FileItem` at index 0 of `allFiles` instantly on MainActor, preventing folder disappearing/flicker after creation.
     - Tuned iOS grid thumbnail frame (`86pt`), `AppleFolderIcon` (`82x64`), removed dummy spacers and fixed label frames, matching Apple Files typography and spacing.
     - Build: Dual-platform verification clean — both `Cascade` (macOS) and `Cascade iOS` (arm64, `sdk iphoneos`) **BUILD SUCCEEDED**.
+200. **Files App 3.5 Rows Spacing, AppleFolderTabShape Optimization, & Smooth Folder Creation Focus (2026-08-28 night — COMMITTED `3bdd149`)**
+     (`Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
+    - Updated `LazyVGrid` row spacing to `28pt` across all grid views and adjusted thumbnail height to `94pt` (`AppleFolderIcon(84x66)`, documents `70x92`), matching the exact ~3.5 rows per screen ratio in native Apple Files.
+    - Removed `withAnimation` layout re-render collision on "New Folder" tap and deferred keyboard focus to 0.25s after menu dismissal, eliminating responder chain lag.
+    - Extracted `AppleFolderTabShape: Shape` to cache vector path rendering in CoreGraphics.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
 
 
 
