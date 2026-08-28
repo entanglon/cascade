@@ -278,7 +278,14 @@ enum CatalogSnapshot {
                         }
                     }
 
-                    if o.modifiedAt > remoteWinner.modifiedAt {
+                    if (o.name.isEmpty || o.name.hasPrefix("File-")) && (!remoteWinner.name.isEmpty && !remoteWinner.name.hasPrefix("File-")) {
+                        var healed = remoteWinner
+                        healed.vaultID = localVaultID
+                        healed.isPinned = o.isPinned
+                        objectsByID[o.id] = healed
+                    } else if (!o.name.isEmpty && !o.name.hasPrefix("File-")) && (remoteWinner.name.isEmpty || remoteWinner.name.hasPrefix("File-")) {
+                        objectsByID[o.id] = o
+                    } else if o.modifiedAt > remoteWinner.modifiedAt {
                         objectsByID[o.id] = o
                     }
                 }
@@ -569,7 +576,7 @@ enum CatalogSnapshot {
     /// Downloads and decodes a checkpoint/delta document message. Returns nil on any
     /// failure — a corrupt or undecodable message is skipped, never fatal.
     /// Transparently decompresses zlib-compressed payloads with fallback to raw JSON.
-    private static func decodeMessagePayload(_ message: Message, chatId: Int64) async -> Payload? {
+    static func decodeMessagePayload(_ message: Message, chatId: Int64) async -> Payload? {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("snap-fetch-\(UUID().uuidString).bin")
         do {
@@ -718,11 +725,13 @@ enum CatalogSnapshot {
     /// checkpoint or deltas were found and applied. Only used when the local DB has
     /// no catalog yet — a populated device keeps its own data.
     @discardableResult
-    static func restore() async -> Bool {
+    static func restore(force: Bool = false) async -> Bool {
         guard TelegramClient.shared.isAuthorized else { return false }
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return false }
-        // Never clobber a device that already has a catalog.
-        if !((try? await DatabaseManager.shared.allObjects()) ?? []).isEmpty { return false }
+        // Never clobber a device that already has a catalog unless forced or all files are phantom File-
+        let existing = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let onlyPhantoms = !existing.isEmpty && existing.allSatisfy { $0.name.hasPrefix("File-") }
+        if !existing.isEmpty && !force && !onlyPhantoms { return false }
 
         let channel = await fetchChannelState(chatId: vault.channelID, allowBackupFallback: true)
         print("Cascade restore: channel checkpoint=\(channel.checkpoint != nil) deltas=\(channel.deltas.count)")

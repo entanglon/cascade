@@ -8,12 +8,11 @@ struct VideoPlaybackView: View {
     @State private var isPlaying = true
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var showControls = true
+    @State private var showControls = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
     @State private var isScrubbing = false
     @State private var scrubTime: Double = 0
-    @State private var controlsTimer: Timer?
     @State private var pollTimer: Timer?
 
     var body: some View {
@@ -26,9 +25,6 @@ struct VideoPlaybackView: View {
                     .onTapGesture {
                         withAnimation(.easeInOut(duration: 0.25)) {
                             showControls.toggle()
-                        }
-                        if showControls {
-                            resetControlsTimer()
                         }
                     }
             }
@@ -71,11 +67,9 @@ struct VideoPlaybackView: View {
             self.playerView = view
             startPlayback()
             startPolling()
-            resetControlsTimer()
         }
         .onDisappear {
             stopPolling()
-            controlsTimer?.invalidate()
             playerView?.stop()
         }
     }
@@ -85,7 +79,6 @@ struct VideoPlaybackView: View {
             // Top Bar
             HStack {
                 Button {
-                    playerView?.stop()
                     appState.closeTheater()
                 } label: {
                     Image(systemName: "chevron.left")
@@ -107,7 +100,6 @@ struct VideoPlaybackView: View {
                 Spacer()
 
                 Button {
-                    playerView?.stop()
                     appState.closeTheater()
                 } label: {
                     Image(systemName: "xmark")
@@ -127,7 +119,6 @@ struct VideoPlaybackView: View {
                 // Rewind 10s
                 Button {
                     seekRelative(-10)
-                    resetControlsTimer()
                 } label: {
                     Image(systemName: "gobackward.10")
                         .font(.system(size: 32, weight: .medium))
@@ -137,7 +128,6 @@ struct VideoPlaybackView: View {
                 // Play / Pause
                 Button {
                     togglePlayPause()
-                    resetControlsTimer()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 40, weight: .semibold))
@@ -149,7 +139,6 @@ struct VideoPlaybackView: View {
                 // Forward 10s
                 Button {
                     seekRelative(10)
-                    resetControlsTimer()
                 } label: {
                     Image(systemName: "goforward.10")
                         .font(.system(size: 32, weight: .medium))
@@ -180,7 +169,6 @@ struct VideoPlaybackView: View {
                                 playerView?.seek(to: scrubTime)
                                 currentTime = scrubTime
                                 isScrubbing = false
-                                resetControlsTimer()
                             }
                         }
                     )
@@ -219,17 +207,6 @@ struct VideoPlaybackView: View {
         let newTime = max(0, min(duration, currentTime + delta))
         pv.seek(to: newTime)
         currentTime = newTime
-    }
-
-    private func resetControlsTimer() {
-        controlsTimer?.invalidate()
-        controlsTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
-            withAnimation(.easeInOut(duration: 0.25)) {
-                if isPlaying && !isScrubbing {
-                    showControls = false
-                }
-            }
-        }
     }
 
     private func startPolling() {

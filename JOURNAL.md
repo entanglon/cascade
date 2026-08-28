@@ -2,7 +2,36 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-27 (late evening) — iOS Audio & Video Player Overlays, Media Streaming, Image Viewer & Filename Healing, Delete Context Label, Private Vault Auto-Relock.
+> 2026-08-28 (afternoon) — iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing.
+
+---
+
+## 2026-08-28 (afternoon) — iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing
+
+User:
+1. File names still showing incorrect phantom names.
+2. Images open zoomed in; should open aspect-fit on black like Apple Files app.
+3. Image and video viewer controls should be hidden initially, show on tap, and hide only on tap (no autohide timers).
+4. Video player close button (`xmark`) was exiting the app instead of canceling playback.
+
+### Findings & Root Causes
+1. **Image Pre-Zoom**: Wrapping `Image` in a 2D `ScrollView([.horizontal, .vertical])` with infinite max frame expanded the image beyond screen bounds.
+2. **Control Visibility & Timers**: Controls defaulted to visible and had auto-hide timers, contradicting native Files app behavior where controls start hidden and toggle exclusively on user tap.
+3. **Video Player App Exit / Crash**: Directly calling `playerView?.stop()` inside button actions destroyed the mpv GL render context while UIKit was in the middle of a frame draw cycle, triggering a SIGSEGV / abort. Dismissing via `appState.closeTheater()` and letting `.onDisappear` handle cleanup prevents the crash.
+4. **Filename Healing**: In `Storage/CatalogSnapshot.swift`, the `merge` function preferred local records with newer `modifiedAt` timestamps even if the local name was a `File-` phantom created by VaultRepair.
+
+### Changes
+1. **`Cascade iOS/RootView.swift`**:
+   - Redesigned `FilePreviewView` image viewer to match Apple Files app: pure black canvas, centered `aspectRatio(contentMode: .fit)` without scroll zoom distortion.
+   - Initial state `showControls = false`: top toolbar and status bar start hidden. Tapping anywhere toggles controls with smooth animation; no auto-hide timer.
+2. **`Cascade iOS/Features/VideoPlaybackView.swift`**:
+   - Fixed close button crash: removed synchronous `playerView?.stop()` from button action, routing dismissal cleanly through `appState.closeTheater()`.
+   - Controls start hidden (`showControls = false`) and toggle on tap without auto-hide timer.
+3. **`Storage/CatalogSnapshot.swift`**:
+   - Updated `merge(local:remote:localVaultID:)` to prioritize authentic filenames over `File-` phantom names regardless of local modification timestamp.
+   - Updated `restore(force:)` to accept `force: Bool` and allow restore when all local objects are phantoms.
+4. **`Cascade iOS/AppState.swift`**:
+   - Enhanced `completePostAuthSetup()` to detect post-restore `File-` phantoms and trigger a forced catalog restore from the cloud checkpoint.
 
 ---
 

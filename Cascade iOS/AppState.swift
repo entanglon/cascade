@@ -224,13 +224,27 @@ final class AppState {
         // iCloud-style instant restore: if this device has no catalog yet, fetch
         // the newest cascade:dbsnapshot:v1: document.
         let restored = await CatalogSnapshot.restore()
-        if !restored {
-            let objects = (try? await DatabaseManager.shared.allObjects()) ?? []
-            if objects.isEmpty || objects.contains(where: { $0.name.hasPrefix("File-") }) {
-                print("[iOS] Detected empty or File- phantom names — running VaultRepair heal")
+
+        // After restore (or if already had catalog), check for phantom File- names
+        // which indicate a bad prior repair cycle — force a fresh re-restore to heal.
+        let postRestoreObjects = (try? await DatabaseManager.shared.allObjects()) ?? []
+        let hasPhantoms = postRestoreObjects.contains(where: { $0.name.hasPrefix("File-") })
+
+        if hasPhantoms {
+            print("[iOS] Detected File- phantom names after restore — forcing catalog re-restore")
+            let reRestored = await CatalogSnapshot.restore(force: true)
+            if !reRestored {
+                print("[iOS] Re-restore failed — falling back to VaultRepair heal")
                 _ = await VaultRepair.run()
             }
             _ = await CatalogSnapshot.upload()
+        } else if !restored {
+            let objects = postRestoreObjects
+            if objects.isEmpty {
+                print("[iOS] Empty catalog — running VaultRepair heal")
+                _ = await VaultRepair.run()
+                _ = await CatalogSnapshot.upload()
+            }
         }
 
         await loadAllFiles()

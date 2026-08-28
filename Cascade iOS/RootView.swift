@@ -112,6 +112,7 @@ struct FilePreviewView: View {
     @State private var showShareSheet = false
     @State private var showInfo = false
     @State private var errorMessage: String? = nil
+    @State private var showControls = false
 
     private var isPDF: Bool {
         file.name.lowercased().hasSuffix(".pdf") || file.mime == "application/pdf"
@@ -122,19 +123,33 @@ struct FilePreviewView: View {
         return ["txt", "md", "markdown", "json", "csv", "swift", "py", "sh", "log"].contains(ext) || file.mime.hasPrefix("text/")
     }
 
+    /// Whether the current file resolves to an image that can be displayed full-screen.
+    private var isImageContent: Bool {
+        guard let localURL else { return false }
+        return loadedImage(for: localURL) != nil
+    }
+
     var body: some View {
         ZStack {
-            Color(.systemBackground).ignoresSafeArea()
+            // Black background for images (like Apple Files), system background for other files
+            if isImageContent {
+                Color.black.ignoresSafeArea()
+            } else {
+                Color(.systemBackground).ignoresSafeArea()
+            }
 
             if let localURL {
                 if let uiImage = loadedImage(for: localURL) {
-                    ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(8)
-                    }
+                    // Apple-Files-style image viewer: aspect-fit, centered, black background
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showControls.toggle()
+                            }
+                        }
                 } else if isPDF {
                     PDFKitRepresentedView(url: localURL)
                         .edgesIgnoringSafeArea(.bottom)
@@ -156,6 +171,7 @@ struct FilePreviewView: View {
         }
         .navigationTitle(file.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarVisibility(isImageContent && !showControls ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
@@ -211,6 +227,7 @@ struct FilePreviewView: View {
                 }
             }
         }
+        .statusBarHidden(isImageContent && !showControls)
         .sheet(isPresented: $showShareSheet) {
             if let localURL {
                 ShareSheet(items: [localURL])

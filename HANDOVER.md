@@ -3874,6 +3874,19 @@ Open levers (not scheduled):
       - `PrivateVaultView.onDisappear` automatically resets `isUnlocked = false` and sets `appState.isVaultLocked = true`.
       - `RootView` observes `scenePhase`: entering `.background` locks `appState.isVaultLocked = true`.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS, `platform=macOS`) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+180. **iOS Files-Style Image Viewer, Video Playback Dismiss Fix, Catalog Snapshot Phantom Name Healing (2026-08-28 afternoon)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/VideoPlaybackView.swift`, `Cascade iOS/RootView.swift`, `Storage/CatalogSnapshot.swift`)
+    - Image Viewer Redesign (`Cascade iOS/RootView.swift`):
+      - Rebuilt image viewer in `FilePreviewView` to mirror native Apple Files app: pure black canvas, unzoomed centered `aspectRatio(contentMode: .fit)` fitting entire image inside screen bounds without scroll view distortion.
+      - Controls hidden initially (`showControls = false`): toolbar and status bar hide until user taps image. Tapping toggles controls with no autohide timer (tap-only dismissal).
+    - Video Playback Dismiss Fix (`Cascade iOS/Features/VideoPlaybackView.swift`):
+      - Fixed app exit / crash on tapping close (`xmark`) or back (`chevron.left`): removed synchronous `playerView?.stop()` call inside button action so mpv context is not destroyed mid-render cycle; cleanly routes through `appState.closeTheater()` with `.onDisappear` managing cleanup.
+      - Video controls start hidden (`showControls = false`) and toggle on tap without auto-hide timer.
+    - Catalog Snapshot & Name Healing (`Storage/CatalogSnapshot.swift`, `Cascade iOS/AppState.swift`):
+      - In `CatalogSnapshot.merge()`, enforced priority rule where authentic filenames always win over `File-` phantom names regardless of local modification timestamp.
+      - Updated `restore(force:)` to accept `force: Bool` and trigger restore when local catalog has phantom-only objects.
+      - In `AppState.completePostAuthSetup()`, added post-restore check that detects `File-` phantom names and forces a re-restore from cloud snapshot.
+    - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`. Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 
