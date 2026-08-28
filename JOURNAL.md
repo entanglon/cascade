@@ -2,7 +2,33 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Grid item baseline alignment fix for portrait/short-named files & instant getChatHistory sync (Round 186, b1aff13).
+> 2026-08-28 (night) — Fixed Cascade Drive / folder pull-to-refresh spinner by removing GeometryReader ScrollView wrappers, confirmed 4th Movies video origin, clarified Recents behavior (Round 187, bb4daf5).
+
+---
+
+## 2026-08-28 (night) — Fixed Cascade Drive / folder pull-to-refresh & answered Movies/Recents queries (Round 187, commit `bb4daf5`)
+
+User verified cross-device sync (upload on macOS -> pull-to-refresh on iOS updated quickly), but noted:
+1. Pull-to-refresh completed cleanly on Recents/Music/Movies, but the spinner got stuck on the root Cascade Drive page.
+2. A 4th video file appeared in the Movies folder.
+3. Recents page is showing everything in the cloud rather than only recently opened files.
+
+### Root Cause Analysis & Answers
+1. **Cascade Drive / Folder Refresh Spinner Hang (`Cascade iOS/Features/FileBrowserView.swift:165`, `Cascade iOS/RootView.swift:935`)**:
+   - `FileBrowserView.gridView` and `RootView.gridView` were wrapped in `GeometryReader { geo in ScrollView { ... .frame(minHeight: geo.size.height) } }`.
+   - In SwiftUI, wrapping a `ScrollView` inside a `GeometryReader` breaks `UIScrollView`'s native rubber-band bounce and prevents `UIRefreshControl` from properly detecting when the content offset should reset after refreshing completes, leaving the spinner visibly stuck.
+   - **Fix**: Removed `GeometryReader` from around `ScrollView` in `FileBrowserView` and `RootView`, allowing `ScrollView` to stretch and bounce naturally with clean, instant spinner dismissal.
+2. **Origin of the 4th Video in Movies**:
+   - Inspected SQLite DB: The cloud vault contains 4 authentic video files in Movies uploaded from macOS on August 21 and 22 (`Rings - Dolby Atmos - 16-9.mkv`, `Rings - Dolby Atmos - 2.35.mkv`, and two versions of `Rings - Dolby Atmos DD - 16-9.mp4`).
+   - Previously on iOS, one of these records was missing from local SQLite. When the new cloud snapshot sync mechanism restored the full catalog checkpoint and deltas, it cleanly synced all 4 authentic files from the cloud.
+3. **Recents Tab Behavior**:
+   - Confirmed: In Apple's native Files app, Recents shows files recently opened, downloaded, or modified by the user. Currently `recentFiles` was listing all files across the cloud drive sorted by creation date.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `bb4daf5`.
 
 ---
 

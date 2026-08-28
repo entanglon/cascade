@@ -4073,6 +4073,12 @@ Open levers (not scheduled):
       1. In `Cascade iOS/RootView.swift`, locked `Text(file.name)` in `FileGridItem` to a 34pt top-aligned container (`.frame(height: 34, alignment: .top)`) and locked metadata rows (`.frame(height: 14)`), ensuring strictly identical horizontal baselines and card sizing across all 3 grid columns.
       2. In `Telegram/TelegramClient.swift`, refactored `searchChannelMetadataMessages` to use `getChatHistory(fromMessageId: 0, limit: 100)` with `cascade:db` filtering for sub-50ms reliable metadata fetching.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+187. **Cascade Drive / Folder Pull-to-Refresh Inset Release & GeometryReader Removal (2026-08-28 night — COMMITTED `bb4daf5`)**
+     (`Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
+    - Root Cause: `FileBrowserView.gridView` and `RootView.gridView` wrapped `ScrollView` inside a `GeometryReader`. In SwiftUI, `GeometryReader` intercepts coordinate spaces and prevents `UIRefreshControl` from properly releasing its content insets after refresh completes, leaving the spinner visibly stuck.
+    - Fix: Removed `GeometryReader` wrapper from around `ScrollView` in `FileBrowserView` and `RootView`, allowing `ScrollView` to stretch and rubber-band naturally with clean, instant spinner dismissal on all folder and drive views.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+
 
 
 
