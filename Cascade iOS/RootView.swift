@@ -2098,6 +2098,79 @@ struct TrashView: View {
     }
 }
 
+// MARK: - Apple Files Folder Icon
+
+struct AppleFolderIcon: View {
+    var width: CGFloat = 84
+    var height: CGFloat = 66
+
+    var body: some View {
+        let bodyY = height * 0.13
+        let tabW = width * 0.40
+        let cornerRadius = height * 0.11
+
+        ZStack(alignment: .topLeading) {
+            // Back Tab / Flap
+            Path { path in
+                let r = cornerRadius * 0.75
+                path.move(to: CGPoint(x: 0, y: r))
+                path.addQuadCurve(to: CGPoint(x: r, y: 0), control: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: tabW - r, y: 0))
+                path.addCurve(
+                    to: CGPoint(x: tabW + width * 0.09, y: bodyY),
+                    control1: CGPoint(x: tabW + r * 0.6, y: 0),
+                    control2: CGPoint(x: tabW + r * 0.3, y: bodyY)
+                )
+                path.addLine(to: CGPoint(x: width - cornerRadius, y: bodyY))
+                path.addQuadCurve(to: CGPoint(x: width, y: bodyY + cornerRadius), control: CGPoint(x: width, y: bodyY))
+                path.addLine(to: CGPoint(x: width, y: height - cornerRadius))
+                path.addQuadCurve(to: CGPoint(x: width - cornerRadius, y: height), control: CGPoint(x: width, y: height))
+                path.addLine(to: CGPoint(x: cornerRadius, y: height))
+                path.addQuadCurve(to: CGPoint(x: 0, y: height - cornerRadius), control: CGPoint(x: 0, y: height))
+                path.closeSubpath()
+            }
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 60/255, green: 160/255, blue: 222/255),
+                        Color(red: 50/255, green: 146/255, blue: 206/255)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+
+            // Front Main Body
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 104/255, green: 194/255, blue: 242/255),
+                            Color(red: 80/255, green: 172/255, blue: 226/255)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    // Subtle top highlight border along front body
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.40), Color.white.opacity(0.06)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.75
+                        )
+                )
+                .frame(width: width, height: height - bodyY)
+                .offset(y: bodyY)
+        }
+        .frame(width: width, height: height)
+    }
+}
+
 // MARK: - File Row
 
 struct FileRow: View {
@@ -2221,10 +2294,7 @@ struct FileRow: View {
     private var thumbnailView: some View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 28, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color(uiColor: .systemBlue))
+            AppleFolderIcon(width: 36, height: 28)
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
@@ -2417,10 +2487,8 @@ struct FileGridItem: View {
     private var thumbnailView: some View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 68, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color(uiColor: .systemBlue))
+            AppleFolderIcon(width: 86, height: 68)
+                .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1.5)
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
