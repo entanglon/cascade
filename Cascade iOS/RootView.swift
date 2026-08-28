@@ -649,9 +649,6 @@ struct BrowseView: View {
                         Button { } label: {
                             Label("Scan Documents", systemImage: "document.viewfinder")
                         }
-                        Button { } label: {
-                            Label("Connect to Server", systemImage: "desktopcomputer")
-                        }
                         Divider()
                         Button {
                             showSettings = true
@@ -802,6 +799,8 @@ struct RecentsView: View {
     @State private var viewMode: ViewMode = .grid
     @State private var sortBy: SortOption = .date
     @State private var sortAscending = true
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
@@ -833,62 +832,85 @@ struct RecentsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button { } label: {
-                            Label("Select", systemImage: "checkmark.circle")
-                        }
-                        Button { } label: {
-                            Label("Scan Documents", systemImage: "document.viewfinder")
-                        }
-                        Button { } label: {
-                            Label("Connect to Server", systemImage: "desktopcomputer")
-                        }
-
-                        Divider()
-
-                        Button {
-                            viewMode = .grid
-                        } label: {
-                            HStack {
-                                Text("Icons")
-                                if viewMode == .grid {
-                                    Image(systemName: "checkmark")
-                                }
+                if isSelecting {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(selectedFileIDs.count == filteredFiles.count ? "Deselect All" : "Select All") {
+                            if selectedFileIDs.count == filteredFiles.count {
+                                selectedFileIDs.removeAll()
+                            } else {
+                                selectedFileIDs = Set(filteredFiles.map(\.id))
                             }
                         }
-
-                        Button {
-                            viewMode = .list
-                        } label: {
-                            HStack {
-                                Text("List")
-                                if viewMode == .list {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") {
+                            isSelecting = false
+                            selectedFileIDs.removeAll()
                         }
-
-                        Divider()
-
-                        ForEach(SortOption.allCases, id: \.self) { option in
+                        .fontWeight(.semibold)
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        BlueEllipsisMenu {
                             Button {
-                                if sortBy == option {
-                                    sortAscending.toggle()
-                                } else {
-                                    sortBy = option
-                                    sortAscending = true
-                                }
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
+                            Button { } label: {
+                                Label("Scan Documents", systemImage: "document.viewfinder")
+                            }
+
+                            Divider()
+
+                            Button {
+                                viewMode = .grid
                             } label: {
                                 HStack {
-                                    Text(option.rawValue)
+                                    Text("Icons")
+                                    if viewMode == .grid {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+
+                            Button {
+                                viewMode = .list
+                            } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+
+                            Divider()
+
+                            ForEach(SortOption.allCases, id: \.self) { option in
+                                Button {
                                     if sortBy == option {
-                                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        sortAscending.toggle()
+                                    } else {
+                                        sortBy = option
+                                        sortAscending = true
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if sortBy == option {
+                                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if isSelecting {
+                    selectionBottomBar
                 }
             }
             .toolbarBackground(.visible, for: .navigationBar)
@@ -902,6 +924,56 @@ struct RecentsView: View {
                 _ = await (f1, f2)
             }
         }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var emptyState: some View {
@@ -949,8 +1021,18 @@ struct RecentsView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredFiles) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -965,12 +1047,30 @@ struct RecentsView: View {
     private var listView: some View {
         List {
             ForEach(filteredFiles) { file in
-                FileRow(file: file) {
-                    appState.openFile(file)
+                if isSelecting {
+                    FileRow(
+                        file: file,
+                        isSelecting: true,
+                        isSelected: selectedFileIDs.contains(file.id)
+                    ) {
+                        toggleSelection(file.id)
+                    }
+                } else {
+                    FileRow(file: file) {
+                        appState.openFile(file)
+                    }
                 }
             }
         }
         .listStyle(.plain)
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
     }
 }
 
@@ -1017,9 +1117,6 @@ struct SharedView: View {
                         }
                         Button { } label: {
                             Label("Scan Documents", systemImage: "document.viewfinder")
-                        }
-                        Button { } label: {
-                            Label("Connect to Server", systemImage: "desktopcomputer")
                         }
                     }
                 }
@@ -1080,6 +1177,8 @@ struct PhotosView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
         Group {
@@ -1097,12 +1196,90 @@ struct PhotosView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredPhotos.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredPhotos.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredPhotos.map(\.id))
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                    }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var photoFiles: [FileItem] {
@@ -1135,8 +1312,18 @@ struct PhotosView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredPhotos) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -1159,6 +1346,14 @@ struct PhotosView: View {
             }
         }
     }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
+    }
 }
 
 // MARK: - Videos View
@@ -1167,6 +1362,8 @@ struct VideosView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
         Group {
@@ -1184,12 +1381,90 @@ struct VideosView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredVideos.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredVideos.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredVideos.map(\.id))
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                    }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var videoFiles: [FileItem] {
@@ -1222,8 +1497,18 @@ struct VideosView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredVideos) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -1246,6 +1531,14 @@ struct VideosView: View {
             }
         }
     }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
+    }
 }
 
 // MARK: - Audio View
@@ -1255,6 +1548,8 @@ struct AudioView: View {
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1279,25 +1574,103 @@ struct AudioView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
-                    Divider()
-                    Button { viewMode = .grid } label: {
-                        HStack {
-                            Text("Icons")
-                            if viewMode == .grid { Image(systemName: "checkmark") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredAudio.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredAudio.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredAudio.map(\.id))
                         }
                     }
-                    Button { viewMode = .list } label: {
-                        HStack {
-                            Text("List")
-                            if viewMode == .list { Image(systemName: "checkmark") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                        Divider()
+                        Button { viewMode = .grid } label: {
+                            HStack {
+                                Text("Icons")
+                                if viewMode == .grid { Image(systemName: "checkmark") }
+                            }
+                        }
+                        Button { viewMode = .list } label: {
+                            HStack {
+                                Text("List")
+                                if viewMode == .list { Image(systemName: "checkmark") }
+                            }
                         }
                     }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var audioFiles: [FileItem] {
@@ -1330,8 +1703,18 @@ struct AudioView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredAudio) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -1358,8 +1741,18 @@ struct AudioView: View {
     private var listView: some View {
         List {
             ForEach(filteredAudio) { file in
-                FileRow(file: file) {
-                    appState.openFile(file)
+                if isSelecting {
+                    FileRow(
+                        file: file,
+                        isSelecting: true,
+                        isSelected: selectedFileIDs.contains(file.id)
+                    ) {
+                        toggleSelection(file.id)
+                    }
+                } else {
+                    FileRow(file: file) {
+                        appState.openFile(file)
+                    }
                 }
             }
 
@@ -1370,6 +1763,14 @@ struct AudioView: View {
         }
         .listStyle(.plain)
     }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
+    }
 }
 
 // MARK: - Documents View
@@ -1379,6 +1780,8 @@ struct DocumentsView: View {
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1403,25 +1806,103 @@ struct DocumentsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
-                    Divider()
-                    Button { viewMode = .grid } label: {
-                        HStack {
-                            Text("Icons")
-                            if viewMode == .grid { Image(systemName: "checkmark") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredDocs.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredDocs.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredDocs.map(\.id))
                         }
                     }
-                    Button { viewMode = .list } label: {
-                        HStack {
-                            Text("List")
-                            if viewMode == .list { Image(systemName: "checkmark") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                        Divider()
+                        Button { viewMode = .grid } label: {
+                            HStack {
+                                Text("Icons")
+                                if viewMode == .grid { Image(systemName: "checkmark") }
+                            }
+                        }
+                        Button { viewMode = .list } label: {
+                            HStack {
+                                Text("List")
+                                if viewMode == .list { Image(systemName: "checkmark") }
+                            }
                         }
                     }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var documentFiles: [FileItem] {
@@ -1454,8 +1935,18 @@ struct DocumentsView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredDocs) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -1482,8 +1973,18 @@ struct DocumentsView: View {
     private var listView: some View {
         List {
             ForEach(filteredDocs) { file in
-                FileRow(file: file) {
-                    appState.openFile(file)
+                if isSelecting {
+                    FileRow(
+                        file: file,
+                        isSelecting: true,
+                        isSelected: selectedFileIDs.contains(file.id)
+                    ) {
+                        toggleSelection(file.id)
+                    }
+                } else {
+                    FileRow(file: file) {
+                        appState.openFile(file)
+                    }
                 }
             }
 
@@ -1493,6 +1994,14 @@ struct DocumentsView: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
     }
 }
 
@@ -1709,6 +2218,8 @@ struct FavoritesView: View {
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1733,25 +2244,105 @@ struct FavoritesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
-                    Divider()
-                    Button { viewMode = .grid } label: {
-                        HStack {
-                            Text("Icons")
-                            if viewMode == .grid { Image(systemName: "checkmark") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredFavorites.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredFavorites.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredFavorites.map(\.id))
                         }
                     }
-                    Button { viewMode = .list } label: {
-                        HStack {
-                            Text("List")
-                            if viewMode == .list { Image(systemName: "checkmark") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                        Divider()
+                        Button { viewMode = .grid } label: {
+                            HStack {
+                                Text("Icons")
+                                if viewMode == .grid { Image(systemName: "checkmark") }
+                            }
+                        }
+                        Button { viewMode = .list } label: {
+                            HStack {
+                                Text("List")
+                                if viewMode == .list { Image(systemName: "checkmark") }
+                            }
                         }
                     }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart.slash")
+                        .font(.system(size: 20))
+                    Text("Unfavorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var favoriteFiles: [FileItem] {
@@ -1787,8 +2378,18 @@ struct FavoritesView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredFavorites) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -1815,8 +2416,18 @@ struct FavoritesView: View {
     private var listView: some View {
         List {
             ForEach(filteredFavorites) { file in
-                FileRow(file: file) {
-                    appState.openFile(file)
+                if isSelecting {
+                    FileRow(
+                        file: file,
+                        isSelecting: true,
+                        isSelected: selectedFileIDs.contains(file.id)
+                    ) {
+                        toggleSelection(file.id)
+                    }
+                } else {
+                    FileRow(file: file) {
+                        appState.openFile(file)
+                    }
                 }
             }
 
@@ -1826,6 +2437,14 @@ struct FavoritesView: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
     }
 }
 
@@ -1860,6 +2479,8 @@ struct ArchiveView: View {
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1884,25 +2505,91 @@ struct ArchiveView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
-                    Divider()
-                    Button { viewMode = .grid } label: {
-                        HStack {
-                            Text("Icons")
-                            if viewMode == .grid { Image(systemName: "checkmark") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredArchived.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredArchived.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredArchived.map(\.id))
                         }
                     }
-                    Button { viewMode = .list } label: {
-                        HStack {
-                            Text("List")
-                            if viewMode == .list { Image(systemName: "checkmark") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                        Divider()
+                        Button { viewMode = .grid } label: {
+                            HStack {
+                                Text("Icons")
+                                if viewMode == .grid { Image(systemName: "checkmark") }
+                            }
+                        }
+                        Button { viewMode = .list } label: {
+                            HStack {
+                                Text("List")
+                                if viewMode == .list { Image(systemName: "checkmark") }
+                            }
                         }
                     }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "tray.and.arrow.up")
+                        .font(.system(size: 20))
+                    Text("Unarchive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var archivedFiles: [FileItem] {
@@ -1938,8 +2625,18 @@ struct ArchiveView: View {
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
                     ForEach(filteredArchived) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -1966,8 +2663,18 @@ struct ArchiveView: View {
     private var listView: some View {
         List {
             ForEach(filteredArchived) { file in
-                FileRow(file: file) {
-                    appState.openFile(file)
+                if isSelecting {
+                    FileRow(
+                        file: file,
+                        isSelecting: true,
+                        isSelected: selectedFileIDs.contains(file.id)
+                    ) {
+                        toggleSelection(file.id)
+                    }
+                } else {
+                    FileRow(file: file) {
+                        appState.openFile(file)
+                    }
                 }
             }
 
@@ -1978,6 +2685,14 @@ struct ArchiveView: View {
         }
         .listStyle(.plain)
     }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
+    }
 }
 
 // MARK: - Trash View (Recently Deleted, Files-app style)
@@ -1987,6 +2702,8 @@ struct TrashView: View {
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
     @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -2018,14 +2735,34 @@ struct TrashView: View {
                                 GridItem(.flexible(), spacing: 16)
                             ], spacing: 20) {
                                 ForEach(filteredTrash) { file in
-                                    FileGridItem(file: file) { }
+                                    if isSelecting {
+                                        FileGridItem(
+                                            file: file,
+                                            isSelecting: true,
+                                            isSelected: selectedFileIDs.contains(file.id)
+                                        ) {
+                                            toggleSelection(file.id)
+                                        }
+                                    } else {
+                                        FileGridItem(file: file) { }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 16)
                         } else {
                             VStack(spacing: 0) {
                                 ForEach(filteredTrash) { file in
-                                    FileRow(file: file) { }
+                                    if isSelecting {
+                                        FileRow(
+                                            file: file,
+                                            isSelecting: true,
+                                            isSelected: selectedFileIDs.contains(file.id)
+                                        ) {
+                                            toggleSelection(file.id)
+                                        }
+                                    } else {
+                                        FileRow(file: file) { }
+                                    }
                                     Divider().padding(.leading, 60)
                                 }
                             }
@@ -2052,25 +2789,91 @@ struct TrashView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: { Label("Select", systemImage: "checkmark.circle") }
-                    Divider()
-                    Button { viewMode = .grid } label: {
-                        HStack {
-                            Text("Icons")
-                            if viewMode == .grid { Image(systemName: "checkmark") }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredTrash.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredTrash.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredTrash.map(\.id))
                         }
                     }
-                    Button { viewMode = .list } label: {
-                        HStack {
-                            Text("List")
-                            if viewMode == .list { Image(systemName: "checkmark") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    BlueEllipsisMenu {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                        Divider()
+                        Button { viewMode = .grid } label: {
+                            HStack {
+                                Text("Icons")
+                                if viewMode == .grid { Image(systemName: "checkmark") }
+                            }
+                        }
+                        Button { viewMode = .list } label: {
+                            HStack {
+                                Text("List")
+                                if viewMode == .list { Image(systemName: "checkmark") }
+                            }
                         }
                     }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.restoreFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 20))
+                    Text("Recover")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.deletePermanently(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 20))
+                    Text("Delete Immediately")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var trashedFiles: [FileItem] {
@@ -2094,6 +2897,14 @@ struct TrashView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
+        }
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
         }
     }
 }
@@ -2176,6 +2987,8 @@ struct AppleFolderIcon: View {
 struct FileRow: View {
     @Environment(AppState.self) private var appState
     let file: FileItem
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
     var onTap: (() -> Void)? = nil
     @State private var showRename = false
     @State private var renameText = ""
@@ -2257,6 +3070,12 @@ struct FileRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 12) {
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+            }
+
             thumbnailView
                 .frame(width: 36, height: 36)
 
@@ -2352,6 +3171,8 @@ struct FileRow: View {
 struct FileGridItem: View {
     @Environment(AppState.self) private var appState
     let file: FileItem
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
     var onTap: (() -> Void)? = nil
     @State private var showRename = false
     @State private var renameText = ""
@@ -2434,10 +3255,20 @@ struct FileGridItem: View {
     private var gridContent: some View {
         VStack(spacing: 6) {
             // Card container
-            thumbnailView
-                .frame(height: 105)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
+            ZStack(alignment: .topTrailing) {
+                thumbnailView
+                    .frame(height: 105)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+
+                if isSelecting {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 22))
+                        .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+                        .background(Circle().fill(Color.white).padding(2))
+                        .padding(4)
+                }
+            }
 
             // Labels
             VStack(spacing: 2) {

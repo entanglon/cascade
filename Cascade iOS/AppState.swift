@@ -623,6 +623,129 @@ final class AppState {
         }
     }
 
+    func createFolder(named name: String, parentID: String? = nil, isPrivate: Bool = false) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Task {
+            do {
+                let vault = try? await DatabaseManager.shared.firstVault()
+                let folder = ObjectRecord(
+                    id: UUID().uuidString,
+                    vaultID: vault?.id ?? "local",
+                    name: trimmed,
+                    size: 0,
+                    mime: "cascade/folder",
+                    state: "ready",
+                    rootHash: nil,
+                    wrappedKey: nil,
+                    createdAt: .now,
+                    modifiedAt: .now,
+                    isFavorite: false,
+                    trashed: false,
+                    parentID: (parentID?.isEmpty == true) ? nil : parentID,
+                    isFolder: true,
+                    isPrivate: isPrivate
+                )
+                try await DatabaseManager.shared.save(folder)
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] createFolder failed: \(error)")
+            }
+        }
+    }
+
+    func trashFiles(_ fileIDs: Set<String>) {
+        guard !fileIDs.isEmpty else { return }
+        Task {
+            do {
+                for id in fileIDs {
+                    if var obj = try await DatabaseManager.shared.object(id) {
+                        obj.trashed = true
+                        try await DatabaseManager.shared.save(obj)
+                    }
+                }
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] trashFiles failed: \(error)")
+            }
+        }
+    }
+
+    func restoreFiles(_ fileIDs: Set<String>) {
+        guard !fileIDs.isEmpty else { return }
+        Task {
+            do {
+                for id in fileIDs {
+                    if var obj = try await DatabaseManager.shared.object(id) {
+                        obj.trashed = false
+                        try await DatabaseManager.shared.save(obj)
+                    }
+                }
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] restoreFiles failed: \(error)")
+            }
+        }
+    }
+
+    func deletePermanently(_ fileIDs: Set<String>) {
+        guard !fileIDs.isEmpty else { return }
+        Task {
+            do {
+                for id in fileIDs {
+                    try await DatabaseManager.shared.deleteObjectWithChunks(id: id)
+                }
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] deletePermanently failed: \(error)")
+            }
+        }
+    }
+
+    func toggleFavorites(_ fileIDs: Set<String>) {
+        guard !fileIDs.isEmpty else { return }
+        Task {
+            do {
+                let current = allFiles.filter { fileIDs.contains($0.id) }
+                let anyUnfavorited = current.contains { !$0.isFavorite }
+                for id in fileIDs {
+                    if var obj = try await DatabaseManager.shared.object(id) {
+                        obj.isFavorite = anyUnfavorited
+                        try await DatabaseManager.shared.save(obj)
+                    }
+                }
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] toggleFavorites failed: \(error)")
+            }
+        }
+    }
+
+    func toggleArchive(_ fileIDs: Set<String>) {
+        guard !fileIDs.isEmpty else { return }
+        Task {
+            do {
+                let current = allFiles.filter { fileIDs.contains($0.id) }
+                let anyUnarchived = current.contains { !$0.isArchived }
+                for id in fileIDs {
+                    if var obj = try await DatabaseManager.shared.object(id) {
+                        obj.isArchived = anyUnarchived
+                        try await DatabaseManager.shared.save(obj)
+                    }
+                }
+                _ = await CatalogSnapshot.upload()
+                await loadAllFiles()
+            } catch {
+                print("[iOS] toggleArchive failed: \(error)")
+            }
+        }
+    }
+
     func renameFile(_ file: FileItem, to newName: String) {
         Task {
             do {

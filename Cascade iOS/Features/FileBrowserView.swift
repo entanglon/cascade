@@ -13,6 +13,11 @@ struct FileBrowserView: View {
     @State private var sortAscending = true
     @State private var viewportHeight: CGFloat = 0
 
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
+    @State private var showNewFolderAlert = false
+    @State private var newFolderName = ""
+
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
         case list = "List"
@@ -43,71 +48,162 @@ struct FileBrowserView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { } label: {
-                        Label("Select", systemImage: "checkmark.circle")
-                    }
-                    Button { } label: {
-                        Label("Scan Documents", systemImage: "document.viewfinder")
-                    }
-                    Button { } label: {
-                        Label("Connect to Server", systemImage: "desktopcomputer")
-                    }
-
-                    Divider()
-
-                    Button {
-                        viewMode = .grid
-                    } label: {
-                        HStack {
-                            Text("Icons")
-                            if viewMode == .grid {
-                                Image(systemName: "checkmark")
-                            }
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredFiles.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredFiles.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredFiles.map(\.id))
                         }
                     }
-
-                    Button {
-                        viewMode = .list
-                    } label: {
-                        HStack {
-                            Text("List")
-                            if viewMode == .list {
-                                Image(systemName: "checkmark")
-                            }
-                        }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
                     }
-
-                    Divider()
-
-                    ForEach(SortOption.allCases, id: \.self) { option in
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
                         Button {
-                            if sortBy == option {
-                                sortAscending.toggle()
-                            } else {
-                                sortBy = option
-                                sortAscending = true
-                            }
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+
+                        Button {
+                            newFolderName = ""
+                            showNewFolderAlert = true
+                        } label: {
+                            Label("New Folder", systemImage: "folder.badge.plus")
+                        }
+
+                        Button { } label: {
+                            Label("Scan Documents", systemImage: "document.viewfinder")
+                        }
+
+                        Divider()
+
+                        Button {
+                            viewMode = .grid
                         } label: {
                             HStack {
-                                Text(option.rawValue)
-                                if sortBy == option {
-                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                Text("Icons")
+                                if viewMode == .grid {
+                                    Image(systemName: "checkmark")
                                 }
                             }
                         }
+
+                        Button {
+                            viewMode = .list
+                        } label: {
+                            HStack {
+                                Text("List")
+                                if viewMode == .list {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        ForEach(SortOption.allCases, id: \.self) { option in
+                            Button {
+                                if sortBy == option {
+                                    sortAscending.toggle()
+                                } else {
+                                    sortBy = option
+                                    sortAscending = true
+                                }
+                            } label: {
+                                HStack {
+                                    Text(option.rawValue)
+                                    if sortBy == option {
+                                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(.blue)
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(.blue)
                 }
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+        .alert("New Folder", isPresented: $showNewFolderAlert) {
+            TextField("Folder Name", text: $newFolderName)
+            Button("Create") {
+                let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    appState.createFolder(named: name, parentID: folderID, isPrivate: filterPrivate)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .refreshable {
             await appState.loadAllFiles()
         }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
     }
 
     private var currentFolderFiles: [FileItem] {
@@ -146,9 +242,7 @@ struct FileBrowserView: View {
         ScrollView {
             VStack(spacing: 16) {
                 Spacer(minLength: 80)
-                Image(systemName: "folder")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.blue)
+                AppleFolderIcon(width: 68, height: 54)
                 Text("No Files")
                     .font(.title2.bold())
                 Text("Upload files from the Mac app to see them here.")
@@ -172,17 +266,37 @@ struct FileBrowserView: View {
                 ], spacing: 20) {
                     // Folders first
                     ForEach(filteredFiles.filter(\.isFolder)) { folder in
-                        NavigationLink {
-                            FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
-                        } label: {
-                            FileGridItem(file: folder)
+                        if isSelecting {
+                            FileGridItem(
+                                file: folder,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(folder.id)
+                            ) {
+                                toggleSelection(folder.id)
+                            }
+                        } else {
+                            NavigationLink {
+                                FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
+                            } label: {
+                                FileGridItem(file: folder)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     // Files
                     ForEach(filteredFiles.filter { !$0.isFolder }) { file in
-                        FileGridItem(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -223,10 +337,20 @@ struct FileBrowserView: View {
             if !folders.isEmpty {
                 Section {
                     ForEach(folders) { folder in
-                        NavigationLink {
-                            FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
-                        } label: {
-                            FileRow(file: folder)
+                        if isSelecting {
+                            FileRow(
+                                file: folder,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(folder.id)
+                            ) {
+                                toggleSelection(folder.id)
+                            }
+                        } else {
+                            NavigationLink {
+                                FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
+                            } label: {
+                                FileRow(file: folder)
+                            }
                         }
                     }
                 }
@@ -235,8 +359,18 @@ struct FileBrowserView: View {
             if !items.isEmpty {
                 Section {
                     ForEach(items) { file in
-                        FileRow(file: file) {
-                            appState.openFile(file)
+                        if isSelecting {
+                            FileRow(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileRow(file: file) {
+                                appState.openFile(file)
+                            }
                         }
                     }
                 }
@@ -258,6 +392,14 @@ struct FileBrowserView: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
     }
 }
 #endif
