@@ -441,6 +441,8 @@ final class AudioPlayerEngine {
 
     @MainActor
     func play(file: ObjectRecord, in trackList: [ObjectRecord] = []) {
+        _ = RecentsSyncEngine.recordAccess(fileID: file.id)
+        RecentsSyncEngine.shared.scheduleUpload()
         playbackError = nil
         ended = false
         // Wave 2 item 5: a different track taking over while a video floats in

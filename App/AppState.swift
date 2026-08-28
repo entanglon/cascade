@@ -187,9 +187,23 @@ final class AppState {
     var downloadStatus: String? = nil
     var downloadProgress: Double = 0
     var alertMessage: String? = nil
-    var theaterFile: ObjectRecord? = nil
+    var theaterFile: ObjectRecord? = nil {
+        didSet {
+            if let file = theaterFile {
+                _ = RecentsSyncEngine.recordAccess(fileID: file.id)
+                RecentsSyncEngine.shared.scheduleUpload()
+            }
+        }
+    }
     /// Book currently open in the reader (epub / pdf / text / comic).
-    var readerFile: ObjectRecord? = nil
+    var readerFile: ObjectRecord? = nil {
+        didSet {
+            if let file = readerFile {
+                _ = RecentsSyncEngine.recordAccess(fileID: file.id)
+                RecentsSyncEngine.shared.scheduleUpload()
+            }
+        }
+    }
     /// Video awaiting a sidecar-subtitle picker (.srt/.ass/…) — set by the file
     /// context menu's "Add Subtitles…", consumed by the browser's fileImporter.
     var subtitlePickerTarget: ObjectRecord? = nil

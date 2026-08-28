@@ -87,7 +87,9 @@ struct FileBrowserView: View {
             case .privateVault:
                 return files.filter { !$0.trashed && $0.isPrivate && $0.parentID == appState.currentFolderID }
             case .recent:
-                return Array(files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.prefix(20))
+                let entries = RecentsSyncEngine.loadLocalEntries()
+                let fileMap = Dictionary(uniqueKeysWithValues: files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }.map { ($0.id, $0) })
+                return entries.compactMap { fileMap[$0.id] }
             case .favorites:
                 return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
             case .photos:
@@ -146,6 +148,10 @@ struct FileBrowserView: View {
 
         let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filtered = query.isEmpty ? baseUnarchived : baseUnarchived.filter { $0.name.lowercased().contains(query) }
+
+        if appState.selectedDestination == .recent && query.isEmpty {
+            return filtered
+        }
 
         switch sortOption {
         case .name:
