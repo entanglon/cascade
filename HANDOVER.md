@@ -2677,7 +2677,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       from this session).
 
 123. **iOS pull-to-refresh hanging forever — fix (2026-08-28 evening,
-    PLACEHOLDER_HASH):**
+    `9df76a3`):**
     - **Root cause**: `searchChannelMetadataMessages` (item 122, above) called
       `client.searchChatMessages` without the `withResponseTimeout` wrapper
       this file already documents as REQUIRED for TDLibKit calls that can

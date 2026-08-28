@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever (PLACEHOLDER_HASH)
+## 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever (`9df76a3`)
 
 User: "when I pull a page in the iOS app to refresh it, it gets stuck at
 refreshing and the refresh never finishes."
