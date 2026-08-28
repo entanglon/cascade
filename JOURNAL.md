@@ -2,7 +2,34 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Inline New Folder, direct name tap inline rename, and clean list footers (Round 197, 0adfb53).
+> 2026-08-28 (night) — Fast snapshot-based cloud sync on macOS for Cmd+R, window focus, and Settings Sync (Round 198, 4a9b7cf).
+
+---
+
+## 2026-08-28 (night) — Fast snapshot-based cloud sync on macOS for Cmd+R, window focus, and Settings Sync (Round 198, commit `4a9b7cf`)
+
+User noted:
+1. Improved file syncing mechanism from iOS (sub-second Telegram server-side snapshot/delta search and LWW merge) was not wired to `⌘R` on macOS.
+2. Pressing `⌘R` only reloaded local SQLite records and never fetched cloud updates.
+3. Settings "Sync Now" fell back to the legacy message-by-message channel scan when the local DB was populated.
+
+### Changes Implemented
+1. **Documented Architecture**:
+   - Created `FILE_SYNC_ARCHITECTURE.md` analyzing the sync disparity and detailing the unification plan.
+2. **Support `reconcileCloud` in macOS `AppState.loadFiles`**:
+   - Updated `loadFiles(reconcileCloud: Bool = false)` in `App/AppState.swift` to invoke `CatalogSnapshot.upload()` whenever `reconcileCloud == true` and Telegram is authorized.
+   - Reconciles cloud snapshots/deltas via high-water mark server search and adopts merged catalog into local SQLite before loading files into memory.
+3. **Wire `⌘R` ("Reload Page") to Cloud Reconciliation**:
+   - In `App/CascadeApp.swift`, updated the View menu "Reload Page" command (`.keyboardShortcut("r", modifiers: .command)`) to call `appState.loadFiles(reconcileCloud: true)`.
+4. **Modernize Settings "Sync Now"**:
+   - In `App/AppState.swift:syncNow()`, first attempts fast `CatalogSnapshot.upload()` reconciliation. If successful, updates the file list and alerts the user of instant cloud sync. Falls back to `VaultRepair.run()` only if snapshot reconciliation encounters an error.
+5. **App Activation Sync on macOS**:
+   - In `Features/RootView.swift`, added `.onReceive` listener for `NSApplication.didBecomeActiveNotification` running `loadFiles(reconcileCloud: true)` in the background so files uploaded from mobile appear automatically on Mac.
+
+### Verification
+- macOS build: `** BUILD SUCCEEDED **`.
+- iOS build: `** BUILD SUCCEEDED **`.
+- Commit: `4a9b7cf`.
 
 ---
 

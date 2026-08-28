@@ -4132,6 +4132,14 @@ Open levers (not scheduled):
     - Added inline `InlineNewFolderGridItem` and `InlineNewFolderRow` auto-focused with dark capsule styling on "New Folder" menu tap.
     - Updated `FileGridItem` and `FileRow` so tapping filename label directly enters inline rename mode, while tapping thumbnail/icon opens the file or navigates folder.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed to iPhone XS Max.
+198. **Fast Snapshot Cloud Sync on macOS for Cmd+R, Window Focus, & Settings Sync (2026-08-28 night — COMMITTED `4a9b7cf`)**
+     (`App/AppState.swift`, `App/CascadeApp.swift`, `Features/RootView.swift`, `FILE_SYNC_ARCHITECTURE.md`)
+    - Added `FILE_SYNC_ARCHITECTURE.md` documenting cloud sync mechanics, iOS vs macOS differences, and unification.
+    - Updated `loadFiles(reconcileCloud: Bool = false)` on macOS to perform sub-second snapshot/delta reconciliation with the vault channel.
+    - Wired `⌘R` ("Reload Page") to `loadFiles(reconcileCloud: true)` for parity with iOS pull-to-refresh.
+    - Added `NSApplication.didBecomeActiveNotification` listener in `RootView.swift` to automatically check for new cloud files on window focus.
+    - Modernized `syncNow()` in Settings to use `CatalogSnapshot.upload()` for instant snapshot sync with `VaultRepair.run()` fallback.
+    - Build: Dual-platform verification clean — both `Cascade` (macOS) and `Cascade iOS` (arm64, `sdk iphoneos`) **BUILD SUCCEEDED**.
 
 
 
