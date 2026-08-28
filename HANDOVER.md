@@ -4140,6 +4140,12 @@ Open levers (not scheduled):
     - Added `NSApplication.didBecomeActiveNotification` listener in `RootView.swift` to automatically check for new cloud files on window focus.
     - Modernized `syncNow()` in Settings to use `CatalogSnapshot.upload()` for instant snapshot sync with `VaultRepair.run()` fallback.
     - Build: Dual-platform verification clean — both `Cascade` (macOS) and `Cascade iOS` (arm64, `sdk iphoneos`) **BUILD SUCCEEDED**.
+199. **Fix macOS Cmd+R View Focus Intercept, Optimistic Folder Creation, & Files App Spacing (2026-08-28 night — COMMITTED `23ce1e5`)**
+     (`App/AppState.swift`, `Features/FileBrowserView.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`)
+    - Fixed macOS `FileBrowserView.swift` keyboard focus `.onKeyPress("r")` handler to invoke `loadFiles(reconcileCloud: true)` so `⌘R` immediately updates the active view without switching pages.
+    - Implemented optimistic folder insertion in `Cascade iOS/AppState.swift` inserting the `FileItem` at index 0 of `allFiles` instantly on MainActor, preventing folder disappearing/flicker after creation.
+    - Tuned iOS grid thumbnail frame (`86pt`), `AppleFolderIcon` (`82x64`), removed dummy spacers and fixed label frames, matching Apple Files typography and spacing.
+    - Build: Dual-platform verification clean — both `Cascade` (macOS) and `Cascade iOS` (arm64, `sdk iphoneos`) **BUILD SUCCEEDED**.
 
 
 

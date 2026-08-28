@@ -2,7 +2,35 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fast snapshot-based cloud sync on macOS for Cmd+R, window focus, and Settings Sync (Round 198, 4a9b7cf).
+> 2026-08-28 (night) — Fix macOS Cmd+R focus intercept, optimistic folder creation, and Files app pixel-perfect spacing (Round 199, 23ce1e5).
+
+---
+
+## 2026-08-28 (night) — Fix macOS Cmd+R focus intercept, optimistic folder creation, and Files app pixel-perfect spacing (Round 199, commit `23ce1e5`)
+
+User reported:
+1. macOS `⌘R` was not updating the current view until navigating away and back to the page.
+2. On iOS, after creating a folder and submitting its name, the folder temporarily disappeared for ~500ms-1s before reappearing.
+3. On iOS grid items, the item count under folders was too far below the folder name, and requested font sizes, thumbnail sizes, and spacing to match Apple Files app screenshot.
+
+### Root Causes & Fixes
+1. **macOS `⌘R` Focus Intercept & Instant View Refresh**:
+   - *Root cause*: `FileBrowserView.swift:463` had a view-level `.onKeyPress("r")` handler that intercepted `⌘R` when focused, calling `loadFiles()` with default `reconcileCloud = false` instead of `true`.
+   - *Fix*: Updated `FileBrowserView.swift:466` to call `loadFiles(reconcileCloud: true)`, and in `AppState.loadFiles`, syncs recents if on `.recent` and increments `thumbnailVersion += 1` to trigger immediate re-rendering of all cells on the current page.
+2. **Optimistic Folder Creation (Zero Disappearance/Flicker)**:
+   - *Root cause*: `InlineNewFolderGridItem` dismissed `isCreatingFolder = false` synchronously while `createFolder` ran in an asynchronous background `Task`, creating a 500ms-1s window where neither the inline item nor the saved folder were present in `allFiles`.
+   - *Fix*: Updated `createFolder(named:parentID:isPrivate:)` in `Cascade iOS/AppState.swift` to immediately create the `FileItem` and insert it at index 0 of `allFiles` and `files` synchronously on MainActor before persisting to SQLite and syncing to Telegram.
+3. **iOS Files Pixel-Perfect Spacing & Typography**:
+   - In `Cascade iOS/RootView.swift`:
+     - Changed thumbnail frame to `height: 86, alignment: .bottom` and `AppleFolderIcon` to `82x64`.
+     - Removed rigid 34pt fixed-height frame on filename labels and removed dummy trailing `Text("")` spacers that created excessive gaps under folder items.
+     - Set label `VStack(spacing: 1.5)` for tight, native Files app layout.
+     - Folder subtitles render `X item(s)` directly below the folder name; file subtitles render date and size tightly below the filename.
+
+### Verification
+- macOS target: `** BUILD SUCCEEDED **` (Debug app relaunched).
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **`.
+- Commit: `23ce1e5`.
 
 ---
 
