@@ -73,9 +73,7 @@ struct FileBrowserView: View {
                         }
 
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                appState.startCreatingFolder(in: folderID)
-                            }
+                            appState.startCreatingFolder(in: folderID)
                         } label: {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
@@ -252,7 +250,7 @@ struct FileBrowserView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     // Inline New Folder Item if creating in this folder
                     if appState.isCreatingFolder && (appState.creatingFolderParentID ?? "") == folderID {
                         InlineNewFolderGridItem(parentID: folderID, filterPrivate: filterPrivate)

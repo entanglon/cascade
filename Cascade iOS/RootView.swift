@@ -1019,7 +1019,7 @@ struct RecentsView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredFiles) { file in
                         if isSelecting {
                             FileGridItem(
@@ -1318,7 +1318,7 @@ struct PhotosView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredPhotos) { file in
                         if isSelecting {
                             FileGridItem(
@@ -1503,7 +1503,7 @@ struct VideosView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredVideos) { file in
                         if isSelecting {
                             FileGridItem(
@@ -1709,7 +1709,7 @@ struct AudioView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredAudio) { file in
                         if isSelecting {
                             FileGridItem(
@@ -1940,7 +1940,7 @@ struct DocumentsView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredDocs) { file in
                         if isSelecting {
                             FileGridItem(
@@ -2382,7 +2382,7 @@ struct FavoritesView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredFavorites) { file in
                         if isSelecting {
                             FileGridItem(
@@ -2628,7 +2628,7 @@ struct ArchiveView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
-                ], spacing: 20) {
+                ], spacing: 28) {
                     ForEach(filteredArchived) { file in
                         if isSelecting {
                             FileGridItem(
@@ -2737,7 +2737,7 @@ struct TrashView: View {
                                 GridItem(.flexible(), spacing: 16),
                                 GridItem(.flexible(), spacing: 16),
                                 GridItem(.flexible(), spacing: 16)
-                            ], spacing: 20) {
+                            ], spacing: 28) {
                                 ForEach(filteredTrash) { file in
                                     if isSelecting {
                                         FileGridItem(
@@ -2915,45 +2915,61 @@ struct TrashView: View {
 
 // MARK: - Apple Files Folder Icon
 
+struct AppleFolderTabShape: Shape {
+    var bodyYFraction: CGFloat = 0.13
+    var tabWFraction: CGFloat = 0.40
+    var cornerRadiusFraction: CGFloat = 0.11
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let width = rect.width
+        let height = rect.height
+        let bodyY = height * bodyYFraction
+        let tabW = width * tabWFraction
+        let cornerRadius = height * cornerRadiusFraction
+        let r = cornerRadius * 0.75
+
+        path.move(to: CGPoint(x: 0, y: r))
+        path.addQuadCurve(to: CGPoint(x: r, y: 0), control: CGPoint(x: 0, y: 0))
+        path.addLine(to: CGPoint(x: tabW - r, y: 0))
+        path.addCurve(
+            to: CGPoint(x: tabW + width * 0.09, y: bodyY),
+            control1: CGPoint(x: tabW + r * 0.6, y: 0),
+            control2: CGPoint(x: tabW + r * 0.3, y: bodyY)
+        )
+        path.addLine(to: CGPoint(x: width - cornerRadius, y: bodyY))
+        path.addQuadCurve(to: CGPoint(x: width, y: bodyY + cornerRadius), control: CGPoint(x: width, y: bodyY))
+        path.addLine(to: CGPoint(x: width, y: height - cornerRadius))
+        path.addQuadCurve(to: CGPoint(x: width - cornerRadius, y: height), control: CGPoint(x: width, y: height))
+        path.addLine(to: CGPoint(x: cornerRadius, y: height))
+        path.addQuadCurve(to: CGPoint(x: 0, y: height - cornerRadius), control: CGPoint(x: 0, y: height))
+        path.closeSubpath()
+        return path
+    }
+}
+
 struct AppleFolderIcon: View {
     var width: CGFloat = 84
     var height: CGFloat = 66
 
     var body: some View {
         let bodyY = height * 0.13
-        let tabW = width * 0.40
         let cornerRadius = height * 0.11
 
         ZStack(alignment: .topLeading) {
             // Back Tab / Flap
-            Path { path in
-                let r = cornerRadius * 0.75
-                path.move(to: CGPoint(x: 0, y: r))
-                path.addQuadCurve(to: CGPoint(x: r, y: 0), control: CGPoint(x: 0, y: 0))
-                path.addLine(to: CGPoint(x: tabW - r, y: 0))
-                path.addCurve(
-                    to: CGPoint(x: tabW + width * 0.09, y: bodyY),
-                    control1: CGPoint(x: tabW + r * 0.6, y: 0),
-                    control2: CGPoint(x: tabW + r * 0.3, y: bodyY)
+            AppleFolderTabShape()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 60/255, green: 160/255, blue: 222/255),
+                            Color(red: 50/255, green: 146/255, blue: 206/255)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-                path.addLine(to: CGPoint(x: width - cornerRadius, y: bodyY))
-                path.addQuadCurve(to: CGPoint(x: width, y: bodyY + cornerRadius), control: CGPoint(x: width, y: bodyY))
-                path.addLine(to: CGPoint(x: width, y: height - cornerRadius))
-                path.addQuadCurve(to: CGPoint(x: width - cornerRadius, y: height), control: CGPoint(x: width, y: height))
-                path.addLine(to: CGPoint(x: cornerRadius, y: height))
-                path.addQuadCurve(to: CGPoint(x: 0, y: height - cornerRadius), control: CGPoint(x: 0, y: height))
-                path.closeSubpath()
-            }
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 60/255, green: 160/255, blue: 222/255),
-                        Color(red: 50/255, green: 146/255, blue: 206/255)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+                .frame(width: width, height: height)
 
             // Front Main Body
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -2997,15 +3013,15 @@ struct InlineNewFolderGridItem: View {
     @State private var isCommitted: Bool = false
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             ZStack(alignment: .bottom) {
-                AppleFolderIcon(width: 82, height: 64)
-                    .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1.5)
+                AppleFolderIcon(width: 84, height: 66)
+                    .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
             }
-            .frame(height: 86, alignment: .bottom)
+            .frame(height: 94, alignment: .bottom)
             .frame(maxWidth: .infinity)
 
-            VStack(spacing: 1.5) {
+            VStack(spacing: 2) {
                 TextField("Folder Name", text: $folderName)
                     .font(.system(size: 13, weight: .regular))
                     .multilineTextAlignment(.center)
@@ -3034,7 +3050,8 @@ struct InlineNewFolderGridItem: View {
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Give menu dismissal animation time to complete before raising keyboard to prevent stutter
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 isFocused = true
             }
         }
@@ -3090,7 +3107,7 @@ struct InlineNewFolderRow: View {
             Spacer()
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 isFocused = true
             }
         }
@@ -3424,7 +3441,7 @@ struct FileGridItem: View {
     }
 
     private var gridContent: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             // Card container / thumbnail (tapping opens file/folder)
             Button {
                 if isSelecting {
@@ -3437,7 +3454,7 @@ struct FileGridItem: View {
             } label: {
                 ZStack(alignment: .topTrailing) {
                     thumbnailView
-                        .frame(height: 86, alignment: .bottom)
+                        .frame(height: 94, alignment: .bottom)
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
 
@@ -3453,7 +3470,7 @@ struct FileGridItem: View {
             .buttonStyle(.plain)
 
             // Labels
-            VStack(spacing: 1.5) {
+            VStack(spacing: 2) {
                 if isRenaming {
                     TextField("Name", text: $renameText)
                         .font(.system(size: 13, weight: .regular))
@@ -3542,34 +3559,34 @@ struct FileGridItem: View {
     private var thumbnailView: some View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
-            AppleFolderIcon(width: 82, height: 64)
-                .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1.5)
+            AppleFolderIcon(width: 84, height: 66)
+                .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: 86)
+                .frame(maxWidth: .infinity, maxHeight: 94)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .shadow(color: .black.opacity(0.16), radius: 2.5, x: 0, y: 1.5)
+                .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
         } else if file.isAudio {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 66, height: 86)
-                    .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
+                    .frame(width: 70, height: 92)
+                    .shadow(color: .black.opacity(0.16), radius: 2.5, x: 0, y: 1.5)
                 Image(systemName: "music.note")
-                    .font(.system(size: 32, weight: .regular))
-                    .foregroundStyle(Color(white: 0.76))
+                    .font(.system(size: 34, weight: .regular))
+                    .foregroundStyle(Color(white: 0.78))
             }
         } else if file.isDocument {
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color.white)
-                    .frame(width: 66, height: 86)
+                    .frame(width: 70, height: 92)
                     .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
                 VStack(spacing: 4) {
                     Image(systemName: "doc.text")
-                        .font(.system(size: 26))
+                        .font(.system(size: 28))
                         .foregroundStyle(Color(white: 0.65))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -3583,11 +3600,11 @@ struct FileGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(red: 0.13, green: 0.13, blue: 0.15))
-                    .frame(width: 86, height: 58)
+                    .frame(width: 90, height: 60)
                     .shadow(color: .black.opacity(0.20), radius: 2.5, x: 0, y: 1.5)
                 VStack(spacing: 3) {
                     Image(systemName: "film")
-                        .font(.system(size: 24))
+                        .font(.system(size: 26))
                         .foregroundStyle(.white.opacity(0.75))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -3601,11 +3618,11 @@ struct FileGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(red: 0.16, green: 0.18, blue: 0.22))
-                    .frame(width: 80, height: 60)
+                    .frame(width: 84, height: 62)
                     .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
                 VStack(spacing: 3) {
                     Image(systemName: "photo")
-                        .font(.system(size: 26))
+                        .font(.system(size: 28))
                         .foregroundStyle(.white.opacity(0.70))
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
@@ -3619,11 +3636,11 @@ struct FileGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(.secondarySystemGroupedBackground))
-                    .frame(width: 66, height: 86)
+                    .frame(width: 70, height: 92)
                     .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
                 VStack(spacing: 4) {
                     Image(systemName: file.systemIcon)
-                        .font(.system(size: 26))
+                        .font(.system(size: 28))
                         .foregroundStyle(.blue)
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
