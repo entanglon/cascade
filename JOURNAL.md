@@ -2,7 +2,34 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Implemented exact custom AppleFolderIcon vector component (Round 195, b378433).
+> 2026-08-28 (night) — Remove Connect to Server, interactive Selection mode, New Folder creation (Round 196, a40584b).
+
+---
+
+## 2026-08-28 (night) — Remove Connect to Server, interactive Selection mode & New Folder (Round 196, commit `a40584b`)
+
+User requested:
+1. Remove the "Connect to Server" option from all menus.
+2. Ensure the "Select" option works seamlessly.
+3. Add "New Folder" option where needed and ensure it works.
+
+### Changes Implemented
+1. **Remove Connect to Server**:
+   - Removed all `Connect to Server` menu buttons from `FileBrowserView.swift`, `BrowseView`, `RecentsView`, and `SharedView`.
+2. **New Folder Creation**:
+   - Added `createFolder(named:parentID:isPrivate:)` to `Cascade iOS/AppState.swift` creating `ObjectRecord(mime: "cascade/folder", isFolder: true)` in SQLite database, uploading catalog snapshot to Telegram, and reloading files.
+   - Added `New Folder` menu action with `Image(systemName: "folder.badge.plus")` and alert dialog in `FileBrowserView.swift` (which also handles `PrivateVaultView` subfolders).
+3. **Interactive Multi-Item Selection Mode**:
+   - Added `isSelecting` state and `selectedFileIDs: Set<String>` across all browsing views: `FileBrowserView`, `RecentsView`, `PhotosView`, `VideosView`, `AudioView`, `DocumentsView`, `FavoritesView`, `ArchiveView`, and `TrashView`.
+   - In selection mode:
+     - Navigation bar displays `Select All` / `Deselect All` on leading side and `Done` (bold) on trailing side.
+     - `FileGridItem` and `FileRow` render circular checkboxes (`checkmark.circle.fill` / `circle`), and tapping items toggles their selection state.
+     - Safe area bottom inset presents contextual action bars (Favorite, Unfavorite, Archive, Unarchive, Delete, Recover, Delete Immediately) with batch mutation methods on `AppState` (`trashFiles`, `restoreFiles`, `deletePermanently`, `toggleFavorites`, `toggleArchive`).
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Commit: `a40584b`.
 
 ---
 

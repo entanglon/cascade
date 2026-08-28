@@ -4120,6 +4120,12 @@ Open levers (not scheduled):
     - Designed custom vector `AppleFolderIcon` matching the exact geometry, continuous Apple corner radii, rear tab curvature, and dual sky-blue gradient layers from the native iOS Files app.
     - Replaced SF Symbol `folder.fill` in both grid and list views with `AppleFolderIcon`.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+196. **Remove Connect to Server, Selection Mode & New Folder (2026-08-28 night — COMMITTED `a40584b`)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
+    - Removed `Connect to Server` menu item everywhere across iOS (`FileBrowserView`, `BrowseView`, `RecentsView`, `SharedView`).
+    - Implemented full multi-item Selection mode (`isSelecting`, `selectedFileIDs`, Select All / Deselect All, Done button, and contextual bottom action bars) across all browser, recents, media, and deleted views.
+    - Implemented folder creation with `createFolder(named:parentID:isPrivate:)` in `AppState` and `New Folder` action dialog in `FileBrowserView` / `PrivateVaultView`.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
 
 
 
