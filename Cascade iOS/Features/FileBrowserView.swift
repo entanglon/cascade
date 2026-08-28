@@ -15,8 +15,6 @@ struct FileBrowserView: View {
 
     @State private var isSelecting = false
     @State private var selectedFileIDs: Set<String> = []
-    @State private var showNewFolderAlert = false
-    @State private var newFolderName = ""
 
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
@@ -32,7 +30,7 @@ struct FileBrowserView: View {
 
     var body: some View {
         Group {
-            if filteredFiles.isEmpty {
+            if filteredFiles.isEmpty && !appState.isCreatingFolder {
                 if !searchText.isEmpty {
                     NoSearchResultsView(query: searchText)
                 } else {
@@ -75,8 +73,9 @@ struct FileBrowserView: View {
                         }
 
                         Button {
-                            newFolderName = ""
-                            showNewFolderAlert = true
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                appState.startCreatingFolder(in: folderID)
+                            }
                         } label: {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
@@ -140,16 +139,6 @@ struct FileBrowserView: View {
             if isSelecting {
                 selectionBottomBar
             }
-        }
-        .alert("New Folder", isPresented: $showNewFolderAlert) {
-            TextField("Folder Name", text: $newFolderName)
-            Button("Create") {
-                let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty {
-                    appState.createFolder(named: name, parentID: folderID, isPrivate: filterPrivate)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
         }
         .refreshable {
             await appState.loadAllFiles()
@@ -264,6 +253,11 @@ struct FileBrowserView: View {
                     GridItem(.flexible(), spacing: 16),
                     GridItem(.flexible(), spacing: 16)
                 ], spacing: 20) {
+                    // Inline New Folder Item if creating in this folder
+                    if appState.isCreatingFolder && (appState.creatingFolderParentID ?? "") == folderID {
+                        InlineNewFolderGridItem(parentID: folderID, filterPrivate: filterPrivate)
+                    }
+
                     // Folders first
                     ForEach(filteredFiles.filter(\.isFolder)) { folder in
                         if isSelecting {
@@ -306,16 +300,8 @@ struct FileBrowserView: View {
                 Spacer(minLength: 40)
 
                 // Footer
-                VStack(spacing: 4) {
-                    Text("\(filteredFiles.count) \(filteredFiles.count == 1 ? "item" : "items")")
-                        .font(.subheadline.bold())
-                    if appState.isVaultConnected {
-                        Text("Synced with Cascade")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.bottom, 24)
+                PageItemCountFooter(count: filteredFiles.count)
+                    .padding(.bottom, 4)
             }
             .frame(maxWidth: .infinity)
             .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
@@ -331,6 +317,11 @@ struct FileBrowserView: View {
 
     private var listView: some View {
         List {
+            // Inline New Folder Row if creating in this folder
+            if appState.isCreatingFolder && (appState.creatingFolderParentID ?? "") == folderID {
+                InlineNewFolderRow(parentID: folderID, filterPrivate: filterPrivate)
+            }
+
             let folders = filteredFiles.filter { $0.isFolder }
             let items = filteredFiles.filter { !$0.isFolder }
 
@@ -376,20 +367,9 @@ struct FileBrowserView: View {
                 }
             }
 
-            Section {
-            } footer: {
-                VStack(spacing: 4) {
-                    Text("\(filteredFiles.count) \(filteredFiles.count == 1 ? "item" : "items")")
-                        .font(.subheadline.bold())
-                    if appState.isVaultConnected {
-                        Text("Synced with Cascade")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 20)
-            }
+            PageItemCountFooter(count: filteredFiles.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }

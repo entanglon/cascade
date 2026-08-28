@@ -145,6 +145,9 @@ final class AppState {
     var audioDuration: Double = 0
     var showFullAudioPlayer: Bool = false
     var recentFileIDs: [String] = RecentsSyncEngine.loadLocalEntries().map(\.id)
+    var editingFileID: String? = nil
+    var isCreatingFolder: Bool = false
+    var creatingFolderParentID: String? = nil
 
     var hasTelegramCredentials: Bool {
         (try? KeychainStore.loadTelegramCredentials()) != nil
@@ -623,6 +626,24 @@ final class AppState {
         }
     }
 
+    func startCreatingFolder(in parentID: String? = nil) {
+        isCreatingFolder = true
+        creatingFolderParentID = parentID
+    }
+
+    func cancelCreatingFolder() {
+        isCreatingFolder = false
+        creatingFolderParentID = nil
+    }
+
+    func startInlineRename(for file: FileItem) {
+        editingFileID = file.id
+    }
+
+    func cancelInlineRename() {
+        editingFileID = nil
+    }
+
     func createFolder(named name: String, parentID: String? = nil, isPrivate: Bool = false) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -747,11 +768,14 @@ final class AppState {
     }
 
     func renameFile(_ file: FileItem, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         Task {
             do {
                 guard var obj = try await DatabaseManager.shared.object(file.id) else { return }
-                obj.name = newName
+                obj.name = trimmed
                 try await DatabaseManager.shared.save(obj)
+                _ = await CatalogSnapshot.upload()
                 await loadAllFiles()
             } catch {
                 print("[iOS] renameFile failed: \(error)")

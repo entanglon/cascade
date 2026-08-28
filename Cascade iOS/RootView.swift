@@ -1038,7 +1038,11 @@ struct RecentsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 24)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredFiles.count)
+                    .padding(.bottom, 4)
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -1061,6 +1065,10 @@ struct RecentsView: View {
                     }
                 }
             }
+
+            PageItemCountFooter(count: filteredFiles.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }
@@ -1756,10 +1764,9 @@ struct AudioView: View {
                 }
             }
 
-            Section {
-            } footer: {
-                PageItemCountFooter(count: filteredAudio.count)
-            }
+            PageItemCountFooter(count: filteredAudio.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }
@@ -1988,10 +1995,9 @@ struct DocumentsView: View {
                 }
             }
 
-            Section {
-            } footer: {
-                PageItemCountFooter(count: filteredDocs.count)
-            }
+            PageItemCountFooter(count: filteredDocs.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }
@@ -2431,10 +2437,9 @@ struct FavoritesView: View {
                 }
             }
 
-            Section {
-            } footer: {
-                PageItemCountFooter(count: filteredFavorites.count)
-            }
+            PageItemCountFooter(count: filteredFavorites.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }
@@ -2678,10 +2683,9 @@ struct ArchiveView: View {
                 }
             }
 
-            Section {
-            } footer: {
-                PageItemCountFooter(count: filteredArchived.count)
-            }
+            PageItemCountFooter(count: filteredArchived.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }
@@ -2982,6 +2986,132 @@ struct AppleFolderIcon: View {
     }
 }
 
+// MARK: - Inline New Folder Items (Files-app style)
+
+struct InlineNewFolderGridItem: View {
+    @Environment(AppState.self) private var appState
+    let parentID: String
+    let filterPrivate: Bool
+    @State private var folderName: String = "untitled folder"
+    @FocusState private var isFocused: Bool
+    @State private var isCommitted: Bool = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                AppleFolderIcon(width: 86, height: 68)
+                    .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1.5)
+            }
+            .frame(height: 105)
+            .frame(maxWidth: .infinity)
+
+            VStack(spacing: 2) {
+                TextField("Folder Name", text: $folderName)
+                    .font(.system(size: 13, weight: .regular))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(uiColor: .systemGray5))
+                    )
+                    .focused($isFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        commit()
+                    }
+                    .onChange(of: isFocused) { _, focused in
+                        if !focused {
+                            commit()
+                        }
+                    }
+                    .frame(height: 34, alignment: .top)
+
+                Text("0 items")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(height: 14)
+                Text("")
+                    .font(.system(size: 11))
+                    .frame(height: 14)
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isFocused = true
+            }
+        }
+    }
+
+    private func commit() {
+        guard !isCommitted else { return }
+        isCommitted = true
+        let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? "untitled folder" : trimmed
+        appState.createFolder(named: finalName, parentID: parentID, isPrivate: filterPrivate)
+        appState.isCreatingFolder = false
+    }
+}
+
+struct InlineNewFolderRow: View {
+    @Environment(AppState.self) private var appState
+    let parentID: String
+    let filterPrivate: Bool
+    @State private var folderName: String = "untitled folder"
+    @FocusState private var isFocused: Bool
+    @State private var isCommitted: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AppleFolderIcon(width: 36, height: 28)
+                .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("Folder Name", text: $folderName)
+                    .font(.body)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(uiColor: .systemGray5))
+                    )
+                    .focused($isFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        commit()
+                    }
+                    .onChange(of: isFocused) { _, focused in
+                        if !focused {
+                            commit()
+                        }
+                    }
+
+                Text("0 items")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isFocused = true
+            }
+        }
+    }
+
+    private func commit() {
+        guard !isCommitted else { return }
+        isCommitted = true
+        let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? "untitled folder" : trimmed
+        appState.createFolder(named: finalName, parentID: parentID, isPrivate: filterPrivate)
+        appState.isCreatingFolder = false
+    }
+}
+
 // MARK: - File Row
 
 struct FileRow: View {
@@ -2990,82 +3120,74 @@ struct FileRow: View {
     var isSelecting: Bool = false
     var isSelected: Bool = false
     var onTap: (() -> Void)? = nil
-    @State private var showRename = false
     @State private var renameText = ""
     @State private var showInfo = false
     @State private var thumbData: Data?
+    @FocusState private var isRenameFocused: Bool
+
+    var isRenaming: Bool {
+        appState.editingFileID == file.id
+    }
 
     var body: some View {
-        Group {
-            if let onTap {
-                Button(action: onTap) {
-                    rowContent
+        rowContent
+            .contentShape(Rectangle())
+            .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
+                guard !file.isFolder else { return }
+                // Use already-loaded data from the bulk pass if available
+                if let existing = file.thumbnailData {
+                    thumbData = existing
+                    return
                 }
-                .buttonStyle(.plain)
-            } else {
-                rowContent
-            }
-        }
-        .contentShape(Rectangle())
-        .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
-            guard !file.isFolder else { return }
-            // Use already-loaded data from the bulk pass if available
-            if let existing = file.thumbnailData {
-                thumbData = existing
-                return
-            }
-            // Lazy on-demand fetch
-            if let data = await appState.fetchSingleThumbnail(for: file.id) {
-                await MainActor.run {
-                    thumbData = data
-                    if let idx = appState.allFiles.firstIndex(where: { $0.id == file.id }) {
-                        appState.allFiles[idx].thumbnailData = data
+                // Lazy on-demand fetch
+                if let data = await appState.fetchSingleThumbnail(for: file.id) {
+                    await MainActor.run {
+                        thumbData = data
+                        if let idx = appState.allFiles.firstIndex(where: { $0.id == file.id }) {
+                            appState.allFiles[idx].thumbnailData = data
+                        }
                     }
                 }
             }
-        }
-        .contextMenu {
-            if !file.isFolder {
-                Button { appState.openFile(file) } label: {
-                    Label("Open", systemImage: "arrow.up.forward")
+            .contextMenu {
+                if !file.isFolder {
+                    Button { appState.openFile(file) } label: {
+                        Label("Open", systemImage: "arrow.up.forward")
+                    }
+                }
+                if file.isFolder {
+                    Button { appState.navigateToFolder(file) } label: {
+                        Label("Open", systemImage: "folder")
+                    }
+                }
+                Divider()
+                Button { appState.toggleFavorite(file) } label: {
+                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "heart.slash" : "heart")
+                }
+                if !file.isFolder {
+                    Button { appState.togglePin(file) } label: {
+                        Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    }
+                }
+                Divider()
+                Button {
+                    startRenaming()
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                Button { showInfo = true } label: {
+                    Label("Get Info", systemImage: "info.circle")
+                }
+                Divider()
+                Button(role: .destructive) { appState.trashFile(file) } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
-            if file.isFolder {
-                Button { appState.navigateToFolder(file) } label: {
-                    Label("Open", systemImage: "folder")
-                }
+            .alert("File Info", isPresented: $showInfo) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(appState.getInfo(file))
             }
-            Divider()
-            Button { appState.toggleFavorite(file) } label: {
-                Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "heart.slash" : "heart")
-            }
-            if !file.isFolder {
-                Button { appState.togglePin(file) } label: {
-                    Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
-                }
-            }
-            Divider()
-            Button { renameText = file.name; showRename = true } label: {
-                Label("Rename", systemImage: "pencil")
-            }
-            Button { showInfo = true } label: {
-                Label("Get Info", systemImage: "info.circle")
-            }
-            Divider()
-            Button(role: .destructive) { appState.trashFile(file) } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-        .alert("Rename", isPresented: $showRename) {
-            TextField("Name", text: $renameText)
-            Button("Rename") { appState.renameFile(file, to: renameText) }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("File Info", isPresented: $showInfo) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(appState.getInfo(file))
-        }
     }
 
     private var rowContent: some View {
@@ -3076,14 +3198,63 @@ struct FileRow: View {
                     .foregroundStyle(isSelected ? Color.blue : Color.secondary)
             }
 
-            thumbnailView
-                .frame(width: 36, height: 36)
+            // Thumbnail / Icon tap target (opens file/folder)
+            Button {
+                if isSelecting {
+                    onTap?()
+                } else if isRenaming {
+                    commitRename()
+                } else {
+                    onTap?()
+                }
+            } label: {
+                thumbnailView
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(file.name)
-                    .font(.body)
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
+                if isRenaming {
+                    TextField("Name", text: $renameText)
+                        .font(.body)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(uiColor: .systemGray5))
+                        )
+                        .focused($isRenameFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            commitRename()
+                        }
+                        .onChange(of: isRenameFocused) { _, focused in
+                            if !focused {
+                                commitRename()
+                            }
+                        }
+                        .onAppear {
+                            renameText = file.name
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                isRenameFocused = true
+                            }
+                        }
+                } else {
+                    // Tapping filename directly starts inline rename (or selects if in selection mode)
+                    Button {
+                        if isSelecting {
+                            onTap?()
+                        } else {
+                            startRenaming()
+                        }
+                    } label: {
+                        Text(file.name)
+                            .font(.body)
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 if file.isFolder {
                     Text("\(countChildren) items")
@@ -3102,6 +3273,21 @@ struct FileRow: View {
             }
 
             Spacer()
+        }
+    }
+
+    private func startRenaming() {
+        renameText = file.name
+        appState.editingFileID = file.id
+    }
+
+    private func commitRename() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != file.name {
+            appState.renameFile(file, to: trimmed)
+        }
+        if appState.editingFileID == file.id {
+            appState.editingFileID = nil
         }
     }
 
@@ -3174,111 +3360,153 @@ struct FileGridItem: View {
     var isSelecting: Bool = false
     var isSelected: Bool = false
     var onTap: (() -> Void)? = nil
-    @State private var showRename = false
     @State private var renameText = ""
     @State private var showInfo = false
     @State private var thumbData: Data?
+    @FocusState private var isRenameFocused: Bool
+
+    var isRenaming: Bool {
+        appState.editingFileID == file.id
+    }
 
     var body: some View {
-        Group {
-            if let onTap {
-                Button(action: onTap) {
-                    gridContent
+        gridContent
+            .contentShape(Rectangle())
+            .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
+                guard !file.isFolder else { return }
+                // Use already-loaded data from the bulk pass if available
+                if let existing = file.thumbnailData {
+                    thumbData = existing
+                    return
                 }
-                .buttonStyle(.plain)
-            } else {
-                gridContent
-            }
-        }
-        .contentShape(Rectangle())
-        .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
-            guard !file.isFolder else { return }
-            // Use already-loaded data from the bulk pass if available
-            if let existing = file.thumbnailData {
-                thumbData = existing
-                return
-            }
-            // Lazy on-demand fetch
-            if let data = await appState.fetchSingleThumbnail(for: file.id) {
-                await MainActor.run {
-                    thumbData = data
-                    if let idx = appState.allFiles.firstIndex(where: { $0.id == file.id }) {
-                        appState.allFiles[idx].thumbnailData = data
+                // Lazy on-demand fetch
+                if let data = await appState.fetchSingleThumbnail(for: file.id) {
+                    await MainActor.run {
+                        thumbData = data
+                        if let idx = appState.allFiles.firstIndex(where: { $0.id == file.id }) {
+                            appState.allFiles[idx].thumbnailData = data
+                        }
                     }
                 }
             }
-        }
-        .contextMenu {
-            if !file.isFolder {
-                Button { appState.openFile(file) } label: {
-                    Label("Open", systemImage: "arrow.up.forward")
+            .contextMenu {
+                if !file.isFolder {
+                    Button { appState.openFile(file) } label: {
+                        Label("Open", systemImage: "arrow.up.forward")
+                    }
+                }
+                if file.isFolder {
+                    Button { appState.navigateToFolder(file) } label: {
+                        Label("Open", systemImage: "folder")
+                    }
+                }
+                Divider()
+                Button { appState.toggleFavorite(file) } label: {
+                    Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "heart.slash" : "heart")
+                }
+                if !file.isFolder {
+                    Button { appState.togglePin(file) } label: {
+                        Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    }
+                }
+                Divider()
+                Button {
+                    startRenaming()
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                Button { showInfo = true } label: {
+                    Label("Get Info", systemImage: "info.circle")
+                }
+                Divider()
+                Button(role: .destructive) { appState.trashFile(file) } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
-            if file.isFolder {
-                Button { appState.navigateToFolder(file) } label: {
-                    Label("Open", systemImage: "folder")
-                }
+            .alert("File Info", isPresented: $showInfo) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(appState.getInfo(file))
             }
-            Divider()
-            Button { appState.toggleFavorite(file) } label: {
-                Label(file.isFavorite ? "Unfavorite" : "Favorite", systemImage: file.isFavorite ? "heart.slash" : "heart")
-            }
-            if !file.isFolder {
-                Button { appState.togglePin(file) } label: {
-                    Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
-                }
-            }
-            Divider()
-            Button { renameText = file.name; showRename = true } label: {
-                Label("Rename", systemImage: "pencil")
-            }
-            Button { showInfo = true } label: {
-                Label("Get Info", systemImage: "info.circle")
-            }
-            Divider()
-            Button(role: .destructive) { appState.trashFile(file) } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-        .alert("Rename", isPresented: $showRename) {
-            TextField("Name", text: $renameText)
-            Button("Rename") { appState.renameFile(file, to: renameText) }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("File Info", isPresented: $showInfo) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(appState.getInfo(file))
-        }
     }
 
     private var gridContent: some View {
         VStack(spacing: 6) {
-            // Card container
-            ZStack(alignment: .topTrailing) {
-                thumbnailView
-                    .frame(height: 105)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-
+            // Card container / thumbnail (tapping opens file/folder)
+            Button {
                 if isSelecting {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 22))
-                        .foregroundStyle(isSelected ? Color.blue : Color.secondary)
-                        .background(Circle().fill(Color.white).padding(2))
-                        .padding(4)
+                    onTap?()
+                } else if isRenaming {
+                    commitRename()
+                } else {
+                    onTap?()
+                }
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    thumbnailView
+                        .frame(height: 105)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+
+                    if isSelecting {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 22))
+                            .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+                            .background(Circle().fill(Color.white).padding(2))
+                            .padding(4)
+                    }
                 }
             }
+            .buttonStyle(.plain)
 
             // Labels
             VStack(spacing: 2) {
-                Text(file.name)
-                    .font(.system(size: 13, weight: .regular))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.primary)
-                    .frame(height: 34, alignment: .top)
+                if isRenaming {
+                    TextField("Name", text: $renameText)
+                        .font(.system(size: 13, weight: .regular))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(uiColor: .systemGray5))
+                        )
+                        .focused($isRenameFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            commitRename()
+                        }
+                        .onChange(of: isRenameFocused) { _, focused in
+                            if !focused {
+                                commitRename()
+                            }
+                        }
+                        .onAppear {
+                            renameText = file.name
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                isRenameFocused = true
+                            }
+                        }
+                        .frame(height: 34, alignment: .top)
+                } else {
+                    // Tapping filename directly starts inline rename (or selects if in selection mode)
+                    Button {
+                        if isSelecting {
+                            onTap?()
+                        } else {
+                            startRenaming()
+                        }
+                    } label: {
+                        Text(file.name)
+                            .font(.system(size: 13, weight: .regular))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.primary)
+                            .frame(height: 34, alignment: .top)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 if file.isFolder {
                     Text("\(countChildren) \(countChildren == 1 ? "item" : "items")")
@@ -3308,6 +3536,21 @@ struct FileGridItem: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private func startRenaming() {
+        renameText = file.name
+        appState.editingFileID = file.id
+    }
+
+    private func commitRename() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != file.name {
+            appState.renameFile(file, to: trimmed)
+        }
+        if appState.editingFileID == file.id {
+            appState.editingFileID = nil
+        }
     }
 
     private var countChildren: Int {
