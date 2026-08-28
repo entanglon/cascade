@@ -2,7 +2,29 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fixed FileBrowserView root spinner hang caused by isLoadingFiles view branch swap during pull-to-refresh (Round 188, ed43756).
+> 2026-08-28 (night) — Implemented on-device Recents MRU tracking with instant updates and zero network polling (Round 189, aae3b19).
+
+---
+
+## 2026-08-28 (night) — Implemented on-device Recents MRU tracking (Round 189, commit `aae3b19`)
+
+User concurred with keeping Recents scoped to each individual device to prevent cloud pollution and avoid constant cross-device refresh polling.
+
+### Implementation Details
+1. **On-Device MRU Tracking (`Cascade iOS/AppState.swift:147`, `Cascade iOS/AppState.swift:538`)**:
+   - Added `recentFileIDs: [String]` property to `AppState` backed by `UserDefaults` key `"cascade_recent_file_ids"`.
+   - Added `markFileAsRecent(_ fileID: String)` which prepends the opened file's ID to index 0, deduplicates, and bounds history to 50 items.
+   - Wired `openFile(_ file: FileItem)` to automatically call `markFileAsRecent(file.id)` whenever any image, video, audio, or document is opened/viewed/streamed.
+2. **Dynamic Recents Presentation (`Cascade iOS/RootView.swift:915`)**:
+   - Updated `recentFiles` in `RecentsView` to map `recentFileIDs` against existing catalog files.
+   - When no files have been opened yet on the device, shows the clean native empty state (`emptyState`: "No Recent Files — Files you open will appear here.").
+   - When files are tapped/viewed, they appear immediately in MRU order with zero network overhead.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `aae3b19`.
 
 ---
 

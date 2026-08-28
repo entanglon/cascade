@@ -4083,6 +4083,12 @@ Open levers (not scheduled):
     - Root Cause: `FileBrowserView` had `if appState.isLoadingFiles && currentFolderFiles.isEmpty { ProgressView(...) }` at root. When pull-to-refresh started, `isLoadingFiles` turned `true`, destroying the active `UIScrollView` hosting UIKit's `UIRefreshControl` and replacing it with `ProgressView`. When refreshing finished, the new `gridView` was mounted but UIKit's refresh control state had desynced and remained spinning.
     - Fix: Removed the `isLoadingFiles` root branch swap, maintaining a persistent view hierarchy throughout the refresh lifecycle, and made `emptyState` a scroll view.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+189. **On-Device Recents MRU Tracking (2026-08-28 night — COMMITTED `aae3b19`)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`)
+    - Implemented local on-device Recents MRU tracking backed by `UserDefaults` (`recentFileIDs: [String]`).
+    - Wired `openFile(_ file: FileItem)` to automatically record accessed files without generating network/cloud delta traffic.
+    - `RecentsView` displays native empty state until files are opened, dynamically presenting opened files in most-recently-used order.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 
