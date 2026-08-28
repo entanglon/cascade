@@ -2696,6 +2696,37 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       confirmed alive. Actual on-device pull-to-refresh gesture needs user
       confirmation (not automatable from this session).
 
+124. **iOS pull-to-refresh hanging forever — REAL fix, `withResponseTimeout`
+    itself was broken (2026-08-28 evening, PLACEHOLDER_HASH):**
+    - Item 123's fix (wrapping `searchChatMessages` in `withResponseTimeout`)
+      did NOT resolve the hang — the user confirmed with a screenshot showing
+      the refresh control still stuck.
+    - **Real root cause**: `withResponseTimeout` itself
+      (`Telegram/TelegramClient.swift`) was implemented with
+      `withThrowingTaskGroup`, racing `operation()` against a sleep-timeout
+      task. TDLibKit's async bridge (`TDLibApi.run(query:)`) is a bare
+      `withCheckedThrowingContinuation` with no cancellation handler, so a
+      genuinely dropped completion callback leaves that continuation
+      permanently unresumed. Swift's structured concurrency REQUIRES a task
+      group to await every child task — cancelled or not — before it can
+      return, so `withThrowingTaskGroup` hung forever waiting for the
+      never-finishing `operation()` task even though the timeout branch had
+      already "won" the race internally. The helper was a no-op for the exact
+      failure mode it was written to fix, on every one of its ~6 call sites
+      (not just the new search call).
+    - **Fix**: rewrote `withResponseTimeout` using two UNSTRUCTURED
+      `Task { }`s racing to resume one `CheckedContinuation`, guarded by a new
+      `ResumeGate` (`NSLock`, resume-exactly-once). Unstructured tasks impose
+      no obligation to await the loser, so the function genuinely returns as
+      soon as either the operation or the timeout fires; the loser keeps
+      running detached and its result is discarded. Signature unchanged, so
+      every existing call site (`getOrFetchMessage`, etc.) benefits
+      automatically.
+    - Verification: macOS + iOS Debug builds green; 104 tests (100 unit + 4
+      UI, 0 failures); reinstalled + relaunched on iPhone XS Max, process
+      confirmed alive. On-device pull-to-refresh confirmation still pending
+      from the user.
+
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
 ### Latest session state (items 155–173, 2026-08-22)

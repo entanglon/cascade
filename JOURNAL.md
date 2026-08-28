@@ -2,7 +2,72 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever (searchChatMessages missing response timeout).
+> 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever, take 2 (withResponseTimeout itself was broken).
+
+---
+
+## 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever, take 2 — `withResponseTimeout` itself was broken (PLACEHOLDER_HASH)
+
+User reported the previous fix (`9df76a3`) did NOT resolve it — pull-to-refresh
+still spun forever, screenshot showed the refresh control stuck mid-pull with
+no way to dismiss it except manually scrolling it away.
+
+### Root cause (the actual one this time)
+The previous fix wrapped `searchChatMessages` in `withResponseTimeout(15)`,
+trusting that helper's doc comment ("races a TDLibKit async call against a
+deadline... turns the stall into a throwable error"). Re-reading its
+implementation exposed that the helper itself was broken for the exact
+failure mode it claims to guard against:
+
+```swift
+try await withThrowingTaskGroup(of: T.self) { group in
+    group.addTask { try await operation() }
+    group.addTask { try await Task.sleep(...); throw TelegramError.timedOut }
+    ...
+    return result   // <- does NOT actually return yet
+}
+```
+
+TDLibKit's async bridge (`TDLibApi.run(query:) async throws -> R`, in the
+vendored package at `TDLibKit/Sources/TDLibKit/Generated/API/TDLibApi.swift:31051`)
+is a bare `withCheckedThrowingContinuation` with **no cancellation handler**.
+When its completion callback is silently dropped (the documented TDLibKit
+race), that continuation NEVER resumes — cancelling the Swift `Task` around it
+does nothing, because nothing in that code checks `Task.isCancelled`. Swift's
+structured concurrency then bites: `withThrowingTaskGroup` is REQUIRED to
+await every child task — cancelled or not — before the group itself can
+return to its caller (this is the language's no-orphaned-child-tasks
+guarantee). So even though the timeout branch "won" the race and computed its
+error, `withThrowingTaskGroup(...)` cannot actually hand that error back to
+`withResponseTimeout`'s caller until the OTHER child task (the permanently
+stuck `operation()`) finishes — which, for a truly dropped response, is
+never. The timeout wrapper was a no-op for exactly the scenario it exists to
+handle, on every one of its ~6 call sites in this file (`getOrFetchMessage`
+and friends had presumably been getting lucky — most of their races are
+against a genuinely slow-but-completing response, not a permanently dropped
+one, which finishes the group eventually instead of never).
+
+### Fix
+Rewrote `withResponseTimeout` (`Telegram/TelegramClient.swift`) to use two
+**unstructured** `Task { }`s racing to resume a single `CheckedContinuation`,
+guarded by a new `ResumeGate` (`NSLock`-backed, resume-exactly-once —
+resuming a `CheckedContinuation` twice is a fatal error) instead of a
+`TaskGroup`. Because the tasks are unstructured, the enclosing function
+returns as soon as EITHER one resumes the continuation — it has no structured
+obligation to wait for the loser, which keeps running fully detached in the
+background and has its eventual result (if any) silently discarded. This
+fixes the hang for every `withResponseTimeout` call site in the file (not
+just the new search call), since the signature is unchanged and every caller
+benefits automatically.
+
+### Verification
+- macOS + iOS Debug builds: **BUILD SUCCEEDED**.
+- Tests: **TEST SUCCEEDED**, 104 (100 unit + 4 UI), 0 failures.
+- Reinstalled + relaunched on iPhone XS Max
+  (`8F28E614-EA35-5B10-8DC9-E390026D4599`); process confirmed alive.
+  Pull-to-refresh itself still needs the user's on-device confirmation (no UI
+  automation available from this session) — this time the fix addresses the
+  actual mechanism, not just adds another instance of the broken helper.
 
 ---
 

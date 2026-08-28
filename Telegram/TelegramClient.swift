@@ -8,6 +8,23 @@ enum TelegramError: Swift.Error, Sendable {
     case timedOut
 }
 
+/// Guarantees exactly one of two racing tasks in `withResponseTimeout` gets to
+/// resume its `CheckedContinuation` — resuming twice is a fatal error. Plain
+/// `NSLock`, not an actor: `claim()` must be synchronous so it can be called
+/// from a non-`await`able `catch`/completion path without adding a suspension
+/// point that would let both racers interleave past the check.
+private final class ResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
 enum TelegramAuthStep: String, Sendable {
     case phone
     case code
@@ -517,23 +534,37 @@ final class TelegramClient {
     /// the continuation is never resumed and the caller parks forever. The timeout
     /// turns the stall into a throwable error so the caller can retry with a fresh
     /// @extra (a later attempt almost always lands).
+    ///
+    /// IMPORTANT: this must NOT be implemented with `withThrowingTaskGroup` (as
+    /// it previously was). TDLibKit's `run(query:) async throws -> R` wraps a
+    /// plain `withCheckedThrowingContinuation` with NO cancellation handler, so
+    /// a genuinely dropped response can never be force-completed — and Swift's
+    /// structured concurrency REQUIRES a task group to await every child task
+    /// (including a permanently stuck one, cancelled or not) before the group
+    /// itself can return. A `withThrowingTaskGroup` race therefore hangs
+    /// forever in exactly the case it exists to guard against — this is what
+    /// caused the iOS pull-to-refresh spinner to never finish. Using two
+    /// UNSTRUCTURED `Task { }`s instead means this function returns as soon as
+    /// either one resumes the continuation, with no obligation to wait for the
+    /// loser — it keeps running detached and its eventual result (if any) is
+    /// discarded via `ResumeGate`.
     private func withResponseTimeout<T: Sendable>(
         _ seconds: Double,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw TelegramError.timedOut
+        try await withCheckedThrowingContinuation { continuation in
+            let gate = ResumeGate()
+            Task {
+                do {
+                    let result = try await operation()
+                    if gate.claim() { continuation.resume(returning: result) }
+                } catch {
+                    if gate.claim() { continuation.resume(throwing: error) }
+                }
             }
-            do {
-                let result = try await group.next()!
-                group.cancelAll()
-                return result
-            } catch {
-                group.cancelAll()
-                throw error
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                if gate.claim() { continuation.resume(throwing: TelegramError.timedOut) }
             }
         }
     }
