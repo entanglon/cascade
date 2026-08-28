@@ -2,11 +2,11 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203).
+> 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203, ab1df9e).
 
 ---
 
-## 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203)
+## 2026-08-28 (night) — Functional Shared page with Public & Private shares, and Apple Files style context menu with Copy/Move/Share bar, Archive, Duplicate, New Folder with Item, and Folder Picker (Round 203, commit `ab1df9e`)
 
 User requested:
 1. Make the **Shared** page fully functional on iOS:
