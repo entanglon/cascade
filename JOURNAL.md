@@ -2,7 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Stick item count & sync status footer to bottom when files do not fill screen, and removed footers from Recents/Shared (Round 190, 0111995).
+> 2026-08-28 (night) — Fixed navigation bar background loss on Recents and Shared pages (Round 191, d9e1706).
+
+---
+
+## 2026-08-28 (night) — Fixed navigation bar background loss on Recents & Shared (Round 191, commit `d9e1706`)
+
+User reported that the navigation bar was losing its background on the Recents and Shared pages.
+
+### Root Cause & Fix
+1. **Root Cause**: On iOS 16+, `UINavigationBar` defaults to a transparent background when at scroll edge (`scrollEdgeAppearance`), and when pages show empty state or un-scrolled views with inline display mode, the navigation bar dropped its material background.
+2. **Fix**:
+   - In `Cascade iOS/CascadeApp.swift`, configured global `UINavigationBarAppearance` (`appearance.configureWithDefaultBackground()`) for `standardAppearance`, `compactAppearance`, and `scrollEdgeAppearance`.
+   - In `Cascade iOS/RootView.swift`, added `.toolbarBackground(.visible, for: .navigationBar)` to `RecentsView` and `SharedView`.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `d9e1706`.
 
 ---
 

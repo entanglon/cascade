@@ -4094,6 +4094,11 @@ Open levers (not scheduled):
     - Implemented background viewport height measurement (`.background { GeometryReader { proxy in Color.clear ... } }`) so that `FileBrowserView` and media browsing pages push the footer (`X items`, `Synced with Cascade`) to the bottom of the screen when files do not fill the viewport, and naturally scroll after all content when files fill the screen.
     - Removed item count and sync status footers from `RecentsView` and verified `SharedView` has no redundant bottom count.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+191. **Fix Navigation Bar Background Loss on Recents & Shared (2026-08-28 night — COMMITTED `d9e1706`)**
+     (`Cascade iOS/CascadeApp.swift`, `Cascade iOS/RootView.swift`)
+    - Configured global `UINavigationBarAppearance` (`configureWithDefaultBackground()`) across standard, compact, and scrollEdge appearances in `CascadeApp.init()`.
+    - Added `.toolbarBackground(.visible, for: .navigationBar)` to `RecentsView` and `SharedView`.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 
