@@ -1659,46 +1659,34 @@ final class TelegramClient {
         var page = 0
         while page < 5 {
             page += 1
-            if page > 1 { try? await Task.sleep(nanoseconds: 200_000_000) }
+            if page > 1 { try? await Task.sleep(nanoseconds: 100_000_000) }
 
-            // withResponseTimeout is REQUIRED here, not optional polish: TDLibKit's
-            // response matching can silently drop the reply when TDLib answers
-            // instantly from its local message-database index (exactly what happens
-            // for a small local search like this one) — without a deadline the
-            // continuation never resumes and this call (and everyone waiting on it:
-            // fetchChannelState -> CatalogSnapshot.upload -> loadAllFiles ->
-            // pull-to-refresh) hangs forever instead of erroring. Two attempts
-            // because a retried call with a fresh @extra almost always lands.
-            var found: FoundChatMessages?
-            for attempt in 1...2 {
-                do {
-                    found = try await withResponseTimeout(15) {
-                        try await self.withFloodWait(function: "searchChatMessages") {
-                            try await client.searchChatMessages(
-                                chatId: chatId,
-                                filter: nil,
-                                fromMessageId: fromMessageId,
-                                limit: limit,
-                                offset: 0,
-                                query: query,
-                                senderId: nil,
-                                topicId: nil
-                            )
-                        }
-                    }
-                    break
-                } catch {
-                    logger.warning("searchChannelMetadataMessages page \(page, privacy: .public) attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            guard let history = try? await withResponseTimeout(10, {
+                try await self.withFloodWait(function: "getChatHistory") {
+                    try await client.getChatHistory(
+                        chatId: chatId,
+                        fromMessageId: fromMessageId,
+                        limit: limit,
+                        offset: 0,
+                        onlyLocal: false
+                    )
+                }
+            }), let messages = history.messages, !messages.isEmpty else { break }
+
+            for msg in messages {
+                let caption = messageCaption(msg) ?? ""
+                if caption.contains(query) || caption.hasPrefix("cascade:db") {
+                    result.append(msg)
                 }
             }
-            guard let found, !found.messages.isEmpty else { break }
 
-            result.append(contentsOf: found.messages)
-            if found.messages.contains(where: { (messageCaption($0) ?? "").hasPrefix(CatalogSnapshot.captionPrefix) }) {
+            if messages.contains(where: { (messageCaption($0) ?? "").hasPrefix(CatalogSnapshot.captionPrefix) }) {
                 break
             }
-            guard found.nextFromMessageId != 0 else { break }
-            fromMessageId = found.nextFromMessageId
+
+            let oldestID = messages.map(\.id).min() ?? 0
+            guard oldestID != 0, oldestID != fromMessageId else { break }
+            fromMessageId = oldestID
         }
         return result
     }

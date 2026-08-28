@@ -2327,24 +2327,36 @@ struct FileGridItem: View {
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
                     .foregroundStyle(.primary)
+                    .frame(height: 34, alignment: .top)
 
                 if file.isFolder {
                     Text("\(countChildren) \(countChildren == 1 ? "item" : "items")")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .frame(height: 14)
+                    Text("")
+                        .font(.system(size: 11))
+                        .frame(height: 14)
                 } else {
                     Text(file.formattedDate)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .frame(height: 14)
                     if let size = file.formattedSize {
                         Text(size)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                            .frame(height: 14)
+                    } else {
+                        Text("")
+                            .font(.system(size: 11))
+                            .frame(height: 14)
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var countChildren: Int {
