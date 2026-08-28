@@ -2,11 +2,11 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205).
+> 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205, 7e09cfc).
 
 ---
 
-## 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205)
+## 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205, commit `7e09cfc`)
 
 User requested:
 1. Fix folder clicking: clicking on folder icon / name was not opening folders, only tapping the item count worked.

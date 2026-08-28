@@ -4178,7 +4178,7 @@ Open levers (not scheduled):
     - Added "Add from Share Link..." into `...` menus across `SharedView` and `FileBrowserView`, plus quick action buttons in `SharedView` banner and empty state.
     - Implemented `AppState.importShareLink(...)` with `ShareEngine.importLink(...)` auto-confirmation, own file self-open, already-imported reveal, and snapshot sync.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
-205. **Fix Folder Tap Opening & Video Playback Renderbuffer Sizing (2026-08-28 night)**
+205. **Fix Folder Tap Opening & Video Playback Renderbuffer Sizing (2026-08-28 night — COMMITTED `7e09cfc`)**
      (`Cascade iOS/Features/MPVPlayerView.swift`, `Cascade iOS/RootView.swift`)
     - Root Cause 1 (Folder Tap): `FileGridItem` had nested `Button` elements inside `gridContent` which swallowed touch gestures intended for the outer `NavigationLink`. Removed nested Buttons so tapping anywhere on the folder card, icon, or label immediately navigates into the folder.
     - Root Cause 2 (Blank Video): `MPVPlayerView` lacked a `layoutSubviews()` implementation to resize the CAEAGLLayer renderbuffer after SwiftUI initial layout (backing dimensions stayed 0x0 while audio played). Implemented `layoutSubviews()`, `didMoveToWindow()`, `updateRenderbufferSize()`, and post-init mpv options (`hwdec = auto`, `profile = fast`, `video-sync = audio`, `keep-open = yes`).
