@@ -2,7 +2,45 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Files app 3.5 rows spacing, AppleFolderTabShape optimization, and smooth folder creation focus (Round 200, 3bdd149).
+> 2026-08-28 (night) — Apple Files selection circles, hidden back button, batch uploads with location respect, and direct sharing (Round 201, dff03e7).
+
+---
+
+## 2026-08-28 (night) — Apple Files selection circles, hidden back button, batch uploads with location respect, and direct sharing (Round 201, commit `dff03e7`)
+
+User requested:
+1. Fix selection effect on grid items: display bottom-centered circular rings when unselected and blue checkmarks when selected (matching Apple Files screenshot `media_1787925901041.png`), instead of top-corner white dots.
+2. Hide back arrow in navigation bar during selection mode, with "Select All" / "Deselect All", dynamic title ("Select Items"), and view mode toggle + "Done".
+3. Add Upload Files and Upload Photos & Videos options to the `...` menu.
+4. Respect upload location: upload to root when in root, or subfolder when inside a subfolder.
+5. Support batch uploading with progress tracking.
+6. Support direct sharing into Cascade from Files and Photos.
+
+### Changes Implemented
+1. **Apple Files Selection Indicator on Grid Items**:
+   - In `FileGridItem`: Positioned selection ring centered horizontally at bottom of thumbnail card (`alignment: .bottom`, padding: 6pt).
+   - Unselected: Translucent black circle with 1.5pt white outline and soft shadow.
+   - Selected: Solid blue 24pt circle with crisp bold white checkmark.
+   - In `FileRow`: Updated round checkbox styling.
+2. **Selection Navigation Bar**:
+   - Added `.navigationBarBackButtonHidden(isSelecting)`.
+   - Title dynamically updates: `"Select Items"` / `"\(count) Items Selected"`.
+   - Leading: `Button("Select All" / "Deselect All")`.
+   - Trailing: View Mode toggle (`square.grid.2x2` / `list.bullet`) + `Button("Done")`.
+3. **Upload Menu & Importers**:
+   - In `FileBrowserView.swift`: Added `Upload Files` (`.fileImporter(allowsMultipleSelection: true)`) and `Upload Photos & Videos` (`.photosPicker(matching: .any(of: [.images, .videos]))`).
+4. **Location-Aware Batch Upload Engine**:
+   - In `AppState.uploadBatch(urls:parentID:isPrivate:)`: Batch uploads multiple files/media with security-scoped resource access, local temp staging, `UploadEngine.upload(...)` with `effectiveParentID`, live progress tracking, and post-batch `CatalogSnapshot.upload()`.
+5. **Upload Progress Indicator**:
+   - In `RootView.swift`: Added floating bottom banner showing progress bar and file count when `appState.isUploading` is active.
+6. **Direct Sharing / In-Place Document Support**:
+   - In `CascadeApp.swift`: Added `.onOpenURL` to receive shared URLs and trigger background batch upload.
+   - In `Cascade.xcodeproj/project.pbxproj`: Enabled `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES` and `INFOPLIST_KEY_NSPhotoLibraryUsageDescription`.
+
+### Verification
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **` (Deployed and launched on iPhone XS Max).
+- macOS target: `** BUILD SUCCEEDED **`.
+- Commit: `dff03e7`.
 
 ---
 

@@ -4152,6 +4152,13 @@ Open levers (not scheduled):
     - Removed `withAnimation` layout re-render collision on "New Folder" tap and deferred keyboard focus to 0.25s after menu dismissal, eliminating responder chain lag.
     - Extracted `AppleFolderTabShape: Shape` to cache vector path rendering in CoreGraphics.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+201. **Apple Files Selection Circles, Hidden Back Button, Batch Uploads, & Direct Sharing (2026-08-28 night — COMMITTED `dff03e7`)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/CascadeApp.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`, `Cascade.xcodeproj/project.pbxproj`)
+    - Fixed grid selection indicators to match native Apple Files (`media_1787925901041.png`): bottom-centered translucent circular rings when unselected, blue checkmarks when selected.
+    - Hid back arrow during selection mode (`.navigationBarBackButtonHidden(isSelecting)`), with "Select All" leading, dynamic selection count title, and view mode toggle + "Done" trailing.
+    - Added "Upload Files" and "Upload Photos & Videos" to the `...` menu with location-aware batch uploading honoring current subfolder `parentID`.
+    - Added floating upload progress banner and wired `.onOpenURL` in `CascadeApp.swift` for direct file sharing from other apps.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed to iPhone XS Max.
 
 
 
