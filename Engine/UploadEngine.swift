@@ -74,6 +74,7 @@ enum UploadEngine {
         let candidates = [
             dir.appendingPathComponent("\(objectID).jpg"),
             dir.appendingPathComponent("\(objectID).png"),
+            dir.appendingPathComponent("\(objectID)-tg.png"),
             dir.appendingPathComponent("\(objectID)-tg.jpg")
         ]
         for cand in candidates {
@@ -664,9 +665,15 @@ enum UploadEngine {
 #endif
     }
 
-    /// One source image, one subject-aware crop, two outputs: the 2x grid preview
-    /// (`<id>.png`) and the Telegram-attached JPEG (`<id>-up.jpg`, ≤320px so it
-    /// meets TDLib's inputThumbnail limit, progressive + gamma-optimized).
+    /// One source image, one subject-aware crop, three possible outputs: the 2x
+    /// grid preview (`<id>.png`), the Telegram-attached JPEG (`<id>-up.jpg`,
+    /// ≤320px so it meets TDLib's inputThumbnail limit, progressive +
+    /// gamma-optimized), and — only when the source carries an alpha channel
+    /// (transparent PNGs, rounded-corner icons, stickers) — a sibling
+    /// `<id>-up.png` at the same ≤320px size. `uploadThumbnailSidecar` prefers
+    /// that PNG over the JPEG: the sidecar is an opaque encrypted document, never
+    /// a TDLib inputThumbnail, so it has no JPEG-only format constraint, and
+    /// without it transparent pixels would be flattened into a solid box.
     /// Returns the upload JPEG path, used as the document thumbnail on every
     /// chunk message — Telegram permanently stores it, so after a local cache
     /// clear the app re-fetches it instead of losing the preview forever.
@@ -675,18 +682,25 @@ enum UploadEngine {
         guard let source = await subjectThumbnail(for: url, isVideo: isVideo),
               let dir = try? thumbnailsDirectory() else { return nil }
         var uploadPath: String? = nil
+        let preserveAlpha = ThumbnailCrop.hasAlphaChannel(source)
         // Preserves natural aspect ratio (16:9, 4:3, 9:16, etc.) instead of square crop.
         if let fitted = ThumbnailCrop.aspectFit(source, maxDimension: 640) {
             if let tiff = fitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: dir.appendingPathComponent("\(objectID).png"))
             }
-            if let jpgFitted = ThumbnailCrop.aspectFit(fitted, maxDimension: 320),
-               let jpg = ThumbnailCrop.jpegData(from: jpgFitted, quality: 0.85) {
-                let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
-                try? jpg.write(to: dest)
-                if FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) {
-                    uploadPath = dest.path(percentEncoded: false)
+            if let jpgFitted = ThumbnailCrop.aspectFit(fitted, maxDimension: 320) {
+                if let jpg = ThumbnailCrop.jpegData(from: jpgFitted, quality: 0.85) {
+                    let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
+                    try? jpg.write(to: dest)
+                    if FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) {
+                        uploadPath = dest.path(percentEncoded: false)
+                    }
+                }
+                if preserveAlpha,
+                   let tiff = jpgFitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                   let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: dir.appendingPathComponent("\(objectID)-up.png"))
                 }
             }
         }
@@ -734,7 +748,17 @@ enum UploadEngine {
         objectKey: SymmetricKey,
         vault: VaultRecord
     ) async throws {
-        let data = try Data(contentsOf: URL(fileURLWithPath: uploadPath))
+        // Prefer the alpha-preserving PNG sibling generateThumbnails writes
+        // alongside the JPEG when the source has transparency — the sidecar is
+        // an opaque encrypted document, never a TDLib inputThumbnail, so it
+        // carries no JPEG-only format constraint.
+        let pngSibling = URL(fileURLWithPath: uploadPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(objectID)-up.png")
+        let sourceURL = FileManager.default.fileExists(atPath: pngSibling.path(percentEncoded: false))
+            ? pngSibling
+            : URL(fileURLWithPath: uploadPath)
+        let data = try Data(contentsOf: sourceURL)
         guard !data.isEmpty else { throw UploadError.readFailed }
         let encrypted = try CryptoEngine.encryptChunk(data, objectKey: objectKey, startSliceIndex: 0)
         let tmpURL = try tempDirectory().appendingPathComponent("\(objectID)-thumb.bin")

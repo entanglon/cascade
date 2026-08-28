@@ -1601,6 +1601,58 @@ final class TelegramClient {
         return msgs.map(\.id)
     }
 
+    /// Searches the channel server-side (+ local index — near-instant, unlike paging
+    /// the entire history with `getChatHistory`) for catalog metadata messages.
+    /// Checkpoints (`cascade:dbsnapshot:v1:`), deltas (`cascade:dbdelta:v1:`), and
+    /// checkpoint parts (`cascade:dbpart:v1:`) all share the `cascade:db` caption
+    /// prefix, so one search query surfaces exactly the handful of messages
+    /// `CatalogSnapshot.fetchChannelState` needs instead of downloading every data
+    /// chunk message in the channel. This turns a multi-minute pull-to-refresh scan
+    /// (thousands of 20MB chunk messages) into a ~100-200ms server round-trip.
+    ///
+    /// Results come back newest-message-id-first. A single page (the TDLib max,
+    /// 100 results) covers every realistic vault: checkpoints publish at least every
+    /// 24h, so any delta relevant to a restore sits before the newest checkpoint in
+    /// that same page. As a safety net for a vault with unusually heavy churn between
+    /// checkpoints, paging continues (capped at 5 pages) until a checkpoint message is
+    /// seen — everything older than the newest checkpoint is redundant, since the
+    /// checkpoint already contains those records.
+    func searchChannelMetadataMessages(
+        chatId: Int64,
+        query: String = "cascade:db",
+        limit: Int = 100
+    ) async -> [Message] {
+        guard let client else { return [] }
+        var result: [Message] = []
+        var fromMessageId: Int64 = 0
+        var page = 0
+        while page < 5 {
+            page += 1
+            if page > 1 { try? await Task.sleep(nanoseconds: 200_000_000) }
+            let found = try? await withFloodWait(function: "searchChatMessages") {
+                try await client.searchChatMessages(
+                    chatId: chatId,
+                    filter: nil,
+                    fromMessageId: fromMessageId,
+                    limit: limit,
+                    offset: 0,
+                    query: query,
+                    senderId: nil,
+                    topicId: nil
+                )
+            }
+            guard let found, !found.messages.isEmpty else { break }
+
+            result.append(contentsOf: found.messages)
+            if found.messages.contains(where: { (messageCaption($0) ?? "").hasPrefix(CatalogSnapshot.captionPrefix) }) {
+                break
+            }
+            guard found.nextFromMessageId != 0 else { break }
+            fromMessageId = found.nextFromMessageId
+        }
+        return result
+    }
+
     func deleteMessages(chatId: Int64, messageIds: [Int64]) async throws {
         guard let client else { throw TelegramError.notInitialized }
         try await withFloodWait(function: "deleteMessages", isWrite: true) {

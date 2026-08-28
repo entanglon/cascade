@@ -2639,6 +2639,43 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
     - **Item 10 (Structured Error Surfacing)**: Added `AppNotification` and `NotificationKind` (`info`, `warning`, `error`, `success`) to `AppState` with auto-dismiss timers. Implemented `NotificationBannerView` with sleek macOS ultraThinMaterial glassmorphic design and subtle spring animations in `RootView.swift`. Added `NotificationCenter` observer for `.cascadeAppNotification` so background engines can seamlessly post user-facing alerts. Added flood-wait toast warnings in `TelegramClient.withFloodWait` (for waits >= 3s) and sync result toasts in `AppState.forcePublishSnapshot()`.
     - Verification: 65 tests passed (62 unit + 2 UI + 1 launch, 0 failures).
 
+122. **Fast search-based catalog sync + alpha-preserving thumbnails (2026-08-28
+    evening, `SYNC_SEARCH_PLAN.md`, PLACEHOLDER_HASH):**
+    - **Root cause 1 (multi-minute pull-to-refresh)**: `CatalogSnapshot.fetchChannelState`
+      called `TelegramClient.allChannelMessages` — a full backward page of the
+      ENTIRE channel history (up to 2000x100 messages, 200ms/page) — just to find
+      the 1-2 small `cascade:db*` catalog messages.
+    - **Fix**: added `TelegramClient.searchChannelMetadataMessages(chatId:query:limit:)`
+      wrapping TDLib's `searchChatMessages` (server-side + local-index search,
+      query `"cascade:db"` matches checkpoints/deltas/parts in one ~100-200ms
+      call instead of a full scan); bounded pagination (cap 5 pages, stops once a
+      checkpoint message is seen — everything older is redundant) covers
+      unusually heavy delta churn without extra cost in the common case.
+      `fetchChannelState` now uses it, plus a high-water-mark optimization:
+      `UserDefaults` key `xc.lastSyncedMsgID.<channelID>` + an in-memory
+      `NSLock`-guarded `channelStateCache` skip re-decoding (network download +
+      JSON decode per message) entirely when the newest message ID hasn't moved.
+    - **Root cause 2 (transparent PNGs → white/opaque boxes)**: both
+      `UploadEngine.generateThumbnails` (encrypted sidecar source) and
+      `ThumbnailService`'s local generators always JPEG-encoded (or cached the
+      JPEG over an already-written PNG) regardless of source alpha — JPEG has no
+      alpha channel.
+    - **Fix**: `ThumbnailCrop.hasAlphaChannel(_:)` (checked on the SOURCE image,
+      before it's redrawn into an always-alpha-having context) gates PNG vs JPEG:
+      local generators skip/delete the opaque JPEG and cache PNG when alpha is
+      present; `generateThumbnails` writes a `-up.png` sibling the sidecar upload
+      prefers over `-up.jpg` (the TDLib-attached inline thumbnail stays JPEG-only,
+      unaffected — documented elsewhere as a hard TDLib inputThumbnail
+      constraint); sidecar fetch (macOS `ThumbnailService` + iOS
+      `AppState.fetchThumbnailData`) sniffs the PNG signature on decrypted bytes
+      to cache under the correct `-tg.png`/`-tg.jpg` extension.
+    - Verification: macOS + iOS Debug builds green; 104 tests (100 unit + 4 UI,
+      0 failures); installed + launched on iPhone XS Max
+      (`8F28E614-EA35-5B10-8DC9-E390026D4599`, process confirmed alive); Debug
+      macOS app relaunched and confirmed alive. Interactive/live-vault timing
+      and visual transparency verification left for the user (not automatable
+      from this session).
+
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
 ### Latest session state (items 155–173, 2026-08-22)

@@ -137,6 +137,18 @@ enum ThumbnailCrop {
         return data as Data
     }
 
+    /// True when the image carries an alpha channel — used to decide whether a
+    /// thumbnail must stay PNG-encoded. JPEG has no alpha channel, so any
+    /// transparent pixel (rounded app-icon corners, sticker backgrounds) becomes
+    /// a solid opaque box once JPEG-encoded. Must be checked on the SOURCE image,
+    /// before aspectFit/subjectSquare redraw it into a context that always has a
+    /// structural alpha channel regardless of the source format.
+    static func hasAlphaChannel(_ image: NSImage) -> Bool {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return false }
+        return rep.hasAlpha
+    }
+
     /// Book-cover crop: center-crops to a 2:3 portrait frame when the artwork
     /// isn't already close to 2:3, then downscales. Imperfect covers (odd
     /// dimensions, PDF first pages) get cropped to fit the poster shape instead
@@ -224,7 +236,7 @@ actor ThumbnailService {
             }
         }
 
-        // 3. Check local disk for generated or downloaded thumbnail (.png, .jpg, -tg.jpg)
+        // 3. Check local disk for generated or downloaded thumbnail (.png, .jpg, -tg.png, -tg.jpg)
         if let local = localThumbnailOnDisk(for: object.id) {
             cache[object.id] = local
             return local
@@ -450,14 +462,18 @@ actor ThumbnailService {
               let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
+        let preserveAlpha = ThumbnailCrop.hasAlphaChannel(frame)
         if let fitted = ThumbnailCrop.aspectFit(frame, maxDimension: 320) {
-            if let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85) {
-                try? jpg.write(to: destJPG)
-                cache[object.id] = destJPG
-            }
             if let tiff = fitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: destPNG)
+                if preserveAlpha { cache[object.id] = destPNG }
+            }
+            if preserveAlpha {
+                try? FileManager.default.removeItem(at: destJPG)
+            } else if let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85) {
+                try? jpg.write(to: destJPG)
+                cache[object.id] = destJPG
             }
         }
     }
@@ -497,14 +513,18 @@ actor ThumbnailService {
               let thumbDir = try? UploadEngine.thumbnailsDirectory() else { return }
         let destJPG = thumbDir.appendingPathComponent("\(object.id).jpg")
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
+        let preserveAlpha = ThumbnailCrop.hasAlphaChannel(frame)
         if let fitted = ThumbnailCrop.aspectFit(frame, maxDimension: 320) {
-            if let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85) {
-                try? jpg.write(to: destJPG)
-                cache[object.id] = destJPG
-            }
             if let tiff = fitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: destPNG)
+                if preserveAlpha { cache[object.id] = destPNG }
+            }
+            if preserveAlpha {
+                try? FileManager.default.removeItem(at: destJPG)
+            } else if let jpg = ThumbnailCrop.jpegData(from: fitted, quality: 0.85) {
+                try? jpg.write(to: destJPG)
+                cache[object.id] = destJPG
             }
         }
     }
@@ -523,14 +543,22 @@ actor ThumbnailService {
         let destPNG = thumbDir.appendingPathComponent("\(object.id).png")
 
         if let image = NSImage(contentsOf: fileURL) {
+            // Checked on the SOURCE image — transparent PNGs (app icons, stickers,
+            // rounded-corner designs) must never be flattened to opaque JPEG.
+            let preserveAlpha = ThumbnailCrop.hasAlphaChannel(image)
             if let resized = ThumbnailCrop.aspectFit(image, maxDimension: 320) {
-                if let jpg = ThumbnailCrop.jpegData(from: resized, quality: 0.85) {
-                    try? jpg.write(to: destJPG)
-                    cache[object.id] = destJPG
-                }
                 if let tiff = resized.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                    let png = rep.representation(using: .png, properties: [:]) {
                     try? png.write(to: destPNG)
+                    if preserveAlpha { cache[object.id] = destPNG }
+                }
+                if preserveAlpha {
+                    // Remove a stale opaque JPEG from a previous (pre-fix) generation
+                    // so localThumbnailOnDisk's .jpg-first lookup can't resurrect it.
+                    try? FileManager.default.removeItem(at: destJPG)
+                } else if let jpg = ThumbnailCrop.jpegData(from: resized, quality: 0.85) {
+                    try? jpg.write(to: destJPG)
+                    cache[object.id] = destJPG
                 }
             }
         }
@@ -543,6 +571,7 @@ actor ThumbnailService {
         let candidates = [
             dir.appendingPathComponent("\(id).jpg"),
             dir.appendingPathComponent("\(id).png"),
+            dir.appendingPathComponent("\(id)-tg.png"),
             dir.appendingPathComponent("\(id)-tg.jpg")
         ]
 
@@ -561,18 +590,29 @@ actor ThumbnailService {
         return fm.fileExists(atPath: cover.path(percentEncoded: false)) ? cover : nil
     }
 
-    private func telegramPath(for id: String) -> URL {
+    private func telegramPath(for id: String, isPNG: Bool = false) -> URL {
         let base = (try? UploadEngine.thumbnailsDirectory()) ?? URL.temporaryDirectory
-        return base.appendingPathComponent("\(id)-tg.jpg")
+        return base.appendingPathComponent(isPNG ? "\(id)-tg.png" : "\(id)-tg.jpg")
+    }
+
+    /// Sniffs the PNG signature (89 50 4E 47) so a decrypted sidecar is written
+    /// with the extension matching its real format instead of always assuming
+    /// JPEG — alpha-preserving sidecars are uploaded as PNG (see UploadEngine's
+    /// generateThumbnails / uploadThumbnailSidecar).
+    private func isPNGData(_ data: Data) -> Bool {
+        let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+        guard data.count >= signature.count else { return false }
+        return Array(data.prefix(signature.count)) == signature
     }
 
     private func fetchFromTelegram(_ object: ObjectRecord) async -> URL? {
         guard let vault = try? await DatabaseManager.shared.firstVault() else { return nil }
         // 1. Encrypted sidecar (new uploads): the preview is an opaque encrypted
-        //    document linked via thumbMessageID. Download + decrypt → <id>-tg.jpg.
-        //    On any failure (message missing, key unwrap, tampered bytes) fall
-        //    through to the attached-thumbnail path, which still covers older
-        //    uploads that predate the sidecar.
+        //    document linked via thumbMessageID. Download + decrypt → <id>-tg.jpg
+        //    (or <id>-tg.png when the source had transparency). On any failure
+        //    (message missing, key unwrap, tampered bytes) fall through to the
+        //    attached-thumbnail path, which still covers older uploads that
+        //    predate the sidecar.
         if let sidecarID = object.thumbMessageID,
            let url = await fetchSidecarThumbnail(object, sidecarID: sidecarID, vault: vault) {
             return url
@@ -599,9 +639,11 @@ actor ThumbnailService {
     }
 
     /// Downloads the encrypted thumbnail sidecar document, decrypts it with the
-    /// object key (AES-GCM, startSliceIndex 0 — the JPEG is a single slice) and
-    /// writes `<id>-tg.jpg`. Returns nil on any failure so the caller falls back
-    /// to the legacy attached-thumbnail path.
+    /// object key (AES-GCM, startSliceIndex 0 — the thumbnail is a single slice)
+    /// and writes `<id>-tg.jpg` or `<id>-tg.png` (format sniffed from the
+    /// decrypted bytes — alpha-bearing sources are uploaded as PNG). Returns nil
+    /// on any failure so the caller falls back to the legacy attached-thumbnail
+    /// path.
     private func fetchSidecarThumbnail(_ object: ObjectRecord, sidecarID: Int64, vault: VaultRecord) async -> URL? {
         guard let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty,
               let vaultKey = try? VaultManager.vaultKey(for: vault),
@@ -614,7 +656,12 @@ actor ThumbnailService {
             let encrypted = try Data(contentsOf: tmp)
             let plain = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: 0)
             try? FileManager.default.removeItem(at: tmp)
-            let url = telegramPath(for: object.id)
+            let isPNG = isPNGData(plain)
+            let url = telegramPath(for: object.id, isPNG: isPNG)
+            // Drop a stale sibling from the other format so a re-upload that
+            // switched formats (e.g. JPEG → PNG once alpha is detected) doesn't
+            // leave both on disk with localThumbnailOnDisk picking the old one.
+            try? FileManager.default.removeItem(at: telegramPath(for: object.id, isPNG: !isPNG))
             try? plain.write(to: url)
             if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
                 return url

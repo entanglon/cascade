@@ -2,7 +2,111 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (afternoon) — Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile.
+> 2026-08-28 (evening) — Fast Search-Based Catalog Sync & Alpha-Preserving Thumbnails.
+
+---
+
+## 2026-08-28 (evening) — Fast Search-Based Catalog Sync & Alpha-Preserving Thumbnails (PLACEHOLDER_HASH)
+
+Executed `SYNC_SEARCH_PLAN.md` end-to-end (Task A: search-based catalog sync;
+Task B: alpha-preserving thumbnails).
+
+### Task A — Fast Search-Based Catalog Sync
+
+**Root cause**: `CatalogSnapshot.fetchChannelState` (`Storage/CatalogSnapshot.swift:413`)
+called `TelegramClient.allChannelMessages(chatId:usingCache:true)`, which pages
+backward through the ENTIRE channel history with `getChatHistory` (up to 2000
+pages x 100 messages, 200ms inter-page delay) just to find the 1-2 small
+`cascade:db*` catalog messages. In a channel with hundreds/thousands of 20MB
+data-chunk messages this took 30-60+ seconds — the multi-minute pull-to-refresh
+the user reported.
+
+**Changes**:
+- `Telegram/TelegramClient.swift`: added `searchChannelMetadataMessages(chatId:query:limit:)`,
+  wrapping TDLib's `client.searchChatMessages` (server-side + local-index search,
+  no full-history page). Default query `"cascade:db"` matches all three catalog
+  message types (`cascade:dbsnapshot:v1:`, `cascade:dbdelta:v1:`, `cascade:dbpart:v1:`)
+  in one ~100-200ms round-trip. Deviated slightly from the plan's single-call design:
+  added bounded pagination (capped at 5 pages, `withFloodWait`-wrapped, 200ms
+  inter-page delay matching the existing scan's rate-limit posture) that stops as
+  soon as a checkpoint message is seen in a page — anything older than the newest
+  checkpoint is redundant for restore, so this only matters for a vault with
+  unusually heavy delta churn between 24h checkpoints, and never costs more than
+  one call in the common case.
+- `Storage/CatalogSnapshot.swift` (`fetchChannelState`): replaced the
+  `allChannelMessages` scan with `searchChannelMetadataMessages`. Added the
+  requested high-water-mark optimization: the newest returned message ID is
+  compared against `UserDefaults` key `xc.lastSyncedMsgID.<channelID>`; on a
+  match, an in-memory `channelStateCache` (chatId-keyed, `NSLock`-guarded, same
+  pattern as `TelegramClient.channelScanCache`) returns the previously computed
+  `ChannelState` instantly, skipping every `decodeMessagePayload` network
+  download + JSON decode. Cache/UserDefaults are updated after every fresh
+  compute; a new checkpoint/delta publish always raises the newest ID (Telegram
+  message IDs are monotonic), so the cache self-invalidates — no manual
+  invalidation wiring needed. Skips the cache short-circuit when a
+  backup-channel restore fallback is requested but the cached state has no
+  usable checkpoint, so that rare disaster-recovery path still gets a chance to
+  run. Left the separate BACKUP-channel fallback scan (`allChannelMessages(chatId: backupID,…)`,
+  restore-only, rare) untouched — out of the plan's stated scope.
+
+### Task B — Preserve Alpha / Transparency for PNG Thumbnails
+
+**Root cause**: two independent places always flattened thumbnails to opaque
+JPEG regardless of source transparency:
+1. `Engine/UploadEngine.swift:685` (`generateThumbnails`) JPEG-encoded the
+   `-up.jpg` sidecar source unconditionally.
+2. `Engine/ThumbnailService.swift` (`generateAndSaveThumbnail` /
+   `generateAndSaveVideoThumbnail` / `generateAndSaveAudioThumbnail`) wrote
+   BOTH a `.png` and a `.jpg` for every thumbnail but always cached/preferred
+   the `.jpg`, and `localThumbnailOnDisk`'s candidate list checked `.jpg`
+   before `.png` — so even the already-alpha-safe local PNG was shadowed by
+   the opaque JPEG.
+JPEG has no alpha channel, so transparent pixels (rounded app-icon corners,
+ stickers) became solid boxes.
+
+**Changes** (kept the TDLib-mandated JPEG-only inputThumbnail attachment
+un-touched — documented in this repo as JPEG/≤320px/<200KB — alpha handling
+only affects the sidecar/local-cache paths, which have no such constraint):
+- `Engine/ThumbnailService.swift`: added `ThumbnailCrop.hasAlphaChannel(_:)`
+  (checks `NSBitmapImageRep.hasAlpha` on the SOURCE image, before
+  aspectFit/subjectSquare redraw it into a context that always has a
+  structural alpha channel). `generateAndSaveThumbnail`,
+  `generateAndSaveVideoThumbnail`, `generateAndSaveAudioThumbnail` now skip
+  writing/caching the opaque `.jpg` (and delete a stale one from a prior
+  generation) when the source has alpha, caching the `.png` instead.
+  `localThumbnailOnDisk` gained a `-tg.png` candidate. The encrypted-sidecar
+  fetch (`fetchSidecarThumbnail`) now sniffs the PNG signature on the
+  decrypted bytes and writes `<id>-tg.png` or `<id>-tg.jpg` accordingly
+  (instead of always assuming JPEG), deleting the stale sibling extension.
+- `Engine/UploadEngine.swift`: `generateThumbnails` now also writes a sibling
+  `<objectID>-up.png` (alpha-preserving, same ≤320px size) next to the
+  existing `-up.jpg` whenever the source has alpha — the JPEG return value is
+  unchanged (still required for the TDLib-attached inline preview).
+  `uploadThumbnailSidecar` now prefers that PNG sibling over the JPEG when
+  present, since the sidecar is an opaque encrypted document (never a TDLib
+  inputThumbnail) with no format constraint. `UploadEngine.thumbnailURL`
+  gained the matching `-tg.png` candidate.
+- `Cascade iOS/AppState.swift` (`fetchThumbnailData`): the sidecar fetch path
+  now sniffs the PNG signature on the decrypted bytes too, caching to
+  `-tg.png` vs `-tg.jpg` correctly (the actual `Data` returned for display was
+  already format-agnostic via `UIImage(data:)`, so this only fixes the on-disk
+  cache filename/lookup consistency with `UploadEngine.thumbnailURL`).
+
+### Build & test verification
+- macOS: `xcodebuild -scheme Cascade -destination 'platform=macOS' build` — **BUILD SUCCEEDED**.
+- iOS: `xcodebuild -scheme "Cascade iOS" -sdk iphoneos -configuration Debug build` — **BUILD SUCCEEDED**.
+- Tests: `xcodebuild ... test` — **TEST SUCCEEDED**, 104: 100 unit + 4 UI (2
+  regular + 2 launch), 0 failures. Existing thumbnail tests
+  (`uploadThumbnailJPEGIsGeneratedAndReturnedForAttachment`,
+  `thumbnailSidecarEncryptDecryptRoundTrips`) still pass unchanged — they only
+  exercise the untouched JPEG return path.
+- Installed + launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`):
+  install + launch succeeded, process confirmed alive (PID 6423) after the
+  launch settled. Launched the rebuilt Debug macOS app too (PID confirmed
+  alive after 13s) — no immediate crash on either platform. Real-world
+  behavioral verification (actual pull-to-refresh timing against a live vault,
+  visually confirming a transparent PNG upload/round-trip) needs interactive
+  use; not automatable from this session.
 
 ---
 

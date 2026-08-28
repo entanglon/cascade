@@ -412,7 +412,22 @@ enum CatalogSnapshot {
     /// (BackupSync mirrors every vault message there and never prunes it).
     private static func fetchChannelState(chatId: Int64, allowBackupFallback: Bool = false) async -> ChannelState {
         var state = ChannelState()
-        let messages = await TelegramClient.shared.allChannelMessages(chatId: chatId, usingCache: true)
+        let messages = await TelegramClient.shared.searchChannelMetadataMessages(chatId: chatId)
+
+        // High-water mark: if the newest cascade:db* message id hasn't moved since
+        // the last time this channel was checked, the checkpoint/delta decode (each
+        // one a network download + JSON decode) is redundant — reuse the state we
+        // already computed. Skipped whenever a backup-channel restore is requested
+        // but the cached state has no usable checkpoint (the fallback below still
+        // needs a chance to run).
+        let newestSeenID = messages.map(\.id).max() ?? 0
+        let key = lastSyncedMessageIDKey(chatId)
+        let lastSeenID = UserDefaults.standard.object(forKey: key) as? Int64 ?? 0
+        if newestSeenID != 0, newestSeenID == lastSeenID,
+           let cached = cachedState(chatId), (!allowBackupFallback || cached.checkpoint != nil) {
+            return cached
+        }
+
         let checkpoints = messages
             .filter { CatalogSnapshot.isSnapshotMessage(VaultRepair.caption(of: $0) ?? "") }
             .sorted { $0.id < $1.id }
@@ -532,7 +547,30 @@ enum CatalogSnapshot {
                 print("Cascade fetchChannelState: backup channel \(backupID) also had no usable checkpoint")
             }
         }
+        if newestSeenID != 0 {
+            UserDefaults.standard.set(newestSeenID, forKey: key)
+        }
+        setCachedState(chatId, state)
         return state
+    }
+
+    private static func lastSyncedMessageIDKey(_ chatId: Int64) -> String {
+        "xc.lastSyncedMsgID.\(chatId)"
+    }
+
+    private static let channelStateCacheLock = NSLock()
+    nonisolated(unsafe) private static var channelStateCache: [Int64: ChannelState] = [:]
+
+    private static func cachedState(_ chatId: Int64) -> ChannelState? {
+        channelStateCacheLock.lock()
+        defer { channelStateCacheLock.unlock() }
+        return channelStateCache[chatId]
+    }
+
+    private static func setCachedState(_ chatId: Int64, _ state: ChannelState) {
+        channelStateCacheLock.lock()
+        defer { channelStateCacheLock.unlock() }
+        channelStateCache[chatId] = state
     }
 
     /// Merges the channel's published state into one remote catalog (normalized for

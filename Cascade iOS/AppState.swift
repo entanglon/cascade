@@ -469,7 +469,14 @@ final class AppState {
                 let plain = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: 0)
                 if !plain.isEmpty {
                     if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
-                        let dest = thumbDir.appendingPathComponent("\(file.id)-tg.jpg")
+                        // The sidecar isn't format-constrained (unlike the attached
+                        // inputThumbnail below, which TDLib requires to be JPEG) —
+                        // alpha-bearing sources are uploaded as PNG, so cache under
+                        // the extension matching the real bytes (sniffed via the PNG
+                        // signature) instead of always assuming JPEG.
+                        let isPNG = plain.count >= 4 && plain.prefix(4).elementsEqual([0x89, 0x50, 0x4E, 0x47])
+                        let dest = thumbDir.appendingPathComponent(isPNG ? "\(file.id)-tg.png" : "\(file.id)-tg.jpg")
+                        try? FileManager.default.removeItem(at: thumbDir.appendingPathComponent(isPNG ? "\(file.id)-tg.jpg" : "\(file.id)-tg.png"))
                         try? plain.write(to: dest)
                     }
                     return plain
