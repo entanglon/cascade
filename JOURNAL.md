@@ -2,7 +2,37 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Remove Connect to Server, interactive Selection mode, New Folder creation (Round 196, a40584b).
+> 2026-08-28 (night) — Inline New Folder, direct name tap inline rename, and clean list footers (Round 197, 0adfb53).
+
+---
+
+## 2026-08-28 (night) — Inline New Folder, direct name tap inline rename, and clean list footers (Round 197, commit `0adfb53`)
+
+User provided screenshots demonstrating native Apple Files interactions:
+1. In list view, the item count footer wasn't rendering cleanly and an empty separator line appeared after it.
+2. New folder creation in Apple Files appears as an inline folder card with an auto-focused dark pill text field right below the icon with `"untitled folder"`.
+3. Tapping directly on the name of any file or folder acts as inline rename (with dark pill text field and keyboard), while tapping the thumbnail/icon opens the file or navigates into the folder.
+
+### Changes Implemented
+1. **List Footers Fixed**:
+   - Replaced empty `Section { } footer: { PageItemCountFooter(...) }` in plain lists with `PageItemCountFooter(...)` with `.listRowSeparator(.hidden)` and `.listRowBackground(Color.clear)` across `FileBrowserView`, `RecentsView`, `AudioView`, `DocumentsView`, `FavoritesView`, and `ArchiveView`.
+   - Eliminated empty list sections and phantom separator lines; item count footers now render cleanly at the bottom.
+2. **Inline "New Folder" Creation**:
+   - Added `InlineNewFolderGridItem` and `InlineNewFolderRow` in `RootView.swift`.
+   - Tapping "New Folder" in the menu immediately mounts an inline folder tile at the top of the grid/list with an auto-focused text capsule (`"untitled folder"` pre-selected) and keyboard up.
+   - Pressing "done" or tapping outside commits folder creation with the typed name (defaulting to "untitled folder" if empty).
+3. **Direct Name Tap Inline Rename & Dedicated Thumbnail Open**:
+   - In `FileGridItem` and `FileRow`:
+     - Tapping the **thumbnail / icon** opens the file or navigates into the folder.
+     - Tapping the **filename label** activates inline rename with auto-focused dark pill `TextField`.
+     - Context menu "Rename" also triggers this inline rename mode.
+     - Pressing "done" or losing focus commits the rename and uploads a fresh catalog snapshot to Telegram.
+
+### Verification
+- macOS target: `** BUILD SUCCEEDED **`.
+- iOS target (`sdk iphoneos`, arm64): `** BUILD SUCCEEDED **`.
+- Installed and launched on physical iPhone XS Max via `devicectl`.
+- Commit: `0adfb53`.
 
 ---
 

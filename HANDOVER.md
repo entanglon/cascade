@@ -4126,6 +4126,12 @@ Open levers (not scheduled):
     - Implemented full multi-item Selection mode (`isSelecting`, `selectedFileIDs`, Select All / Deselect All, Done button, and contextual bottom action bars) across all browser, recents, media, and deleted views.
     - Implemented folder creation with `createFolder(named:parentID:isPrivate:)` in `AppState` and `New Folder` action dialog in `FileBrowserView` / `PrivateVaultView`.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+197. **Inline New Folder, Direct Name Tap Inline Rename & List Footers Fixed (2026-08-28 night — COMMITTED `0adfb53`)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
+    - Fixed list item count footer in plain lists by removing empty `Section { } footer:` and using `PageItemCountFooter(...)` with `.listRowSeparator(.hidden)` and `.listRowBackground(Color.clear)`.
+    - Added inline `InlineNewFolderGridItem` and `InlineNewFolderRow` auto-focused with dark capsule styling on "New Folder" menu tap.
+    - Updated `FileGridItem` and `FileRow` so tapping filename label directly enters inline rename mode, while tapping thumbnail/icon opens the file or navigates folder.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed to iPhone XS Max.
 
 
 
