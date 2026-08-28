@@ -947,11 +947,7 @@ struct RecentsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-
-                Spacer(minLength: 40)
-
-                PageItemCountFooter(count: filteredFiles.count)
-                    .padding(.bottom, 4)
+                .padding(.bottom, 24)
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -963,11 +959,6 @@ struct RecentsView: View {
                 FileRow(file: file) {
                     appState.openFile(file)
                 }
-            }
-
-            Section {
-            } footer: {
-                PageItemCountFooter(count: filteredFiles.count)
             }
         }
         .listStyle(.plain)
@@ -1077,6 +1068,7 @@ struct SharedView: View {
 struct PhotosView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         Group {
@@ -1124,29 +1116,35 @@ struct PhotosView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredPhotos) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredPhotos) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredPhotos.count, noun: "photo")
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredPhotos.count, noun: "photo")
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
             }
         }
     }
@@ -1157,6 +1155,7 @@ struct PhotosView: View {
 struct VideosView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         Group {
@@ -1204,29 +1203,35 @@ struct VideosView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredVideos) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredVideos) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredVideos.count, noun: "video")
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredVideos.count, noun: "video")
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
             }
         }
     }
@@ -1238,6 +1243,7 @@ struct AudioView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
+    @State private var viewportHeight: CGFloat = 0
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1305,29 +1311,35 @@ struct AudioView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredAudio) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredAudio) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredAudio.count)
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredAudio.count)
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
             }
         }
     }
@@ -1355,6 +1367,7 @@ struct DocumentsView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
+    @State private var viewportHeight: CGFloat = 0
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1422,29 +1435,35 @@ struct DocumentsView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredDocs) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredDocs) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredDocs.count)
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredDocs.count)
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
             }
         }
     }
@@ -1678,6 +1697,7 @@ struct FavoritesView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
+    @State private var viewportHeight: CGFloat = 0
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1748,29 +1768,35 @@ struct FavoritesView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredFavorites) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredFavorites) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredFavorites.count)
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredFavorites.count)
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
             }
         }
     }
@@ -1822,6 +1848,7 @@ struct ArchiveView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
+    @State private var viewportHeight: CGFloat = 0
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1892,29 +1919,35 @@ struct ArchiveView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredArchived) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredArchived) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredArchived.count)
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredArchived.count)
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
             }
         }
     }
@@ -1942,6 +1975,7 @@ struct TrashView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var viewMode: ViewMode = .grid
+    @State private var viewportHeight: CGFloat = 0
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -1957,42 +1991,48 @@ struct TrashView: View {
                     emptyState
                 }
             } else {
-                GeometryReader { geo in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            Text("Recently deleted items may be permanently deleted by your storage provider.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 8)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Text("Recently deleted items may be permanently deleted by your storage provider.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 8)
 
-                            if viewMode == .grid {
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: 16),
-                                    GridItem(.flexible(), spacing: 16),
-                                    GridItem(.flexible(), spacing: 16)
-                                ], spacing: 20) {
-                                    ForEach(filteredTrash) { file in
-                                        FileGridItem(file: file) { }
-                                    }
-                                }
-                                .padding(.horizontal, 16)
-                            } else {
-                                VStack(spacing: 0) {
-                                    ForEach(filteredTrash) { file in
-                                        FileRow(file: file) { }
-                                        Divider().padding(.leading, 60)
-                                    }
+                        if viewMode == .grid {
+                            LazyVGrid(columns: [
+                                GridItem(.flexible(), spacing: 16),
+                                GridItem(.flexible(), spacing: 16),
+                                GridItem(.flexible(), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(filteredTrash) { file in
+                                    FileGridItem(file: file) { }
                                 }
                             }
-
-                            Spacer(minLength: 40)
-
-                            PageItemCountFooter(count: filteredTrash.count, showSyncStatus: false)
-                                .padding(.bottom, 4)
+                            .padding(.horizontal, 16)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(filteredTrash) { file in
+                                    FileRow(file: file) { }
+                                    Divider().padding(.leading, 60)
+                                }
+                            }
                         }
-                        .frame(minHeight: geo.size.height, alignment: .top)
+
+                        Spacer(minLength: 40)
+
+                        PageItemCountFooter(count: filteredTrash.count, showSyncStatus: false)
+                            .padding(.bottom, 4)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+                }
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { viewportHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
                     }
                 }
             }

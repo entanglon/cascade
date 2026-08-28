@@ -11,6 +11,7 @@ struct FileBrowserView: View {
     @State private var viewMode: ViewMode = .grid
     @State private var sortBy: SortOption = .name
     @State private var sortAscending = true
+    @State private var viewportHeight: CGFloat = 0
 
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
@@ -202,7 +203,15 @@ struct FileBrowserView: View {
                 }
                 .padding(.bottom, 24)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
+            }
         }
     }
 
