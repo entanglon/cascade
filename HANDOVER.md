@@ -4078,6 +4078,12 @@ Open levers (not scheduled):
     - Root Cause: `FileBrowserView.gridView` and `RootView.gridView` wrapped `ScrollView` inside a `GeometryReader`. In SwiftUI, `GeometryReader` intercepts coordinate spaces and prevents `UIRefreshControl` from properly releasing its content insets after refresh completes, leaving the spinner visibly stuck.
     - Fix: Removed `GeometryReader` wrapper from around `ScrollView` in `FileBrowserView` and `RootView`, allowing `ScrollView` to stretch and rubber-band naturally with clean, instant spinner dismissal on all folder and drive views.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+188. **Fix FileBrowserView Refresh Hang (2026-08-28 night — COMMITTED `ed43756`)**
+     (`Cascade iOS/Features/FileBrowserView.swift`)
+    - Root Cause: `FileBrowserView` had `if appState.isLoadingFiles && currentFolderFiles.isEmpty { ProgressView(...) }` at root. When pull-to-refresh started, `isLoadingFiles` turned `true`, destroying the active `UIScrollView` hosting UIKit's `UIRefreshControl` and replacing it with `ProgressView`. When refreshing finished, the new `gridView` was mounted but UIKit's refresh control state had desynced and remained spinning.
+    - Fix: Removed the `isLoadingFiles` root branch swap, maintaining a persistent view hierarchy throughout the refresh lifecycle, and made `emptyState` a scroll view.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+
 
 
 

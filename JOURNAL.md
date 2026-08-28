@@ -2,7 +2,33 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fixed Cascade Drive / folder pull-to-refresh spinner by removing GeometryReader ScrollView wrappers, confirmed 4th Movies video origin, clarified Recents behavior (Round 187, bb4daf5).
+> 2026-08-28 (night) — Fixed FileBrowserView root spinner hang caused by isLoadingFiles view branch swap during pull-to-refresh (Round 188, ed43756).
+
+---
+
+## 2026-08-28 (night) — Fixed FileBrowserView root spinner hang (Round 188, commit `ed43756`)
+
+User reported that pull-to-refresh spinner completed quickly on other views, but remained stuck on the Cascade Drive root view.
+
+### Root Cause Analysis (File & Line Tracing)
+1. **Mid-Refresh View Hierarchy Teardown (`Cascade iOS/Features/FileBrowserView.swift:29`)**:
+   - `FileBrowserView` contained:
+     `if appState.isLoadingFiles && currentFolderFiles.isEmpty { ProgressView("Loading files…") }`
+   - When pull-to-refresh began, `appState.loadAllFiles()` set `isLoadingFiles = true`.
+   - On the root `Cascade Drive` view, this triggered SwiftUI to tear down `gridView` (and its underlying `UIScrollView`) and replace it with `ProgressView`.
+   - When `loadAllFiles()` finished and set `isLoadingFiles = false`, SwiftUI re-mounted a new `gridView`.
+   - Because the original `UIScrollView` hosting the UIKit `UIRefreshControl` was destroyed while the refresh animation was active, the refresh control state was orphaned in UIKit, leaving the spinner visibly stuck in place!
+   - In contrast, `RecentsTabView` and other views did NOT have `if isLoadingFiles { ProgressView }`, which is why they never encountered this bug.
+
+### Fix
+- In `Cascade iOS/Features/FileBrowserView.swift`:
+  - Removed the `if appState.isLoadingFiles` branch swap from `body`, maintaining a stable `gridView` / `listView` hierarchy throughout the refresh lifecycle.
+  - Made `emptyState` a `ScrollView` so empty folders can also be pulled to refresh.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Commit: `ed43756`.
 
 ---
 
