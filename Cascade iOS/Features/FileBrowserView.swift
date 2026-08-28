@@ -26,9 +26,7 @@ struct FileBrowserView: View {
 
     var body: some View {
         Group {
-            if appState.isLoadingFiles && currentFolderFiles.isEmpty {
-                ProgressView("Loading files…")
-            } else if filteredFiles.isEmpty {
+            if filteredFiles.isEmpty {
                 if !searchText.isEmpty {
                     NoSearchResultsView(query: searchText)
                 } else {
@@ -139,25 +137,27 @@ struct FileBrowserView: View {
     }
 
     private var filteredFiles: [FileItem] {
-        let files = sortedFiles
-        guard !searchText.isEmpty else { return files }
-        return files.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        guard !searchText.isEmpty else { return sortedFiles }
+        return sortedFiles.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "folder")
-                .font(.system(size: 48))
-                .foregroundStyle(.blue)
-            Text("No Files")
-                .font(.title2.bold())
-            Text("Upload files from the Mac app to see them here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            Spacer()
+        ScrollView {
+            VStack(spacing: 16) {
+                Spacer(minLength: 80)
+                Image(systemName: "folder")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.blue)
+                Text("No Files")
+                    .font(.title2.bold())
+                Text("Upload files from the Mac app to see them here.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
