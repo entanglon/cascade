@@ -2,7 +2,28 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Updated iOS folder icons to match Apple Files app (Round 194, 1a1fe6b).
+> 2026-08-28 (night) — Implemented exact custom AppleFolderIcon vector component (Round 195, b378433).
+
+---
+
+## 2026-08-28 (night) — Exact Apple Files folder shape & gradients (Round 195, commit `b378433`)
+
+User provided a screenshot directly from the iOS Files app demonstrating that the generic SF Symbol `folder.fill` doesn't have the real iOS Files folder geometry and vibrant sky-blue gradient.
+
+### Root Cause & Vector Shape Design
+1. **Root Cause**: Apple's native Files app does not use the standard SF Symbol `folder.fill` silhouette in its file browser grid. Instead, it renders an iconic skeuomorphic vector folder with:
+   - A rear tab on the top left (`w * 0.40`) that curves smoothly down into the body.
+   - A darker cyan-blue back flap (`#3C9FE0` / `RGB(60, 160, 222)` to `#3292CE`).
+   - A vibrant front body (`RGB(104, 194, 242)` to `RGB(80, 172, 226)`) with continuous corner radii (`r = 7.5`).
+   - A subtle top-edge highlight stroke (`white.opacity(0.40)`).
+2. **Fix**:
+   - Created `AppleFolderIcon: View` in `Cascade iOS/RootView.swift` drawing the exact vector paths with continuous Apple corner curvature and dual linear gradients.
+   - Connected `AppleFolderIcon` to `FileGridItem.thumbnailView` (width: 86, height: 68) and `FileRow.thumbnailView` (width: 36, height: 28).
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Commit: `b378433`.
 
 ---
 

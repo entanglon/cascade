@@ -4115,6 +4115,11 @@ Open levers (not scheduled):
      (`Cascade iOS/RootView.swift`)
     - Updated `FileGridItem` and `FileRow` folder icons with `.symbolRenderingMode(.hierarchical)` and `Color(uiColor: .systemBlue)` to match Apple Files app's signature two-tone multi-layer flap shading and system blue color.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
+195. **Custom AppleFolderIcon Vector Component (2026-08-28 night — COMMITTED `b378433`)**
+     (`Cascade iOS/RootView.swift`)
+    - Designed custom vector `AppleFolderIcon` matching the exact geometry, continuous Apple corner radii, rear tab curvature, and dual sky-blue gradient layers from the native iOS Files app.
+    - Replaced SF Symbol `folder.fill` in both grid and list views with `AppleFolderIcon`.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
 
 
 
