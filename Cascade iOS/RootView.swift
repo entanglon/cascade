@@ -932,30 +932,28 @@ struct RecentsView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(filteredFiles) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    ForEach(filteredFiles) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    PageItemCountFooter(count: filteredFiles.count)
-                        .padding(.bottom, 4)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredFiles.count)
+                    .padding(.bottom, 4)
             }
+            .frame(maxWidth: .infinity, alignment: .top)
         }
     }
 

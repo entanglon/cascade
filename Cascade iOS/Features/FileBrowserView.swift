@@ -162,49 +162,47 @@ struct FileBrowserView: View {
     }
 
     private var gridView: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ], spacing: 20) {
-                        // Folders first
-                        ForEach(filteredFiles.filter(\.isFolder)) { folder in
-                            NavigationLink {
-                                FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
-                            } label: {
-                                FileGridItem(file: folder)
-                            }
-                            .buttonStyle(.plain)
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 20) {
+                    // Folders first
+                    ForEach(filteredFiles.filter(\.isFolder)) { folder in
+                        NavigationLink {
+                            FileBrowserView(folderID: folder.id, folderTitle: folder.name, filterPrivate: filterPrivate)
+                        } label: {
+                            FileGridItem(file: folder)
                         }
-                        // Files
-                        ForEach(filteredFiles.filter { !$0.isFolder }) { file in
-                            FileGridItem(file: file) {
-                                appState.openFile(file)
-                            }
+                        .buttonStyle(.plain)
+                    }
+                    // Files
+                    ForEach(filteredFiles.filter { !$0.isFolder }) { file in
+                        FileGridItem(file: file) {
+                            appState.openFile(file)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 40)
-
-                    // Footer
-                    VStack(spacing: 4) {
-                        Text("\(filteredFiles.count) \(filteredFiles.count == 1 ? "item" : "items")")
-                            .font(.subheadline.bold())
-                        if appState.isVaultConnected {
-                            Text("Synced with Cascade")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.bottom, 24)
                 }
-                .frame(minHeight: geo.size.height, alignment: .top)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                // Footer
+                VStack(spacing: 4) {
+                    Text("\(filteredFiles.count) \(filteredFiles.count == 1 ? "item" : "items")")
+                        .font(.subheadline.bold())
+                    if appState.isVaultConnected {
+                        Text("Synced with Cascade")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.bottom, 24)
             }
+            .frame(maxWidth: .infinity, alignment: .top)
         }
     }
 
