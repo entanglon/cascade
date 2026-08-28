@@ -3898,7 +3898,7 @@ Open levers (not scheduled):
     - Generator Aspect Ratio Fix: Updated `UploadEngine.generateThumbnails` and `ThumbnailService.generateAndSaveThumbnail` / `generateAndSaveAudioThumbnail` to use `ThumbnailCrop.aspectFit` instead of `subjectSquare`, preserving true 16:9, 4:3, 9:16, and portrait/landscape geometry across all generated previews.
     - Files-Style Grid UI (`Cascade iOS/RootView.swift`): Updated `FileGridItem`'s `thumbnailView` to render thumbnails with `.aspectRatio(contentMode: .fit)` floating inside the invisible 105pt cell container with rounded corners and subtle drop shadows. Updated fallback placeholders for videos (16:9), photos (4:3), and documents (3:4) to reflect their natural proportions.
     - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`.
-183. **Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile (2026-08-28 afternoon)**
+183. **Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile (2026-08-28 afternoon — COMMITTED `12842e6`)**
      (`Engine/UploadEngine.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/Features/SettingsView.swift`)
     - Root Causes:
       1. `UploadEngine.swift:540` finished upload tasks without calling `CatalogSnapshot.upload()`, leaving newly uploaded objects unpublished to Telegram until a later manual or debounced sync.

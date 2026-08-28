@@ -6,7 +6,7 @@
 
 ---
 
-## 2026-08-28 (afternoon) — Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile
+## 2026-08-28 (afternoon) — Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile (`12842e6`)
 
 User:
 1. "Browse Vault" in Settings should not be there.

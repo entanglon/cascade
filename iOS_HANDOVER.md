@@ -107,7 +107,7 @@ devicectl device process launch --device 8F28E614-EA35-5B10-8DC9-E390026D4599 co
 
 ## Recent Changes
 
-### Round 183: Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile
+### Round 183: Upload Cloud Sync & iOS Pull-to-Refresh Cloud Reconcile (`12842e6`)
 - Added `CatalogSnapshot.upload()` immediately upon completing uploads in `UploadEngine.swift`.
 - Updated `Cascade iOS/AppState.swift` `loadAllFiles(reconcileCloud: true)` to invalidate scan cache and reconcile cloud catalog snapshots on pull-to-refresh.
 - Removed duplicate "Browse Vault" link from `SettingsView`.
