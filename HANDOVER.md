@@ -4099,6 +4099,12 @@ Open levers (not scheduled):
     - Configured global `UINavigationBarAppearance` (`configureWithDefaultBackground()`) across standard, compact, and scrollEdge appearances in `CascadeApp.init()`.
     - Added `.toolbarBackground(.visible, for: .navigationBar)` to `RecentsView` and `SharedView`.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+192. **Cross-Device Recents Sync Engine (2026-08-28 night — COMMITTED `94ba75a`)**
+     (`Engine/RecentsSyncEngine.swift`, `App/AppState.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`)
+    - Implemented `RecentsSyncEngine` to manage cross-device synchronization of recent file access history via dedicated lightweight channel metadata messages (`cascade:recents:v1:<base64-json>`), keeping the SQLite database catalog and DB snapshots unbloated.
+    - Automatic LWW timestamp merging (`max(local, remote)` per `fileID`), 5-second debounced uploads, and automatic channel message pruning.
+    - Fully wired on macOS and iOS with on-demand cloud sync on tab navigation and pull-to-refresh.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**.
 
 
 

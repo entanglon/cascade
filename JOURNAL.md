@@ -2,7 +2,35 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fixed navigation bar background loss on Recents and Shared pages (Round 191, d9e1706).
+> 2026-08-28 (night) — Implemented cross-device recents.json cloud sync with LWW merge and debounced channel uploads (Round 192, 94ba75a).
+
+---
+
+## 2026-08-28 (night) — Cross-device `recents.json` cloud sync (Round 192, commit `94ba75a`)
+
+User requested cross-device syncing of recent files via a lightweight JSON metadata approach (similar to database snapshots/deltas, but dedicated and isolated from SQLite DB WAL/transactions).
+
+### Implementation Details
+1. **`RecentsSyncEngine` (`Engine/RecentsSyncEngine.swift`)**:
+   - `RecentEntry(id: String, openedAt: Double)` and `RecentsPayload(version: Int, updatedAt: Double, entries: [RecentEntry])`.
+   - Local on-device access recording: updates `UserDefaults` immediately for 0-latency UI responsiveness.
+   - Channel message sync: text metadata message with prefix `cascade:recents:v1:<base64-json>`.
+   - Conflict-free LWW merge: when syncing from cloud, takes `max(local.openedAt, remote.openedAt)` for each file ID, sorts descending, and bounds to top 40 files.
+   - Debounced uploads: batches rapid file opens with a 5-second debounce timer to minimize Telegram channel traffic.
+   - Automatic channel pruning: cleans up older `cascade:recents:v1:` messages in the channel when publishing a new version, leaving only 1 fresh message.
+2. **macOS Integration (`App/AppState.swift:1282, 1317, 1812`)**:
+   - Wired `openFile(_ file: ObjectRecord)` to record access and schedule cloud upload.
+   - Wired `SidebarDestination.recent` navigation to trigger `syncFromCloud()`.
+   - Updated `AppState.currentFiles` for `.recent` to load from `RecentsSyncEngine.loadLocalEntries()` mapped to catalog objects.
+3. **iOS Integration (`Cascade iOS/AppState.swift:144, 539`, `Cascade iOS/RootView.swift:892`)**:
+   - Wired `openFile(_ file: FileItem)` to record access and schedule cloud upload.
+   - Added `syncRecentsFromCloud()` called on `RecentsView.task` (entering tab) and `RecentsView.refreshable` (pull to refresh).
+   - Changed `emptyState` in `RecentsView` to a `ScrollView` with `.toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)` so the navigation bar never drops its background when empty or at scroll edge.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Commit: `94ba75a`.
 
 ---
 
