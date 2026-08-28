@@ -2222,8 +2222,9 @@ struct FileRow: View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
             Image(systemName: "folder.fill")
-                .font(.system(size: 28))
-                .foregroundStyle(Color(red: 0.28, green: 0.65, blue: 0.98))
+                .font(.system(size: 28, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color(uiColor: .systemBlue))
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
@@ -2417,9 +2418,9 @@ struct FileGridItem: View {
         let effectiveThumb = thumbData ?? file.thumbnailData
         if file.isFolder {
             Image(systemName: "folder.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(Color(red: 0.28, green: 0.65, blue: 0.98))
-                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                .font(.system(size: 68, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color(uiColor: .systemBlue))
         } else if let data = effectiveThumb, let img = UIImage(data: data) {
             Image(uiImage: img)
                 .resizable()
