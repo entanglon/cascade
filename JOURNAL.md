@@ -2,7 +2,52 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (evening) — Fast Search-Based Catalog Sync & Alpha-Preserving Thumbnails.
+> 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever (searchChatMessages missing response timeout).
+
+---
+
+## 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever (PLACEHOLDER_HASH)
+
+User: "when I pull a page in the iOS app to refresh it, it gets stuck at
+refreshing and the refresh never finishes."
+
+### Root cause
+`Telegram/TelegramClient.swift` (`searchChannelMetadataMessages`, added in the
+previous session for fast catalog sync) called `client.searchChatMessages`
+through `try? await withFloodWait { ... }` with **no `withResponseTimeout`
+wrapper**. This file has an existing, documented TDLibKit failure mode (see
+the comment on `withResponseTimeout`, used by `getOrFetchMessage` and others):
+TDLibKit's response matching can silently DROP a reply when TDLib answers
+instantly from its local message-database cache — the receive-thread dispatch
+races the client's own pending-completion registration, and the continuation
+is never resumed, so the caller parks forever. A small local-index search for
+a handful of `cascade:db*` messages is exactly the "answers instantly from
+cache" case most likely to trigger this race (far more likely than the old
+full-history `getChatHistory` paging, which mostly hits the network). The hang
+propagated straight up the call chain: `searchChannelMetadataMessages` ->
+`CatalogSnapshot.fetchChannelState` -> `CatalogSnapshot.upload()` ->
+`AppState.loadAllFiles()` -> the `.refreshable` closure in
+`FileBrowserView`/`RootView`, so SwiftUI's pull-to-refresh spinner never
+completed.
+
+### Fix
+`Telegram/TelegramClient.swift` (`searchChannelMetadataMessages`): wrapped
+each page's `client.searchChatMessages` call in `withResponseTimeout(15)`
+(same helper already used by `getOrFetchMessage`), with up to 2 attempts per
+page (a retried call with a fresh `@extra` almost always lands, per the
+existing comment/precedent). On repeated failure the loop now breaks and
+returns whatever was already gathered instead of hanging — `fetchChannelState`
+already treats an empty/partial result gracefully (same as a full-scan
+failure previously did).
+
+### Verification
+- macOS + iOS Debug builds: **BUILD SUCCEEDED**.
+- Tests: **TEST SUCCEEDED**, 104 (100 unit + 4 UI), 0 failures.
+- Reinstalled + relaunched on iPhone XS Max
+  (`8F28E614-EA35-5B10-8DC9-E390026D4599`); process confirmed alive after
+  launch. Could not simulate the actual pull-to-refresh gesture from this
+  session (no UI automation available) — ask the user to confirm pull-to-
+  refresh now completes on-device.
 
 ---
 

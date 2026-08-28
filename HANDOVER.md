@@ -2676,6 +2676,26 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       and visual transparency verification left for the user (not automatable
       from this session).
 
+123. **iOS pull-to-refresh hanging forever — fix (2026-08-28 evening,
+    PLACEHOLDER_HASH):**
+    - **Root cause**: `searchChannelMetadataMessages` (item 122, above) called
+      `client.searchChatMessages` without the `withResponseTimeout` wrapper
+      this file already documents as REQUIRED for TDLibKit calls that can
+      answer instantly from local cache — TDLibKit's response matching can
+      silently drop that reply (continuation never resumes), and a small
+      local-index search is exactly the "instant from cache" case most
+      likely to trigger it. The hang propagated up through
+      `fetchChannelState` -> `CatalogSnapshot.upload()` -> `loadAllFiles()` ->
+      the `.refreshable` closure, so pull-to-refresh spun forever.
+    - **Fix**: wrapped the per-page `searchChatMessages` call in
+      `withResponseTimeout(15)` (2 attempts per page, matching
+      `getOrFetchMessage`'s established pattern); on repeated failure the
+      search returns whatever was gathered instead of hanging.
+    - Verification: macOS + iOS Debug builds green; 104 tests (100 unit + 4
+      UI, 0 failures); reinstalled + relaunched on iPhone XS Max, process
+      confirmed alive. Actual on-device pull-to-refresh gesture needs user
+      confirmation (not automatable from this session).
+
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
 ### Latest session state (items 155–173, 2026-08-22)
