@@ -133,6 +133,10 @@ struct RootView: View {
             // in the browser in real time (also covers resume/retry completions).
             Task { await appState.loadFiles() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Reconcile cloud catalog snapshots when window becomes active (high-water mark makes this <100ms)
+            Task { await appState.loadFiles(reconcileCloud: true) }
+        }
         .onChange(of: TelegramClient.shared.isAuthorized) { _, authorized in
             // Login completes mid-session (via the login gate): run the same post-auth
             // reconciliation bootstrap does at launch — scan the vault channel to

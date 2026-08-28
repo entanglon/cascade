@@ -89,7 +89,7 @@ struct CascadeApp: App {
             CommandGroup(after: .toolbar) {
                 Button("Reload Page") {
                     Task {
-                        await appState.loadFiles()
+                        await appState.loadFiles(reconcileCloud: true)
                         appState.thumbnailVersion += 1
                     }
                 }

@@ -295,7 +295,13 @@ final class AppState {
     }
 
     @MainActor
-    func loadFiles() async {
+    func loadFiles(reconcileCloud: Bool = false) async {
+        if reconcileCloud && TelegramClient.shared.isAuthorized,
+           let _ = try? await DatabaseManager.shared.firstVault() {
+            if let syncedAt = await CatalogSnapshot.upload() {
+                self.lastSyncDate = syncedAt
+            }
+        }
         do {
             let objects = try await DatabaseManager.shared.allObjects().filter { $0.tombstoneAt == nil }
             self.files = objects.sorted { lhs, rhs in
@@ -1192,8 +1198,9 @@ final class AppState {
     /// Settings → "Sync Now": the one-shot repair + publish action. If the local
     /// catalog is empty it first tries the instant snapshot restore; otherwise (or
     /// when no snapshot exists) it falls back to rebuilding from the per-message
-    /// channel scan — the auto-database-repair path. Either way it then force-
-    /// publishes a fresh snapshot, so the channel always carries the current catalog.
+    /// User-initiated "Sync Now" in Settings. First attempts sub-second snapshot
+    /// reconciliation with the vault channel. If that fails or produces no changes,
+    /// falls back to the deep channel scan (VaultRepair) — the auto-database-repair path.
     /// Shows the outcome in an alert so a failed sync is visible, not silent.
     @MainActor
     func syncNow() async {
@@ -1209,17 +1216,12 @@ final class AppState {
         }
 
         let before = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
-        // Only an empty local catalog is eligible for instant snapshot restore — a
-        // populated device keeps its own data and reconciles via the channel scan.
-        let restored: Bool
-        if before == 0 {
-            restored = await CatalogSnapshot.restore()
-        } else {
-            restored = false
-        }
-        if restored {
+        if let syncedAt = await CatalogSnapshot.upload() {
+            self.lastSyncDate = syncedAt
             await self.loadFiles()
-            alertMessage = "Sync complete — catalog restored instantly from the cloud snapshot."
+            let after = ((try? await DatabaseManager.shared.allObjects()) ?? []).count
+            print("Cascade syncNow: snapshot sync successful (before=\(before), after=\(after))")
+            alertMessage = "Sync complete — catalog synchronized with cloud snapshots (\(before) → \(after) files)."
         } else {
             let messages = await TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)
             let v1Captions = messages.filter { ChunkCaption.isChunkCaption(VaultRepair.caption(of: $0) ?? "") }.count
@@ -1228,8 +1230,8 @@ final class AppState {
             await self.loadFiles()
             print("Cascade sync: messages=\(messages.count) v1Captions=\(v1Captions) before=\(before) after=\(after) changed=\(changed)")
             alertMessage = "Sync complete — \(messages.count) messages in the channel (\(v1Captions) with file metadata), \(before) → \(after) files restored."
+            await forcePublishSnapshot()
         }
-        await forcePublishSnapshot()
     }
 
     // MARK: - Resumable transfers
