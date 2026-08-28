@@ -2727,7 +2727,63 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
       confirmed alive. On-device pull-to-refresh confirmation still pending
       from the user.
 
+125. **iOS pull-to-refresh STILL stuck after items 123+124 — UNRESOLVED, handed
+    off (2026-08-28 evening, no code change, docs only):**
+    - User re-tested `e02ea08` on-device: "the wheel is still stuck and not
+      autohiding." Both prior fixes (123: added a timeout to the search call;
+      124: fixed `withResponseTimeout` itself to genuinely abandon a stuck
+      TDLib continuation) did NOT resolve it.
+    - **This is now an OPEN issue** — explicitly handed off to the next agent
+      (Antigravity) for fresh investigation rather than a third guess from
+      this session. Do NOT assume item 124's fix was wasted work —
+      `withResponseTimeout` really was broken and is now genuinely fixed for
+      every one of its call sites — but something ELSE in the same chain is
+      still hanging (or the spinner-dismissal is a separate UI-layer bug, see
+      below).
+    - **Leads for the next agent**:
+      1. **Audit every OTHER unprotected TDLib call in the pull-to-refresh
+         chain** (`AppState.loadAllFiles` -> `CatalogSnapshot.upload()` ->
+         `fetchChannelState` (now search-based + timeout-protected) ->
+         `changedRecords`/`merge` (local DB, not network) -> IF there are
+         changes to publish: `publishDocument`/`sendMetadataMessage` (network,
+         calls `TelegramClient.sendFile`/`sendMessage` via `withFloodWait`
+         only — **no `withResponseTimeout`, so the exact same dropped-response
+         race that hit `searchChatMessages` can hit these too**) ->
+         `loadThumbnails()` (more `TelegramClient` calls, several unprotected
+         `try?` awaits with zero timeout at all, e.g. inside
+         `ThumbnailService`/`AppState.fetchThumbnailData`). Grep for
+         `try? await` / `try await` calls into `TelegramClient` that do NOT go
+         through `withResponseTimeout` and are reachable from this refresh
+         path — there are likely several.
+      2. **Add stage-timestamped logging** around `loadAllFiles` (entry/exit of
+         `invalidateScanCache`, `CatalogSnapshot.upload()`, `fetchChannelState`,
+         any publish branch, `loadThumbnails()`) so the NEXT time the wheel
+         sticks, the console log pinpoints exactly which await never returns —
+         much faster than guessing.
+      3. **Rule out a pure UI-layer bug**: SwiftUI's native `.refreshable`
+         indicator is CONTRACTUALLY dismissed as soon as the awaited closure
+         returns — if it's not autohiding, the closure passed to `.refreshable`
+         in `FileBrowserView.swift`/`RootView.swift` (`await
+         appState.loadAllFiles()`) is almost certainly still suspended
+         somewhere, which points back to lead 1. But double-check there isn't
+         a second, independent `.refreshable`/pull gesture higher in the view
+         hierarchy also driving a spinner that isn't wired to the same async
+         call.
+      4. Consider whether `RateLimiter`/`APIMetrics` (called at the top of
+         every `withFloodWait`) could itself block — unlikely (it's a
+         token-bucket actor) but worth a quick look since it's on every call
+         path.
+
 ## 5. Pending / next steps — Architecture Roadmap Todo List
+
+### ⚠️ OPEN, HANDED OFF TO ANTIGRAVITY: iOS pull-to-refresh still stuck (2026-08-28)
+User-confirmed STILL BROKEN after two fix attempts (items 123, 124) — the
+refresh wheel never autohides; user has to manually scroll it away. See item
+125 above for full detail, the four investigation leads, and confirmation
+that item 124's `withResponseTimeout` fix was real (not wasted) but
+insufficient — something else in the same `loadAllFiles` -> `CatalogSnapshot.upload()`
+reconcile/publish chain is still hanging, or there's a separate UI-layer
+issue. Do not mark this done until the user confirms on-device.
 
 ### Latest session state (items 155–173, 2026-08-22)
 Streaming/upload/download arcs CLOSED and verified: true pause/resume both

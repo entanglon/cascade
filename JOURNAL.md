@@ -2,7 +2,44 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (evening) — Fix iOS pull-to-refresh hanging forever, take 2 (withResponseTimeout itself was broken).
+> 2026-08-28 (evening) — iOS pull-to-refresh STILL stuck after two fixes — handed off to Antigravity, OPEN.
+
+---
+
+## 2026-08-28 (evening) — iOS pull-to-refresh STILL stuck — handed off to Antigravity, OPEN (docs only, no code change)
+
+User re-tested `e02ea08` on-device: "the wheel is still stuck and not
+autohiding." This is now item 125 in HANDOVER.md and explicitly flagged in
+its Pending / next steps section for the next agent (Antigravity) to pick up
+fresh, per the user's request — no further fix attempted in this session.
+
+### What's confirmed so far
+- Item 123's fix (timeout on `searchChatMessages`) did not help.
+- Item 124's fix (rewriting `withResponseTimeout` to genuinely abandon a
+  stuck TDLibKit continuation via unstructured tasks instead of a
+  `withThrowingTaskGroup` race) was a REAL, verified bug fix — not wasted
+  work — but the wheel still doesn't autohide, so something ELSE in the same
+  chain is still hanging, or there's a separate UI-layer issue.
+
+### Leads left for the next agent (full detail in HANDOVER.md item 125)
+1. Audit every OTHER TDLib call reachable from `loadAllFiles` ->
+   `CatalogSnapshot.upload()` (publish path: `publishDocument` /
+   `sendMetadataMessage` -> `TelegramClient.sendFile`/`sendMessage`, which
+   only go through `withFloodWait`, NOT `withResponseTimeout` — the exact
+   same dropped-response race that hit `searchChatMessages` can hit these)
+   and `loadThumbnails()` (several unprotected `try?` awaits with zero
+   timeout).
+2. Add stage-timestamped logging around `loadAllFiles`'s sub-steps so the
+   next stuck-wheel repro pinpoints exactly which await never returns.
+3. Rule out a pure UI-layer bug: SwiftUI's `.refreshable` indicator is
+   contractually dismissed once its closure returns, so "stuck AND not
+   autohiding" points back to a real hang (lead 1) — but verify there isn't
+   a second spinner/gesture in the view hierarchy not wired to the same call.
+4. Quick sanity check that `RateLimiter`/`APIMetrics` (invoked at the top of
+   every `withFloodWait`) isn't itself blocking somehow.
+
+### Verification
+None — docs-only change, no code touched this round; nothing to build/test.
 
 ---
 
