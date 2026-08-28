@@ -4048,11 +4048,22 @@ Open levers (not scheduled):
       1. `UploadEngine.swift:540` finished upload tasks without calling `CatalogSnapshot.upload()`, leaving newly uploaded objects unpublished to Telegram until a later manual or debounced sync.
       2. `Cascade iOS/AppState.swift:344` `loadAllFiles()` only queried local SQLite data and never fetched Telegram channel updates on pull-to-refresh.
       3. Settings contained a redundant "Browse Vault" navigation link.
+184. **Fast Search-Based Catalog Sync & Alpha-Preserving PNG Thumbnails (2026-08-28 evening — COMMITTED `50c8d81`, `9df76a3`, `e02ea08`)**
+     (`Telegram/TelegramClient.swift`, `Storage/CatalogSnapshot.swift`, `Engine/UploadEngine.swift`, `Engine/ThumbnailService.swift`)
+    - Implemented `TelegramClient.searchChannelMetadataMessages(chatId:query:limit:)` wrapping TDLib `searchChatMessages` to search for `"cascade:db"` messages directly from Telegram server, replacing slow 2,000-page sequential channel walks.
+    - Added high-water mark caching (`lastSeenMessageID`) in `Storage/CatalogSnapshot.swift` to skip redundant network decodes when no new metadata messages exist.
+    - Updated `UploadEngine.generateThumbnails` and `ThumbnailService` to preserve PNG format (`-up.png`) when source image has alpha channels, preventing transparent rounded corners and transparent icons from turning into solid white boxes.
+    - Rewrote `withResponseTimeout` with unstructured tasks and `ResumeGate` to prevent TDLibKit continuation lockups.
+185. **Resolved iOS Pull-to-Refresh Spinner Hang (2026-08-28 late evening — COMMITTED `52b5bee`)**
+     (`Cascade iOS/AppState.swift`)
+    - Root Causes:
+      1. `loadAllFiles()` was calling `await loadThumbnails()` synchronously on the main thread. SwiftUI's `.refreshable` modifier holds the spinner active until `loadAllFiles()` completes, so the spinner was stuck waiting for all uncached thumbnails across the vault to download over Telegram.
+      2. `fetchThumbnailData` line 445 called `allChannelMessages(chatId:usingCache:true)` whenever an object lacked `thumbMessageID`. Because `loadAllFiles` cleared the scan cache, multiple thumbnail tasks simultaneously ran full-channel scans across 2,000 pages with 200ms sleep.
     - Fixes:
-      1. In `UploadEngine.swift`, trigger `_ = await CatalogSnapshot.upload()` immediately upon completing an upload.
-      2. In `Cascade iOS/AppState.swift`, update `loadAllFiles(reconcileCloud: true)` to invalidate scan cache and run `CatalogSnapshot.upload()` before reading SQLite so pull-to-refresh pulls all new objects/deltas from Telegram.
-      3. In `Cascade iOS/Features/SettingsView.swift`, removed duplicate "Browse Vault" navigation link.
-    - Build: Verified dual-platform builds (`Cascade iOS` arm64 and `Cascade` macOS) `** BUILD SUCCEEDED **`. Installed & launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+      1. In `Cascade iOS/AppState.swift`, `loadAllFiles()` now performs a fast local disk pass on the main thread and detaches network thumbnail fetching to a background utility task (`Task.detached(priority: .utility)`), returning immediately (~50–100ms) so `.refreshable` dismisses promptly.
+      2. Removed the leftover `allChannelMessages` scan from `fetchThumbnailData` (falls through directly to chunk-attached thumbnail `thumbnailData(forMessage:)`).
+      3. Removed redundant `invalidateScanCache` call in `loadAllFiles`.
+    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 
 

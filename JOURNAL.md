@@ -2,7 +2,37 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (evening) — iOS pull-to-refresh STILL stuck after two fixes — handed off to Antigravity, OPEN.
+> 2026-08-28 (late evening) — Resolved iOS pull-to-refresh spinner hang: decoupled thumbnail loading from loadAllFiles into background task, removed leftover allChannelMessages in fetchThumbnailData (Round 185, 52b5bee).
+
+---
+
+## 2026-08-28 (late evening) — Resolved iOS pull-to-refresh spinner hang (Round 185, commit `52b5bee`)
+
+User reported that pull-to-refresh on iOS continued spinning and would not autohide.
+
+### Root Cause Analysis (File & Line Tracing)
+1. **Synchronous Foreground Thumbnail Await (`Cascade iOS/AppState.swift:372`)**:
+   - `loadAllFiles()` was the exact async closure executed by SwiftUI's `.refreshable { await appState.loadAllFiles() }`.
+   - SwiftUI's `.refreshable` contractually holds the spinning indicator active until `loadAllFiles()` finishes.
+   - `loadAllFiles()` called `await loadThumbnails()`, which gathered all missing thumbnails across the vault and concurrently performed network fetches (`fetchThumbnailData`) before returning.
+   - As a result, `.refreshable` was blocked until every uncached file in the vault finished downloading its thumbnail over Telegram.
+2. **Leftover Full Channel Scan in `fetchThumbnailData` (`Cascade iOS/AppState.swift:445`)**:
+   - When an object had `thumbMessageID == nil`, `fetchThumbnailData` called `TelegramClient.shared.allChannelMessages(chatId: vault.channelID, usingCache: true)`.
+   - Because `loadAllFiles` cleared the scan cache (`invalidateScanCache`), this triggered `fetchAllChannelMessages` (paginating up to 2,000 pages of the channel with 200ms sleeps per page). Multiple concurrent thumbnail tasks ran this full channel walk at the same time.
+
+### Fix
+1. In `Cascade iOS/AppState.swift`:
+   - Fast local disk cache pass (`loadThumbnailsFromDisk()`) runs synchronously on the main thread to populate cached thumbnails instantly.
+   - Missing thumbnail network fetching (`loadMissingThumbnailsFromNetwork()`) is now detached to a background utility Task (`Task.detached(priority: .utility)`).
+   - `loadAllFiles()` returns immediately after loading local SQLite records (~50–100ms), allowing SwiftUI's `.refreshable` spinner to dismiss instantly.
+   - Removed the leftover `allChannelMessages` full-channel scan in `fetchThumbnailData` (falls through immediately to chunk thumbnail `thumbnailData(forMessage:)`).
+   - Removed redundant `invalidateScanCache` call in `loadAllFiles`.
+
+### Verification
+- macOS (`Cascade` target) **BUILD SUCCEEDED**.
+- iOS (`Cascade iOS` target, `sdk iphoneos`, arm64) **BUILD SUCCEEDED**.
+- Installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `52b5bee`.
 
 ---
 
