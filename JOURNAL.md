@@ -2,19 +2,21 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207).
+> 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207, threshold tuned 8 s → 4 s).
 
 ---
 
-## 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207)
+## 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207, threshold tuned 8 s → 4 s)
 
 User approved the pre-buffer proposal ("follow industry standards") and asked
 to remove the `#` from the Private Vault heading.
 
 ### Pre-buffer gate (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`)
-- Fresh network streams now open paused and release after ~8 s of demuxer
-  forward buffer (`prebufferThresholdSecs`), mirroring YouTube/Netflix/
-  ExoPlayer startup behavior, tuned deeper for a high-latency TDLib source.
+- Fresh network streams now open paused and release after ~4 s of demuxer
+  forward buffer (`prebufferThresholdSecs`), mirroring YouTube (~2–5 s)/
+  ExoPlayer (~2.5 s) startup behavior. Tuned down from 8 s per user call:
+  sustained protection after startup comes from the read-ahead prefetcher +
+  pause-for-cache, so a deeper gate only lengthens the spinner.
 - Mechanics: `MPVController.play(url:)` arms the gate and pre-pauses the core
   synchronously before the async `loadfile` (strict order, no race); release
   is event-driven via a new `demuxer-cache-duration` observe; 15 s watchdog
@@ -40,7 +42,7 @@ to remove the `#` from the Private Vault heading.
 - Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**
   (incl. the new `prebufferTargetClampsToShortClips`).
 - Debug app relaunched on the new build for user verification: play an
-  UNCACHED video → brief "Loading…" then playback with an 8 s cushion (no
+  UNCACHED video → brief "Loading…" then playback with a 4 s cushion (no
   instant-first-frame); cached/local file → instant as before; press play
   during the wait → starts immediately; pause during the wait → stays paused.
 

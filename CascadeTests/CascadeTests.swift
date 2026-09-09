@@ -448,16 +448,17 @@ struct CascadeTests {
     }
 
     @Test func prebufferTargetClampsToShortClips() {
-        // Normal/long file → the full 8 s threshold.
-        #expect(MPVController.prebufferTarget(durationSecs: 3600) == 8.0)
-        #expect(MPVController.prebufferTarget(durationSecs: 60) == 8.0)
+        // Normal/long file → the full 4 s threshold.
+        #expect(MPVController.prebufferTarget(durationSecs: 3600) == 4.0)
+        #expect(MPVController.prebufferTarget(durationSecs: 60) == 4.0)
         // Short clip → (duration − 0.5 s) so the gate can release instead of
         // hanging until the watchdog.
         #expect(MPVController.prebufferTarget(durationSecs: 3) == 2.5)
-        #expect(MPVController.prebufferTarget(durationSecs: 8.4) == 7.9)
+        // (Binary float: 4.4 − 0.5 is 3.9000000000000004 — compare loosely.)
+        #expect(abs(MPVController.prebufferTarget(durationSecs: 4.4) - 3.9) < 1e-9)
         // Unknown duration yet → full threshold (watchdog still backstops).
-        #expect(MPVController.prebufferTarget(durationSecs: 0) == 8.0)
-        #expect(MPVController.prebufferTarget(durationSecs: -1) == 8.0)
+        #expect(MPVController.prebufferTarget(durationSecs: 0) == 4.0)
+        #expect(MPVController.prebufferTarget(durationSecs: -1) == 4.0)
         // Degenerate sub-second clip → floored at 0.5 s, never zero/negative.
         #expect(MPVController.prebufferTarget(durationSecs: 0.6) == 0.5)
     }

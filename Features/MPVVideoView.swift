@@ -419,12 +419,14 @@ class MPVController: ObservableObject {
     // MARK: - Initial pre-buffer gate (industry-standard startup buffering)
 
     /// Seconds of demuxer forward buffer required before a fresh stream starts
-    /// playing. Streaming UIs (YouTube/Netflix/ExoPlayer) all hold the first
-    /// frame until a cushion is banked instead of racing the playhead from 0 —
-    /// with TDLib range round trips in the hundreds of ms, that race is exactly
-    /// the mid-playback buffering users see. 8 s sits between YouTube's ~3 s
-    /// and ExoPlayer-style deep buffering, tuned for a high-latency source.
-    static let prebufferThresholdSecs = 8.0
+    /// playing. Streaming UIs (YouTube ~2–5 s, ExoPlayer ~2.5 s) all hold the
+    /// first frame until a cushion is banked instead of racing the playhead
+    /// from 0 — with TDLib range round trips in the hundreds of ms, that race
+    /// is exactly the mid-playback buffering users see. 4 s matches the
+    /// industry range; sustained protection after startup comes from the
+    /// read-ahead prefetcher + pause-for-cache, so a deeper gate would only
+    /// lengthen the spinner without draining any slower.
+    static let prebufferThresholdSecs = 4.0
     /// Wall-clock backstop: if the feed is so slow the threshold never arrives,
     /// start anyway with whatever is banked — playing with possible stalls beats
     /// an infinite spinner.
