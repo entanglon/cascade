@@ -67,8 +67,8 @@ enum DownloadEngine {
         ).appendingPathComponent("\(AppPaths.dataFolder)/cache", isDirectory: true) {
             do {
                 let existed = fm.fileExists(atPath: legacy.path)
-                try fm.removeItem(at: legacy)
                 if existed {
+                    try fm.removeItem(at: legacy)
                     logger.info("Janitor: removed legacy playback cache")
                 }
             } catch {

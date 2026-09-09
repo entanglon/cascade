@@ -2,9 +2,58 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205, 7e09cfc).
+> 2026-09-09 (evening) — Log health check, Janitor error-spam fix, streaming pre-buffer audit (Round 206).
 
 ---
+
+## 2026-09-09 (evening) — Log health check, Janitor error-spam fix, streaming pre-buffer audit (Round 206)
+
+User asked to start the Mac app and check the logs, then asked about the
+streaming buffer: how much is preloaded before playback starts, and whether
+pre-buffering 5–10 s before first frame would kill the mid-playback buffering
+they notice.
+
+### Log health check (unified log + cascade.log, PID 25754 session)
+- Startup clean: bootstrap → Telegram ready in ~1 s. No auth, restore, or
+  repair issues. `cascade.log` has zero errors from this session.
+- Playback healthy: H.264 + E-AC-3, videotoolbox hwdec, steady 24 fps, zero
+  dropped/mistimed frames. Volume + Now Playing integration working.
+- Benign noise only: one-time `INVALID_FRAMEBUFFER_OPERATION` at VO start
+  (documented harmless, HANDOVER item 29), Apple system chatter, and 6
+  Security main-thread faults at launch (synchronous Keychain read at
+  `AppState` init — cosmetic, optional cleanup).
+- Two real observations: (1) `Janitor: legacy cache removal failed` Error on
+  every launch — fixed below. (2) ~8 `Audio device underrun detected`
+  warnings over 2 min while streaming with mpv cache oscillating 0.0–1.9 s —
+  feed roughly equals consume rate on that file; user reports audio sounds
+  fine, so no action taken.
+
+### Fix: Janitor legacy-cache removal error spam
+- Root cause (`Engine/DownloadEngine.swift:62`): `cleanScratchAndLegacyCache()`
+  called `removeItem` on the legacy `cache/` dir unconditionally, even after
+  it was already gone — every launch threw file-not-found into an
+  Error-level log.
+- Fix: only remove when `fileExists` is true. Build + full suite green.
+
+### Streaming pre-buffer audit (analysis, NOT yet implemented)
+- Current ceilings: mpv `cache-secs=30`, `demuxer-max-bytes=256 MB`,
+  `demuxer-readahead-secs=30`; engine SliceCache 256 × 1 MB; encrypted-path
+  read-ahead 96-slice window in 32-slice batches.
+- The gap (user's instinct is correct): there is NO floor — `loadfile` is
+  issued unpaused (`MPVVideoView.swift:1268`), mpv renders the first frame
+  ASAP with ~0 s of forward buffer, and the read-ahead races the playhead
+  from behind. Deep ceiling, zero floor at start.
+- Proposal: start paused, unpause when `demuxer-cache-duration` ≥ ~8 s (already
+  polled for telemetry), with a ~15 s timeout fallback so slow files still
+  play; skip the gate for cached local files (instant start); surface the wait
+  through the existing `PlayerStatusOverlay` "Loading…" state. Optionally prime
+  the first ~8 SliceCache slices before `loadfile` to cut time-to-first-byte.
+- Awaiting user go-ahead before implementing.
+
+### Verification
+- `xcodebuild -scheme Cascade -destination 'platform=macOS' build`:
+  **BUILD SUCCEEDED**. `xcodebuild test ... -only-testing:CascadeTests`:
+  **TEST SUCCEEDED**.
 
 ## 2026-08-28 (night) — Fix folder opening tap gesture in grid and fix blank video playback with OpenGL renderbuffer sizing (Round 205, commit `7e09cfc`)
 

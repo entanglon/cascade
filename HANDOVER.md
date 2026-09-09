@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-08-28: Session covered items 178–205 — Apple Files UI redesign (tab bar, grid dimensions, circular selection, folder creation lag fix, batch uploads with photo library and camera capture, functional Shared page with Public/Private shares, native Files context menus with Copy/Move/Share bar and folder picker, deep-link share importing cascade:// scheme, folder tap opening fix, and MKV video player OpenGL renderbuffer sizing). TESTING.md tracks manual QA per shipped feature. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 206 — log health check on the Mac app (healthy: clean startup, 24fps zero-drop playback), Janitor legacy-cache error-spam fix, streaming pre-buffer audit (no pre-playback floor today; 8s start-paused gate proposed, awaiting user go-ahead). Read this first in any new chat before touching the code.
 
 ---
 
@@ -4178,11 +4178,17 @@ Open levers (not scheduled):
     - Added "Add from Share Link..." into `...` menus across `SharedView` and `FileBrowserView`, plus quick action buttons in `SharedView` banner and empty state.
     - Implemented `AppState.importShareLink(...)` with `ShareEngine.importLink(...)` auto-confirmation, own file self-open, already-imported reveal, and snapshot sync.
     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
-205. **Fix Folder Tap Opening & Video Playback Renderbuffer Sizing (2026-08-28 night — COMMITTED `7e09cfc`)**
+ 205. **Fix Folder Tap Opening & Video Playback Renderbuffer Sizing (2026-08-28 night — COMMITTED `7e09cfc`)**
      (`Cascade iOS/Features/MPVPlayerView.swift`, `Cascade iOS/RootView.swift`)
-    - Root Cause 1 (Folder Tap): `FileGridItem` had nested `Button` elements inside `gridContent` which swallowed touch gestures intended for the outer `NavigationLink`. Removed nested Buttons so tapping anywhere on the folder card, icon, or label immediately navigates into the folder.
-    - Root Cause 2 (Blank Video): `MPVPlayerView` lacked a `layoutSubviews()` implementation to resize the CAEAGLLayer renderbuffer after SwiftUI initial layout (backing dimensions stayed 0x0 while audio played). Implemented `layoutSubviews()`, `didMoveToWindow()`, `updateRenderbufferSize()`, and post-init mpv options (`hwdec = auto`, `profile = fast`, `video-sync = audio`, `keep-open = yes`).
-    - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
+     - Root Cause 1 (Folder Tap): `FileGridItem` had nested `Button` elements inside `gridContent` which swallowed touch gestures intended for the outer `NavigationLink`. Removed nested Buttons so tapping anywhere on the folder card, icon, or label immediately navigates into the folder.
+     - Root Cause 2 (Blank Video): `MPVPlayerView` lacked a `layoutSubviews()` implementation to resize the CAEAGLLayer renderbuffer after SwiftUI initial layout (backing dimensions stayed 0x0 while audio played). Implemented `layoutSubviews()`, `didMoveToWindow()`, `updateRenderbufferSize()`, and post-init mpv options (`hwdec = auto`, `profile = fast`, `video-sync = audio`, `keep-open = yes`).
+     - Build: Dual-platform verification clean — both `Cascade iOS` (arm64, `sdk iphoneos`) and `Cascade` (macOS) **BUILD SUCCEEDED**. Deployed and launched on iPhone XS Max.
+ 206. **Log health check + Janitor error-spam fix + streaming pre-buffer audit (2026-09-09 evening — COMMITTED)**
+     (`Engine/DownloadEngine.swift`, `JOURNAL.md`, `HANDOVER.md`)
+     - Log review of a live Mac session (PID 25754): startup clean (Telegram ready in ~1 s), playback healthy (H.264+E-AC-3, videotoolbox, 24 fps, zero drops), only benign noise (one-time `INVALID_FRAMEBUFFER_OPERATION`, Apple system chatter, launch-time Keychain main-thread faults).
+     - Janitor fix: `cleanScratchAndLegacyCache()` called `removeItem` on the already-deleted legacy `cache/` dir on EVERY launch → Error-level log spam. Now guarded by `fileExists`.
+     - Streaming audit: ceilings are deep (mpv `cache-secs=30` / 256 MB demuxer queue / 30 s readahead, 256 MB SliceCache, 96-slice read-ahead window) but there is NO pre-playback floor — `loadfile` is issued unpaused and mpv renders the first frame with ~0 s buffer, so the feed races the playhead from behind (observed: cache 0.0–1.9 s + audio underruns on a streamed file). User's 5–10 s preload idea validated. Proposal (NOT implemented, awaiting go-ahead): start paused, unpause at `demuxer-cache-duration` ≥ ~8 s with ~15 s timeout fallback, skip gate for cached files, show via existing `PlayerStatusOverlay`.
+     - Build + full suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**.
 
 
 
