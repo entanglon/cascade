@@ -2,9 +2,47 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Log health check, Janitor error-spam fix, streaming pre-buffer audit (Round 206).
+> 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207).
 
 ---
+
+## 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207)
+
+User approved the pre-buffer proposal ("follow industry standards") and asked
+to remove the `#` from the Private Vault heading.
+
+### Pre-buffer gate (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`)
+- Fresh network streams now open paused and release after ~8 s of demuxer
+  forward buffer (`prebufferThresholdSecs`), mirroring YouTube/Netflix/
+  ExoPlayer startup behavior, tuned deeper for a high-latency TDLib source.
+- Mechanics: `MPVController.play(url:)` arms the gate and pre-pauses the core
+  synchronously before the async `loadfile` (strict order, no race); release
+  is event-driven via a new `demuxer-cache-duration` observe; 15 s watchdog
+  backstop starts playback with whatever is banked; release target clamps to
+  (duration − 0.5 s) so short clips release (`prebufferTarget`, unit-tested).
+- Intent rules: explicit user play skips the wait; user pause during the gate
+  is respected (release never overrides it); seeks keep the gate armed (seek
+  flushes the cache — the cushion rebuilds); local files skip it; resume/
+  handoff/PiP paths bypass it (they carry positions, not fresh loads); audio
+  headless path untouched.
+- UI: `isPrebuffering` published on the controller, folded into `isBuffering`
+  (so the gate pause never masquerades as a user pause) and into
+  `PlayerStatusOverlay.isLoading` (shows "Loading…" until release instead of
+  lifting on the paused first frame).
+- Test: `prebufferTargetClampsToShortClips` (full threshold, short-clip clamp,
+  unknown/degenerate durations).
+
+### Private Vault heading (`Features/FileBrowserView.swift`)
+- Removed the red `number` (#) icon injected before the heading for
+  `.privateVault` only — the page header now matches every other page.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**
+  (incl. the new `prebufferTargetClampsToShortClips`).
+- Debug app relaunched on the new build for user verification: play an
+  UNCACHED video → brief "Loading…" then playback with an 8 s cushion (no
+  instant-first-frame); cached/local file → instant as before; press play
+  during the wait → starts immediately; pause during the wait → stays paused.
 
 ## 2026-09-09 (evening) — Log health check, Janitor error-spam fix, streaming pre-buffer audit (Round 206)
 

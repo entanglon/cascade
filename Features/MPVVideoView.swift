@@ -236,6 +236,7 @@ class MPVController: ObservableObject {
 
     func stopHeadless() {
         guard isHeadless else { return }
+        disarmPrebuffer()
         headlessView?.stop()
         headlessView?.cleanup()
         headlessView = nil
@@ -258,6 +259,22 @@ class MPVController: ObservableObject {
         // and playback intent begins the cold-start loading state.
         pendingSeekTarget = nil
         waitingFirstFrame = true
+        disarmPrebuffer()
+        // Fresh network streams start paused behind the pre-buffer gate: mpv
+        // would otherwise render the first frame with ~0 s of forward buffer
+        // and stall on the first fetch hiccup. The pause is set synchronously
+        // BEFORE the async loadfile below, so the file always opens paused —
+        // no race. Local files skip the gate (disk fills the buffer in ms).
+        // Resume/handoff paths bypass this entry point (they carry a startAt),
+        // so continuity playback is never gated.
+        if !url.isFileURL {
+            armPrebufferGate()
+            if isHeadless {
+                headlessView?.setPause(true)
+            } else {
+                playerView?.pause()
+            }
+        }
         refreshBuffering()
         if isHeadless {
             headlessView?.playHeadless(url)
@@ -277,6 +294,8 @@ class MPVController: ObservableObject {
 
     func play() {
         self.isUserPaused = false
+        // Explicit user intent to play NOW skips the pre-buffer wait.
+        disarmPrebuffer()
         if isHeadless {
             headlessView?.setPause(false)
         } else {
@@ -295,6 +314,7 @@ class MPVController: ObservableObject {
 
     func stop() {
         self.isUserPaused = false
+        disarmPrebuffer()
         if isHeadless {
             headlessView?.stop()
         } else {
@@ -308,6 +328,62 @@ class MPVController: ObservableObject {
         } else {
             play()
         }
+    }
+
+    /// Arms the initial-buffer gate. The caller must have pre-paused the core
+    /// before the loadfile command (see play(url:)) — this only starts the
+    /// threshold watch and the timeout backstop.
+    private func armPrebufferGate() {
+        prebufferArmed = true
+        isPrebuffering = true
+        prebufferWatchdog?.cancel()
+        prebufferWatchdog = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.prebufferTimeoutSecs * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            DispatchQueue.main.async { self.releasePrebuffer() }
+        }
+    }
+
+    /// Disarms silently (new load / user play / stop / teardown) — no unpause.
+    private func disarmPrebuffer() {
+        prebufferArmed = false
+        prebufferWatchdog?.cancel()
+        prebufferWatchdog = nil
+        if isPrebuffering {
+            isPrebuffering = false
+            refreshBuffering()
+        }
+    }
+
+    /// Releases the gate: unpauses unless the user paused meanwhile — user
+    /// intent always wins, the threshold/watchdog must never override it.
+    private func releasePrebuffer() {
+        guard prebufferArmed else { return }
+        disarmPrebuffer()
+        if !isUserPaused {
+            if isHeadless {
+                headlessView?.setPause(false)
+            } else {
+                playerView?.resume()
+            }
+        }
+    }
+
+    /// Event-driven release: every demuxer-cache-duration update re-evaluates
+    /// the gate against the target for this file.
+    private func checkPrebufferGate(cacheSecs: Double) {
+        guard prebufferArmed else { return }
+        if cacheSecs >= Self.prebufferTarget(durationSecs: duration) {
+            releasePrebuffer()
+        }
+    }
+
+    /// Pure release target for one file: the threshold, clamped to
+    /// (duration − 0.5 s) so clips shorter than the threshold can still release
+    /// instead of hanging until the watchdog. Exposed for unit tests.
+    static func prebufferTarget(durationSecs: Double) -> Double {
+        guard durationSecs > 0 else { return prebufferThresholdSecs }
+        return min(prebufferThresholdSecs, max(0.5, durationSecs - 0.5))
     }
 
     func seek(to value: Double) {
@@ -340,8 +416,28 @@ class MPVController: ObservableObject {
     private var cachePaused = false
     private var waitingFirstFrame = false
 
+    // MARK: - Initial pre-buffer gate (industry-standard startup buffering)
+
+    /// Seconds of demuxer forward buffer required before a fresh stream starts
+    /// playing. Streaming UIs (YouTube/Netflix/ExoPlayer) all hold the first
+    /// frame until a cushion is banked instead of racing the playhead from 0 —
+    /// with TDLib range round trips in the hundreds of ms, that race is exactly
+    /// the mid-playback buffering users see. 8 s sits between YouTube's ~3 s
+    /// and ExoPlayer-style deep buffering, tuned for a high-latency source.
+    static let prebufferThresholdSecs = 8.0
+    /// Wall-clock backstop: if the feed is so slow the threshold never arrives,
+    /// start anyway with whatever is banked — playing with possible stalls beats
+    /// an infinite spinner.
+    static let prebufferTimeoutSecs = 15.0
+
+    /// True while the initial-buffer gate holds a fresh stream paused. Published
+    /// so the status overlay shows "Loading…" until release.
+    @Published var isPrebuffering = false
+    private var prebufferArmed = false
+    private var prebufferWatchdog: Task<Void, Never>?
+
     private func refreshBuffering() {
-        isBuffering = cachePaused || waitingFirstFrame || (pendingSeekTarget != nil)
+        isBuffering = cachePaused || waitingFirstFrame || isPrebuffering || (pendingSeekTarget != nil)
     }
 
     func seek(relative seconds: Double) {
@@ -415,6 +511,7 @@ class MPVController: ObservableObject {
     }
 
     deinit {
+        prebufferWatchdog?.cancel()
         if isHeadless {
             headlessView?.cleanup()
         }
@@ -469,6 +566,11 @@ class MPVController: ObservableObject {
                     if buff {
                         self.isUserPaused = false
                     }
+                }
+            case "demuxer-cache-duration":
+                // Initial-buffer gate release signal (observed in setupMpv).
+                if let secs = value as? Double {
+                    self.checkPrebufferGate(cacheSecs: secs)
                 }
             case "seeking":
                 if let seek = value as? Bool {
@@ -1173,6 +1275,9 @@ final class MPVLayerView: NSView {
         mpv_observe_property(mpv, 0, "volume", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 0, "cache-buffering-state", MPV_FORMAT_INT64)
         mpv_observe_property(mpv, 0, "paused-for-cache", MPV_FORMAT_FLAG)
+        // Initial pre-buffer gate: event-driven release when the forward
+        // buffer reaches the threshold (see MPVController.checkPrebufferGate).
+        mpv_observe_property(mpv, 0, "demuxer-cache-duration", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 0, "seeking", MPV_FORMAT_FLAG)
         // HDR detection: fires when a file loads and its color parameters are
         // known, letting applyColorPipeline() pick the EDR vs sRGB pipeline.

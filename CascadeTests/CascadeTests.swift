@@ -447,6 +447,21 @@ struct CascadeTests {
         #expect(empty.count == 0 && empty.batchBytes == 0)
     }
 
+    @Test func prebufferTargetClampsToShortClips() {
+        // Normal/long file → the full 8 s threshold.
+        #expect(MPVController.prebufferTarget(durationSecs: 3600) == 8.0)
+        #expect(MPVController.prebufferTarget(durationSecs: 60) == 8.0)
+        // Short clip → (duration − 0.5 s) so the gate can release instead of
+        // hanging until the watchdog.
+        #expect(MPVController.prebufferTarget(durationSecs: 3) == 2.5)
+        #expect(MPVController.prebufferTarget(durationSecs: 8.4) == 7.9)
+        // Unknown duration yet → full threshold (watchdog still backstops).
+        #expect(MPVController.prebufferTarget(durationSecs: 0) == 8.0)
+        #expect(MPVController.prebufferTarget(durationSecs: -1) == 8.0)
+        // Degenerate sub-second clip → floored at 0.5 s, never zero/negative.
+        #expect(MPVController.prebufferTarget(durationSecs: 0.6) == 0.5)
+    }
+
     @Test func encryptedStreamingLayoutAndSliceDecryption() throws {
         let mb: Int64 = 1024 * 1024
         let objectKey = SymmetricKey(size: .bits256)

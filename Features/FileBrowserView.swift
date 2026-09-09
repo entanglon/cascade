@@ -789,12 +789,6 @@ struct FileBrowserView: View {
                     .help("Back")
                 }
 
-                if appState.selectedDestination == .privateVault {
-                    Image(systemName: "number")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.red)
-                }
-
                 Text(headingTitle)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)

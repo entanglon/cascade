@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 206 — log health check on the Mac app (healthy: clean startup, 24fps zero-drop playback), Janitor legacy-cache error-spam fix, streaming pre-buffer audit (no pre-playback floor today; 8s start-paused gate proposed, awaiting user go-ahead). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 207 — pre-buffer gate for streamed video (open paused, release at ~8 s buffered, 15 s watchdog, user-intent rules) + Private Vault heading hash removed. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4189,6 +4189,12 @@ Open levers (not scheduled):
      - Janitor fix: `cleanScratchAndLegacyCache()` called `removeItem` on the already-deleted legacy `cache/` dir on EVERY launch → Error-level log spam. Now guarded by `fileExists`.
      - Streaming audit: ceilings are deep (mpv `cache-secs=30` / 256 MB demuxer queue / 30 s readahead, 256 MB SliceCache, 96-slice read-ahead window) but there is NO pre-playback floor — `loadfile` is issued unpaused and mpv renders the first frame with ~0 s buffer, so the feed races the playhead from behind (observed: cache 0.0–1.9 s + audio underruns on a streamed file). User's 5–10 s preload idea validated. Proposal (NOT implemented, awaiting go-ahead): start paused, unpause at `demuxer-cache-duration` ≥ ~8 s with ~15 s timeout fallback, skip gate for cached files, show via existing `PlayerStatusOverlay`.
      - Build + full suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**.
+ 207. **Pre-buffer gate for streamed video + Private Vault heading fix (2026-09-09 evening — COMMITTED)**
+     (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`, `Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
+     - Fresh network streams open paused and start after ~8 s of demuxer forward buffer (`prebufferThresholdSecs`; YouTube/Netflix/ExoPlayer pattern, tuned deeper for TDLib latency). Pre-pause is synchronous before async `loadfile` (no race); event-driven release via new `demuxer-cache-duration` observe; 15 s watchdog backstop; target clamps to (duration − 0.5 s) for short clips (`prebufferTarget`, unit-tested).
+     - Intent rules: user play skips the wait; user pause during gate is respected; seeks keep the gate armed; local files skip; resume/handoff/PiP bypass (position-carrying loads); audio headless untouched. `isPrebuffering` published → in `isBuffering` (gate pause never reads as user pause) + overlay `isLoading` ("Loading…" until release).
+     - Private Vault: removed the red `#` icon before the page heading — matches other pages now.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (incl. new `prebufferTargetClampsToShortClips`). Debug app relaunched for user verification (uncached video → brief Loading… then cushioned playback; cached → instant).
 
 
 

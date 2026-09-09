@@ -165,7 +165,11 @@ struct PlayerStatusOverlay: View {
     }
 
     private var isLoading: Bool {
-        isAudio ? !mpv.isCoreReady : (!mpv.isCoreReady || !mpv.hasFirstFrame)
+        // isPrebuffering (video only — audio never arms the gate): the first
+        // frame renders while the gate holds playback paused, so without this
+        // the overlay would lift the moment the paused frame appears, before
+        // the buffer cushion is banked.
+        isAudio ? !mpv.isCoreReady : (!mpv.isCoreReady || !mpv.hasFirstFrame || mpv.isPrebuffering)
     }
 
     var body: some View {
