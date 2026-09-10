@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 235 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 236 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4359,6 +4359,10 @@ Open levers (not scheduled):
      (`IconComposer/`, `Cascade/Assets.xcassets`)
      - Glyph extraction + `.icon` bundles (ictool render, scale 0.9); adopted renders everywhere; sources committed.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies glass tile, both modes.
+ 236. **Runtime icon footprint (2026-09-10 evening  — COMMITTED)**
+     (`Cascade/Assets.xcassets`)
+     - Full-bleed renders oversized via applicationIconImage (no system normalization); inset to 90% for runtime sets, catalog stays full-bleed.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user compares footprint.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies both modes.
 
 

@@ -2,9 +2,26 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Icon Composer pipeline: Liquid Glass icons (Round 235).
+> 2026-09-10 (evening) — Runtime icon footprint fix (Round 236).
 
 ---
+
+## 2026-09-10 (evening) — Runtime icon footprint fix (Round 236)
+
+User: glass icons good but still reading bigger than neighbors.
+
+### Root cause
+- Round 233's approved tile was inset to 90% + shadowed. Round 235 replaced
+  the runtime tiles with full-bleed Icon Composer renders (correct as FINAL
+  catalog art for system normalization, wrong displayed raw via
+  applicationIconImage, which gets no such treatment)  —  back to oversized.
+- Fix: inset the renders to 90% for the RUNTIME sets only
+  (IconDark/IconLight/AppIconThemed); catalog AppIcon slots stay full-bleed
+  for correct system handling. Verified visually.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched  —  user compares Dock footprint with neighbors.
 
 ## 2026-09-10 (evening) — Icon Composer pipeline: Liquid Glass icons (Round 235)
 
