@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (morning): Round 214 — photo-fullscreen freeze fixed (NSImage sync stream load on main), sidebar cloud moved to card trailing edge. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (morning): Round 215 — image viewer/fullscreen unification (parity chrome, theater hide/restore, dead minimize removed). Read this first in any new chat before touching the code.
 
 ---
 
@@ -4236,6 +4236,13 @@ Open levers (not scheduled):
      - Root cause: `ImageFullscreenRoot` preferred the stream URL and fed it to `NSImage(contentsOf:)` — synchronous full download on the main thread (body evaluation). Uncached photo = app parked for minutes (3×30 s serve retries), no crash log. Fix: cached → file URL; uncached → async download-to-scratch with progress. Audited all other NSImage sites (file/bundle URLs only — sole hazardous site).
      - Sidebar profile card: sync cloud/checkmark moved to the trailing edge.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched — verify with an uncached photo fullscreen.
+ 215. **Image viewer/fullscreen unification (2026-09-10 morning — COMMITTED)**
+     (`Features/MPVVideoView.swift`, `Features/TheaterView.swift`)
+     - Research: Photos/Preview/QL use ONE surface (fullscreen is a mode, ⌃⌘F, ESC exits). Mapped onto our separate-scene architecture: theater hides while its content is fullscreen, restores on exit.
+     - `imageLiveInFullscreen` flag + `Session.playlist`; `presentImage` onDismiss restores (never kills theaterFile — also fixes direct-opens closing an unrelated theater).
+     - Fullscreen image viewer rewritten to theater parity: top bar (title/size, exit-toggle, close), bottom bar (counter, zoom %), nav chevrons, zoom gestures, tap-toggle auto-hide chrome, arrows (non-images hand back to theater). Direct opens stay standalone.
+     - Theater: `fullscreenHidesTheater` (video by kind, images by file match); dead image minimize deleted (leftover, never resurrected — other removals verified intact); keys yield to fullscreen while it owns the file.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched — manual QA: identical chrome, hide/restore, arrows, video handoff, no image minimize.
 
 
 

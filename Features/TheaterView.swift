@@ -125,8 +125,8 @@ struct TheaterView: View {
                 }
                 }
             }
-            .opacity(PlayerFullScreenWindow.shared.videoLiveInFullscreen && previewKind == .video ? 0 : 1)
-            .allowsHitTesting(!(PlayerFullScreenWindow.shared.videoLiveInFullscreen && previewKind == .video))
+            .opacity(fullscreenHidesTheater ? 0 : 1)
+            .allowsHitTesting(!fullscreenHidesTheater)
             .animation(.easeOut(duration: 0.15), value: PlayerFullScreenWindow.shared.videoLiveInFullscreen)
 
             // Global window key monitor for ESC, Left/Right Arrows, Spacebar, and
@@ -310,8 +310,10 @@ struct TheaterView: View {
             appState.isTheaterFullScreen = false
         } else if previewKind == .image {
             // Images have no mpv controller — the player window shows the
-            // image itself (fit-to-screen, spinner while it downloads).
-            PlayerFullScreenWindow.presentImage(appState: appState, file: file)
+            // image itself (fit-to-screen, spinner while it downloads),
+            // carrying the theater's media order for prev/next + counter.
+            // The theater hides underneath and restores on exit.
+            PlayerFullScreenWindow.presentImage(appState: appState, file: file, playlist: mediaFiles)
             appState.isTheaterFullScreen = true
         } else if let mpv = AudioPlayerEngine.shared.mpvController,
                   let layer = mpv.playerView?.playerView {
@@ -335,30 +337,73 @@ struct TheaterView: View {
 
     // MARK: - Top Controls
 
+    /// True while the fullscreen window shows THIS theater's content — the
+    /// ordinary view hides underneath (opacity 0, no hit-testing) so the two
+    /// never display together, and restores on dismiss. Video matches by kind
+    /// (one video theater at a time); images match by file, so a direct-open
+    /// fullscreen of another file never hides this theater.
+    private var fullscreenHidesTheater: Bool {
+        if PlayerFullScreenWindow.shared.videoLiveInFullscreen, previewKind == .video {
+            return true
+        }
+        if PlayerFullScreenWindow.shared.imageLiveInFullscreen, previewKind == .image,
+           PlayerFullScreenWindow.shared.session?.file?.id == file.id {
+            return true
+        }
+        return false
+    }
+
+    /// True while THIS theater's image lives in the fullscreen window — the
+    /// fullscreen viewer owns all keys then (it navigates its own playlist
+    /// and keeps theaterFile in sync for a seamless restore).
+    private var imageFullscreenOwnsKeys: Bool {
+        previewKind == .image
+            && PlayerFullScreenWindow.shared.imageLiveInFullscreen
+            && PlayerFullScreenWindow.shared.session?.file?.id == file.id
+    }
+
     private var topControls: some View {
         HStack(spacing: 12) {
-            // Minimize button — video: float into the PiP panel (theater closes;
-            // expand from the panel's hover controls or by re-opening the file);
-            // audio: hand off to the mini player (headless playback continues).
-            Button {
-                withAnimation(.easeInOut(duration: 0.20)) {
-                    if previewKind == .video {
+            // Left slot: video floats into the PiP panel (theater closes;
+            // expand from the panel's hover controls or by re-opening the
+            // file); audio hands off to the mini player (headless playback
+            // continues). Images and documents have NOTHING to hand off to —
+            // the minimize button used to sit here as a dead no-op (its action
+            // never had an image branch), so the slot stays empty for them.
+            if previewKind == .video {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.20)) {
                         togglePictureInPicture()
-                    } else if previewKind == .audio, AudioPlayerEngine.shared.currentTrack == nil {
-                        AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
-                        appState.theaterFile = nil
                     }
+                } label: {
+                    Image(systemName: "rectangle.bottomthird.inset.filled")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
                 }
-            } label: {
-                Image(systemName: previewKind == .video ? "rectangle.bottomthird.inset.filled" : "chevron.down")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
+                .buttonStyle(.plain)
+                .help("Picture in Picture")
+            } else if previewKind == .audio {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.20)) {
+                        if AudioPlayerEngine.shared.currentTrack == nil {
+                            AudioPlayerEngine.shared.play(file: file, in: mediaFiles)
+                            appState.theaterFile = nil
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+                .help("Minimize to Background")
             }
-            .buttonStyle(.plain)
-            .help(previewKind == .video ? "Picture in Picture" : "Minimize to Background")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
@@ -1054,6 +1099,9 @@ struct TheaterView: View {
     }
 
     private func navigateMedia(delta: Int) {
+        // The fullscreen image viewer owns navigation while it shows this
+        // theater's file (it keeps theaterFile in sync for the restore).
+        guard !imageFullscreenOwnsKeys else { return }
         refreshTimerIfVisible()
         let files = navigableFiles
         guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
@@ -1072,6 +1120,7 @@ struct TheaterView: View {
     /// is what makes "column navigation" work while previewing, matching what the
     /// grid shows under the viewer.
     private func navigateMediaVertical(delta: Int) {
+        guard !imageFullscreenOwnsKeys else { return }
         refreshTimerIfVisible()
         let files = navigableFiles
         guard let currentIndex = files.firstIndex(where: { $0.id == file.id }) else { return }
@@ -1086,6 +1135,9 @@ struct TheaterView: View {
 
     /// Shared by space, the F8 media key, and the .onKeyPress fallback.
     private func mediaPlayPause() {
+        // Space while the fullscreen viewer owns this image must not close
+        // the hidden theater underneath it.
+        if imageFullscreenOwnsKeys { return }
         if previewKind == .image || previewKind == .pdf || previewKind == .text || previewKind == .other || previewKind == .folder {
             // Space toggles the viewer (Quick Look style): close it.
             appState.theaterFile = nil

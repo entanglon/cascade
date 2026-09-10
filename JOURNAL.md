@@ -2,9 +2,58 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (morning) — Photo-fullscreen freeze root cause + fix, sidebar cloud moved right (Round 214).
+> 2026-09-10 (morning) — Image viewer/fullscreen unification: parity chrome, theater hide/restore, dead minimize removed (Round 215).
 
 ---
+
+## 2026-09-10 (morning) — Image viewer/fullscreen unification: parity chrome, theater hide/restore, dead minimize removed (Round 215)
+
+User review: (1) fullscreen image viewer looks different from the ordinary
+one, (2) both stay visible together — fullscreen should replace the ordinary
+view and restore it on exit, (3) audit all buttons (dead minimize chevron in
+the viewer; possibly resurrected removals), with online research into how
+other apps do it.
+
+### Research (Apple Photos / Preview / Quick Look pattern)
+- Photos Mac: double-click opens in the SAME window; fullscreen is a mode of
+  that window (⌃⌘F), arrows move between photos, ESC exits. Preview/QL: same
+  window goes fullscreen. Nobody runs parallel ordinary + fullscreen copies.
+- Our mapping (separate fullscreen scene is established architecture for mpv
+  re-parenting, so kept): the theater HIDES while its content is fullscreen
+  and restores on exit — one visible copy at a time, same observable behavior.
+
+### What changed
+- `PlayerFullScreenWindow` (`Features/MPVVideoView.swift`): new
+  `imageLiveInFullscreen` flag (set on image present, cleared on dismissal);
+  `Session.playlist` (sibling order for prev/next + counter); `presentImage`
+  takes `playlist` and its onDismiss now only clears `isTheaterFullScreen`
+  (restore) — never kills theaterFile, which also fixes direct-opens closing
+  an unrelated open theater.
+- `ImageFullscreenRoot` rewritten to theater parity: top bar (title + size,
+  exit-fullscreen toggle, close), bottom bar ("x of y" counter, zoom % pill),
+  prev/next chevrons, pinch/drag/double-tap zoom, tap-to-toggle 3.5 s
+  auto-hiding chrome, left/right arrows. Non-image siblings hand back to the
+  theater (which plays them natively). Direct opens (no playlist) stay a
+  standalone viewer, no nav chrome. Title/size follow the current file.
+- `TheaterView`: `fullscreenHidesTheater` (video by kind as before; images by
+  file match, so a direct fullscreen of another file never hides this
+  theater); dead image minimize chevron deleted (its action never had an
+  image branch — leftover since the background-handoff removal, never
+  resurrected; verified the other historical removals intact via code: old
+  chrome still suppressed for video/audio, video slot is PiP-by-design);
+  `navigateMedia`/`navigateMediaVertical`/`mediaPlayPause` yield keys to the
+  fullscreen viewer while it owns the file (prevents double-advance +
+  space-closing the hidden theater).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+  (Viewer mechanics are window/AppKit-level, untestable headless — Wave 2
+  item 5 precedent; manual QA below is the verification.)
+- Debug app relaunched — user to verify: theater photo → fullscreen shows
+  identical chrome; theater hidden behind (browser visible); exit-toggle/ESC
+  restores the ordinary viewer on the same image; arrows walk photos;
+  stepping onto a video returns to the theater player; no minimize chevron
+  on images; direct "Open in Full Screen" unchanged standalone.
 
 ## 2026-09-10 (morning) — Photo-fullscreen freeze root cause + fix, sidebar cloud moved right (Round 214)
 

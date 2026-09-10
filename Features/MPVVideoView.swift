@@ -1888,6 +1888,10 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         /// The file being shown — non-nil in `.image` sessions (the image
         /// view resolves/downloads it itself, theater-style).
         let file: ObjectRecord?
+        /// Sibling files for the fullscreen image viewer's prev/next
+        /// navigation + "x of y" counter (theater flow passes its media
+        /// order; direct opens leave it empty = standalone viewer).
+        let playlist: [ObjectRecord]
     }
 
     @Published private(set) var isActive = false
@@ -1898,6 +1902,11 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     /// usable), but stay visible during the entry slide, when the video is
     /// still in the theater.
     @Published private(set) var videoLiveInFullscreen = false
+    /// True while an image session owns the fullscreen window. The theater
+    /// hides its own image underneath (same pattern as videoLiveInFullscreen)
+    /// and restores it on dismiss — there is never an ordinary + fullscreen
+    /// copy of the same image on screen together.
+    @Published var imageLiveInFullscreen = false
     /// True when the player was opened without a theater ("Open in Full
     /// Screen"): there is no theater layer to attach, re-parent, or swap — the
     /// window hosts its own content. True for both the direct-video and image
@@ -1953,7 +1962,8 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onClose: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
         kind: SessionKind = .theater,
-        file: ObjectRecord? = nil
+        file: ObjectRecord? = nil,
+        playlist: [ObjectRecord] = []
     ) {
         guard !isActive, !isDismissing else { return }
         // Opening a window while another window of the app is mid-fullscreen
@@ -1962,7 +1972,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // flight.
         guard !FullscreenTransitionGate.shared.isTransitioning else {
             FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
-                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
+                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file, playlist: playlist)
             }
             return
         }
@@ -1973,10 +1983,10 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         if Self.sceneWindow != nil {
             dismissWindow?(id: "fullscreenPlayer")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
+                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file, playlist: playlist)
             }
         } else {
-            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
+            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file, playlist: playlist)
         }
     }
 
@@ -2015,11 +2025,14 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     /// for images. No engine, no theater: the window slides in over a spinner
     /// while the image view resolves the file (cached → instant; uncached →
     /// download with progress), then shows it fit-to-screen. Exiting
-    /// (ESC / close) returns to the browser. The image view owns the download
-    /// (view `.task`, like the theater's loadFile) — never gate it on the
-    /// window's session state, which races present()'s deferral paths.
+    /// (ESC / exit-toggle) returns to the ordinary viewer when we came from
+    /// the theater (restore); the X button closes everything to the browser.
+    /// The image view owns the download (view `.task`, like the theater's
+    /// loadFile) — never gate it on the window's session state, which races
+    /// present()'s deferral paths. `playlist` (theater flow) powers prev/next
+    /// + the counter; direct opens leave it empty = standalone viewer.
     @MainActor
-    static func presentImage(appState: AppState, file: ObjectRecord) {
+    static func presentImage(appState: AppState, file: ObjectRecord, playlist: [ObjectRecord] = []) {
         PlayerFullScreenWindow.shared.present(
             nil,
             mpv: nil,
@@ -2030,11 +2043,17 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                 appState.theaterFile = nil
             },
             onDismiss: {
-                appState.theaterFile = nil
+                // ESC / exit-toggle / miniaturize / Cmd+W: back to the ordinary
+                // viewer when we came from the theater (theaterFile survives, so
+                // the theater restores underneath). Direct opens have nothing to
+                // restore — and crucially, a direct open while ANOTHER file's
+                // theater sits open must not kill it, so theaterFile is never
+                // cleared here, only the fullscreen flag.
                 appState.isTheaterFullScreen = false
             },
             kind: .image,
-            file: file
+            file: file,
+            playlist: playlist
         )
     }
 
@@ -2047,7 +2066,8 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onClose: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
         kind: SessionKind,
-        file: ObjectRecord? = nil
+        file: ObjectRecord? = nil,
+        playlist: [ObjectRecord] = []
     ) {
         guard !isActive, !isDismissing else { return }
         // Wave 2 item 5: PiP owns the live layer while its panel is up — the
@@ -2058,7 +2078,10 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         reopensDone = 0
         isActive = true
         directMode = kind != .theater
-        session = Session(kind: kind, player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, file: file)
+        // Image sessions hide the theater's own copy underneath (restored on
+        // dismiss) — ordinary + fullscreen never show together.
+        if kind == .image { imageLiveInFullscreen = true }
+        session = Session(kind: kind, player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, file: file, playlist: playlist)
         self.onClose = onClose
         self.onDismiss = onDismiss
         playerView = player
@@ -2473,7 +2496,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         dismissWindow?(id: "fullscreenPlayer")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
-            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {}, kind: session.kind, file: session.file)
+            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {}, kind: session.kind, file: session.file, playlist: session.playlist)
         }
     }
 
@@ -2538,6 +2561,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         session = nil
         directMode = false
         videoLiveInFullscreen = false
+        imageLiveInFullscreen = false
         clearExitWarning()
         playerContainer = nil
         snapshotImage = nil
@@ -2711,37 +2735,108 @@ struct FullscreenPlayerSceneView: View {
 }
 
 /// Image-session root ("Open in Full Screen" on an image — no engine): the
-/// image fit-to-screen on black, with the file name and a close button in the
-/// top-right corner. The view owns the file resolution (cached → instant,
-/// uncached → download with progress, theater-style `.task`) — the window
-/// slides in over the spinner immediately and the image appears when the
-/// bytes land. ESC exits.
+/// image fit-to-screen on black with the SAME chrome as the theater's image
+/// viewer — top bar (title + size, exit-fullscreen toggle, close), bottom bar
+/// ("x of y" counter when a playlist exists, zoom % pill), prev/next
+/// chevrons, pinch/drag/double-tap zoom, tap-to-toggle auto-hiding chrome.
+/// The view owns the file resolution (cached → instant file URL; uncached →
+/// async download with progress — never a stream URL: NSImage loads those
+/// synchronously on the main thread, the Round 214 hard freeze). Left/right
+/// arrows walk the playlist (theater flow); stepping onto a non-image hands
+/// back to the theater, which plays it natively. ESC exits (window monitor).
 private struct ImageFullscreenRoot: View {
     let session: PlayerFullScreenWindow.Session
     @ObservedObject var window: PlayerFullScreenWindow
+    @State private var currentFile: ObjectRecord?
     @State private var url: URL?
     @State private var failed = false
     @State private var progress: Double = 0
+    @State private var imageScale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var imageOffset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var showControls = true
+    @State private var controlsTimer: Timer?
+    @FocusState private var focused: Bool
+
+    private var file: ObjectRecord? { currentFile ?? session.file }
+    private var playlist: [ObjectRecord] { session.playlist }
+    private var fileIndex: Int? {
+        guard let f = file else { return nil }
+        return playlist.firstIndex(where: { $0.id == f.id })
+    }
+    private var hasPlaylistNav: Bool { fileIndex != nil && playlist.count > 1 }
+
+    private static func isImageFile(_ f: ObjectRecord) -> Bool {
+        if f.isPhoto { return true }
+        return (f.name as NSString).pathExtension.lowercased() == "svg" || f.mime.contains("svg")
+    }
+
+    private var isSVG: Bool {
+        guard let f = file else { return false }
+        return (f.name as NSString).pathExtension.lowercased() == "svg" || f.mime.contains("svg")
+    }
 
     var body: some View {
         ZStack {
+            Color.black.ignoresSafeArea()
+
             Group {
-                if let url {
-                    if (session.title as NSString).pathExtension.lowercased() == "svg" {
-                        SVGWebView(url: url)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(24)
-                    } else if let nsImage = NSImage(contentsOf: url) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .interpolation(.high)
-                            .scaledToFit()
-                            .padding(24)
-                    } else {
-                        Text("This image cannot be previewed")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
+                if let url, isSVG {
+                    SVGWebView(url: url)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(24)
+                } else if let url, let nsImage = NSImage(contentsOf: url) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .scaleEffect(imageScale)
+                        .offset(imageOffset)
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    imageScale = lastScale * value
+                                }
+                                .onEnded { _ in
+                                    lastScale = imageScale
+                                    if imageScale < 1.0 {
+                                        withAnimation(.spring()) {
+                                            imageScale = 1.0
+                                            lastScale = 1.0
+                                            imageOffset = .zero
+                                            lastOffset = .zero
+                                        }
+                                    }
+                                }
+                        )
+                        .simultaneousGesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    guard imageScale > 1.0 else { return }
+                                    imageOffset = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                }
+                                .onEnded { _ in
+                                    lastOffset = imageOffset
+                                }
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation(.spring()) {
+                                if imageScale > 1.0 {
+                                    imageScale = 1.0
+                                    lastScale = 1.0
+                                    imageOffset = .zero
+                                    lastOffset = .zero
+                                } else {
+                                    imageScale = 2.5
+                                    lastScale = 2.5
+                                }
+                            }
+                        }
+                        .padding(24)
                 } else if failed {
                     Text("The image could not be downloaded")
                         .font(.system(size: 13))
@@ -2764,37 +2859,36 @@ private struct ImageFullscreenRoot: View {
                 }
             }
             .ignoresSafeArea()
+            .onTapGesture { toggleChrome() }
+
+            if showControls {
+                VStack {
+                    topBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Spacer()
+                    if hasPlaylistNav || !isSVG {
+                        bottomBar
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.25), value: showControls)
+
+                if hasPlaylistNav {
+                    HStack {
+                        navButton(delta: -1, systemName: "chevron.left")
+                            .opacity(canAdvance(-1) ? 1 : 0.3)
+                            .disabled(!canAdvance(-1))
+                        Spacer()
+                        navButton(delta: 1, systemName: "chevron.right")
+                            .opacity(canAdvance(1) ? 1 : 0.3)
+                            .disabled(!canAdvance(1))
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
 
             VStack {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(session.title)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Text(session.subtitle)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
-                    Spacer()
-                    Button {
-                        window.onClose?()
-                        window.dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                            .glassEffect(.regular.interactive(), in: .circle)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close Viewer")
-                }
-                .padding(20)
-
                 Spacer()
-
                 if window.showExitWarning {
                     Text("Press ESC to exit full screen")
                         .font(.system(size: 12))
@@ -2806,27 +2900,198 @@ private struct ImageFullscreenRoot: View {
         .background(Color.black)
         .environment(session.appState)
         .environment(\.colorScheme, .dark)
-        .task(id: session.file?.id) {
-            guard let file = session.file else { return }
-            // NEVER hand NSImage an http stream URL: NSImage(contentsOf:)
-            // loads synchronously on the main thread (SwiftUI body
-            // evaluation), parking the entire app until TDLib finishes
-            // fetching every byte — minutes on a stalled fetch (3×30 s serve
-            // retries), i.e. the photo-fullscreen hard freeze (no crash log,
-            // force-quit is the only way out). Cached → instant disk read;
-            // otherwise download to scratch first with progress.
-            if DownloadEngine.isCached(file) {
-                url = DownloadEngine.cacheURL(for: file)
-                return
+        .focusable()
+        .focused($focused)
+        .onAppear {
+            if currentFile == nil { currentFile = session.file }
+            focused = true
+            pokeChromeTimer()
+        }
+        .onDisappear {
+            controlsTimer?.invalidate()
+        }
+        .onContinuousHover { phase in
+            if case .active = phase { pokeChromeTimer() }
+        }
+        .onKeyPress(.leftArrow) { advance(-1); return .handled }
+        .onKeyPress(.rightArrow) { advance(1); return .handled }
+        .task(id: currentFile?.id ?? session.file?.id ?? "none") {
+            await resolve()
+        }
+    }
+
+    // MARK: - Chrome (mirrors TheaterView's image viewer)
+
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(currentFile?.name ?? session.title)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(sizeText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.5))
             }
-            do {
-                let downloaded = try await DownloadEngine.download(object: file, quiet: true) { _, p in
-                    Task { @MainActor in progress = p }
+            .padding(.leading, 4)
+
+            Spacer()
+
+            // Exit fullscreen → restores the ordinary viewer (theater flow)
+            // or closes (direct flow) via onDismiss. NOT the X: that kills
+            // the viewer entirely.
+            Button {
+                window.dismiss()
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help("Exit Full Screen")
+
+            Button {
+                window.onClose?()
+                window.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .help("Close Viewer")
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(.black.opacity(0.4))
+    }
+
+    private var sizeText: String {
+        guard let f = file else { return session.subtitle }
+        return ByteCountFormatter.string(fromByteCount: f.size, countStyle: .file)
+    }
+
+    private var bottomBar: some View {
+        HStack(spacing: 12) {
+            if let idx = fileIndex, hasPlaylistNav {
+                Text("\(idx + 1) of \(playlist.count)")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .glassEffect(.regular, in: .capsule)
+            }
+
+            Spacer()
+
+            if !isSVG {
+                Text("\(Int(imageScale * 100))%")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassEffect(.regular, in: .capsule)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
+    }
+
+    private func navButton(delta: Int, systemName: String) -> some View {
+        Button { advance(delta) } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(width: 40, height: 40)
+                .contentShape(Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Navigation + chrome state
+
+    private func canAdvance(_ delta: Int) -> Bool {
+        guard let idx = fileIndex else { return false }
+        return playlist.indices.contains(idx + delta)
+    }
+
+    private func advance(_ delta: Int) {
+        pokeChromeTimer()
+        guard let idx = fileIndex else { return }
+        let nextIdx = idx + delta
+        guard playlist.indices.contains(nextIdx) else { return }
+        let next = playlist[nextIdx]
+        guard Self.isImageFile(next) else {
+            // Non-image siblings play in the theater — hand back to it (the
+            // ordinary viewer restores showing the video natively).
+            if session.appState.theaterFile != nil { session.appState.theaterFile = next }
+            window.dismiss()
+            return
+        }
+        currentFile = next
+        if session.appState.theaterFile != nil { session.appState.theaterFile = next }
+        resetViewState()
+    }
+
+    private func resetViewState() {
+        url = nil
+        progress = 0
+        failed = false
+        imageScale = 1.0
+        lastScale = 1.0
+        imageOffset = .zero
+        lastOffset = .zero
+    }
+
+    private func toggleChrome() {
+        if showControls {
+            controlsTimer?.invalidate()
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showControls = false
+            }
+        } else {
+            pokeChromeTimer()
+        }
+    }
+
+    private func pokeChromeTimer() {
+        controlsTimer?.invalidate()
+        if !showControls {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showControls = true
+            }
+        }
+        controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { _ in
+            Task { @MainActor in
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showControls = false
                 }
-                url = downloaded
-            } catch {
-                failed = true
             }
+        }
+    }
+
+    // MARK: - File resolution (cached → file URL; uncached → async download)
+
+    private func resolve() async {
+        guard let f = file else { return }
+        if DownloadEngine.isCached(f) {
+            url = DownloadEngine.cacheURL(for: f)
+            return
+        }
+        do {
+            let downloaded = try await DownloadEngine.download(object: f, quiet: true) { _, p in
+                Task { @MainActor in progress = p }
+            }
+            url = downloaded
+        } catch {
+            failed = true
         }
     }
 }
