@@ -2,9 +2,37 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Sort button hidden where listings don't honor it (Round 225).
+> 2026-09-10 (evening) — Exact flux icons, PiP from fullscreen (Round 226).
 
 ---
+
+## 2026-09-10 (evening) — Exact flux icons, PiP from fullscreen (Round 226)
+
+User escalation: player still missing PiP + wrong button icons. Read the flux
+glyphs + PiP entries precisely this time instead of assuming.
+
+### 1. Exact flux glyphs
+- Verified every player glyph against flux source: Share
+  (`square.and.arrow.up`), play/pause/skip (`play.fill`/`pause.fill`,
+  `gobackward.10`/`goforward.10`), volume waves, captions
+  (`captions.bubble.fill`), audio (`waveform`) — all already identical. The
+  ONE miss: PiP was `rectangle.bottomthird.inset.filled`, flux uses
+  `rectangle.on.rectangle`. Fixed (single pill — one site).
+
+### 2. PiP from fullscreen (the actual gap)
+- The pill's PiP section was windowed-only, and fullscreen users (the
+  reporter's main mode) never saw any PiP button. flux has no fullscreen
+  mode, so this is new design, not a copy: the fullscreen pill now shows PiP
+  for theater-kind sessions; tapping dismisses the window (layer returns to
+  the theater — two windows can never hold one view) then floats via
+  `presentFromEngine` (bounded 3 s wait, aborts safely), mirroring
+  `TheaterView.togglePictureInPicture`. Direct sessions keep no PiP (their
+  engine stops on dismiss — nothing to float).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: PiP pill in fullscreen with the
+  flux glyph, one-tap fullscreen→PiP float.
 
 ## 2026-09-10 (evening) — Sort button hidden where listings don't honor it (Round 225)
 

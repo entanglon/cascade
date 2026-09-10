@@ -2805,7 +2805,30 @@ private struct PlayerFullScreenControls: View {
             onClose: {
                 window.onClose?()
                 window.dismiss()
-            }
+            },
+            onPiP: {
+                // PiP from fullscreen: dismiss first (the layer returns to
+                // the theater — two windows can never hold one view), then
+                // float. Theater-kind only: direct opens stop their engine on
+                // dismiss, leaving nothing to float.
+                guard window.session?.kind == .theater,
+                      let appState = window.session?.appState else { return }
+                window.dismiss()
+                Task { @MainActor in
+                    for _ in 0..<30 {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        if !PlayerFullScreenWindow.shared.isActive { break }
+                    }
+                    guard !PlayerFullScreenWindow.shared.isActive,
+                          !PictureInPictureWindow.shared.isActive,
+                          let track = AudioPlayerEngine.shared.currentTrack else { return }
+                    // Mirror TheaterView.togglePictureInPicture.
+                    if PictureInPictureWindow.shared.presentFromEngine(title: track.name, file: track, appState: appState) {
+                        appState.theaterFile = nil
+                    }
+                }
+            },
+            showPiPButton: window.session?.kind == .theater
         )
         .overlay {
             PlayerStatusOverlay(mpv: mpv)
@@ -3148,7 +3171,8 @@ private struct DirectFullscreenRoot: View {
                     onClose: {
                         window.onClose?()
                         window.dismiss()
-                    }
+                    },
+                    showPiPButton: false
                 )
                 .overlay {
                     PlayerStatusOverlay(mpv: mpv)

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 225 — sort button hidden on non-sortable pages. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 226 — flux PiP glyph, PiP from fullscreen. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4302,6 +4302,11 @@ Open levers (not scheduled):
  225. **Sort button per-page (2026-09-10 evening — COMMITTED)**
      (`Features/FileBrowserView.swift`)
      - `showsSortButton`: hidden on Recent (MRU + dead control), Trash, Transfers, Shared, Photos, Videos; kept everywhere the listing honors it.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 226. **Flux PiP glyph + PiP from fullscreen (2026-09-10 evening — COMMITTED)**
+     (`Features/VideoPlaybackView.swift`, `Features/MPVVideoView.swift`)
+     - Audited every glyph vs flux source: only PiP differed (`rectangle.on.rectangle` now). Rest already identical.
+     - Fullscreen pill shows PiP for theater-kind sessions: dismiss-then-float chain (bounded, aborts safe), mirroring theater toggle. Direct keeps none.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

@@ -360,6 +360,10 @@ struct PlayerControlsView: View {
     var onClose: () -> Void = {}
     /// Wave 2 item 5 — move the live video into the floating PiP panel.
     var onPiP: () -> Void = {}
+    /// Whether the PiP section of the left pill renders. Theater always;
+    /// fullscreen only for theater-kind sessions (direct opens have no
+    /// theater to return the layer through — PiP chains through dismissal).
+    var showPiPButton = true
     @Environment(AppState.self) private var appState
 
     @State private var isControlsVisible = true
@@ -531,13 +535,13 @@ struct PlayerControlsView: View {
                 .buttonStyle(.plain)
                 .help("Share")
 
-                if !isFullScreen {
+                if !isFullScreen || showPiPButton {
                     Divider()
                         .frame(height: 16)
                         .background(Color.white.opacity(0.2))
 
                     Button(action: onPiP) {
-                        Image(systemName: "rectangle.bottomthird.inset.filled")
+                        Image(systemName: "rectangle.on.rectangle")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.white.opacity(0.9))
                             .frame(width: 44, height: 32)
