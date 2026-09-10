@@ -2,9 +2,51 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Transfers + Shared pages to the tile system (Round 227).
+> 2026-09-10 (evening) — Instant page switches, glass Transfers/Shared, Space info panel (Round 228).
 
 ---
+
+## 2026-09-10 (evening) — Instant page switches, glass Transfers/Shared, Space info panel (Round 228)
+
+User review: (1) All Files → Recents visibly shuffles (unwanted animation),
+(2) Shared/Transfers + untouched pages to the new standards, transfers keeps
+cards but glass, (3) Space on a selected card shows info incl. cloud location.
+
+### 1. Instant page switches
+- Removed the destination crossfade (`.transition`) + the three
+  `.animation(value:)` drivers on the browser container — shared items used
+  to morph between page layouts. Switches snap now; motion stays where it
+  belongs (progress, spinners).
+
+### 2–3. Glass Transfers/Shared (`Features/TransfersView.swift`,
+`Features/MiniTransfersView.swift`, `Features/ShareManagerView.swift`)
+- `TransferGridCard` back to cards as proper glass (rounded-16 material):
+  92 zone (direction badge / fit thumb), % pill + transport actions, name +
+  status block, progress track. Menu/hover/bold gone; accent-border
+  selection; single-tap selects (new `selectedTransferID`).
+- `TransferRow`/mini rows: medium names, transport-only actions (right-click
+  covers rest), rows gain tap selection + accent border.
+- `ShareGridCard` as glass card (aspect-fit zone, info bar, lock badge,
+  glass selection border); menu/hover/fill-crop gone. Grids 28/16 both
+  pages; direction/kind headers kept (functional groups) in caps style.
+- Untouched by design: media grids, posters, readers, players, Settings,
+  auth flows, transient sheets.
+
+### 4. Space info panel
+- `TransferKeyMonitorView` (Space/Escape, defers to fields/windows;
+  browser monitor already defers here): Space opens `TransferInfoPanel`
+  for the selected card, Escape/dim/X closes.
+- Panel: live status + progress, thumbnail, size, direction, cloud breadcrumb
+  path (`All Files / Movies / …`, Private Vault root, cycle-capped), Show in
+  Folder (completed only), gone-state for removed transfers.
+- Test: `transferInfoCloudPathBuildsBreadcrumbs` (hierarchy/private/root;
+  caught an FK lesson — objects.vaultID is enforced, stage a vault like the
+  history test).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: instant page switches, glass grids,
+  select + Space info with location.
 
 ## 2026-09-10 (evening) — Transfers + Shared pages to the tile system (Round 227)
 

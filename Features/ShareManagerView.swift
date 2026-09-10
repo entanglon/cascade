@@ -306,12 +306,11 @@ struct ShareManagerView: View {
     }
 }
 
-/// A share tile matching the All Files tiles: square icon zone (the shared
-/// file's real thumbnail aspect-fit, vector folder for group shares, glyph
-/// otherwise), centered name + expiry below. The kind reads as a small lock
-/// badge top-trailing (orange = private, green = public) — status, not a
-/// button. No hover effects, no menu button (right-click covers it), glass
-/// selection like the browser tiles.
+/// A share glass card: thumbnail zone on top (aspect-fit thumb, vector folder
+/// for group shares, glyph otherwise), name + expiry block beneath. The kind
+/// reads as a small lock badge top-trailing (orange = private, green =
+/// public) — status, not a button. No hover effects, no menu button
+/// (right-click covers it), glass selection border like the transfer cards.
 struct ShareGridCard: View {
     let share: ShareRecord
     let isSelected: Bool
@@ -343,7 +342,7 @@ struct ShareGridCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
             ZStack {
                 if isGroup {
                     AppleFolderIcon(width: 84, height: 66)
@@ -353,8 +352,8 @@ struct ShareGridCard: View {
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 132, maxHeight: 100)
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .frame(maxWidth: .infinity, maxHeight: 100)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
                 } else {
                     Image(systemName: fileIcon)
@@ -362,49 +361,51 @@ struct ShareGridCard: View {
                         .foregroundStyle(XTheme.textTertiary)
                 }
             }
-            .frame(width: 132, height: 132)
-            .background {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(XTheme.accent.opacity(0.10))
-                        .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: kindIcon)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(Circle().fill(kindColor))
-                    .padding(6)
-                    .help(isPublic ? "Public share — never expires" : "Private share — expires, revocable")
-            }
+            .frame(height: 115)
+            .clipped()
 
-            VStack(spacing: 2) {
-                Text(displayName)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(XTheme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .truncationMode(.middle)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(XTheme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-                HStack(spacing: 5) {
-                    Text(expiryText)
-                        .foregroundStyle(isPublic ? Color.green.opacity(0.9) : XTheme.textTertiary)
-                    if importCount > 0 {
-                        Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(XTheme.accent)
-                            .help("\(importCount) import\(importCount == 1 ? "" : "s") — see Activity")
+                    HStack(spacing: 5) {
+                        Text(expiryText)
+                            .foregroundStyle(isPublic ? Color.green.opacity(0.9) : XTheme.textTertiary)
+                        if importCount > 0 {
+                            Image(systemName: "person.crop.circle.badge.checkmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(XTheme.accent)
+                                .help("\(importCount) import\(importCount == 1 ? "" : "s") — see Activity")
+                        }
                     }
+                    .font(.system(size: 11))
+                    .lineLimit(1)
                 }
-                .font(.system(size: 11))
-                .lineLimit(1)
+
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
         }
-        .frame(width: 140, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.08), lineWidth: isSelected ? 1.5 : 1)
+        )
+        .overlay(alignment: .topTrailing) {
+            Image(systemName: kindIcon)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(4)
+                .background(Circle().fill(kindColor))
+                .padding(6)
+                .help(isPublic ? "Public share — never expires" : "Private share — expires, revocable")
+        }
         .contentShape(Rectangle())
         .contextMenu { shareMenuContent }
         .onTapGesture(count: 2) { openSharedFile() }

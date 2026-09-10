@@ -364,17 +364,14 @@ struct FileBrowserView: View {
                     topBar
 
                     destinationContent
-                        .transition(.opacity)
-                        // Recreate the content on folder/destination change so the
-                        // crossfade transition actually fires (same-structure swaps
-                        // don't animate without an identity change).
+                        // No transition here: crossfading between destinations
+                        // made shared items visibly shuffle/morph from one page
+                        // layout to another. Page switches are instant; motion
+                        // lives in the content itself (progress, spinners).
                         .id("browser-\(appState.selectedDestination.rawValue)-\(appState.currentFolderID ?? "root")")
                 }
             }
             .contentShape(Rectangle())
-            .animation(.easeInOut(duration: 0.18), value: appState.currentFolderID)
-            .animation(.easeInOut(duration: 0.18), value: appState.selectedDestination)
-            .animation(.easeInOut(duration: 0.18), value: appState.isPrivateVaultUnlocked)
             .onTapGesture {
                 appState.clearSelection()
             }

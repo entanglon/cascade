@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 227 — Transfers + Shared pages to the tile system. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 228 — instant page switches, glass Transfers/Shared, Space info panel. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4313,6 +4313,13 @@ Open levers (not scheduled):
      - Transfer grid cards → Finder tiles (132 square, aspect-fit thumbs, transport stays, menu/hover/semibold gone); `TransferIcon` sized, `TransferItemActions(compact:)`; rows/mini medium names, no menus; 28/16 grids; direction headers kept, caps-styled.
      - Share cards → Finder tiles (aspect-fit/vector-folder, expiry + import badge, lock badge, glass selection); Public/Private headers kept, caps-styled.
      - Untouched by design: media grids, posters, readers, players, Settings, auth flows, transient sheets.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 228. **Instant pages + glass Transfers/Shared + Space info (2026-09-10 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`, `Features/TransfersView.swift`, `Features/MiniTransfersView.swift`, `Features/ShareManagerView.swift`, `CascadeTests/CascadeTests.swift`)
+     - Page switches instant (crossfade + value-animations removed — shared items shuffled between layouts).
+     - Transfer grid cards back as proper glass (transport stays, menu/hover/bold gone, tap selection); rows selectable; mini medium.
+     - Share cards as glass (fit thumbs, lock badge, glass selection); 28/16 grids; caps headers kept.
+     - Space info panel: live status/progress, thumbnail, size, cloud breadcrumb path, reveal action, gone-state; `TransferKeyMonitorView`; breadcrumb test.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

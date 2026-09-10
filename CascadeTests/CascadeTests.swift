@@ -471,8 +471,52 @@ struct CascadeTests {
         #expect(empty.count == 0 && empty.batchBytes == 0)
     }
 
-    @Test func volumeCurveMapsUiToMpvAndBack() {
-        // flux VolumeCurve mechanism: perceptual sqrt below unity, linear
+    @Test func transferInfoCloudPathBuildsBreadcrumbs() async throws {
+        // objects.vaultID has an enforced FK — stage a vault first (the
+        // history test's pattern), torn down at the end.
+        let account = AccountRecord(
+            id: "acc-test-path", telegramUserID: 999997,
+            displayName: "Path User", state: "ready", createdAt: Date()
+        )
+        let vault = VaultRecord(
+            id: "vault-test-path", accountID: account.id, channelID: 999997,
+            name: "Path Vault", wrappedKey: Data(), createdAt: Date()
+        )
+        try await DatabaseManager.shared.save(account)
+        try await DatabaseManager.shared.save(vault)
+        let folder = ObjectRecord(
+            id: "obj-path-movies", vaultID: vault.id, name: "Movies", size: 0,
+            mime: "cascade/folder", state: "ready",
+            createdAt: Date(), modifiedAt: Date(), isFolder: true
+        )
+        let sub = ObjectRecord(
+            id: "obj-path-sub", vaultID: vault.id, name: "Sci-Fi", size: 0,
+            mime: "cascade/folder", state: "ready",
+            createdAt: Date(), modifiedAt: Date(), parentID: "obj-path-movies", isFolder: true
+        )
+        let file = ObjectRecord(
+            id: "obj-path-file", vaultID: vault.id, name: "Dune.mp4", size: 100,
+            mime: "video/mp4", state: "ready",
+            createdAt: Date(), modifiedAt: Date(), parentID: "obj-path-sub"
+        )
+        let priv = ObjectRecord(
+            id: "obj-path-priv", vaultID: vault.id, name: "Secret.txt", size: 10,
+            mime: "text/plain", state: "ready",
+            createdAt: Date(), modifiedAt: Date(), isPrivate: true
+        )
+        for o in [folder, sub, file, priv] { try await DatabaseManager.shared.save(o) }
+        let visible = try await DatabaseManager.shared.object("obj-path-file")
+        #expect(visible != nil, "DIAG: row missing right after save (background interference?)")
+        let filePath = await TransferInfoPanel.cloudPath(for: file)
+        let folderPath = await TransferInfoPanel.cloudPath(for: folder)
+        let privPath = await TransferInfoPanel.cloudPath(for: priv)
+        #expect(filePath == "All Files / Movies / Sci-Fi", "got: \(filePath)")
+        #expect(folderPath == "All Files", "got: \(folderPath)")
+        #expect(privPath == "Private Vault", "got: \(privPath)")
+        try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
+    }
+
+    @Test func volumeCurveMapsUiToMpvAndBack() {        // flux VolumeCurve mechanism: perceptual sqrt below unity, linear
         // boost above, mute at zero, clamped both ends.
         #expect(abs(VolumeCurve.uiToMpv(0) - 0) < 1e-9)
         #expect(abs(VolumeCurve.uiToMpv(1) - 100) < 1e-9)

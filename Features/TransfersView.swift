@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Reveals the object behind a completed transfer in the file browser: navigates to
 /// its enclosing folder, selects it, and flashes its border highlight. No-op while a
@@ -16,6 +17,10 @@ struct TransfersView: View {
     private var center: TransferCenter { TransferCenter.shared }
     @AppStorage("xc.viewMode") private var viewModeRaw = "grid"
     @AppStorage("xc.cardWidth") private var cardWidth = 220.0
+    /// Selected transfer card (Space opens its info panel).
+    @State private var selectedTransferID: String? = nil
+    /// Transfer ID whose info panel is open (nil = closed).
+    @State private var infoTargetID: String? = nil
 
     var body: some View {
         ZStack {
@@ -53,6 +58,39 @@ struct TransfersView: View {
                     }
                 }
             }
+
+            // Quick Look-style info panel for the selected transfer (Space):
+            // thumbnail, status, progress, size, and where the file lives in
+            // the cloud. Live-updates while open; a removed transfer shows a
+            // graceful gone-state instead of vanishing mid-read.
+            if let infoID = infoTargetID {
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+                    .onTapGesture { infoTargetID = nil }
+                TransferInfoPanel(itemID: infoID) {
+                    infoTargetID = nil
+                }
+                .transition(.opacity)
+            }
+        }
+        .background {
+            TransferKeyMonitorView(
+                onSpace: {
+                    if infoTargetID != nil {
+                        infoTargetID = nil
+                        return true
+                    }
+                    guard let selected = selectedTransferID,
+                          center.items.contains(where: { $0.id == selected }) else { return false }
+                    infoTargetID = selected
+                    return true
+                },
+                onEscape: {
+                    guard infoTargetID != nil else { return false }
+                    infoTargetID = nil
+                    return true
+                }
+            )
         }
     }
 
@@ -89,10 +127,12 @@ struct TransfersView: View {
                         sectionHeader("Uploads")
                         LazyVGrid(
                             columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                            spacing: 28
+                            spacing: 16
                         ) {
                             ForEach(uploads) { item in
-                                TransferGridCard(item: item)
+                                TransferGridCard(item: item, isSelected: selectedTransferID == item.id) {
+                                    selectedTransferID = item.id
+                                }
                             }
                         }
                         .padding(.horizontal, 24)
@@ -103,10 +143,12 @@ struct TransfersView: View {
                         sectionHeader("Downloads")
                         LazyVGrid(
                             columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                            spacing: 28
+                            spacing: 16
                         ) {
                             ForEach(downloads) { item in
-                                TransferGridCard(item: item)
+                                TransferGridCard(item: item, isSelected: selectedTransferID == item.id) {
+                                    selectedTransferID = item.id
+                                }
                             }
                         }
                         .padding(.horizontal, 24)
@@ -117,10 +159,12 @@ struct TransfersView: View {
                         sectionHeader("Imports")
                         LazyVGrid(
                             columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                            spacing: 28
+                            spacing: 16
                         ) {
                             ForEach(imports) { item in
-                                TransferGridCard(item: item)
+                                TransferGridCard(item: item, isSelected: selectedTransferID == item.id) {
+                                    selectedTransferID = item.id
+                                }
                             }
                         }
                         .padding(.horizontal, 24)
@@ -140,7 +184,9 @@ struct TransfersView: View {
                     sectionHeader("Uploads")
                     LazyVStack(spacing: 10) {
                         ForEach(uploads) { item in
-                            TransferRow(item: item)
+                            TransferRow(item: item, isSelected: selectedTransferID == item.id) {
+                                    selectedTransferID = item.id
+                                }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -151,7 +197,9 @@ struct TransfersView: View {
                     sectionHeader("Downloads")
                     LazyVStack(spacing: 10) {
                         ForEach(downloads) { item in
-                            TransferRow(item: item)
+                            TransferRow(item: item, isSelected: selectedTransferID == item.id) {
+                                    selectedTransferID = item.id
+                                }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -162,7 +210,9 @@ struct TransfersView: View {
                     sectionHeader("Imports")
                     LazyVStack(spacing: 10) {
                         ForEach(imports) { item in
-                            TransferRow(item: item)
+                            TransferRow(item: item, isSelected: selectedTransferID == item.id) {
+                                    selectedTransferID = item.id
+                                }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -202,58 +252,72 @@ struct TransfersView: View {
 
 struct TransferGridCard: View {
     let item: TransferCenter.Item
+    let isSelected: Bool
+    let onSelect: () -> Void
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        // Finder-style tile matching the file browser: square icon zone with
-        // the direction badge / thumbnail, centered name + status below, full
-        // width progress track. Transport buttons (pause/resume/retry) stay
-        // visible — functional controls, not menus. No hover effects, no menu
-        // button (right-click covers it), name never bolds.
-        VStack(spacing: 6) {
-            ZStack {
-                TransferIcon(item: item, size: 56)
-            }
-            .frame(width: 132, height: 132)
-            .overlay(alignment: .topLeading) {
-                Text("\(Int(item.progress * 100))%")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(item.accentColor)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(item.accentColor.opacity(0.14)))
-                    .padding(6)
-            }
-            .overlay(alignment: .topTrailing) {
-                TransferItemActions(item: item, compact: true)
-                    .padding(6)
-            }
+        // Glass card (transfers keep cards, not tiles — different function):
+        // icon zone with % pill + transport actions, name/status block,
+        // progress track. Transport stays visible (functional); menu button,
+        // hover effects and bold names are gone (right-click covers actions).
+        VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                TransferIcon(item: item, size: 44)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            VStack(spacing: 2) {
+                HStack(alignment: .top) {
+                    Text("\(Int(item.progress * 100))%")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(item.accentColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(item.accentColor.opacity(0.14)))
+
+                    Spacer()
+
+                    TransferItemActions(item: item, compact: true)
+                }
+                .padding(8)
+            }
+            .frame(height: 92)
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(XTheme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(height: 16)
 
                 Text(item.statusLine)
                     .font(.system(size: 11))
                     .foregroundStyle(item.statusColor)
                     .lineLimit(1)
+                    .frame(height: 13)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 11)
+            .padding(.top, 9)
 
             TransferProgressCapsule(progress: item.progress, tint: item.accentColor,
                                     animating: item.state == .active)
                 .allowsHitTesting(false)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 11)
         }
-        .frame(width: 140, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.08), lineWidth: isSelected ? 1.5 : 1)
+        )
         .contentShape(Rectangle())
         .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
         .onTapGesture(count: 2) { revealTransferItem(item, in: appState) }
+        .simultaneousGesture(TapGesture(count: 1).onEnded { onSelect() })
         .help(item.state == .complete ? "Double-click to show in folder" : "")
     }
 }
@@ -289,6 +353,8 @@ struct TransferProgressCapsule: View {
 
 struct TransferRow: View {
     let item: TransferCenter.Item
+    let isSelected: Bool
+    let onSelect: () -> Void
     @Environment(AppState.self) private var appState
 
     var body: some View {
@@ -326,13 +392,14 @@ struct TransferRow: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.08), lineWidth: isSelected ? 1.5 : 1)
         )
         .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
         // contentShape makes the whole card (including padding, spacers, and the
         // icon) hit-testable for the double-click, matching the file cards.
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { revealTransferItem(item, in: appState) }
+        .simultaneousGesture(TapGesture(count: 1).onEnded { onSelect() })
         .help(item.state == .complete ? "Double-click to show in folder" : "")
     }
 }
@@ -567,6 +634,231 @@ func TransferItemMenuContent(item: TransferCenter.Item, appState: AppState) -> s
             TransferCenter.shared.removeItems(forObjectID: item.objectID)
         } label: {
             Label("Remove", systemImage: "xmark.circle.fill")
+        }
+    }
+}
+
+// MARK: - Transfer info panel (Space)
+
+///
+/// Quick Look-style info for one transfer: thumbnail, live status +
+/// progress, size, and the file's location in the cloud (vault breadcrumb
+/// path). Opened with Space on a selected card/row; X, Escape, or dim-tap
+/// closes. A transfer removed while open shows a gone-state.
+struct TransferInfoPanel: View {
+    let itemID: String
+    let onClose: () -> Void
+    @Environment(AppState.self) private var appState
+    @State private var cloudPath: String? = nil
+    @State private var fileSize: Int64? = nil
+    @State private var detailsLoadedFor: String? = nil
+
+    private var center: TransferCenter { TransferCenter.shared }
+    private var item: TransferCenter.Item? {
+        center.items.first(where: { $0.id == itemID })
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Transfer Info")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(XTheme.textPrimary)
+                Spacer()
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 14)
+            Divider().overlay(Color.white.opacity(0.1))
+
+            if let item {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 14) {
+                            TransferIcon(item: item, size: 52)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+                                Text(item.statusLine)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(item.statusColor)
+                            }
+                        }
+
+                        TransferProgressCapsule(progress: item.progress, tint: item.accentColor,
+                                                animating: item.state == .active)
+                            .allowsHitTesting(false)
+
+                        infoRow(label: "Direction", value: directionText(item.direction))
+                        infoRow(label: "Size", value: fileSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—")
+                        infoRow(label: "Location", value: cloudPath ?? "Resolving…")
+                        infoRow(label: "Progress", value: "\(Int(item.progress * 100))%")
+
+                        Button {
+                            onClose()
+                            revealTransferItem(item, in: appState)
+                        } label: {
+                            Label("Show in Folder", systemImage: "folder")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(XTheme.accent))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(item.state != .complete)
+                        .opacity(item.state != .complete ? 0.4 : 1.0)
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 16)
+                }
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(XTheme.textTertiary)
+                    Text("No longer listed")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("This transfer finished clearing or was removed.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: 440, height: 480)
+        .background(AppBackground())
+        .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .task(id: itemID) {
+            await loadDetails()
+        }
+    }
+
+    private func infoRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+                .frame(width: 72, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(3)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func directionText(_ direction: TransferCenter.Item.Direction) -> String {
+        switch direction {
+        case .upload: return "Upload"
+        case .download: return "Download"
+        case .inbound: return "Import"
+        }
+    }
+
+    /// Resolves vault-backed details once per panel opening: thumbnail, byte
+    /// size, and the breadcrumb path to the file in the cloud. Uploads that
+    /// haven't cataloged yet (or removed files) leave dashes.
+    private func loadDetails() async {
+        guard detailsLoadedFor != itemID else { return }
+        detailsLoadedFor = itemID
+        guard let live = center.items.first(where: { $0.id == itemID }),
+              let object = try? await DatabaseManager.shared.object(live.objectID) else { return }
+        fileSize = object.size
+        cloudPath = await Self.cloudPath(for: object)
+    }
+
+    /// Vault breadcrumb path, e.g. "All Files / Movies" — root section plus
+    /// every enclosing folder. Cycle-capped like the dashboard math.
+    static func cloudPath(for object: ObjectRecord) async -> String {
+        var names: [String] = []
+        var seen = Set<String>([object.id])
+        var parentID = object.parentID
+        var guardCount = 0
+        while let pid = parentID, guardCount < 32, !seen.contains(pid) {
+            guardCount += 1
+            seen.insert(pid)
+            guard let parent = try? await DatabaseManager.shared.object(pid) else { break }
+            names.insert(parent.name, at: 0)
+            parentID = parent.parentID
+        }
+        let root = object.isPrivate ? "Private Vault" : "All Files"
+        return ([root] + names).joined(separator: " / ")
+    }
+}
+
+// MARK: - Keyboard navigation
+
+/// Window-scoped key monitor for the Transfers page (same technique as the
+/// file browser's FileBrowserKeyView and the Shared page): Space opens the
+/// selected transfer's info panel (Escape closes it). Never steals keys while
+/// typing, and defers to other windows. The browser's own monitor defers on
+/// this page, so there is no double-handling.
+private struct TransferKeyMonitorView: NSViewRepresentable {
+    var onSpace: () -> Bool
+    var onEscape: () -> Bool
+
+    func makeNSView(context: Context) -> TransferKeyView {
+        let view = TransferKeyView()
+        view.onSpace = onSpace
+        view.onEscape = onEscape
+        return view
+    }
+
+    func updateNSView(_ nsView: TransferKeyView, context: Context) {
+        nsView.onSpace = onSpace
+        nsView.onEscape = onEscape
+    }
+}
+
+final class TransferKeyView: NSView {
+    var onSpace: (() -> Bool)?
+    var onEscape: (() -> Bool)?
+    private var monitor: Any?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { return nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && monitor == nil {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.window != nil else { return event }
+                guard event.window === self.window else { return event }
+                if let responder = self.window?.firstResponder,
+                   responder is NSTextView || responder is NSTextField {
+                    return event
+                }
+                switch event.keyCode {
+                case 49: // space
+                    if self.onSpace?() == true { return nil }
+                case 53: // escape
+                    if self.onEscape?() == true { return nil }
+                default:
+                    break
+                }
+                return event
+            }
+        }
+        if window == nil, let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
     }
 }
