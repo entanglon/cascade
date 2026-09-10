@@ -1352,6 +1352,32 @@ final class AppState {
         selectedFiles.removeAll()
     }
 
+    /// Sidebar-pinned folders (device-local Finder-favorites analog). A stored
+    /// Set so mutations publish to observers; persisted to UserDefaults.
+    var sidebarPinnedFolderIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "xc.sidebarPinnedFolderIDs") ?? []) {
+        didSet { UserDefaults.standard.set(Array(sidebarPinnedFolderIDs), forKey: "xc.sidebarPinnedFolderIDs") }
+    }
+
+    @MainActor
+    func toggleSidebarPin(_ folder: ObjectRecord) {
+        if sidebarPinnedFolderIDs.contains(folder.id) {
+            sidebarPinnedFolderIDs.remove(folder.id)
+        } else {
+            sidebarPinnedFolderIDs.insert(folder.id)
+        }
+    }
+
+    /// Opens a sidebar pin: jumps to the folder in its home section (vault
+    /// pins land in the Private Vault, honoring the PIN gate like anywhere
+    /// else), mirroring revealObject's navigation without selecting anything.
+    @MainActor
+    func openSidebarPin(_ folder: ObjectRecord) {
+        selectDestination(folder.isPrivate ? .privateVault : .allFiles)
+        currentFolderID = folder.id
+        searchText = ""
+        selectedFiles.removeAll()
+    }
+
     @MainActor
     func navigateTo(_ id: String?) {
         currentFolderID = id

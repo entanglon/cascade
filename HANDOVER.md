@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 211 — names never bold, list rows restyled + expandable folders, column-nav root-cause fix (stale 4-col folder cap), liquid glass selection. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 212 — list gutter alignment, instant chevron, sidebar sections + folder pins. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4217,6 +4217,12 @@ Open levers (not scheduled):
      - Expandable folders in list view: disclosure chevrons inline real contents recursively (20pt/level), `visibleListNodes` drives rendering + arrow order, page-mirroring child filter, cycle-guarded, session-local.
      - Column-nav root cause: `gridVerticalStep` still used the pre-Round-208 `min(cols,4)` folder cap → one-line fix + `gridVerticalNavigationUsesFullWidthFolderRows` regression test.
      - Selection is now non-interactive liquid glass (accent-tinted) on tiles + rows; selected ring removed, drop-target ring stays.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
+ 212. **List gutter + instant chevron + sidebar sections/pins (2026-09-09 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`, `Features/SidebarView.swift`, `App/AppState.swift`)
+     - Gutter: every list row reserves the 24pt disclosure column (chevron or empty space) — expandable folders no longer shift right (Finder rule).
+     - Chevron: was a Button inside the double-tap zone (taps waited out disambiguation) → extracted `FolderDisclosureChevron` with high-priority single-tap (instant, claims touch so it never opens); 24pt target.
+     - Sidebar: Favorites / Collections / Vault / Pinned sections (was one flat LIBRARY list); Vault Storage row removed (lives in Settings); folder pins via `sidebarPinnedFolderIDs` + context-menu Pin/Unpin + `openSidebarPin` navigation honoring the vault gate.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
 
 

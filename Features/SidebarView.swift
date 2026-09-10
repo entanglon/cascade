@@ -5,30 +5,40 @@ struct SidebarView: View {
     @Binding var selection: SidebarDestination
     @Environment(AppState.self) private var appState
 
+    /// Finder-style groups (iOS Browse mirrors the same vocabulary).
+    private static let favoriteItems: [SidebarDestination] = [.allFiles, .recent, .favorites]
+    private static let collectionItems: [SidebarDestination] = [.photos, .video, .audio, .documents, .library]
+    private static let vaultItems: [SidebarDestination] = [.privateVault, .shared, .transfers, .archive, .trash]
+
+    /// Pinned folders, resolved to live records (deleted/trashed pins vanish).
+    private var pinnedFolders: [ObjectRecord] {
+        appState.sidebarPinnedFolderIDs.compactMap { id in
+            appState.files.first(where: { $0.id == id })
+        }
+        .filter { $0.isFolder && !$0.trashed && $0.state == "ready" }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: XTheme.spaceXS) {
-                    Text("Library")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.40))
-                        .textCase(.uppercase)
-                        .padding(.horizontal, 14)
-                        .padding(.top, 40)
-                        .padding(.bottom, 4)
-
-                    VStack(spacing: 4) {
-                        ForEach(SidebarDestination.allCases) { item in
-                            SidebarRow(
-                                item: item,
-                                isSelected: selection == item
-                            ) {
-                                selection = item
+                VStack(alignment: .leading, spacing: 14) {
+                    sidebarSection(title: "Favorites", items: Self.favoriteItems)
+                    sidebarSection(title: "Collections", items: Self.collectionItems)
+                    sidebarSection(title: "Vault", items: Self.vaultItems)
+                    if !pinnedFolders.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            sectionHeader("Pinned")
+                            VStack(spacing: 4) {
+                                ForEach(pinnedFolders) { folder in
+                                    PinnedFolderRow(folder: folder)
+                                }
                             }
                         }
                     }
                 }
                 .padding(.horizontal, 10)
+                .padding(.top, 40)
             }
             .safeAreaInset(edge: .bottom) {
                 SidebarProfileCard()
@@ -41,6 +51,89 @@ struct SidebarView: View {
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
         .ignoresSafeArea(.all, edges: .top)
+    }
+
+    private func sidebarSection(title: String, items: [SidebarDestination]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sectionHeader(title)
+            VStack(spacing: 4) {
+                ForEach(items) { item in
+                    SidebarRow(
+                        item: item,
+                        isSelected: selection == item
+                    ) {
+                        selection = item
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white.opacity(0.40))
+            .textCase(.uppercase)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 4)
+    }
+}
+
+/// A user-pinned folder under the sidebar's Pinned heading. Selected when the
+/// browser shows that exact folder; activates via openSidebarPin (vault pins
+/// honor the PIN gate through the Private Vault destination).
+struct PinnedFolderRow: View {
+    @Environment(AppState.self) private var appState
+    let folder: ObjectRecord
+
+    private var isSelected: Bool {
+        appState.currentFolderID == folder.id
+            && appState.selectedDestination == (folder.isPrivate ? .privateVault : .allFiles)
+    }
+
+    var body: some View {
+        Button {
+            appState.openSidebarPin(folder)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .white : XTheme.accent)
+                    .frame(width: 20, alignment: .center)
+
+                Text(folder.name)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? .white : .white.opacity(0.85))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                if folder.isPrivate {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? XTheme.accent.opacity(0.22) : .clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSelected ? XTheme.accent.opacity(0.4) : .clear, lineWidth: 1)
+        )
+        .contextMenu {
+            Button {
+                appState.toggleSidebarPin(folder)
+            } label: {
+                Label("Unpin from Sidebar", systemImage: "pin.slash")
+            }
+        }
     }
 }
 
@@ -164,54 +257,34 @@ struct SidebarProfileCard: View {
     private var tg: TelegramClient { TelegramClient.shared }
     @State private var showLogoutConfirm = false
 
-    private var totalVaultBytes: Int64 {
-        appState.files.filter { !$0.isFolder && !$0.trashed }.reduce(0) { $0 + $1.size }
-    }
-
     var body: some View {
-        VStack(spacing: 10) {
-            Group {
-                if tg.isAuthorized {
-                    Menu {
-                        Button {
-                            appState.showSettings = true
-                        } label: {
-                            Label("Settings...", systemImage: "gearshape")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            showLogoutConfirm = true
-                        } label: {
-                            Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
-                    } label: {
-                        cardContent
-                    }
-                    .menuIndicator(.hidden)
-                    .buttonStyle(.plain)
-                } else {
-                    Button {
-                        tg.isConnected ? (appState.showLogin = true) : (appState.showSetup = true)
-                    } label: {
-                        cardContent
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Storage used indicator (Unlimited Cloud Storage)
+        // Vault size lives in Settings → Storage Dashboard (Wave 2 item 6).
+        Group {
             if tg.isAuthorized {
-                HStack {
-                    Text("Vault Storage")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.4))
-                    Spacer()
-                    Text(XTheme.formatBytes(totalVaultBytes))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(XTheme.accent)
+                Menu {
+                    Button {
+                        appState.showSettings = true
+                    } label: {
+                        Label("Settings...", systemImage: "gearshape")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        showLogoutConfirm = true
+                    } label: {
+                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } label: {
+                    cardContent
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    tg.isConnected ? (appState.showLogin = true) : (appState.showSetup = true)
+                } label: {
+                    cardContent
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(10)

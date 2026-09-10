@@ -2,9 +2,48 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Names never bold, list view restyle + expandable folders, column-nav fix, glass selection (Round 211).
+> 2026-09-09 (evening) — List gutter alignment, instant chevron, sidebar sections + folder pins (Round 212).
 
 ---
+
+## 2026-09-09 (evening) — List gutter alignment, instant chevron, sidebar sections + folder pins (Round 212)
+
+User review with screenshot: (1) expandable folders shift right in list view,
+(2) expansion feels slow, (3) sidebar is one flat LIBRARY list — needs proper
+headings, (4) vault storage size out of the sidebar (Settings keeps it),
+(5) per-folder "pin to sidebar" under its own heading.
+
+### 1. Gutter alignment (`Features/FileBrowserView.swift`)
+- Root cause: only folders WITH children rendered the 16pt chevron, so an
+  expandable folder's icon sat 16pt right of its siblings (visible in the
+  screenshot: Test vs Test2/Test3).
+- Fix (Finder rule): EVERY row reserves a 24pt disclosure gutter — chevron
+  for expandable folders, empty space otherwise. Icons align unconditionally.
+
+### 2. Instant expansion
+- Root cause: the chevron was a Button inside the row's double-tap-to-open
+  zone, so every tap waited out double-tap disambiguation before firing.
+- Fix: extracted `FolderDisclosureChevron` (also dodging FileListRow's
+  type-checker limit) with a high-priority single-tap — fires immediately and
+  claims the touch so chevron taps never open the folder. Hit area widened
+  16→24pt. Selection still lands via the parent simultaneous tap.
+
+### 3–5. Sidebar (`Features/SidebarView.swift`, `App/AppState.swift`)
+- Sections: Favorites (All Files, Recent, Favorites), Collections (Photos,
+  Video, Audio, Documents, Library), Vault (Private Vault, Shared, Transfers,
+  Archive, Recently Deleted), Pinned (dynamic, hidden when empty).
+- Vault Storage row removed from the profile card (dead `totalVaultBytes`
+  went with it); size lives in Settings → Storage Dashboard.
+- Folder pins: `AppState.sidebarPinnedFolderIDs` (stored Set, UserDefaults-
+  backed, device-local) + `toggleSidebarPin` + `openSidebarPin` (lands in the
+  folder's home section, honoring the vault PIN gate). "Pin to Sidebar" in
+  every folder's context menu; Pinned rows navigate on click and unpin via
+  their own right-click menu. Stale (deleted/trashed) pins filter out.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: icon alignment, chevron speed,
+  sidebar sections, pin/unpin flow.
 
 ## 2026-09-09 (evening) — Names never bold, list view restyle + expandable folders, column-nav fix, glass selection (Round 211)
 

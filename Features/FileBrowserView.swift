@@ -1953,6 +1953,14 @@ struct FileItemContextMenu: View {
             } label: {
                 Label("Open", systemImage: "folder")
             }
+            Button {
+                appState.toggleSidebarPin(file)
+            } label: {
+                Label(
+                    appState.sidebarPinnedFolderIDs.contains(file.id) ? "Unpin from Sidebar" : "Pin to Sidebar",
+                    systemImage: "pin"
+                )
+            }
         }
         Button {
             renameText = file.name
@@ -2806,6 +2814,26 @@ struct FileGridItem: View {
 
 // MARK: - List Row
 
+/// Disclosure chevron for expandable list folders (extracted: FileListRow's
+/// body sits at the type-checker's complexity limit).
+/// High-priority single tap fires instantly instead of waiting out the row's
+/// double-tap-to-open recognizer, and claims the touch so a chevron tap never
+/// opens the folder. Row selection still lands via the parent's simultaneous
+/// single-tap, Finder-style.
+struct FolderDisclosureChevron: View {
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(XTheme.textTertiary)
+            .frame(width: 24, height: 32)
+            .contentShape(Rectangle())
+            .highPriorityGesture(TapGesture(count: 1).onEnded(onToggle))
+    }
+}
+
 struct FileListRow: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
@@ -2831,17 +2859,14 @@ struct FileListRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Finder gutter: EVERY row reserves the 24pt disclosure column so
+            // icons align whether or not a chevron shows (an expandable folder
+            // must not shift right next to its siblings).
             if file.isFolder, hasChildren {
-                Button {
-                    onToggleExpand?()
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(XTheme.textTertiary)
-                        .frame(width: 16, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                FolderDisclosureChevron(isExpanded: isExpanded) { onToggleExpand?() }
+            } else {
+                Color.clear
+                    .frame(width: 24, height: 32)
             }
 
             rowIcon
