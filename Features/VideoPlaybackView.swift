@@ -376,6 +376,11 @@ struct PlayerControlsView: View {
     @State private var showShareFeedback = false
     @State private var volumeHUDVisible = false
     @State private var volumeHUDTask: Task<Void, Never>?
+    /// Snapshot of the level the HUD shows. The HUD must NOT observe the mpv
+    /// controller directly: every timePos/buffer publish (4 Hz+) re-rendered
+    /// its GeometryReader + glow shadows, which read as stutter during rapid
+    /// arrow presses. It re-renders only on real volume ticks via onChange.
+    @State private var hudLevel: Double = 1.0
 
     private let autoHideDelay: TimeInterval = 3.0
 
@@ -434,11 +439,13 @@ struct PlayerControlsView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
 
-            // Volume HUD (flux pattern): the gauge flashes center-screen for
-            // ~2 s whenever in-player volume changes (arrows, mute, gauge
-            // drag). Display-only — taps pass through to the toggle catcher.
+            // Volume HUD (flux pattern): a static snapshot flashes
+            // center-screen for ~2 s whenever in-player volume changes
+            // (arrows, mute, gauge drag). Display-only — taps pass through
+            // to the toggle catcher. Static layout (fixed widths, no
+            // GeometryReader, no observation) so rapid ticks can't stutter it.
             if volumeHUDVisible {
-                VolumeGauge(mpv: mpv, gaugeWidth: 140)
+                volumeHUDBars(level: hudLevel)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
@@ -471,7 +478,8 @@ struct PlayerControlsView: View {
             // Never leave a hidden cursor behind when the player goes away.
             NSCursor.unhide()
         }
-        .onChange(of: mpv.playerVolume) {
+        .onChange(of: mpv.playerVolume) { _, new in
+            hudLevel = new
             showVolumeHUD()
         }
         .onChange(of: showExitWarning) { _, newValue in
@@ -497,46 +505,49 @@ struct PlayerControlsView: View {
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            // Share the file currently playing — same ShareEngine flow as the
-            // browser's Share action (forward-based link, copied to clipboard).
-            Button {
-                shareCurrentFile()
-            } label: {
-                Group {
-                    if isSharing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.85))
+            // flux arrangement: Share + PiP share ONE pill on the left (PiP
+            // only windowed — meaningless inside the fullscreen window, which
+            // owns the layer). Non-interactive container glass (a parent
+            // interactive glass swallows child taps on macOS 26); the plain
+            // buttons inside receive their taps directly.
+            HStack(spacing: 0) {
+                Button {
+                    shareCurrentFile()
+                } label: {
+                    Group {
+                        if isSharing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white.opacity(0.9))
+                        }
                     }
-                }
-                .frame(width: 36, height: 36)
-                .contentShape(Circle())
-                .glassEffect(.regular.interactive(), in: .circle)
-                .playerHoverTint()
-            }
-            .buttonStyle(.plain)
-            .help("Share")
-
-            // Picture-in-Picture lives on the LEFT (flux arrangement) — float
-            // the video in an always-on-top mini window. Meaningless inside
-            // the fullscreen window (it owns the layer), so windowed only.
-            if !isFullScreen {
-                Button(action: onPiP) {
-                    Image(systemName: "rectangle.bottomthird.inset.filled")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.85))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Circle())
-                        .glassEffect(.regular.interactive(), in: .circle)
-                        .playerHoverTint()
+                    .frame(width: 44, height: 32)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(PictureInPictureWindow.shared.isActive ? "Exit Picture-in-Picture" : "Picture in Picture")
+                .help("Share")
+
+                if !isFullScreen {
+                    Divider()
+                        .frame(height: 16)
+                        .background(Color.white.opacity(0.2))
+
+                    Button(action: onPiP) {
+                        Image(systemName: "rectangle.bottomthird.inset.filled")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                            .frame(width: 44, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(PictureInPictureWindow.shared.isActive ? "Exit Picture-in-Picture" : "Picture in Picture")
+                }
             }
+            .glassEffect(.regular, in: .capsule)
 
             // The file name + size live ONLY above the progress bar (bottom bar)
             // — no duplicate title row up here.
@@ -936,6 +947,59 @@ struct PlayerControlsView: View {
             try? await Task.sleep(nanoseconds: 1_800_000_000)
             guard !Task.isCancelled else { return }
             volumeHUDVisible = false
+        }
+    }
+
+    /// Static volume snapshot for the HUD: same gauge visuals, fixed widths,
+    /// no observation, no gestures — cheap to re-render on rapid ticks.
+    private func volumeHUDBars(level: Double) -> some View {
+        let w: CGFloat = 140
+        let midX = w / 2.0
+        let boosted = level > 1.0
+        return HStack(spacing: 10) {
+            Image(systemName: level <= 0.001 ? "speaker.slash.fill" : (boosted ? "speaker.wave.3.fill" : "speaker.wave.2.fill"))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(boosted ? .orange : .white.opacity(0.9))
+                .frame(width: 20, height: 20)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: w, height: 6)
+
+                let normalWidth = midX * CGFloat(min(max(level, 0.0), 1.0))
+                if normalWidth > 0 {
+                    Rectangle()
+                        .fill(Color.white)
+                        .frame(width: normalWidth, height: 6)
+                }
+
+                if boosted {
+                    let boostWidth = midX * CGFloat(min(max(level - 1.0, 0.0), 1.0))
+                    if boostWidth > 0 {
+                        Rectangle()
+                            .fill(LinearGradient(
+                                colors: [Color.orange.opacity(0.90), Color.orange],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ))
+                            .frame(width: boostWidth, height: 6)
+                            .offset(x: midX)
+                    }
+                }
+
+                Rectangle()
+                    .fill(boosted ? Color.black.opacity(0.35) : Color.white.opacity(0.55))
+                    .frame(width: 1.5, height: 8)
+                    .position(x: midX, y: 3.0)
+            }
+            .clipShape(Capsule())
+            .frame(width: w, height: 6)
+
+            Text("\(Int((level * 100).rounded()))%")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundColor(boosted ? .orange : .white.opacity(0.85))
+                .frame(minWidth: 44, alignment: .trailing)
         }
     }
 

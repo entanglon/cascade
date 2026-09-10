@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 223 — flux top bar + volume HUD. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 224 — HUD stutter fix, Share+PiP single pill. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4293,6 +4293,11 @@ Open levers (not scheduled):
      (`Features/VideoPlaybackView.swift`)
      - Arrow steps stay ±0.05 (flux-faithful; inaudible singly by design) + `showVolumeHUD`: display-only gauge pill flashes 1.8 s per change, re-armed, instant.
      - PiP moved LEFT by Share (right duplicate deleted); fullscreen X removed (ESC/exit-toggle only); windowed X kept.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 224. **HUD stutter + single pill (2026-09-10 evening — COMMITTED)**
+     (`Features/VideoPlaybackView.swift`, `Features/MPVVideoView.swift`)
+     - HUD now static snapshot (`hudLevel`, fixed widths) re-rendered on volume ticks only; same-value + echo-epsilon guards kill republish churn.
+     - Share+PiP merged into one flux-arrangement capsule (non-interactive glass, plain buttons).
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

@@ -525,6 +525,10 @@ class MPVController: ObservableObject {
 
     func setPlayerVolume(_ uiValue: Double) {
         let clamped = min(max(uiValue, 0.0), 2.0)
+        // Same-value writes only churn the coalesced task and re-fire
+        // observers (the volume HUD stuttered on rapid arrows because of
+        // this) — skip them.
+        guard clamped != playerVolume else { return }
         playerVolume = clamped
         volumeSyncTask?.cancel()
         let mpvValue = VolumeCurve.uiToMpv(clamped)
@@ -662,10 +666,16 @@ class MPVController: ObservableObject {
                 if let vol = value as? Double {
                     // flux two-way mapping: sub-unity echoes update the legacy
                     // volume fraction; boosted echoes map back to playerVolume.
+                    // Epsilon guard: mpvToUi(uiToMpv(x)) round-trips
+                    // float-inexact, and republishing it re-rendered observers
+                    // (HUD stutter) for no state change.
                     if vol <= 100.0 {
                         self.volume = vol / 100.0
                     } else {
-                        self.playerVolume = min(VolumeCurve.mpvToUi(vol), 2.0)
+                        let mapped = min(VolumeCurve.mpvToUi(vol), 2.0)
+                        if abs(mapped - self.playerVolume) > 1e-6 {
+                            self.playerVolume = mapped
+                        }
                     }
                 }
             case "cache-buffering-state":

@@ -2,9 +2,33 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Flux top bar + volume HUD (Round 223).
+> 2026-09-10 (evening) — HUD stutter fix, Share+PiP single pill (Round 224).
 
 ---
+
+## 2026-09-10 (evening) — HUD stutter fix, Share+PiP single pill (Round 224)
+
+User review: (1) volume HUD stutters/confuses on rapid arrows, (2) PiP still
+not on a single pill with Share like flux.
+
+### 1. HUD stutter — two stacked causes, both fixed
+- The HUD embedded the live `VolumeGauge` observing the whole controller:
+  every timePos tick (4 Hz+) re-rendered its GeometryReader + glow shadows.
+  Now a static snapshot (`hudLevel`, fed by onChange only) with fixed-width
+  bars — re-renders solely on real volume ticks.
+- Float-inexact echo round-trips (`mpvToUi(uiToMpv(x)) ≠ x`) re-published
+  state per press: epsilon guard on echoes + same-value guard in
+  `setPlayerVolume`.
+
+### 2. Single Share+PiP pill
+- Flux arrangement verbatim: one capsule, 44×32 cells, divider, non-
+  interactive container glass (parent interactive glass eats child taps —
+  our own hard-won lesson) with plain buttons inside.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: rapid arrows = smooth stepping HUD,
+  single left pill with Share + PiP.
 
 ## 2026-09-10 (evening) — Flux top bar + volume HUD (Round 223)
 
