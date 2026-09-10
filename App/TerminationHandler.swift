@@ -107,8 +107,9 @@ final class TerminationHandler: NSObject, NSApplicationDelegate {
     // MARK: - App lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Appearance-aware Dock icon (user's dark/light artwork).
-        AppIconSwitcher.shared.applyIcon()
+        // Appearance-aware Dock icon PARKED (user decision): the bundle icon
+        // is dark-only for now. Re-enable via AppIconSwitcher when theming
+        // returns (the IconLight/IconDark/AppIconThemed sets stay shipped).
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleHandoffNotification),

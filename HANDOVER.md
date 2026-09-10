@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 232 — squircle icons + themed in-app icon. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 233 — dark-only icon, proper footprint, theming parked. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4347,6 +4347,11 @@ Open levers (not scheduled):
      - Raw Dock tiles get no system masking (the box bug) → baked 22.5% squircle + transparency into all slots (PIL AA, corner-alpha verified). Catalog dark appearances re-tested: silently discarded, reverted to light-only.
      - `AppIconThemed` set (Any + DarkAqua renditions, verified in car); About loads it (was unresolvable "AppIcon" + fallback). Login/Onboarding use SF Symbols — no other brand marks.
      - Build + suite green: **BUILD SUCCEEDED**, zero actool warnings, CascadeTests **TEST SUCCEEDED**. Relaunched — user verifies both modes.
+ 233. **Dark-only icon, proper footprint (2026-09-10 evening — COMMITTED)**
+     (`Cascade/Assets.xcassets`, `Features/AboutView.swift`, `App/CascadeApp.swift`, `App/TerminationHandler.swift`)
+     - Tile was 100% edge-to-edge with no shadow (read oversized/flat vs native ~90% + depth) → rebuilt at 90% + baked soft shadow.
+     - Theming parked: switcher call removed (class kept, marked), About → IconDark, bundle dark-only. Light sets stay shipped.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched (`killall Dock` if cached).
 
 
 

@@ -2,9 +2,34 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Proper squircle icons + themed in-app icon (Round 232).
+> 2026-09-10 (evening) — Dark-only icon with proper footprint, theming parked (Round 233).
 
 ---
+
+## 2026-09-10 (evening) — Dark-only icon with proper footprint, theming parked (Round 233)
+
+User review: the tile renders oversized vs other icons, missing their depth;
+park theming, ship dark.png only.
+
+### Root cause
+- Round 231–232 filled ~100% of the canvas edge-to-edge with no shadow.
+  Native tiles sit ~90% with a soft drop shadow underneath — ours read
+  bigger and flatter by comparison.
+
+### What changed
+- Rebuilt the master: artwork scaled to 90% centered, 22.5% squircle,
+  subtle baked shadow (30px blur, +12px drop, 35% — the system adds no depth
+  to raw Dock tiles, so this one is baked deliberately), transparency
+  intact. All 10 AppIcon slots + IconDark 1024 regenerated.
+- Theming parked per instruction: switcher call removed (class kept,
+  marked), About loads `IconDark` directly, bundle icon is dark-only. Light
+  sets stay shipped for later.
+
+### Verification
+- Build: **BUILD SUCCEEDED** (zero actool warnings). Tests: CascadeTests
+  **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify Dock footprint vs neighbors (run
+  `killall Dock` first if macOS shows the cached old tile).
 
 ## 2026-09-10 (evening) — Proper squircle icons + themed in-app icon (Round 232)
 
