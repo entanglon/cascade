@@ -320,6 +320,15 @@ struct FileBrowserView: View {
                         .environment(appState)
                 }
             }
+            .sheet(isPresented: Binding(
+                get: { appState.movePickerTargets != nil },
+                set: { if !$0 { appState.movePickerTargets = nil } }
+            )) {
+                if let targets = appState.movePickerTargets {
+                    MoveDestinationSheet(targets: targets)
+                        .environment(appState)
+                }
+            }
     }
 
     /// The destination's content area: Transfers and Shared have their own pages;
@@ -1840,6 +1849,236 @@ enum ExternalOpen {
     }
 }
 
+/// Drive-style move destination picker: breadcrumb + folder list to drill
+/// through, inline New Folder, and a Move-here confirmation for the CURRENT
+/// location (navigate to choose, then paste — no hundred-row submenu).
+/// Excludes the moved items themselves and their descendants (a folder can
+/// never land inside itself) plus trashed folders.
+struct MoveDestinationSheet: View {
+    @Environment(AppState.self) private var appState
+    let targets: [ObjectRecord]
+    @State private var currentID: String? = nil
+    @State private var creatingFolder = false
+    @State private var newFolderName = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var targetIDs: Set<String> { Set(targets.map(\.id)) }
+
+    private var currentFolder: ObjectRecord? {
+        currentID.flatMap { id in appState.files.first(where: { $0.id == id }) }
+    }
+
+    private var childFolders: [ObjectRecord] {
+        appState.files.filter { f in
+            f.isFolder && !f.trashed && f.parentID == currentID
+                && !targetIDs.contains(f.id)
+                && !targets.contains { t in t.isFolder && appState.isDescendant(f.id, of: t.id) }
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var crumbs: [(id: String?, name: String)] {
+        var trail: [(String?, String)] = []
+        var seen = Set<String>()
+        var pid = currentID
+        var guardCount = 0
+        while let id = pid, guardCount < 32, !seen.contains(id) {
+            guardCount += 1
+            seen.insert(id)
+            guard let f = appState.files.first(where: { $0.id == id }) else { break }
+            trail.insert((f.id, f.name), at: 0)
+            pid = f.parentID
+        }
+        return [(nil, "Cascade Drive")] + trail
+    }
+
+    /// Disabled when a single item already lives here (nothing would change).
+    private var alreadyHere: Bool {
+        targets.count == 1 && targets[0].parentID == currentID
+    }
+
+    private var locationPrivacy: Bool {
+        currentFolder?.isPrivate ?? targets.first?.isPrivate ?? (appState.selectedDestination == .privateVault)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Move \(targets.count) item\(targets.count == 1 ? "" : "s")")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(XTheme.textPrimary)
+                    Text("Choose a destination folder")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 14)
+            Divider().overlay(Color.white.opacity(0.1))
+
+            // Breadcrumb trail through the vault hierarchy.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(crumbs.enumerated()), id: \.offset) { index, crumb in
+                        if index > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(XTheme.textTertiary)
+                        }
+                        Button(crumb.name) {
+                            currentID = crumb.id
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: index == crumbs.count - 1 ? .bold : .medium))
+                        .foregroundStyle(index == crumbs.count - 1 ? .white : XTheme.textSecondary)
+                        .disabled(index == crumbs.count - 1)
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 10)
+            }
+
+            Divider().overlay(Color.white.opacity(0.06))
+
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    if creatingFolder {
+                        HStack(spacing: 10) {
+                            AppleFolderIcon(width: 36, height: 28)
+                                .frame(width: 36, height: 32)
+                            TextField("Folder name", text: $newFolderName)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white)
+                                .onSubmit { createFolder() }
+                            Spacer()
+                            Button("Create") { createFolder() }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(XTheme.accent)
+                                .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            Button("Cancel") {
+                                creatingFolder = false
+                                newFolderName = ""
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.6))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(XTheme.accent.opacity(0.10))
+                        )
+                    }
+
+                    if childFolders.isEmpty && !creatingFolder {
+                        Text("No subfolders here")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .padding(.vertical, 20)
+                    }
+
+                    ForEach(childFolders) { folder in
+                        Button {
+                            currentID = folder.id
+                        } label: {
+                            HStack(spacing: 10) {
+                                AppleFolderIcon(width: 36, height: 28)
+                                    .frame(width: 36, height: 32)
+                                Text(folder.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(XTheme.textPrimary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(XTheme.textTertiary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+
+            Divider().overlay(Color.white.opacity(0.1))
+
+            HStack {
+                Button {
+                    creatingFolder = true
+                } label: {
+                    Label("New Folder", systemImage: "folder.badge.plus")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .disabled(creatingFolder)
+
+                Spacer()
+
+                Button("Cancel", role: .cancel) {
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.7))
+
+                Button(alreadyHere ? "Already Here" : "Move Here") {
+                    appState.moveObjects(ids: targets.map(\.id), to: currentID)
+                    appState.movePickerTargets = nil
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(XTheme.accent))
+                .disabled(alreadyHere)
+                .opacity(alreadyHere ? 0.5 : 1.0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .frame(width: 480, height: 520)
+        .background(AppBackground())
+        .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func createFolder() {
+        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        newFolderName = ""
+        creatingFolder = false
+        Task {
+            await appState.createFolder(named: name, parentID: currentID, isPrivate: locationPrivacy)
+        }
+    }
+}
+
 struct FileItemContextMenu: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
@@ -1940,45 +2179,6 @@ struct FileItemContextMenu: View {
             } label: {
                 Label("Download", systemImage: "arrow.down.circle")
             }
-            // Wave 2 item 8 — bulk export: decrypt the selection (folders expand
-            // to their whole tree) into a user-chosen local folder.
-            Button {
-                exportSelection()
-            } label: {
-                Label(
-                    actionTargets.count > 1 ? "Export \(actionTargets.count) Items…" : "Export…",
-                    systemImage: "tray.and.arrow.down"
-                )
-            }
-            if !file.trashed {
-                // The whole shareable selection shares as ONE group link — a
-                // multi-selection produces a single grouped share the recipient
-                // imports together. The Share menu expands into the two kinds:
-                // PRIVATE (lock) — expiring link in a dedicated pool channel,
-                // max 5; PUBLIC (globe) — never expires, persistent channel.
-                let shareTargets = actionTargets.filter { !$0.isPrivate }
-                if !shareTargets.isEmpty {
-                    Menu {
-                        Button {
-                            appState.shareFiles(shareTargets)
-                        } label: {
-                            Label("Private (Simple)", systemImage: "lock.fill")
-                        }
-                        Button {
-                            appState.promptPasswordShare(shareTargets)
-                        } label: {
-                            Label("Private (Password Protected…)", systemImage: "key.fill")
-                        }
-                        Button {
-                            appState.shareFiles(shareTargets, isPublic: true)
-                        } label: {
-                            Label("Public", systemImage: "globe")
-                        }
-                    } label: {
-                        Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items" : "Share", systemImage: "arrow.triangle.swap")
-                    }
-                }
-            }
             Divider()
         } else {
             Button {
@@ -1995,6 +2195,48 @@ struct FileItemContextMenu: View {
                 )
             }
         }
+        // Share + Export live here (files AND folders — the engine expands
+        // folders to their descendants). Private-only selections show neither
+        // (same rule as before, now uniform).
+        if !file.trashed {
+            // The whole shareable selection shares as ONE group link — a
+            // multi-selection produces a single grouped share the recipient
+            // imports together. The Share menu expands into the two kinds:
+            // PRIVATE (lock) — expiring link in a dedicated pool channel,
+            // max 5; PUBLIC (globe) — never expires, persistent channel.
+            let shareTargets = actionTargets.filter { !$0.isPrivate }
+            if !shareTargets.isEmpty {
+                Menu {
+                    Button {
+                        appState.shareFiles(shareTargets)
+                    } label: {
+                        Label("Private (Simple)", systemImage: "lock.fill")
+                    }
+                    Button {
+                        appState.promptPasswordShare(shareTargets)
+                    } label: {
+                        Label("Private (Password Protected…)", systemImage: "key.fill")
+                    }
+                    Button {
+                        appState.shareFiles(shareTargets, isPublic: true)
+                    } label: {
+                        Label("Public", systemImage: "globe")
+                    }
+                } label: {
+                    Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items" : "Share", systemImage: "arrow.triangle.swap")
+                }
+            }
+        }
+        // Wave 2 item 8 — bulk export: decrypt the selection (folders expand
+        // to their whole tree) into a user-chosen local folder.
+        Button {
+            exportSelection()
+        } label: {
+            Label(
+                actionTargets.count > 1 ? "Export \(actionTargets.count) Items…" : "Export…",
+                systemImage: "tray.and.arrow.down"
+            )
+        }
         Button {
             renameText = file.name
             renameTarget = file
@@ -2009,12 +2251,33 @@ struct FileItemContextMenu: View {
         } label: {
             Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "pin.slash" : "pin")
         }
+        // Drive-style move: opens the destination picker (files AND folders).
+        // Replaces the old flat Move-to-Folder submenu, which was unusable
+        // with more than a handful of folders.
+        Button {
+            appState.movePickerTargets = actionTargets
+        } label: {
+            Label(
+                actionTargets.count > 1 ? "Move \(actionTargets.count) Items…" : "Move…",
+                systemImage: "folder"
+            )
+        }
+        // Finder-style duplicate: instant server-side copy (files AND
+        // folders; folder copies are shallow, matching iOS).
+        Button {
+            appState.duplicateObjects(actionTargets)
+        } label: {
+            Label(
+                actionTargets.count > 1 ? "Duplicate \(actionTargets.count) Items" : "Duplicate",
+                systemImage: "plus.square.on.square"
+            )
+        }
+        Button {
+            for target in actionTargets { appState.toggleFavorite(target) }
+        } label: {
+            Label(file.isFavorite ? "Remove Favorite" : "Add Favorite", systemImage: file.isFavorite ? "star.slash" : "star")
+        }
         if !file.isFolder {
-            Button {
-                for target in actionTargets { appState.toggleFavorite(target) }
-            } label: {
-                Label(file.isFavorite ? "Remove Favorite" : "Add Favorite", systemImage: file.isFavorite ? "star.slash" : "star")
-            }
             // Add to Playlist / Album Menu
             let isAudio = file.mime.hasPrefix("audio/") || ["mp3", "m4a", "wav", "flac", "aac", "ogg"].contains((file.name as NSString).pathExtension.lowercased())
             let isVideo = file.mime.hasPrefix("video/")
@@ -2042,23 +2305,7 @@ struct FileItemContextMenu: View {
                 }
             }
 
-            Menu {
-                Button("Root") {
-                    for target in actionTargets { appState.moveObject(id: target.id, to: nil) }
-                }
-                ForEach(appState.files.filter {
-                    $0.isFolder && !$0.trashed && $0.id != file.id
-                }) { folder in
-                    Button(folder.name) {
-                        for target in actionTargets { appState.moveObject(id: target.id, to: folder.id) }
-                    }
-                }
-            } label: {
-                Label(
-                    actionTargets.count > 1 ? "Move \(actionTargets.count) Items to Folder" : "Move to Folder",
-                    systemImage: "folder.badge.gearshape"
-                )
-            }
+            // (Flat Move submenu removed — Drive-style Move… picker below.)
         }
         Divider()
         // Library membership is opt-in for ambiguous formats (PDF/TXT/MD) so

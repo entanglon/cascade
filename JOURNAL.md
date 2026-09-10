@@ -2,9 +2,44 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Arrow nav for Transfers/Shared + no-swallow rule (Round 229).
+> 2026-09-10 (evening) — Drive-style Move picker, folder menu parity (Round 230).
 
 ---
+
+## 2026-09-10 (evening) — Drive-style Move picker, folder menu parity (Round 230)
+
+User review: (1) Move-to-Folder submenu unusable with many folders — want
+Drive flow (Move → pick folder → paste), (2) no Copy option, Move/Copy
+missing for folders, (3) folders missing Share and much more.
+
+### Audit (all confirmed)
+- Move submenu: flat list of every folder (the complaint verbatim).
+- No Duplicate/Copy anywhere on Mac (iOS-only `duplicateFile`).
+- Folders lacked: Move, Duplicate, Share (engine walks folders since item
+  168 — UI-gated only), Favorite, Export. Correctly file-only: Quick Look,
+  Fullscreen, Subtitles, Open externally, Download, Playlists, Library,
+  Version History.
+
+### What changed
+- `AppState.movePickerTargets` + `MoveDestinationSheet`
+  (`Features/FileBrowserView.swift`): breadcrumb + drill-down folder tree,
+  inline New Folder, Move-here confirmation for the current location
+  (disabled when a single item already lives there). Excludes targets +
+  descendants (cycle-safe) + trashed.
+- `AppState.createFolder(named:parentID:isPrivate:)` (explicit parent; mime
+  follows section) + `duplicateObjects(_:)` (server-side record + chunk-row
+  clones, "Name Copy.ext" via `uniqueObjectName`; no undo — tombstones clear
+  chunks so redo couldn't restore; shared-chunk caveat documented).
+- `FileItemContextMenu` restructured: Share + Export ungated to folders,
+  Move… + Duplicate added (files + folders), Favorite ungated, flat Move
+  submenu deleted.
+- Tests: `duplicateObjectsClonesRecordAndChunks` (record + chunk clone,
+  message sharing, fresh row IDs).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: Move… picker flow, folder Share/
+  Duplicate/Favorite/Export, no regressions in file menus.
 
 ## 2026-09-10 (evening) — Arrow nav for Transfers/Shared + no-swallow rule (Round 229)
 

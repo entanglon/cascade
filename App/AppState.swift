@@ -94,6 +94,9 @@ final class AppState {
     /// group share) — lets the "Share Link Ready" sheet word itself correctly.
     var shareResultFileCount = 1
     var isSharingFile = false
+    /// Targets staged for the Drive-style move picker sheet (pick a
+    /// destination folder, confirm). Set from the Move menu action.
+    var movePickerTargets: [ObjectRecord]? = nil
     /// Targets queued for password-protected share link creation.
     var sharePasswordTargets: [ObjectRecord]? = nil
     /// Share link awaiting password unlock before import.
@@ -2091,9 +2094,102 @@ final class AppState {
         }
     }
 
+    /// Folder creation under an EXPLICIT parent (the move picker sheet's New
+    /// Folder), mirroring createFolder/createPrivateFolder exactly (mime
+    /// follows the section). Returns the new folder's ID for navigation.
     @MainActor
-    func moveToFolder(_ file: ObjectRecord, _ folderID: String?) {
-        moveObject(id: file.id, to: folderID)
+    func createFolder(named name: String, parentID: String?, isPrivate: Bool) async -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let vault = try? await DatabaseManager.shared.firstVault()
+        let folder = ObjectRecord(
+            id: UUID().uuidString,
+            vaultID: vault?.id ?? "local",
+            name: trimmed,
+            size: 0,
+            mime: isPrivate ? "cascade/private-folder" : "cascade/folder",
+            state: "ready",
+            rootHash: nil,
+            wrappedKey: nil,
+            createdAt: .now,
+            modifiedAt: .now,
+            isFavorite: false,
+            trashed: false,
+            parentID: parentID,
+            isFolder: true,
+            isPrivate: isPrivate
+        )
+        try? await DatabaseManager.shared.save(folder)
+        syncObjectMetadataToTelegram(folder)
+        await self.loadFiles()
+        registerUndo(isPrivate ? "Create Private Folder" : "Create Folder") {
+            try? await DatabaseManager.shared.deleteObjectWithChunks(id: folder.id)
+            await self.loadFiles()
+        } redo: {
+            try? await DatabaseManager.shared.save(folder)
+            await self.loadFiles()
+        }
+        return folder.id
+    }
+
+    /// Finder "Duplicate": server-side copies sharing the source's chunk
+    /// messages (no re-upload — same design as the iOS duplicate). Folder
+    /// copies are shallow (children stay put), matching iOS. NOTE: copies
+    /// share chunk messages with the source — deleting one copy's vault
+    /// messages orphans the other (same caveat as iOS; a byte-independent
+    /// deep copy would re-upload instead). No undo (chunk rows are cleared
+    /// on tombstone, so redo could not restore them).
+    @MainActor
+    func duplicateObjects(_ targets: [ObjectRecord]) {
+        Task {
+            do {
+                for original in targets {
+                    guard let source = try await DatabaseManager.shared.object(original.id) else { continue }
+                    let (base, ext): (String, String) = {
+                        if source.isFolder { return (source.name, "") }
+                        if let dot = source.name.lastIndex(of: ".") {
+                            return (String(source.name[..<dot]), String(source.name[dot...]))
+                        }
+                        return (source.name, "")
+                    }()
+                    let name = (try? await DatabaseManager.shared.uniqueObjectName(
+                        base: "\(base) Copy\(ext)", parentID: source.parentID
+                    )) ?? "\(base) Copy\(ext)"
+                    let copy = ObjectRecord(
+                        id: UUID().uuidString,
+                        vaultID: source.vaultID,
+                        name: name,
+                        size: source.size,
+                        mime: source.mime,
+                        state: source.state,
+                        rootHash: source.rootHash,
+                        wrappedKey: source.wrappedKey,
+                        createdAt: .now,
+                        modifiedAt: .now,
+                        isFavorite: false,
+                        trashed: false,
+                        parentID: source.parentID,
+                        isFolder: source.isFolder,
+                        isPrivate: source.isPrivate,
+                        isArchived: source.isArchived
+                    )
+                    try await DatabaseManager.shared.save(copy)
+                    if !source.isFolder {
+                        for chunk in (try? await DatabaseManager.shared.chunks(for: source.id)) ?? [] {
+                            var cloned = chunk
+                            cloned.id = UUID().uuidString
+                            cloned.objectID = copy.id
+                            cloned.createdAt = .now
+                            try await DatabaseManager.shared.save(cloned)
+                        }
+                    }
+                    syncObjectMetadataToTelegram(copy)
+                }
+                await self.loadFiles()
+            } catch {
+                self.notify(title: "Couldn't duplicate", message: error.localizedDescription, kind: .error)
+            }
+        }
     }
 
     func isFolderPrivate(_ folderID: String?) -> Bool {
@@ -2286,7 +2382,9 @@ final class AppState {
         }
     }
 
-    private func isDescendant(_ candidate: String, of ancestor: String) -> Bool {
+    /// True when `candidate` sits inside `ancestor`'s subtree (cycle guard for
+    /// moves and the move picker — a folder can never land in itself).
+    func isDescendant(_ candidate: String, of ancestor: String) -> Bool {
         var current: String? = candidate
         while let cur = current {
             if cur == ancestor { return true }

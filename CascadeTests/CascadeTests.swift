@@ -471,8 +471,60 @@ struct CascadeTests {
         #expect(empty.count == 0 && empty.batchBytes == 0)
     }
 
-    @Test func transferInfoCloudPathBuildsBreadcrumbs() async throws {
-        // objects.vaultID has an enforced FK — stage a vault first (the
+    @Test func duplicateObjectsClonesRecordAndChunks() async throws {
+        // Finder Duplicate: new record ("Name Copy.ext") + cloned chunk rows
+        // pointing at the same vault messages (no re-upload). Vault staged
+        // first (objects.vaultID FK is enforced).
+        let account = AccountRecord(
+            id: "acc-test-dup", telegramUserID: 999996,
+            displayName: "Dup User", state: "ready", createdAt: Date()
+        )
+        let vault = VaultRecord(
+            id: "vault-test-dup", accountID: account.id, channelID: 999996,
+            name: "Dup Vault", wrappedKey: Data(), createdAt: Date()
+        )
+        try await DatabaseManager.shared.save(account)
+        try await DatabaseManager.shared.save(vault)
+        let file = ObjectRecord(
+            id: "obj-dup-file", vaultID: vault.id, name: "Report.pdf", size: 200,
+            mime: "application/pdf", state: "ready",
+            createdAt: Date(), modifiedAt: Date()
+        )
+        try await DatabaseManager.shared.save(file)
+        for (i, msg) in [111, 222].enumerated() {
+            try await DatabaseManager.shared.save(ChunkRecord(
+                id: "chunk-dup-\(i)", objectID: file.id, index: i, size: 100,
+                plainHash: nil, cipherHash: nil, state: "uploaded",
+                messageID: Int64(msg), fileUniqueID: nil, channelID: -100, createdAt: Date()
+            ))
+        }
+        let appState = await AppState()
+        await appState.duplicateObjects([file])
+        var copy: ObjectRecord?
+        for _ in 0..<100 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            let all = try await DatabaseManager.shared.allObjects()
+            if let found = all.first(where: { $0.name == "Report Copy.pdf" }) {
+                copy = found
+                break
+            }
+        }
+        guard let copy else {
+            Issue.record("duplicate copy never materialized")
+            try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
+            return
+        }
+        #expect(copy.id != file.id)
+        #expect(copy.parentID == file.parentID)
+        #expect(copy.size == file.size)
+        let copyChunks = try await DatabaseManager.shared.chunks(for: copy.id)
+        #expect(copyChunks.count == 2, "chunk rows cloned, not just the record")
+        #expect(Set(copyChunks.compactMap(\.messageID)) == [111, 222], "clones reference the same vault messages")
+        #expect(!copyChunks.map(\.id).contains { $0.hasPrefix("chunk-dup-") }, "clones get fresh row IDs")
+        try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
+    }
+
+    @Test func transferInfoCloudPathBuildsBreadcrumbs() async throws {        // objects.vaultID has an enforced FK — stage a vault first (the
         // history test's pattern), torn down at the end.
         let account = AccountRecord(
             id: "acc-test-path", telegramUserID: 999997,

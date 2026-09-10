@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 229 — arrow nav for Transfers/Shared, no-swallow rule. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 230 — Drive-style Move picker, folder menu parity. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4325,6 +4325,13 @@ Open levers (not scheduled):
      (`Features/FileBrowserView.swift`, `Features/TransfersView.swift`, `Features/ShareManagerView.swift`)
      - Root cause: browser arrow closure always consumed, even with empty list — could starve page monitors by fire order. `keyNav`/`navShare`/`navTransfer` return Bool; unhandled events flow.
      - Transfers gains full arrow nav (flat order, row-step grid, scroll, Escape clears); Shared hardened (hitTest nil).
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 230. **Drive Move picker + folder menu parity (2026-09-10 evening — COMMITTED)**
+     (`App/AppState.swift`, `Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
+     - `MoveDestinationSheet` (breadcrumb drill-down, inline New Folder, Move-here; cycle-safe) replaces the flat submenu; `movePickerTargets` trigger.
+     - `createFolder(named:parentID:isPrivate:)` + `duplicateObjects(_:)` (server-side clones, "Name Copy.ext", no undo); `isDescendant` internal.
+     - Menu: Share/Export/Favorite ungated to folders; Move…/Duplicate added; flat submenu deleted. File-only stays file-only.
+     - Test: `duplicateObjectsClonesRecordAndChunks`.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 
