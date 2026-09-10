@@ -229,6 +229,30 @@ struct CascadeTests {
         #expect(FileBrowserView.gridVerticalStep(current: 5, delta: -1, files: files, cols: 4) == 4)
     }
 
+    @Test func gridVerticalNavigationUsesFullWidthFolderRows() {
+        // Regression (Round 211): folders share the files grid's column count
+        // since Round 208 — the old min(cols, 4) cap mis-mapped rows on wide
+        // windows. 5 folders at 6 columns = ONE row; down from folder-0 must
+        // land on the first file, not wrap into a phantom second folder row.
+        var files: [ObjectRecord] = []
+        for i in 0..<5 {
+            files.append(ObjectRecord(
+                id: "folder-\(i)", vaultID: "v", name: "Folder \(i)", size: 0, mime: "",
+                state: "ready", createdAt: Date(), modifiedAt: Date(), isFolder: true
+            ))
+        }
+        for i in 0..<6 {
+            files.append(ObjectRecord(
+                id: "file-\(i)", vaultID: "v", name: "File \(i)", size: 100,
+                mime: "text/plain", state: "ready",
+                createdAt: Date(), modifiedAt: Date()
+            ))
+        }
+        #expect(FileBrowserView.gridVerticalStep(current: 0, delta: 1, files: files, cols: 6) == 5)
+        #expect(FileBrowserView.gridVerticalStep(current: 5, delta: -1, files: files, cols: 6) == 0)
+        #expect(FileBrowserView.gridVerticalStep(current: 4, delta: 1, files: files, cols: 6) == 9)
+    }
+
     @Test func importUniqueNameAppendsFinderStyleSuffix() {
         // Free name → unchanged.
         #expect(ShareEngine.uniqueName("Report.pdf", taken: ["Other.pdf"]) == "Report.pdf")

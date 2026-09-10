@@ -2,9 +2,52 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Square tile containers + section headings removed (Round 210).
+> 2026-09-09 (evening) — Names never bold, list view restyle + expandable folders, column-nav fix, glass selection (Round 211).
 
 ---
+
+## 2026-09-09 (evening) — Names never bold, list view restyle + expandable folders, column-nav fix, glass selection (Round 211)
+
+User asked for four things: (1) names must not go bold when selected,
+(2) list view gets the same treatment + expandable folders with nested
+lists, (3) column navigation is broken — fix it, (4) liquid glass selection
+highlight.
+
+### 1. Names never bold
+- Removed `isSelected ? .semibold` from grid tile names (folders + files)
+  and list row names — always regular/medium now.
+
+### 2. List view restyle + Finder-style expandable folders
+- Rows now match the tiles: `AppleFolderIcon` (36×28) for all folders,
+  32pt thumbs for files, no menu button (grid-level right-click covers it),
+  no hover wash, name always medium, trailing pin/private badges kept.
+- Expandable folders: disclosure chevron (only when the folder has children)
+  inlines the real contents recursively with 20pt indent per level —
+  `visibleListNodes` (record + depth) drives rendering AND arrow-key order so
+  the two never disagree. `nestedChildren(of:)` mirrors page semantics
+  (trash/archived/private rules), folders-first by name, cycle-guarded.
+  Expansion is session-local; grid view never inlines.
+
+### 3. Column navigation — root cause + fix
+- Round 208 unified both grids to the same column count, but
+  `gridVerticalStep` still laid folders out at `min(cols, 4)` — on any window
+  wider than 4 columns every up/down press mis-mapped rows. One-line fix
+  (`folderCols = cols`) + stale comments updated + new regression test
+  (`gridVerticalNavigationUsesFullWidthFolderRows`: 5 folders at 6 cols =
+  one row; down lands on the first file).
+
+### 4. Liquid glass selection
+- Tiles: selection is now a non-interactive liquid glass card tinted with
+  accent (`.regular` in a 16pt rounded rect hugging the square — display
+  only, taps pass through, no hit-test risk). Selected ring removed (glass
+  carries it); drop-target ring stays.
+- List rows: same glass card treatment (10pt rounded rect).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**
+  (incl. the new nav regression test).
+- Debug app relaunched — user to verify: arrows in grid + expanded list,
+  chevron expand/collapse, glass selection in both modes.
 
 ## 2026-09-09 (evening) — Square tile containers + section headings removed (Round 210)
 

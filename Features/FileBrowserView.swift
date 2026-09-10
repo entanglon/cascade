@@ -30,6 +30,9 @@ struct FileBrowserView: View {
     @State private var itemFrames: [String: CGRect] = [:]
     @State private var marqueeStart: CGPoint?
     @State private var marqueeCurrent: CGPoint?
+    /// Finder-style list expansion: folder IDs whose children render nested
+    /// below them in list view (session-local; grid view never inlines).
+    @State private var expandedFolderIDs = Set<String>()
     /// Set whenever keyboard navigation changes the selection; the grid/list
     /// scroll to this item so arrow navigation never leaves it off-screen.
     @State private var scrollTargetID: String?
@@ -1034,6 +1037,75 @@ struct FileBrowserView: View {
         visibleFiles.filter { !$0.isFolder }
     }
 
+    /// One visible list row: the record plus its Finder-style nesting depth.
+    private struct ListNode: Identifiable {
+        let file: ObjectRecord
+        let depth: Int
+        var id: String { file.id }
+    }
+
+    /// Flat visible order for list view: top-level folders (with expanded
+    /// subtrees inlined beneath their parents), then top-level files. Drives
+    /// both rendering and arrow-key navigation so the two never disagree.
+    private var visibleListNodes: [ListNode] {
+        var nodes: [ListNode] = []
+        var visited = Set<String>()
+        for folder in currentFolders {
+            nodes.append(ListNode(file: folder, depth: 0))
+            appendChildNodes(parentID: folder.id, depth: 1, to: &nodes, visited: &visited)
+        }
+        for file in currentFiles {
+            nodes.append(ListNode(file: file, depth: 0))
+        }
+        return nodes
+    }
+
+    private func appendChildNodes(parentID: String, depth: Int, to nodes: inout [ListNode], visited: inout Set<String>) {
+        // Cycle-safe: a corrupt parent graph must never recurse forever.
+        guard expandedFolderIDs.contains(parentID), !visited.contains(parentID) else { return }
+        visited.insert(parentID)
+        for kid in nestedChildren(of: parentID) {
+            nodes.append(ListNode(file: kid, depth: depth))
+            if kid.isFolder {
+                appendChildNodes(parentID: kid.id, depth: depth + 1, to: &nodes, visited: &visited)
+            }
+        }
+    }
+
+    /// A folder's real contents for inline expansion: ready items, trashed
+    /// iff on the Trash page, archived hidden except on Archive, private
+    /// matching the page (vault-only in the vault). Folders first, then files,
+    /// by name — Finder order within each level.
+    private func nestedChildren(of parentID: String) -> [ObjectRecord] {
+        let pool = appState.files.filter { $0.state == "ready" && $0.parentID == parentID }
+        let trashedOK = appState.selectedDestination == .trash
+        let showArchived = appState.selectedDestination == .archive
+        let kids = pool.filter { kid in
+            guard kid.trashed == trashedOK else { return false }
+            guard showArchived || !kid.isArchived else { return false }
+            switch appState.selectedDestination {
+            case .privateVault:
+                return kid.isPrivate
+            case .library, .archive, .trash, .recent:
+                return true
+            default:
+                return !kid.isPrivate
+            }
+        }
+        return kids.sorted {
+            if $0.isFolder != $1.isFolder { return $0.isFolder }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func toggleExpand(_ id: String) {
+        if expandedFolderIDs.contains(id) {
+            expandedFolderIDs.remove(id)
+        } else {
+            expandedFolderIDs.insert(id)
+        }
+    }
+
     private var gridView: some View {
         if appState.selectedDestination == .photos {
             return AnyView(
@@ -1147,31 +1219,21 @@ struct FileBrowserView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                if !currentFolders.isEmpty {
-                    LazyVStack(spacing: 4) {
-                        ForEach(currentFolders) { folder in
-                            FileListRow(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
-                                .onTapGesture(count: 2) { open(folder) }
-                                .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
-                                .contextMenu { menu(for: folder) }
-                                .onDrag { dragProvider(for: folder) }
-                                .reportGridFrame(id: folder.id)
-                        }
-                    }
-                }
-
-                if !currentFiles.isEmpty {
-                    LazyVStack(spacing: 4) {
-                        ForEach(currentFiles) { file in
-                            FileListRow(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
-                                .onTapGesture(count: 2) { open(file) }
-                                .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
-                                .contextMenu { menu(for: file) }
-                                .onDrag { dragProvider(for: file) }
-                                .reportGridFrame(id: file.id)
-                        }
-                    }
+            LazyVStack(spacing: 4) {
+                ForEach(visibleListNodes, id: \.file.id) { node in
+                    FileListRow(
+                        file: node.file,
+                        isSelected: appState.selectedFiles.contains(node.file.id),
+                        depth: node.depth,
+                        isExpanded: expandedFolderIDs.contains(node.file.id),
+                        hasChildren: node.file.isFolder && !nestedChildren(of: node.file.id).isEmpty,
+                        onToggleExpand: { toggleExpand(node.file.id) }
+                    )
+                        .onTapGesture(count: 2) { open(node.file) }
+                        .simultaneousGesture(TapGesture(count: 1).onEnded { select(node.file) })
+                        .contextMenu { menu(for: node.file) }
+                        .onDrag { dragProvider(for: node.file) }
+                        .reportGridFrame(id: node.file.id)
                 }
             }
             .padding(.horizontal, 24)
@@ -1318,6 +1380,11 @@ struct FileBrowserView: View {
         if mediaGridActive {
             return appState.mediaOrderedIDs.compactMap { id in appState.files.first(where: { $0.id == id }) }
         }
+        // List view walks the visible flattened order (expanded subtrees
+        // inline); grid view walks folders-then-files.
+        if viewModeRaw == "list" {
+            return visibleListNodes.map { $0.file }
+        }
         return currentFolders + currentFiles
     }
 
@@ -1354,11 +1421,12 @@ struct FileBrowserView: View {
         category: "keynav"
     )
 
-    /// Row-aware up/down navigation for the two-section grid (folder row(s) with up to
-    /// 4 columns, then a full-width files grid). Moves to the item in the same column of
-    /// the next/previous row — so going down from a folder selects the file directly
-    /// beneath it (or the folder below, when a second folder row exists), instead of
-    /// jumping by a fixed column count that lands on the wrong row.
+    /// Row-aware up/down navigation for the stacked grids (folders grid, then
+    /// files grid — both at the same column count since Round 208). Moves to
+    /// the item in the same column of the next/previous row — so going down
+    /// from a folder selects the file directly beneath it (or the folder
+    /// below, when a second folder row exists), instead of jumping by a fixed
+    /// column count that lands on the wrong row.
     private func gridVerticalNavigation(current: Int, delta: Int, files: [ObjectRecord]) -> Int {
         FileBrowserView.gridVerticalStep(current: current, delta: delta, files: files, cols: mediaGridActive ? mediaColumnCount : columnCount)
     }
@@ -1367,7 +1435,10 @@ struct FileBrowserView: View {
     /// navigable list (folders first, then files). Returns the flat index to select.
     static func gridVerticalStep(current: Int, delta: Int, files: [ObjectRecord], cols: Int) -> Int {
         let cols = max(2, cols)
-        let folderCols = min(cols, 4)
+        // Folders and files share one column count (Round 208 unified the two
+        // grids — the old min(cols, 4) folder cap mis-mapped rows on wide
+        // windows and broke up/down navigation).
+        let folderCols = cols
         let folderCount = files.prefix { $0.isFolder }.count
         let folderRows = folderCount == 0 ? 0 : (folderCount + folderCols - 1) / folderCols
 
@@ -2422,7 +2493,7 @@ struct FileGridItem: View {
             .frame(width: 132, height: 132)
             .background(squareHighlight)
             .overlay {
-                if isSelected || dropTargeted {
+                if dropTargeted {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(XTheme.accent, lineWidth: 1.5)
                 }
@@ -2431,7 +2502,7 @@ struct FileGridItem: View {
 
             VStack(spacing: 2) {
                 Text(file.name)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(XTheme.textPrimary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -2579,7 +2650,7 @@ struct FileGridItem: View {
             .frame(width: 132, height: 132)
             .background(squareHighlight)
             .overlay {
-                if isSelected || dropTargeted {
+                if dropTargeted {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(XTheme.accent, lineWidth: 1.5)
                 }
@@ -2588,7 +2659,7 @@ struct FileGridItem: View {
 
             VStack(spacing: 2) {
                 Text(file.name)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(XTheme.textPrimary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -2609,11 +2680,16 @@ struct FileGridItem: View {
         .contentShape(Rectangle())
     }
 
-    /// Finder-style selection wash: fills the tile's square container only
-    /// (never the column). Quiet when unselected — no hover state.
+    /// Liquid glass selection card: fills the tile's square container when
+    /// selected (non-interactive glass — display only, taps pass through to
+    /// the tile). Quiet when unselected — no hover state.
+    @ViewBuilder
     private var squareHighlight: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(isSelected ? XTheme.accent.opacity(0.18) : Color.clear)
+        if isSelected {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(XTheme.accent.opacity(0.10))
+                .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
+        }
     }
 
     /// Pin / private status badges, pinned to the thumbnail zone's top-trailing
@@ -2734,8 +2810,14 @@ struct FileListRow: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
     let isSelected: Bool
-    @Binding var renameTarget: ObjectRecord?
-    @Binding var renameText: String
+    /// Nesting depth for Finder-style expandable folders (indent per level).
+    var depth: Int = 0
+    /// Whether this folder's children are currently shown.
+    var isExpanded: Bool = false
+    /// Whether this folder has children to show (chevron hidden when none).
+    var hasChildren: Bool = false
+    /// Toggle handler for the disclosure chevron (folders with children only).
+    var onToggleExpand: (() -> Void)? = nil
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var thumbURL: URL? = nil
@@ -2748,11 +2830,24 @@ struct FileListRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
+            if file.isFolder, hasChildren {
+                Button {
+                    onToggleExpand?()
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(XTheme.textTertiary)
+                        .frame(width: 16, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
             rowIcon
 
             Text(file.name)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(XTheme.textPrimary)
                 .lineLimit(1)
 
@@ -2775,38 +2870,21 @@ struct FileListRow: View {
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textTertiary)
                 .frame(width: 100, alignment: .trailing)
-
-            Menu {
-                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.10))
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(width: 24, height: 24)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .contentShape(Circle())
-            }
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14)
+        .padding(.leading, 14 + CGFloat(depth) * 20)
+        .padding(.trailing, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(
-                    isSelected ? XTheme.accent.opacity(0.18)
-                    : hovering ? Color.white.opacity(0.04)
-                    : Color.clear
-                )
-        )
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(XTheme.accent.opacity(0.10))
+                    .glassEffect(.regular, in: .rect(cornerRadius: 10, style: .continuous))
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(isSelected ? XTheme.accent.opacity(0.5) : .clear, lineWidth: 1)
+                .strokeBorder(dropTargeted ? XTheme.accent : .clear, lineWidth: 1.5)
         )
         .overlay {
             // Reveal-in-folder flash: a Finder-style ring that fades in (scaling up
@@ -2921,27 +2999,11 @@ struct FileListRow: View {
     @ViewBuilder
     private var rowIcon: some View {
         if file.isFolder {
-            if file.mime == "cascade/playlist-audio" {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(XTheme.accent)
-                    .frame(width: 32, height: 32)
-            } else if file.mime == "cascade/playlist-video" {
-                Image(systemName: "film.stack")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(XTheme.categoryCyan)
-                    .frame(width: 32, height: 32)
-            } else if file.mime == "cascade/album-photo" {
-                Image(systemName: "photo.stack.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(XTheme.categoryPink)
-                    .frame(width: 32, height: 32)
-            } else {
-                Image(systemName: file.isPrivate ? "number" : "folder.fill")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
-                    .frame(width: 32, height: 32)
-            }
+            // Same vector folder as the grid tiles (list size) — private
+            // folders read blue here too; the trailing `#` badge carries it.
+            AppleFolderIcon(width: 36, height: 28)
+                .shadow(color: .black.opacity(0.15), radius: 1.5, x: 0, y: 1)
+                .frame(width: 36, height: 32)
         } else if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
             Image(nsImage: ns)
                 .resizable()

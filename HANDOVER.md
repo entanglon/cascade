@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 210 — square 132pt tile containers with centered content, Folders/Files headings removed in grid + list + skeleton. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 211 — names never bold, list rows restyled + expandable folders, column-nav root-cause fix (stale 4-col folder cap), liquid glass selection. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4210,6 +4210,13 @@ Open levers (not scheduled):
      (`Features/FileBrowserView.swift`)
      - Icon zones now fixed 132×132 squares, content centered with padding; selection wash + ring hug the square, labels below outside it. Tiles are 140pt blocks centered in flexible cells — uniform square rhythm. Thumbs aspect-fit (≤132×100) inside the square, never cropped.
      - "Folders"/"Files" headings removed in grid view, list view, and skeleton (dead `skeletonBar` deleted): folders on top, files below, no titles, everywhere.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
+ 211. **Names never bold + list restyle/expand + nav fix + glass selection (2026-09-09 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
+     - Names always regular/medium (grid tiles + list rows). Rows restyled to match tiles: vector folder icon, no menu button, no hover wash, trailing badges kept.
+     - Expandable folders in list view: disclosure chevrons inline real contents recursively (20pt/level), `visibleListNodes` drives rendering + arrow order, page-mirroring child filter, cycle-guarded, session-local.
+     - Column-nav root cause: `gridVerticalStep` still used the pre-Round-208 `min(cols,4)` folder cap → one-line fix + `gridVerticalNavigationUsesFullWidthFolderRows` regression test.
+     - Selection is now non-interactive liquid glass (accent-tinted) on tiles + rows; selected ring removed, drop-target ring stays.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
 
 
