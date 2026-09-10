@@ -177,6 +177,9 @@ struct SettingsView: View {
                         .foregroundStyle(.white)
                 }
             }
+            // The fallback branch above has no intrinsic size — without this
+            // frame the Circle expands to fill the row (the giant avatar bug).
+            .frame(width: 48, height: 48)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayName)
@@ -517,14 +520,15 @@ struct SettingsView: View {
     // MARK: - Storage Dashboard (Wave 2 item 6)
 
     /// Top folders by RECURSIVE subtree bytes (a parent shows its whole tree's
-    /// weight), heaviest first.
+    /// weight), heaviest first. Zero-byte folders are noise, not signal —
+    /// hidden (the empty state covers the all-empty case).
     private var dashboardFolders: [(folder: ObjectRecord, bytes: Int64)] {
         let sizes = StorageDashboard.folderSubtreeSizes(appState.files)
         let byID = Dictionary(appState.files.filter(\.isFolder).map { ($0.id, $0) },
                               uniquingKeysWith: { a, _ in a })
         return sizes
             .compactMap { id, bytes -> (folder: ObjectRecord, bytes: Int64)? in
-                guard let folder = byID[id] else { return nil }
+                guard let folder = byID[id], bytes > 0 else { return nil }
                 return (folder, bytes)
             }
             .sorted { $0.bytes > $1.bytes }
@@ -548,10 +552,12 @@ struct SettingsView: View {
                 Text("TOP FOLDERS")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.4))
-                    .padding(.bottom, 2)
+                    .tracking(0.6)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
 
                 if dashboardFolders.isEmpty {
-                    Text("No folders yet")
+                    Text("Nothing stored yet")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.45))
                         .padding(.vertical, 8)
@@ -567,19 +573,21 @@ struct SettingsView: View {
                     }
                 }
 
-                settingsDivider.padding(.vertical, 6)
+                settingsDivider.padding(.vertical, 10)
 
                 // Largest files across the vault.
                 Text("LARGEST FILES")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.4))
-                    .padding(.bottom, 2)
+                    .tracking(0.6)
+                    .padding(.bottom, 4)
 
                 if dashboardLargestFiles.isEmpty {
                     Text("No files yet")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.45))
                         .padding(.vertical, 8)
+                        .padding(.bottom, 8)
                 } else {
                     ForEach(dashboardLargestFiles) { file in
                         usageRow(
@@ -591,6 +599,8 @@ struct SettingsView: View {
                             showBar: false
                         )
                     }
+                    Spacer(minLength: 0)
+                        .frame(height: 8)
                 }
             }
         }
@@ -604,7 +614,9 @@ struct SettingsView: View {
         return "doc"
     }
 
-    /// One dashboard row: icon · name · thin usage bar · size + share-of-vault.
+    /// One dashboard row: icon · name · right-aligned size + share-of-vault,
+    /// with a full-width 6pt usage track underneath (folders only — file rows
+    /// stay single-line). Comfortable vertical rhythm, aligned value column.
     private func usageRow(
         icon: String,
         tint: Color,
@@ -614,32 +626,38 @@ struct SettingsView: View {
         showBar: Bool = true
     ) -> some View {
         let fraction = total > 0 ? Double(bytes) / Double(total) : 0
-        return HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 18)
-            Text(name)
-                .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 8)
-            if showBar {
-                Capsule()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(width: 56, height: 4)
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(tint.opacity(0.9))
-                            .frame(width: max(3, 56 * fraction))
-                    }
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 20)
+                Text(name)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text("\(XTheme.formatBytes(bytes)) · \(Int((fraction * 100).rounded()))%")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 128, alignment: .trailing)
             }
-            Text("\(XTheme.formatBytes(bytes)) · \(Int((fraction * 100).rounded()))%")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white)
+            if showBar {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(Color.white.opacity(0.08))
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(tint.opacity(0.9))
+                                .frame(width: max(fraction > 0 ? 6 : 0, geo.size.width * fraction))
+                        }
+                }
+                .frame(height: 6)
+                .padding(.leading, 30)
+            }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 9)
     }
 
     // MARK: - Local Storage

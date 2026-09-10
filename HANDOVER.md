@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 212 — list gutter alignment, instant chevron, sidebar sections + folder pins. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 213 — sidebar arrow focus, pin icons, avatar layout fix, dashboard restyle. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4223,6 +4223,13 @@ Open levers (not scheduled):
      - Gutter: every list row reserves the 24pt disclosure column (chevron or empty space) — expandable folders no longer shift right (Finder rule).
      - Chevron: was a Button inside the double-tap zone (taps waited out disambiguation) → extracted `FolderDisclosureChevron` with high-priority single-tap (instant, claims touch so it never opens); 24pt target.
      - Sidebar: Favorites / Collections / Vault / Pinned sections (was one flat LIBRARY list); Vault Storage row removed (lives in Settings); folder pins via `sidebarPinnedFolderIDs` + context-menu Pin/Unpin + `openSidebarPin` navigation honoring the vault gate.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
+ 213. **Sidebar arrows + pin icons + avatar fix + dashboard restyle (2026-09-09 evening — COMMITTED)**
+     (`App/AppState.swift`, `Features/FileBrowserView.swift`, `Features/SidebarView.swift`, `Features/SettingsView.swift`)
+     - `isSidebarFocused`: sidebar taps take arrow-key ownership (content stays cleared); content taps/marquee/open hand it back; `moveSidebarSelection` walks destinations then pins. Section arrays + `pinnedSidebarFolders` centralized on AppState/destination enum.
+     - Pin to Sidebar → `sidebar.left` / Unpin → `sidebar.left.slash` (was the download `pin` pair).
+     - Avatar: fallback Circle lacked a frame → giant blue H; fixed at 48pt (a bug, not normal).
+     - Dashboard: full-width 6pt tracks under name+value rows, aligned value column, roomier rhythm, zero-byte folders hidden ("Nothing stored yet" empty state).
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
 
 

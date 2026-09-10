@@ -42,6 +42,13 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
         case .trash: return "trash"
         }
     }
+
+    /// Finder-style sidebar groups (single source for SidebarView rendering
+    /// and arrow-key navigation order).
+    static let favoriteItems: [SidebarDestination] = [.allFiles, .recent, .favorites]
+    static let collectionItems: [SidebarDestination] = [.photos, .video, .audio, .documents, .library]
+    static let vaultItems: [SidebarDestination] = [.privateVault, .shared, .transfers, .archive, .trash]
+    static let displayOrder: [SidebarDestination] = favoriteItems + collectionItems + vaultItems
 }
 
 extension Notification.Name {
@@ -1376,6 +1383,45 @@ final class AppState {
         currentFolderID = folder.id
         searchText = ""
         selectedFiles.removeAll()
+    }
+
+    /// True while keyboard focus conceptually sits in the sidebar (last click
+    /// was a sidebar row). Up/down then moves the sidebar selection instead
+    /// of the content grid — any content tap/selection flips it back.
+    var isSidebarFocused = false
+
+    /// Pinned sidebar folders as live records (deleted/trashed pins vanish),
+    /// by name. Single source for the sidebar section and arrow navigation.
+    var pinnedSidebarFolders: [ObjectRecord] {
+        sidebarPinnedFolderIDs.compactMap { id in files.first(where: { $0.id == id }) }
+            .filter { $0.isFolder && !$0.trashed && $0.state == "ready" }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Moves the sidebar selection up/down through destinations (display
+    /// order) then pinned folders. Called by FileBrowserView.keyNav while
+    /// isSidebarFocused — content selection stays cleared.
+    @MainActor
+    func moveSidebarSelection(delta: Int) {
+        let pins = pinnedSidebarFolders
+        let orderCount = SidebarDestination.displayOrder.count
+        let current: Int? = {
+            if let currentID = currentFolderID,
+               (selectedDestination == .allFiles || selectedDestination == .privateVault),
+               let pinIdx = pins.firstIndex(where: { $0.id == currentID }) {
+                return orderCount + pinIdx
+            }
+            return SidebarDestination.displayOrder.firstIndex(of: selectedDestination)
+        }()
+        guard let current else { return }
+        let next = min(max(current + delta, 0), orderCount + pins.count - 1)
+        guard next != current else { return }
+        if next < orderCount {
+            selectDestination(SidebarDestination.displayOrder[next])
+        } else {
+            openSidebarPin(pins[next - orderCount])
+        }
+        isSidebarFocused = true
     }
 
     @MainActor

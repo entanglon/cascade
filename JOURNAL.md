@@ -2,9 +2,48 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — List gutter alignment, instant chevron, sidebar sections + folder pins (Round 212).
+> 2026-09-09 (evening) — Sidebar arrow focus, pin icons, avatar fix, dashboard restyle (Round 213).
 
 ---
+
+## 2026-09-09 (evening) — Sidebar arrow focus, pin icons, avatar fix, dashboard restyle (Round 213)
+
+User review with screenshots: (1) arrows after a sidebar click move content
+selection instead of the sidebar, (2) Pin-to-Sidebar and Keep Downloaded share
+an icon, (3) Settings avatar is giant — normal?, (4) Storage Dashboard looks bad.
+
+### 1. Sidebar arrow focus (`App/AppState.swift`, `Features/FileBrowserView.swift`, `Features/SidebarView.swift`)
+- New `isSidebarFocused` flag: sidebar taps set it, any content tap/open/
+  marquee clears it. `keyNav` routes up/down to `moveSidebarSelection` while
+  set (content selection stays cleared); left/right or content taps hand focus
+  back (the no-selection branch now also clears the flag).
+- `moveSidebarSelection` walks destinations in display order then pinned
+  folders (clamped); pins open via `openSidebarPin`. Section arrays moved onto
+  `SidebarDestination` as the single source for render + navigation;
+  `pinnedSidebarFolders` moved onto AppState for the same reason.
+
+### 2. Pin icons
+- Pin to Sidebar → `sidebar.left`, Unpin → `sidebar.left.slash` (was `pin` /
+  `pin.slash`, identical to Keep Downloaded). Kept distinct from the download
+  pin pair in both the folder menu and the pin row menu.
+
+### 3. Avatar — a layout bug, not normal (`Features/SettingsView.swift`)
+- The no-photo fallback `Circle()` had no frame, so it expanded to fill the
+  row (the giant blue H in the screenshot). Fixed with a 48pt frame matching
+  the photo branch.
+
+### 4. Storage Dashboard restyle (`Features/SettingsView.swift`)
+- Rows rebuilt: name + right-aligned value line over a full-width 6pt track
+  (was a 56×4 sliver), 9pt vertical rhythm, aligned monospaced value column,
+  letterspaced subheads, card breathing room.
+- Zero-byte folders hidden (noise, not signal); empty state reworded to
+  "Nothing stored yet". Largest-file rows stay single-line, no bar.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: sidebar arrows, pin icons (flag a
+  blank icon if `sidebar.left.slash` is missing on this OS), avatar size,
+  dashboard look.
 
 ## 2026-09-09 (evening) — List gutter alignment, instant chevron, sidebar sections + folder pins (Round 212)
 

@@ -1271,6 +1271,9 @@ struct FileBrowserView: View {
         DragGesture(minimumDistance: 3, coordinateSpace: .named("gridContent"))
             .onChanged { value in
                 if marqueeStart == nil {
+                    // A press that begins in the content (not on a card) moves
+                    // keyboard focus here from the sidebar.
+                    appState.isSidebarFocused = false
                     // Never start a marquee when the press began on a file card.
                     let beganOnItem = itemFrames.values.contains { $0.contains(value.startLocation) }
                     guard !beganOnItem else { return }
@@ -1328,6 +1331,7 @@ struct FileBrowserView: View {
     // MARK: - Actions
 
     private func open(_ file: ObjectRecord) {
+        appState.isSidebarFocused = false
         if file.isFolder {
             appState.openFolder(file)
         } else if file.isBook {
@@ -1396,6 +1400,14 @@ struct FileBrowserView: View {
     }
 
     private func keyNav(_ delta: Int, isVertical: Bool = false) {
+        // While the sidebar has focus (last click was a sidebar row), up/down
+        // moves the sidebar selection — content selection stays cleared.
+        // Left/right, or any content tap, hands focus back to the content.
+        if appState.isSidebarFocused, isVertical {
+            appState.moveSidebarSelection(delta: delta)
+            return
+        }
+        appState.isSidebarFocused = false
         let files = navigableFiles
         guard !files.isEmpty else { return }
         guard let current = files.firstIndex(where: { appState.selectedFiles.contains($0.id) }) else {
@@ -1474,6 +1486,7 @@ struct FileBrowserView: View {
     }
 
     private func select(_ file: ObjectRecord) {
+        appState.isSidebarFocused = false
         let isCmd = NSEvent.modifierFlags.contains(.command)
         if isCmd {
             if appState.selectedFiles.contains(file.id) {
@@ -1958,7 +1971,7 @@ struct FileItemContextMenu: View {
             } label: {
                 Label(
                     appState.sidebarPinnedFolderIDs.contains(file.id) ? "Unpin from Sidebar" : "Pin to Sidebar",
-                    systemImage: "pin"
+                    systemImage: appState.sidebarPinnedFolderIDs.contains(file.id) ? "sidebar.left.slash" : "sidebar.left"
                 )
             }
         }

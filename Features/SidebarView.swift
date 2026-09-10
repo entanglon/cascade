@@ -5,27 +5,16 @@ struct SidebarView: View {
     @Binding var selection: SidebarDestination
     @Environment(AppState.self) private var appState
 
-    /// Finder-style groups (iOS Browse mirrors the same vocabulary).
-    private static let favoriteItems: [SidebarDestination] = [.allFiles, .recent, .favorites]
-    private static let collectionItems: [SidebarDestination] = [.photos, .video, .audio, .documents, .library]
-    private static let vaultItems: [SidebarDestination] = [.privateVault, .shared, .transfers, .archive, .trash]
-
     /// Pinned folders, resolved to live records (deleted/trashed pins vanish).
-    private var pinnedFolders: [ObjectRecord] {
-        appState.sidebarPinnedFolderIDs.compactMap { id in
-            appState.files.first(where: { $0.id == id })
-        }
-        .filter { $0.isFolder && !$0.trashed && $0.state == "ready" }
-        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
+    private var pinnedFolders: [ObjectRecord] { appState.pinnedSidebarFolders }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    sidebarSection(title: "Favorites", items: Self.favoriteItems)
-                    sidebarSection(title: "Collections", items: Self.collectionItems)
-                    sidebarSection(title: "Vault", items: Self.vaultItems)
+                    sidebarSection(title: "Favorites", items: SidebarDestination.favoriteItems)
+                    sidebarSection(title: "Collections", items: SidebarDestination.collectionItems)
+                    sidebarSection(title: "Vault", items: SidebarDestination.vaultItems)
                     if !pinnedFolders.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             sectionHeader("Pinned")
@@ -62,6 +51,7 @@ struct SidebarView: View {
                         item: item,
                         isSelected: selection == item
                     ) {
+                        appState.isSidebarFocused = true
                         selection = item
                     }
                 }
@@ -93,6 +83,7 @@ struct PinnedFolderRow: View {
 
     var body: some View {
         Button {
+            appState.isSidebarFocused = true
             appState.openSidebarPin(folder)
         } label: {
             HStack(spacing: 10) {
@@ -131,7 +122,7 @@ struct PinnedFolderRow: View {
             Button {
                 appState.toggleSidebarPin(folder)
             } label: {
-                Label("Unpin from Sidebar", systemImage: "pin.slash")
+                Label("Unpin from Sidebar", systemImage: "sidebar.left.slash")
             }
         }
     }
