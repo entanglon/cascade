@@ -2,9 +2,35 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Unified Mac grid on the iOS/Finder tile system (Round 208).
+> 2026-09-09 (evening) — Tile chrome cleanup: menu buttons removed, hover effects removed, compact square tiles (Round 209).
 
 ---
+
+## 2026-09-09 (evening) — Tile chrome cleanup: menu buttons removed, hover effects removed, compact square tiles (Round 209)
+
+User review of Round 208: tiles still read as wide rectangular blocks; asked
+to (1) use square instead, (2) remove visible menu buttons, (3) remove hover
+effects.
+
+### What changed (`Features/FileBrowserView.swift` only)
+- Menu buttons removed from folder + file tiles — right-click / two-finger
+  tap opens the same `menu(for:)` context menu already wired at grid level,
+  like Finder. Pin/private status badges stay. Library poster cards keep
+  their menu button (explicit user-approved design, Round 40-era) — flagged
+  for confirmation, not changed.
+- Hover effects removed from tiles: the 1.02 zoom + hover wash are gone;
+  tiles are visually quiet until selected. Kept: selection wash + ring,
+  drop-target ring, and the multi-select drag count badge (mid-drag feedback
+  only, invisible at rest). List rows + book posters keep their existing
+  hover behavior (different elements, untouched).
+- Square tiles: each tile is now a fixed 132pt block centered in its flexible
+  cell instead of stretching full column width — the selection wash + ring hug
+  that compact block, Finder-style. Folder tiles land ~132×139 (near-square);
+  file tiles run taller (iOS-parity date + size lines kept by design).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to confirm the grid reads clean vs Finder.
 
 ## 2026-09-09 (evening) — Unified Mac grid on the iOS/Finder tile system (Round 208)
 

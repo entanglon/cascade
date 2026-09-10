@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 208 — Mac grid unified on the iOS/Finder tile system (ported AppleFolderIcon, vertical folder + floating-thumbnail file tiles, unified columns/spacing, reshaped skeletons). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 209 — tile chrome cleanup (menu buttons removed, hover effects removed, compact 132pt square-ish tiles). Read this first in any new chat before touching the code.
 
 ---
 
@@ -4200,6 +4200,12 @@ Open levers (not scheduled):
      - Ported `AppleFolderTabShape` + `AppleFolderIcon` from iOS verbatim (84×66, same gradients). `folderCard`: 54pt row card → vertical Finder tile (94pt icon zone, centered 2-line name, "N items"); private keeps red `#` badge; albums/playlists plain like iOS. `fileCard`: 115pt glass strip → floating aspect-fit thumb in 94pt zone (no more aspect-fill cropping) + iOS labels (name/date/size) + per-type placeholders with EXT captions.
      - Selection/hover now a Finder wash (accent tint + ring); badges + ellipsis moved to the thumb zone corner. Folder section uses the same column count as files (off-column nav quirk gone); both sections at iOS spacing (28/16). Skeletons reshaped to match. Untouched: posters, list rows, menus, drag-drop, rename, Photos/Videos pages, iOS app.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched — awaiting user visual check vs iPhone app + Finder.
+ 209. **Tile chrome cleanup: menu buttons + hover removed, compact square tiles (2026-09-09 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`)
+     - Menu buttons removed from folder/file tiles (grid-level right-click menu already covers it, Finder-style); pin/private badges stay; Library poster button kept (user-approved design — needs confirmation if it should go too).
+     - Hover zoom + wash removed (tiles quiet until selected); kept selection wash/ring, drop-target ring, mid-drag count badge. List rows + posters keep their hover behavior.
+     - Tiles now fixed 132pt blocks centered in flexible cells (wash + ring hug the block, Finder-style) instead of full-column-width rectangles.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
 
 
 

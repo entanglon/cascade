@@ -2371,8 +2371,6 @@ struct FileGridItem: View {
             }
         }
         .contentShape(Rectangle())
-        .scaleEffect(hovering ? 1.02 : 1.0)
-        .animation(.easeOut(duration: 0.12), value: hovering)
         .task(id: "\(file.id)-\(appState.thumbnailVersion)-\(appState.selectedDestination.rawValue)") {
             if file.isBook && appState.selectedDestination == .library {
                 coverURL = await ThumbnailService.shared.bookCoverURL(for: file)
@@ -2484,8 +2482,10 @@ struct FileGridItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
-        .contentShape(Rectangle())
+        // Compact square-ish tile: fixed 132pt block centered in the flexible
+        // cell (never a full-column-width rectangle). The selection wash and
+        // ring hug this block, Finder-style.
+        .frame(width: 132, alignment: .top)
         .background(tileHighlight)
         .overlay {
             if isSelected || dropTargeted {
@@ -2493,6 +2493,8 @@ struct FileGridItem: View {
                     .strokeBorder(XTheme.accent, lineWidth: 1.5)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .contentShape(Rectangle())
     }
 
     /// Library poster card: just the book cover in a clean 2:3 portrait frame.
@@ -2645,8 +2647,7 @@ struct FileGridItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
-        .contentShape(Rectangle())
+        .frame(width: 132, alignment: .top)
         .background(tileHighlight)
         .overlay {
             if isSelected || dropTargeted {
@@ -2654,17 +2655,21 @@ struct FileGridItem: View {
                     .strokeBorder(XTheme.accent, lineWidth: 1.5)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .contentShape(Rectangle())
     }
 
-    /// Finder-style selection/hover wash behind a tile (the tile itself has no
-    /// card background — the highlight carries selection state like Finder).
+    /// Finder-style selection wash behind a tile (hover wash removed — tiles
+    /// stay visually quiet until selected, like Finder icon view).
     private var tileHighlight: some View {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(isSelected ? XTheme.accent.opacity(0.18) : (hovering ? Color.white.opacity(0.08) : Color.clear))
+            .fill(isSelected ? XTheme.accent.opacity(0.18) : Color.clear)
     }
 
-    /// Pin / private badges + the card menu, pinned to the thumbnail zone's
-    /// top-trailing corner. Shared by folder and file tiles.
+    /// Pin / private status badges, pinned to the thumbnail zone's top-trailing
+    /// corner. The card menu button was removed (Round 209) — right-click /
+    /// two-finger tap opens the same menu, like Finder. Shared by folder and
+    /// file tiles.
     private var tileBadges: some View {
         HStack(spacing: 4) {
             if file.isPinned {
@@ -2681,23 +2686,6 @@ struct FileGridItem: View {
                     .padding(4)
                     .background(Circle().fill(XTheme.categoryRed))
             }
-
-            Menu {
-                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.black.opacity(0.55))
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 24, height: 24)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .contentShape(Circle())
-            }
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
         }
         .padding(6)
     }
