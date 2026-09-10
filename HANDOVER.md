@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 222 — arrow-key player volume, buffer ring with gate progress. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 223 — flux top bar + volume HUD. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4288,6 +4288,11 @@ Open levers (not scheduled):
      (`Features/MPVVideoView.swift`, `Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`)
      - `adjustPlayerVolume` (flux port, ±0.05 snapped); theater up/down (monitor + keyPress paths) drive player volume for video/audio, system fallback pre-core only.
      - `bufferRing` builder (64pt, gradient sweep, tabular %); `prebufferProgress` published during gate → ring fills on load ("Loading…"); stalls keep it ("Buffering…").
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 223. **Flux top bar + volume HUD (2026-09-10 evening — COMMITTED)**
+     (`Features/VideoPlaybackView.swift`)
+     - Arrow steps stay ±0.05 (flux-faithful; inaudible singly by design) + `showVolumeHUD`: display-only gauge pill flashes 1.8 s per change, re-armed, instant.
+     - PiP moved LEFT by Share (right duplicate deleted); fullscreen X removed (ESC/exit-toggle only); windowed X kept.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

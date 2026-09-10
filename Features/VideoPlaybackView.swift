@@ -374,6 +374,8 @@ struct PlayerControlsView: View {
     @State private var seekTarget: Double?
     @State private var isSharing = false
     @State private var showShareFeedback = false
+    @State private var volumeHUDVisible = false
+    @State private var volumeHUDTask: Task<Void, Never>?
 
     private let autoHideDelay: TimeInterval = 3.0
 
@@ -432,6 +434,17 @@ struct PlayerControlsView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
 
+            // Volume HUD (flux pattern): the gauge flashes center-screen for
+            // ~2 s whenever in-player volume changes (arrows, mute, gauge
+            // drag). Display-only — taps pass through to the toggle catcher.
+            if volumeHUDVisible {
+                VolumeGauge(mpv: mpv, gaugeWidth: 140)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+
             // Share feedback — brief glass pill under the top bar after the link
             // is created and copied.
             if showShareFeedback {
@@ -453,8 +466,13 @@ struct PlayerControlsView: View {
         .onAppear { showControls() }
         .onDisappear {
             hoverTimer?.invalidate()
+            volumeHUDTask?.cancel()
+            volumeHUDVisible = false
             // Never leave a hidden cursor behind when the player goes away.
             NSCursor.unhide()
+        }
+        .onChange(of: mpv.playerVolume) {
+            showVolumeHUD()
         }
         .onChange(of: showExitWarning) { _, newValue in
             if newValue { showControls() }
@@ -503,15 +521,29 @@ struct PlayerControlsView: View {
             .buttonStyle(.plain)
             .help("Share")
 
+            // Picture-in-Picture lives on the LEFT (flux arrangement) — float
+            // the video in an always-on-top mini window. Meaningless inside
+            // the fullscreen window (it owns the layer), so windowed only.
+            if !isFullScreen {
+                Button(action: onPiP) {
+                    Image(systemName: "rectangle.bottomthird.inset.filled")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .playerHoverTint()
+                }
+                .buttonStyle(.plain)
+                .help(PictureInPictureWindow.shared.isActive ? "Exit Picture-in-Picture" : "Picture in Picture")
+            }
+
             // The file name + size live ONLY above the progress bar (bottom bar)
-            // — no duplicate title row up here. The X on the right closes the
-            // player, so there's no minimize chevron either.
+            // — no duplicate title row up here.
             Spacer()
 
-            // Volume pill — flux-style gauge: the slider section drives the
-            // SYSTEM output volume (keys, rockers, slider = one control, live
-            // both ways via @Bindable); dragging into the orange zone adds
-            // mpv-side boost for quiet sources (resets per track).
+            // Volume pill — flux-style gauge (in-player volume 0–200%,
+            // decoupled from the system device).
             VolumeGauge(mpv: mpv)
             .padding(.horizontal, 12)
             .frame(height: 36)
@@ -529,13 +561,12 @@ struct PlayerControlsView: View {
             .buttonStyle(.plain)
             .help(isFullScreen ? "Exit Full Screen" : "Full Screen")
 
-            // Picture-in-Picture — float the video in an always-on-top mini
-            // window. Meaningless from inside the fullscreen window (it owns
-            // the layer), so the button only appears in the theater player.
+            // No close button in fullscreen — ESC exits (the X stays in the
+            // windowed theater, which has a browser to return to).
             if !isFullScreen {
-                Button(action: onPiP) {
-                    Image(systemName: "rectangle.bottomthird.inset.filled")
-                        .font(.system(size: 13, weight: .semibold))
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.white.opacity(0.85))
                         .frame(width: 36, height: 36)
                         .contentShape(Circle())
@@ -543,20 +574,8 @@ struct PlayerControlsView: View {
                         .playerHoverTint()
                 }
                 .buttonStyle(.plain)
-                .help(PictureInPictureWindow.shared.isActive ? "Exit Picture-in-Picture" : "Picture in Picture")
+                .help("Close Player")
             }
-
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white.opacity(0.85))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .playerHoverTint()
-            }
-            .buttonStyle(.plain)
-            .help("Close Player")
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
@@ -905,6 +924,18 @@ struct PlayerControlsView: View {
         isControlsVisible = false
         if NSApp.isActive {
             NSCursor.setHiddenUntilMouseMoves(true)
+        }
+    }
+
+    /// Flashes the volume HUD for ~2 s, re-armed by every change (flux
+    /// `triggerVolumeHUD`). Instant on/off like the rest of the chrome.
+    private func showVolumeHUD() {
+        volumeHUDVisible = true
+        volumeHUDTask?.cancel()
+        volumeHUDTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            guard !Task.isCancelled else { return }
+            volumeHUDVisible = false
         }
     }
 
