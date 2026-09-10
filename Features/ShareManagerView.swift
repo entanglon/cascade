@@ -89,8 +89,8 @@ struct ShareManagerView: View {
                             if !publicShares.isEmpty {
                                 sectionHeader("Public")
                                 LazyVGrid(
-                                    columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                                    spacing: 12
+                                    columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                                    spacing: 28
                                 ) {
                                     ForEach(publicShares) { share in
                                         ShareGridCard(share: share, isSelected: selectedShareID == share.id) {
@@ -113,8 +113,8 @@ struct ShareManagerView: View {
                             if !privateShares.isEmpty {
                                 sectionHeader("Private")
                                 LazyVGrid(
-                                    columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                                    spacing: 12
+                                    columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                                    spacing: 28
                                 ) {
                                     ForEach(privateShares) { share in
                                         ShareGridCard(share: share, isSelected: selectedShareID == share.id) {
@@ -268,9 +268,9 @@ struct ShareManagerView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         HStack {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white.opacity(0.40))
             Spacer()
         }
         .padding(.horizontal, 24)
@@ -306,12 +306,12 @@ struct ShareManagerView: View {
     }
 }
 
-/// A share card identical in shape to the All Files cards: thumbnail area on
-/// top (the shared file's real thumbnail, or a generic icon), name + status
-/// row beneath. The share kind sits on the card's top-trailing corner as a
-/// small badge — orange lock for private, green unlocked lock for public —
-/// next to the ellipsis menu (Copy Link / Cancel Share). Right-click offers
-/// the same actions.
+/// A share tile matching the All Files tiles: square icon zone (the shared
+/// file's real thumbnail aspect-fit, vector folder for group shares, glyph
+/// otherwise), centered name + expiry below. The kind reads as a small lock
+/// badge top-trailing (orange = private, green = public) — status, not a
+/// button. No hover effects, no menu button (right-click covers it), glass
+/// selection like the browser tiles.
 struct ShareGridCard: View {
     let share: ShareRecord
     let isSelected: Bool
@@ -324,7 +324,6 @@ struct ShareGridCard: View {
     @State private var thumbURL: URL? = nil
     @State private var object: ObjectRecord? = nil
     @State private var copied = false
-    @State private var hovering = false
     /// Wave 2 item 9 — observed imports (join events) for this share.
     @State private var importCount = 0
 
@@ -344,113 +343,70 @@ struct ShareGridCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GeometryReader { geo in
-                ZStack {
-                    Color.white.opacity(0.03)
-
-                    if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
-                        Image(nsImage: ns)
-                            .resizable()
-                            .interpolation(.high)
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
-                    } else {
-                        Image(systemName: fileIcon)
-                            .font(.system(size: 36, weight: .light))
-                            .foregroundStyle(XTheme.textTertiary)
-                    }
+        VStack(spacing: 6) {
+            ZStack {
+                if isGroup {
+                    AppleFolderIcon(width: 84, height: 66)
+                        .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
+                } else if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
+                    Image(nsImage: ns)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 132, maxHeight: 100)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                } else {
+                    Image(systemName: fileIcon)
+                        .font(.system(size: 40, weight: .light))
+                        .foregroundStyle(XTheme.textTertiary)
                 }
-                .clipped()
             }
-            .frame(height: 115)
-            .clipped()
+            .frame(width: 132, height: 132)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(XTheme.accent.opacity(0.10))
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: kindIcon)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(Circle().fill(kindColor))
+                    .padding(6)
+                    .help(isPublic ? "Public share — never expires" : "Private share — expires, revocable")
+            }
 
-            HStack(spacing: 8) {
-                Image(systemName: fileIcon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(kindColor)
+            VStack(spacing: 2) {
+                Text(displayName)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(XTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .truncationMode(.middle)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(XTheme.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    HStack(spacing: 5) {
-                        Text(expiryText)
-                            .foregroundStyle(isPublic ? Color.green.opacity(0.9) : XTheme.textTertiary)
-                        if importCount > 0 {
-                            Image(systemName: "person.crop.circle.badge.checkmark")
-                                .font(.system(size: 8, weight: .bold))
+                HStack(spacing: 5) {
+                    Text(expiryText)
+                        .foregroundStyle(isPublic ? Color.green.opacity(0.9) : XTheme.textTertiary)
+                    if importCount > 0 {
+                        Image(systemName: "person.crop.circle.badge.checkmark")
+                            .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(XTheme.accent)
                             .help("\(importCount) import\(importCount == 1 ? "" : "s") — see Activity")
-                        }
                     }
-                    .font(.system(size: 10))
-                    .lineLimit(1)
                 }
-
-                Spacer(minLength: 0)
+                .font(.system(size: 11))
+                .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.04))
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? XTheme.accent.opacity(0.18)
-                    : (hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.06), lineWidth: isSelected ? 1.5 : 1)
-        )
-        .overlay(alignment: .topLeading) {
-            // Kind button, top-left corner: same size and styling as the menu
-            // button on the top-right. Orange shield-lock for private, green
-            // unlocked lock for public.
-            ZStack {
-                Circle()
-                    .fill(Color.black.opacity(0.55))
-                Image(systemName: kindIcon)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(kindColor)
-            }
-            .frame(width: 24, height: 24)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .contentShape(Circle())
-            .help(isPublic ? "Public share — never expires" : "Private share — expires, revocable")
-            .padding(6)
-        }
-        .overlay(alignment: .topTrailing) {
-            Menu {
-                shareMenuContent
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.black.opacity(0.55))
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 24, height: 24)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .contentShape(Circle())
-            }
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
-            .help("Share options")
-            .padding(6)
-        }
-        .contextMenu { shareMenuContent }
-        .scaleEffect(hovering ? 1.02 : 1.0)
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .onHover { hovering = $0 }
+        .frame(width: 140, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
+        .contextMenu { shareMenuContent }
         .onTapGesture(count: 2) { openSharedFile() }
         .simultaneousGesture(TapGesture(count: 1).onEnded { onSelect() })
         .help("Double-click to show the file")

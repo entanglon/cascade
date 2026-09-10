@@ -70,9 +70,9 @@ struct TransfersView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         HStack {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white.opacity(0.40))
             Spacer()
         }
         .padding(.horizontal, 24)
@@ -88,8 +88,8 @@ struct TransfersView: View {
                     if !uploads.isEmpty {
                         sectionHeader("Uploads")
                         LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                            spacing: 12
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
                         ) {
                             ForEach(uploads) { item in
                                 TransferGridCard(item: item)
@@ -102,8 +102,8 @@ struct TransfersView: View {
                     if !downloads.isEmpty {
                         sectionHeader("Downloads")
                         LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                            spacing: 12
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
                         ) {
                             ForEach(downloads) { item in
                                 TransferGridCard(item: item)
@@ -116,8 +116,8 @@ struct TransfersView: View {
                     if !imports.isEmpty {
                         sectionHeader("Imports")
                         LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                            spacing: 12
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
                         ) {
                             ForEach(imports) { item in
                                 TransferGridCard(item: item)
@@ -203,87 +203,57 @@ struct TransfersView: View {
 struct TransferGridCard: View {
     let item: TransferCenter.Item
     @Environment(AppState.self) private var appState
-    @State private var hovering = false
 
     var body: some View {
-        // Fixed-shape card, same as the file cards: icon/thumbnail area on top,
-        // then a fixed-height name/status block, then the progress bar. No part
-        // of the card sizes itself to its text, so every card in the grid has
-        // EXACTLY the same dimensions regardless of name length or status text.
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                // Soft vertical sheen instead of a flat fill
-                LinearGradient(
-                    colors: [Color.white.opacity(0.055), Color.white.opacity(0.02)],
-                    startPoint: .top, endPoint: .bottom)
-
-                TransferIcon(item: item)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                // Percentage top-LEFT; pause/resume + menu top-RIGHT — the action
-                // button owns the corner while a card is in progress.
-                HStack(alignment: .top) {
-                    Text("\(Int(item.progress * 100))%")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(item.accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(item.accentColor.opacity(0.14)))
-
-                    Spacer()
-
-                    TransferItemActions(item: item)
-                }
-                .padding(8)
+        // Finder-style tile matching the file browser: square icon zone with
+        // the direction badge / thumbnail, centered name + status below, full
+        // width progress track. Transport buttons (pause/resume/retry) stay
+        // visible — functional controls, not menus. No hover effects, no menu
+        // button (right-click covers it), name never bolds.
+        VStack(spacing: 6) {
+            ZStack {
+                TransferIcon(item: item, size: 56)
             }
-            .frame(height: 92)
-            .clipped()
+            .frame(width: 132, height: 132)
+            .overlay(alignment: .topLeading) {
+                Text("\(Int(item.progress * 100))%")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(item.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(item.accentColor.opacity(0.14)))
+                    .padding(6)
+            }
+            .overlay(alignment: .topTrailing) {
+                TransferItemActions(item: item, compact: true)
+                    .padding(6)
+            }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 2) {
                 Text(item.name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(XTheme.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
                     .truncationMode(.middle)
-                    .frame(height: 16)
 
                 Text(item.statusLine)
                     .font(.system(size: 11))
                     .foregroundStyle(item.statusColor)
                     .lineLimit(1)
-                    .frame(height: 13)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 11)
-            .padding(.top, 9)
-            .background(Color.white.opacity(0.03))
+            .frame(maxWidth: .infinity, alignment: .top)
 
             TransferProgressCapsule(progress: item.progress, tint: item.accentColor,
                                     animating: item.state == .active)
                 .allowsHitTesting(false)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 11)
         }
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(hovering ? 0.1 : 0.06), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(hovering ? 0.28 : 0.12), radius: hovering ? 10 : 5, y: 2)
-        .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
-        // contentShape makes the whole card (including padding, spacers, and the
-        // icon) hit-testable for the double-click, matching the file cards.
+        .frame(width: 140, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
+        .contextMenu { TransferItemMenuContent(item: item, appState: appState) }
         .onTapGesture(count: 2) { revealTransferItem(item, in: appState) }
-        .onHover { hovering = $0 }
-        .scaleEffect(hovering ? 1.02 : 1.0)
-        .animation(.easeOut(duration: 0.12), value: hovering)
         .help(item.state == .complete ? "Double-click to show in folder" : "")
     }
 }
@@ -328,12 +298,12 @@ struct TransferRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(item.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(XTheme.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
-                    TransferItemActions(item: item)
+                    TransferItemActions(item: item, compact: true)
                     Text("\(Int(item.progress * 100))%")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .monospacedDigit()
@@ -369,10 +339,12 @@ struct TransferRow: View {
 
 // MARK: - Transfer card actions + colors
 
-/// The card's leading icon: a real thumbnail for completed downloads/imports
-/// (media only), the direction circle otherwise.
+/// The tile's icon: a real thumbnail for completed downloads/imports
+/// (media only), the direction circle otherwise. Sized by the caller (list
+/// rows stay compact, grid tiles go large).
 struct TransferIcon: View {
     let item: TransferCenter.Item
+    var size: CGFloat = 38
     @State private var thumbURL: URL? = nil
 
     var body: some View {
@@ -383,9 +355,10 @@ struct TransferIcon: View {
                     case .success(let image):
                         image
                             .resizable()
-                            .scaledToFill()
-                            .frame(width: 38, height: 38)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: size * 2, maxHeight: size * 1.7)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
                     default:
                         placeholder
                     }
@@ -403,9 +376,9 @@ struct TransferIcon: View {
         ZStack {
             Circle()
                 .fill(item.iconBackground)
-                .frame(width: 38, height: 38)
+                .frame(width: size, height: size)
             Image(systemName: iconName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: size * 0.47, weight: .semibold))
                 .foregroundStyle(item.accentColor)
         }
     }
@@ -454,30 +427,35 @@ extension TransferCenter.Item {
 struct TransferItemActions: View {
     let item: TransferCenter.Item
     @Environment(AppState.self) private var appState
+    /// Compact (tile corners): transport buttons only, no menu — right-click
+    /// covers the rest. Full (list rows): transport + menu.
+    var compact: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
             quickAction
 
-            // Menu button styled exactly like the file cards' ellipsis menu.
-            Menu {
-                TransferItemMenuContent(item: item, appState: appState)
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.black.opacity(0.40))
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
+            if !compact {
+                // Menu button styled exactly like the file cards' ellipsis menu.
+                Menu {
+                    TransferItemMenuContent(item: item, appState: appState)
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.black.opacity(0.40))
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 24, height: 24)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .contentShape(Circle())
                 }
-                .frame(width: 24, height: 24)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .contentShape(Circle())
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .help("Transfer options")
+                .accessibilityLabel("Options for \(item.name)")
             }
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
-            .help("Transfer options")
-            .accessibilityLabel("Options for \(item.name)")
         }
     }
 

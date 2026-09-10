@@ -2,9 +2,47 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Exact flux icons, PiP from fullscreen (Round 226).
+> 2026-09-10 (evening) — Transfers + Shared pages to the tile system (Round 227).
 
 ---
+
+## 2026-09-10 (evening) — Transfers + Shared pages to the tile system (Round 227)
+
+User: bring Transfers, Shared, and every untouched page to the new design
+standards (Finder tiles, no menu buttons, no hover, glass selection, names
+never bold, unified spacing).
+
+### Transfers (`Features/TransfersView.swift`, `Features/MiniTransfersView.swift`)
+- `TransferGridCard` rewritten as a Finder tile: 132 square zone (direction
+  badge / aspect-fit thumbnail), centered name + status, full-width progress
+  track. Transport buttons (pause/resume/retry) stay visible top-trailing
+  (functional, like player transport); % pill top-leading. Menu button,
+  hover wash/scale/shadow, semibold name all gone (right-click covers
+  actions). `TransferIcon` gained a size param (56pt tiles, 38pt rows) with
+  aspect-fit thumbs; `TransferItemActions(compact:)` drops the menu on tiles,
+  rows, and mini rows (right-click covers it everywhere).
+- Grid spacing unified 28/16; direction headers (Uploads/Downloads/Imports)
+  kept (functional groups, unlike the removed Folders/Files labels) but
+  restyled to the sidebar-section caps style. Mini rows: medium names.
+
+### Shared (`Features/ShareManagerView.swift`)
+- `ShareGridCard` rewritten as a Finder tile: 132 square (aspect-fit thumb,
+  vector folder for group shares, glyph otherwise), centered name + expiry +
+  import badge, lock badge top-trailing (status), glass selection. Menu
+  button, hover/scale, info bar, aspect-fill cropping gone. Double-click
+  reveal, single-select, right-click, keyboard nav, sheets untouched.
+- Grid spacing 28/16; Public/Private headers kept (meaningful groups) in
+  sidebar-caps style.
+
+### Deliberately untouched
+- Photos/Videos media grids (verified bespoke designs), Library posters
+  (approved), BookReader, Theater/players/PiP/mini player (transport must
+  stay visible), Settings (done), Login/Onboarding flows, transient
+  sheets/HUDs/popovers.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify Transfers + Shared grids.
 
 ## 2026-09-10 (evening) — Exact flux icons, PiP from fullscreen (Round 226)
 

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 226 — flux PiP glyph, PiP from fullscreen. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 227 — Transfers + Shared pages to the tile system. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4307,6 +4307,12 @@ Open levers (not scheduled):
      (`Features/VideoPlaybackView.swift`, `Features/MPVVideoView.swift`)
      - Audited every glyph vs flux source: only PiP differed (`rectangle.on.rectangle` now). Rest already identical.
      - Fullscreen pill shows PiP for theater-kind sessions: dismiss-then-float chain (bounded, aborts safe), mirroring theater toggle. Direct keeps none.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 227. **Transfers + Shared to the tile system (2026-09-10 evening — COMMITTED)**
+     (`Features/TransfersView.swift`, `Features/MiniTransfersView.swift`, `Features/ShareManagerView.swift`)
+     - Transfer grid cards → Finder tiles (132 square, aspect-fit thumbs, transport stays, menu/hover/semibold gone); `TransferIcon` sized, `TransferItemActions(compact:)`; rows/mini medium names, no menus; 28/16 grids; direction headers kept, caps-styled.
+     - Share cards → Finder tiles (aspect-fit/vector-folder, expiry + import badge, lock badge, glass selection); Public/Private headers kept, caps-styled.
+     - Untouched by design: media grids, posters, readers, players, Settings, auth flows, transient sheets.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 
