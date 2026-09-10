@@ -104,7 +104,7 @@ struct TheaterView: View {
                     VStack {
                         if showControls, previewKind != .video, previewKind != .audio {
                             topControls
-                                .transition(.move(edge: .top).combined(with: .opacity))
+                                .transition(.opacity)
                         }
                         Spacer()
 
@@ -112,10 +112,9 @@ struct TheaterView: View {
                         // bottom chrome there: seek bar, time labels, volume, tracks).
                         if showControls, url != nil, previewKind != .video, previewKind != .audio {
                             bottomInfoBar
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .transition(.opacity)
                         }
                     }
-                    .animation(.easeInOut(duration: 0.25), value: showControls)
 
                     // Navigation arrows (media players use keyboard arrows; the chevrons
                     // are part of the old viewer chrome and would clash with the player).
@@ -1070,16 +1069,12 @@ struct TheaterView: View {
 
     private func onMouseActivity() {
         controlsTimer?.invalidate()
-        if !showControls {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                showControls = true
-            }
-        }
+        // NOTE: chrome visibility flips are intentionally NOT animated
+        // anywhere in the viewer — fades/slides made toggles feel laggy.
+        showControls = true
         controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { _ in
             Task { @MainActor in
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showControls = false
-                }
+                showControls = false
             }
         }
     }
@@ -1089,9 +1084,7 @@ struct TheaterView: View {
             controlsTimer?.invalidate()
             controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { _ in
                 Task { @MainActor in
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showControls = false
-                    }
+                    showControls = false
                 }
             }
         }
@@ -1228,9 +1221,7 @@ struct TheaterView: View {
     private func toggleControls() {
         if showControls {
             controlsTimer?.invalidate()
-            withAnimation(.easeInOut(duration: 0.25)) {
-                showControls = false
-            }
+            showControls = false
         } else {
             onMouseActivity()
         }

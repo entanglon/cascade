@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 218 — instant chrome toggle, sidebar headings, sort checkmark fix; arrows under investigation. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 219 — chrome animation fully removed, fullscreen tap catchers. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4266,6 +4266,12 @@ Open levers (not scheduled):
      - Sidebar: headerless top level; Collections kept; Vault → Utilities; Pinned kept.
      - Sort: getter compared lowercase keys no stored value matched → checkmark stuck on Name; fixed via `SortOption(rawValue:)` + round-trip test.
      - Arrows: still under investigation (path verified, binary verified) — need which-arrows + repro from user.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 219. **Chrome animation removed + fullscreen tap catchers (2026-09-10 evening — COMMITTED)**
+     (`Features/TheaterView.swift`, `Features/MPVVideoView.swift`)
+     - All viewer chrome snaps (theater + fullscreen image bars opacity-only, no drivers). Zoom springs kept.
+     - Fullscreen video roots (`FullscreenPlayerRoot`, `DirectFullscreenRoot`) gain the transparent tap-catcher layer — clicks did nothing there (native layer eats taps); boost was always shared via `PlayerControlsView`, revealed on speaker tap.
+     - Arrows per user: fixed, dropped from follow-ups.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

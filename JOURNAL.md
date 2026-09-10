@@ -2,9 +2,40 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Instant chrome toggle, sidebar headings, sort checkmark fix (Round 218).
+> 2026-09-10 (evening) — Animation fully removed from viewer chrome, fullscreen tap catchers (Round 219).
 
 ---
+
+## 2026-09-10 (evening) — Animation fully removed from viewer chrome, fullscreen tap catchers (Round 219)
+
+User review: (1) chrome animation still present — remove ALL of it, no
+sliding, just appear/disappear; (2) arrows fixed, stop asking (noted —
+dropped from all follow-ups); (3) flux player upgrades invisible — the
+player looks unchanged, no click-toggle, no boost.
+
+### 1. All viewer chrome animation removed
+- Round 218 only de-animated the video controls. The theater image chrome
+  and fullscreen image chrome still had 0.25 s fades + slide transitions —
+  stripped everywhere (`TheaterView.onMouseActivity` /
+  `refreshTimerIfVisible` / `toggleControls`, `ImageFullscreenRoot.
+  pokeChromeTimer`, all top/bottom bar transitions now opacity-only with no
+  animation driver). Zoom-gesture springs kept (content physics, not chrome).
+
+### 3. Upgrades were theater-only — fullscreen had none (the real miss)
+- `PlayerFullScreenControls` wraps the shared `PlayerControlsView` (so boost
+  + cursor + instant toggle were always IN the fullscreen code), but click-
+  toggle needs a tap catcher the fullscreen roots never had: taps on the
+  re-parented native layer never reach SwiftUI gestures. Added the
+  transparent catcher layer to `FullscreenPlayerRoot` AND
+  `DirectFullscreenRoot`, same pattern as the theater.
+- Boost was always there but invisible until tapped (speaker looks identical
+  at 100%) — nothing to fix in code; the speaker button in the volume pill
+  cycles 100 → 125 → 150 → 200 → off with an orange readout.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: instant chrome everywhere, click
+  toggles in windowed + fullscreen + direct video, boost on the speaker.
 
 ## 2026-09-10 (evening) — Instant chrome toggle, sidebar headings, sort checkmark fix (Round 218)
 

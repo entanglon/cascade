@@ -2690,6 +2690,15 @@ private struct FullscreenPlayerRoot<Controls: View>: View {
                 MPVLayerHost(playerView: mpvView)
                     .ignoresSafeArea()
             }
+            // Click toggles chrome — same transparent-catcher pattern as the
+            // windowed player (Round 217): UNDER the controls overlay, so
+            // button/slider taps are consumed up there and never toggle.
+            // (This layer was missing, so clicks did nothing in fullscreen.)
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
+                }
             controls()
         }
         .background(Color.black)
@@ -2878,14 +2887,13 @@ private struct ImageFullscreenRoot: View {
             if showControls {
                 VStack {
                     topBar
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .transition(.opacity)
                     Spacer()
                     if !isSVG {
                         bottomBar
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .transition(.opacity)
                     }
                 }
-                .animation(.easeInOut(duration: 0.25), value: showControls)
             }
 
             VStack {
@@ -2988,16 +2996,12 @@ private struct ImageFullscreenRoot: View {
     private func pokeChromeTimer() {
         controlsTimer?.invalidate()
         NSCursor.unhide()
-        if !showControls {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                showControls = true
-            }
-        }
+        // NOTE: intentionally NOT animated — fades/slides made toggles feel
+        // laggy. Chrome snaps on/off; zoom gestures keep their springs.
+        showControls = true
         controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { _ in
             Task { @MainActor in
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showControls = false
-                }
+                showControls = false
                 if NSApp.isActive {
                     NSCursor.setHiddenUntilMouseMoves(true)
                 }
@@ -3050,6 +3054,13 @@ private struct DirectFullscreenRoot: View {
                 }
             }
             .ignoresSafeArea()
+
+            // Click toggles chrome (same catcher as theater/fullscreen roots).
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
+                }
 
             if let mpv = engine.mpvController, engine.isMPVPlayback {
                 PlayerControlsView(
