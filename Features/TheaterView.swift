@@ -153,17 +153,26 @@ struct TheaterView: View {
                     }
                 },
                 onUpArrow: {
-                    // Video AND audio: up/down adjust volume (the app's volume
-                    // IS the system volume). Other previews: vertical navigation.
+                    // Video AND audio: up/down step the IN-PLAYER volume
+                    // (flux adjustVolume, ±5%) — never the system device.
+                    // Other previews: vertical navigation.
                     if previewKind == .video || previewKind == .audio {
-                        SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
+                        if let mpv = AudioPlayerEngine.shared.mpvController {
+                            mpv.adjustPlayerVolume(0.05)
+                        } else {
+                            SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
+                        }
                     } else {
                         navigateMediaVertical(delta: -1)
                     }
                 },
                 onDownArrow: {
                     if previewKind == .video || previewKind == .audio {
-                        SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
+                        if let mpv = AudioPlayerEngine.shared.mpvController {
+                            mpv.adjustPlayerVolume(-0.05)
+                        } else {
+                            SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
+                        }
                     } else {
                         navigateMediaVertical(delta: 1)
                     }
@@ -247,10 +256,14 @@ struct TheaterView: View {
             return .handled
         }
         .onKeyPress(.upArrow) {
-            // Video AND audio: up/down adjust volume (the app's volume IS the
-            // system volume). Other previews: vertical navigation.
+            // Video AND audio: up/down adjust the in-player volume (see the
+            // key-monitor copy above). Other previews: vertical navigation.
             if previewKind == .video || previewKind == .audio {
-                SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
+                if let mpv = AudioPlayerEngine.shared.mpvController {
+                    mpv.adjustPlayerVolume(0.05)
+                } else {
+                    SystemVolumeManager.shared.volume = min(1.0, SystemVolumeManager.shared.volume + 0.1)
+                }
             } else {
                 navigateMediaVertical(delta: -1)
             }
@@ -258,7 +271,11 @@ struct TheaterView: View {
         }
         .onKeyPress(.downArrow) {
             if previewKind == .video || previewKind == .audio {
-                SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
+                if let mpv = AudioPlayerEngine.shared.mpvController {
+                    mpv.adjustPlayerVolume(-0.05)
+                } else {
+                    SystemVolumeManager.shared.volume = max(0.0, SystemVolumeManager.shared.volume - 0.1)
+                }
             } else {
                 navigateMediaVertical(delta: 1)
             }

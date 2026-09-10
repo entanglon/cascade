@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 221 — decoupled player volume (flux mechanism), EOF autoplay gate. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 222 — arrow-key player volume, buffer ring with gate progress. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4284,6 +4284,11 @@ Open levers (not scheduled):
      - `VolumeCurve` verbatim + `playerVolume` (0…2 UI) + coalesced raw writes + echo mapping + handoff carry; `volumeBoost` deleted. Gauge: single source, mpv mute, no system contact. Keys stay device-side.
      - EOF autoplay skips while a video fullscreen session is active (theater/direct kinds); ended flag preserved for replay.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (incl. curve test). Debug app relaunched.
+ 222. **Arrow player volume + buffer ring (2026-09-10 evening — COMMITTED)**
+     (`Features/MPVVideoView.swift`, `Features/TheaterView.swift`, `Features/VideoPlaybackView.swift`)
+     - `adjustPlayerVolume` (flux port, ±0.05 snapped); theater up/down (monitor + keyPress paths) drive player volume for video/audio, system fallback pre-core only.
+     - `bufferRing` builder (64pt, gradient sweep, tabular %); `prebufferProgress` published during gate → ring fills on load ("Loading…"); stalls keep it ("Buffering…").
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 
 

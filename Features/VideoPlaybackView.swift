@@ -275,8 +275,13 @@ struct PlayerStatusOverlay: View {
     var body: some View {
         if showStatus {
             VStack(spacing: 10) {
-                if isLoading {
-                    // Initial load — core init / first frame not on screen yet.
+                if mpv.isPrebuffering {
+                    // Initial buffer gate (video AND headless audio): the ring
+                    // fills live as the forward cushion banks toward release
+                    // instead of spinning blindly — then playback starts.
+                    bufferRing(progress: mpv.prebufferProgress, label: "Loading…")
+                } else if isLoading {
+                    // Core init / first frame not on screen yet.
                     ProgressView()
                         .controlSize(.large)
                         .tint(.white)
@@ -285,22 +290,7 @@ struct PlayerStatusOverlay: View {
                         .foregroundColor(.white.opacity(0.7))
                 } else if mpv.bufferProgress > 0 {
                     // Cache stall — the ring fills as the buffer refills.
-                    ZStack {
-                        Circle()
-                            .stroke(.white.opacity(0.2), lineWidth: 3)
-                        Circle()
-                            .trim(from: 0, to: mpv.bufferProgress)
-                            .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .animation(.easeOut(duration: 0.2), value: mpv.bufferProgress)
-                        Text("\(Int((mpv.bufferProgress * 100).rounded()))%")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                    }
-                    .frame(width: 46, height: 46)
-                    Text("Buffering…")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
+                    bufferRing(progress: mpv.bufferProgress, label: "Buffering…")
                 } else {
                     // Fresh stall, no progress data yet.
                     ProgressView()
@@ -319,6 +309,37 @@ struct PlayerStatusOverlay: View {
             )
             .transition(.opacity)
             .animation(.easeInOut(duration: 0.2), value: showStatus)
+        }
+    }
+
+    /// Buffer progress ring: larger dial, heavier track, gradient sweep,
+    /// tabular % readout + caption. Shared by the prebuffer gate and
+    /// mid-playback stalls so both read as one instrument.
+    private func bufferRing(progress: Double, label: String) -> some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.14), lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: min(1.0, max(0.0, progress)))
+                    .stroke(
+                        LinearGradient(
+                            colors: [.white, XTheme.accent],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.2), value: progress)
+                Text("\(Int((min(1.0, max(0.0, progress)) * 100).rounded()))%")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 64, height: 64)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
         }
     }
 }

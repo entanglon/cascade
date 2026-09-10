@@ -385,6 +385,7 @@ class MPVController: ObservableObject {
             isPrebuffering = false
             refreshBuffering()
         }
+        prebufferProgress = 0.0
     }
 
     /// Releases the gate: unpauses unless the user paused meanwhile — user
@@ -405,7 +406,9 @@ class MPVController: ObservableObject {
     /// the gate against the target for this file.
     private func checkPrebufferGate(cacheSecs: Double) {
         guard prebufferArmed else { return }
-        if cacheSecs >= Self.prebufferTarget(durationSecs: duration) {
+        let target = Self.prebufferTarget(durationSecs: duration)
+        prebufferProgress = min(1.0, cacheSecs / max(target, 0.01))
+        if cacheSecs >= target {
             releasePrebuffer()
         }
     }
@@ -514,6 +517,11 @@ class MPVController: ObservableObject {
     /// start at 1.0, so volume never leaks across tracks. Writes ride the
     /// same 60 ms coalescing as volume (gain re-ramps are crackly).
     @Published var playerVolume: Double = 1.0
+    /// Forward-buffer fraction banked toward the pre-buffer release target
+    /// (0…1). Published so the status overlay's ring fills live DURING the
+    /// gate instead of spinning blindly. Updated only while armed (a few
+    /// seconds per load) — never a standing re-render storm.
+    @Published var prebufferProgress: Double = 0.0
 
     func setPlayerVolume(_ uiValue: Double) {
         let clamped = min(max(uiValue, 0.0), 2.0)
@@ -530,6 +538,16 @@ class MPVController: ObservableObject {
                 self.playerView?.setVolumeRaw(mpvValue)
             }
         }
+    }
+
+    /// flux `adjustVolume` port: steps the IN-PLAYER volume by delta UI units
+    /// (arrow keys call with ±0.05), snapped to 5% stops, clamped 0…2 —
+    /// never the system device. No-op without change (holds the coalesced
+    /// writer still for repeat-press streams).
+    func adjustPlayerVolume(_ delta: Double) {
+        let next = (min(max(playerVolume + delta, 0.0), 2.0) * 20.0).rounded() / 20.0
+        guard next != playerVolume else { return }
+        setPlayerVolume(next)
     }
 
     private func writeVolumeCoalesced(_ fraction: Double) {

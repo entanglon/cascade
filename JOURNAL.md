@@ -2,9 +2,36 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Decoupled player volume (flux mechanism), EOF autoplay gate (Round 221).
+> 2026-09-10 (evening) — Arrows drive player volume, buffer ring rebuilt with gate progress (Round 222).
 
 ---
+
+## 2026-09-10 (evening) — Arrows drive player volume, buffer ring rebuilt with gate progress (Round 222)
+
+User: (1) up/down arrows are coupled to system volume — should drive player
+volume; (2) fix the buffer ring's looks/UI.
+
+### 1. Arrow-key player volume
+- New `MPVController.adjustPlayerVolume(_:)` (flux `adjustVolume` port:
+  ±0.05 UI steps snapped to 5%, clamped 0…2, no-op without change).
+- Theater up/down (BOTH the NSEvent monitor and the onKeyPress fallback)
+  now step in-player volume for video/audio whenever a controller exists
+  (system fallback only pre-core); images/docs keep vertical navigation.
+
+### 2. Buffer ring rebuilt
+- Shared `bufferRing(progress:label:)` builder: 64pt dial (was 46), 5pt
+  track, white→accent gradient sweep, tabular 13pt readout — one instrument
+  for both states.
+- Gate progress plumbing: `prebufferProgress` (0…1) published during the
+  gate from `demuxer-cache-duration` / target (updated only while armed;
+  reset on release) — the overlay ring now FILLS as the cushion banks
+  ("Loading…") instead of spinning blindly. Mid-playback stalls keep the
+  same ring ("Buffering…").
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: arrows move the gauge % (not the
+  device), ring fills on video start, restyled stall ring.
 
 ## 2026-09-10 (evening) — Decoupled player volume (flux mechanism), EOF autoplay gate (Round 221)
 
