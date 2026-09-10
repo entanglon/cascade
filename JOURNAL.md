@@ -2,9 +2,23 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Measured icon footprint vs Finder, matched at 81% (Round 237).
+> 2026-09-10 (evening) — Release bundle ID + new light icon art (Round 238).
 
 ---
+
+## 2026-09-10 (evening) — Release bundle ID + new light icon art (Round 238)
+
+- Release `PRODUCT_BUNDLE_IDENTIFIER`  — > `com.entanglon.cascade`. Caught the
+  isolation trap in time: `AppPaths.dataFolder` only split on `.prod`, so the
+  new ID would have shared Debug's database — now matches the new ID too
+  (prod keeps `Cascade-Prod`; keychain/handoff derive from the full ID).
+- User supplied a refined light.png: glyph re-extracted, committed light
+  `.icon` bundle refreshed, re-rendered through ictool, adopted at the 81%
+  runtime footprint (verified visually).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched  —  Debug identity untouched (com.cascade.app).
 
 ## 2026-09-10 (evening) — Measured icon footprint vs Finder, matched at 81% (Round 237)
 

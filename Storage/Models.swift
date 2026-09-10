@@ -505,7 +505,10 @@ extension Notification.Name {
 
 enum AppPaths {
     static var dataFolder: String {
-        if Bundle.main.bundleIdentifier?.hasSuffix(".prod") == true {
+        // Release builds live in their own data folder, isolated from Debug:
+        // legacy ".prod"-suffixed IDs and the current com.entanglon.cascade.
+        let id = Bundle.main.bundleIdentifier ?? ""
+        if id.hasSuffix(".prod") || id == "com.entanglon.cascade" {
             return "Cascade-Prod"
         }
         return "Cascade"
