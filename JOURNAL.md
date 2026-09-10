@@ -2,9 +2,39 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Sidebar arrow focus, pin icons, avatar fix, dashboard restyle (Round 213).
+> 2026-09-10 (morning) — Photo-fullscreen freeze root cause + fix, sidebar cloud moved right (Round 214).
 
 ---
+
+## 2026-09-10 (morning) — Photo-fullscreen freeze root cause + fix, sidebar cloud moved right (Round 214)
+
+User reported the app freezing (twice), reproducible: open a photo → fullscreen
+button → fullscreen opens, image never loads, app hangs (force-quit leaves no
+crash log, which is why logs showed nothing — diagnosis was code-level).
+
+### Root cause (`Features/MPVVideoView.swift`, `ImageFullscreenRoot`)
+- The view preferred the byte-range stream URL whenever a layout loaded and
+  handed it to `NSImage(contentsOf:)` — a SYNCHRONOUS full download running on
+  the main thread inside SwiftUI body evaluation. The whole app parked until
+  TDLib fetched every byte: minutes on a stalled fetch (3×30 s serve retries),
+  i.e. a hard beachball freeze. The stream log confirmed the layout built for
+  the user's 641 KB photo right at the freeze window.
+- Fix: cached photos → local file URL (instant disk read); uncached → async
+  `DownloadEngine.download` to scratch with the existing progress UI (the old
+  fallback, now the primary path). NSImage never sees an http URL again.
+- Audit: every other `NSImage(contentsOf:)` site takes file/bundle URLs only
+  (grid/list thumbs, covers, reader pages, mini player, flag art); the theater
+  image branch downloads async. This was the sole hazardous site.
+
+### Sidebar profile card (`Features/SidebarView.swift`)
+- Sync status cloud/checkmark moved from beside the display name to the card's
+  trailing edge.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify with an UNCACHED photo: fullscreen
+  must show "Downloading N%" (animated, app responsive) then the image; a
+  cached photo must appear instantly.
 
 ## 2026-09-09 (evening) — Sidebar arrow focus, pin icons, avatar fix, dashboard restyle (Round 213)
 

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 213 — sidebar arrow focus, pin icons, avatar layout fix, dashboard restyle. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (morning): Round 214 — photo-fullscreen freeze fixed (NSImage sync stream load on main), sidebar cloud moved to card trailing edge. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4231,6 +4231,11 @@ Open levers (not scheduled):
      - Avatar: fallback Circle lacked a frame → giant blue H; fixed at 48pt (a bug, not normal).
      - Dashboard: full-width 6pt tracks under name+value rows, aligned value column, roomier rhythm, zero-byte folders hidden ("Nothing stored yet" empty state).
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
+ 214. **Photo-fullscreen freeze fixed + sidebar cloud right (2026-09-10 morning — COMMITTED)**
+     (`Features/MPVVideoView.swift`, `Features/SidebarView.swift`)
+     - Root cause: `ImageFullscreenRoot` preferred the stream URL and fed it to `NSImage(contentsOf:)` — synchronous full download on the main thread (body evaluation). Uncached photo = app parked for minutes (3×30 s serve retries), no crash log. Fix: cached → file URL; uncached → async download-to-scratch with progress. Audited all other NSImage sites (file/bundle URLs only — sole hazardous site).
+     - Sidebar profile card: sync cloud/checkmark moved to the trailing edge.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched — verify with an uncached photo fullscreen.
 
 
 

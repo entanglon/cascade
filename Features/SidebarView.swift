@@ -294,24 +294,10 @@ struct SidebarProfileCard: View {
             avatar
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(displayName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.95))
-                        .lineLimit(1)
-
-                    if appState.isSyncing {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(XTheme.accent)
-                            .help("Syncing catalog…")
-                    } else if appState.lastSyncDate != nil {
-                        Image(systemName: "checkmark.icloud.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.green.opacity(0.8))
-                            .help("Synced with cloud")
-                    }
-                }
+                Text(displayName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .lineLimit(1)
 
                 Text(subtitle)
                     .font(.system(size: 11))
@@ -320,6 +306,19 @@ struct SidebarProfileCard: View {
             }
 
             Spacer()
+
+            // Sync status lives at the card's trailing edge, away from the name.
+            if appState.isSyncing {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(XTheme.accent)
+                    .help("Syncing catalog…")
+            } else if appState.lastSyncDate != nil {
+                Image(systemName: "checkmark.icloud.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.green.opacity(0.8))
+                    .help("Synced with cloud")
+            }
         }
         .padding(10)
         .glassEffect(.regular, in: .rect(cornerRadius: 16, style: .continuous))

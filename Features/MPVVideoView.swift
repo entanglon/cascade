@@ -2808,10 +2808,15 @@ private struct ImageFullscreenRoot: View {
         .environment(\.colorScheme, .dark)
         .task(id: session.file?.id) {
             guard let file = session.file else { return }
-            // Single-cache architecture (item 159): stream via the byte-range
-            // server; materialize to scratch only as a fallback.
-            if let stream = await VideoStreamingEngine.shared.mpvStreamURL(for: file) {
-                url = stream
+            // NEVER hand NSImage an http stream URL: NSImage(contentsOf:)
+            // loads synchronously on the main thread (SwiftUI body
+            // evaluation), parking the entire app until TDLib finishes
+            // fetching every byte — minutes on a stalled fetch (3×30 s serve
+            // retries), i.e. the photo-fullscreen hard freeze (no crash log,
+            // force-quit is the only way out). Cached → instant disk read;
+            // otherwise download to scratch first with progress.
+            if DownloadEngine.isCached(file) {
+                url = DownloadEngine.cacheURL(for: file)
                 return
             }
             do {
