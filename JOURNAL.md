@@ -2,9 +2,32 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Arrows drive player volume, buffer ring rebuilt with gate progress (Round 222).
+> 2026-09-10 (evening) — Flux top bar + volume HUD (Round 223).
 
 ---
+
+## 2026-09-10 (evening) — Flux top bar + volume HUD (Round 223)
+
+User review: (1) arrow-volume steps feel wrong + no visible feedback,
+(2) copy flux properly — PiP belongs left (ours sat right), drop the
+fullscreen X (ESC exits).
+
+### 1. Volume HUD + why steps felt dead
+- Arrow steps (±0.05 UI ≈ ±0.4 dB) are near-inaudible per press with no
+  visual — flux solves it with a volume HUD, not bigger steps. Ported:
+  `showVolumeHUD` flashes a display-only gauge pill center-screen for 1.8 s
+  on every player-volume change (arrows, mute, gauge drag), re-armed per
+  change, instant on/off. Steps stay flux-faithful ±0.05.
+
+### 2. Top bar matches flux arrangement
+- PiP moved LEFT next to Share (right-side duplicate deleted). Fullscreen X
+  removed (ESC / exit-toggle only); windowed theater keeps its X (it returns
+  to a browser).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: arrow up/down flashes the HUD with
+  a moving gauge, PiP left, no X in fullscreen.
 
 ## 2026-09-10 (evening) — Arrows drive player volume, buffer ring rebuilt with gate progress (Round 222)
 
