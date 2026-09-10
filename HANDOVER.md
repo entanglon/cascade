@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 207 — pre-buffer gate for streamed video (open paused, release at ~4 s buffered, 15 s watchdog, user-intent rules) + Private Vault heading hash removed. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 208 — Mac grid unified on the iOS/Finder tile system (ported AppleFolderIcon, vertical folder + floating-thumbnail file tiles, unified columns/spacing, reshaped skeletons). Read this first in any new chat before touching the code.
 
 ---
 
@@ -4195,6 +4195,11 @@ Open levers (not scheduled):
      - Intent rules: user play skips the wait; user pause during gate is respected; seeks keep the gate armed; local files skip; resume/handoff/PiP bypass (position-carrying loads); audio headless untouched. `isPrebuffering` published → in `isBuffering` (gate pause never reads as user pause) + overlay `isLoading` ("Loading…" until release).
      - Private Vault: removed the red `#` icon before the page heading — matches other pages now.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (incl. new `prebufferTargetClampsToShortClips`). Debug app relaunched for user verification (uncached video → brief Loading… then cushioned playback; cached → instant).
+ 208. **Mac grid unified on the iOS/Finder tile system (2026-09-09 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`)
+     - Ported `AppleFolderTabShape` + `AppleFolderIcon` from iOS verbatim (84×66, same gradients). `folderCard`: 54pt row card → vertical Finder tile (94pt icon zone, centered 2-line name, "N items"); private keeps red `#` badge; albums/playlists plain like iOS. `fileCard`: 115pt glass strip → floating aspect-fit thumb in 94pt zone (no more aspect-fill cropping) + iOS labels (name/date/size) + per-type placeholders with EXT captions.
+     - Selection/hover now a Finder wash (accent tint + ring); badges + ellipsis moved to the thumb zone corner. Folder section uses the same column count as files (off-column nav quirk gone); both sections at iOS spacing (28/16). Skeletons reshaped to match. Untouched: posters, list rows, menus, drag-drop, rename, Photos/Videos pages, iOS app.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched — awaiting user visual check vs iPhone app + Finder.
 
 
 

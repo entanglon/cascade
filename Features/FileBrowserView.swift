@@ -1080,8 +1080,8 @@ struct FileBrowserView: View {
                                 .foregroundStyle(XTheme.textPrimary)
 
                             LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: min(cols, 4)),
-                                spacing: 10
+                                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                                spacing: 28
                             ) {
                                 ForEach(currentFolders) { folder in
                                     FileGridItem(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
@@ -1105,8 +1105,8 @@ struct FileBrowserView: View {
                             }
 
                             LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                                spacing: 12
+                                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                                spacing: 28
                             ) {
                                 ForEach(currentFiles) { file in
                                     FileGridItem(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
@@ -1610,10 +1610,10 @@ struct FileBrowserView: View {
                         skeletonBar(width: 70)
                         ForEach(0..<2, id: \.self) { _ in
                             LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: min(cols, 4)),
-                                spacing: 10
+                                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                                spacing: 28
                             ) {
-                                ForEach(0..<min(cols, 4), id: \.self) { _ in
+                                ForEach(0..<cols, id: \.self) { _ in
                                     folderSkeletonCard
                                 }
                             }
@@ -1624,8 +1624,8 @@ struct FileBrowserView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         skeletonBar(width: 50)
                         LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols),
-                            spacing: 12
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
                         ) {
                             ForEach(0..<(cols * 3), id: \.self) { _ in
                                 fileSkeletonCard
@@ -1648,12 +1648,14 @@ struct FileBrowserView: View {
     }
 
     private var folderSkeletonCard: some View {
-        HStack(spacing: 12) {
-            Circle()
+        VStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.06))
-                .frame(width: 24, height: 24)
+                .frame(width: 84, height: 66)
+                .frame(height: 94, alignment: .bottom)
+                .frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color.white.opacity(0.08))
                     .frame(width: 90, height: 10)
@@ -1661,54 +1663,34 @@ struct FileBrowserView: View {
                     .fill(Color.white.opacity(0.05))
                     .frame(width: 56, height: 8)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(height: 54)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity, alignment: .top)
         .modifier(ShimmerModifier())
     }
 
     private var fileSkeletonCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rectangle()
-                .fill(Color.white.opacity(0.03))
-                .frame(height: 115)
+        VStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 84, height: 62)
+                .frame(height: 94, alignment: .bottom)
+                .frame(maxWidth: .infinity)
 
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Color.white.opacity(0.06))
-                    .frame(width: 12, height: 12)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.white.opacity(0.08))
-                        .frame(width: 110, height: 10)
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.white.opacity(0.05))
-                        .frame(width: 48, height: 8)
-                }
-
-                Spacer(minLength: 0)
+            VStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 110, height: 10)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 48, height: 8)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 40, height: 8)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.04))
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
+        .frame(maxWidth: .infinity, alignment: .top)
         .modifier(ShimmerModifier())
     }
 
@@ -2255,6 +2237,100 @@ private func parseDroppedObjectIDs(_ object: Any?) -> [String] {
     return str.split(separator: "\n").map(String.init)
 }
 
+// MARK: - Apple Files-style folder icon (ported from the iOS app)
+
+/// Vector folder tab (back flap) with Apple Files geometry: rear tab
+/// curvature, continuous corner radii, proportional to the target rect so it
+/// renders identically at any size. Pure SwiftUI — shared with iOS verbatim.
+struct AppleFolderTabShape: Shape {
+    var bodyYFraction: CGFloat = 0.13
+    var tabWFraction: CGFloat = 0.40
+    var cornerRadiusFraction: CGFloat = 0.11
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let width = rect.width
+        let height = rect.height
+        let bodyY = height * bodyYFraction
+        let tabW = width * tabWFraction
+        let cornerRadius = height * cornerRadiusFraction
+        let r = cornerRadius * 0.75
+
+        path.move(to: CGPoint(x: 0, y: r))
+        path.addQuadCurve(to: CGPoint(x: r, y: 0), control: CGPoint(x: 0, y: 0))
+        path.addLine(to: CGPoint(x: tabW - r, y: 0))
+        path.addCurve(
+            to: CGPoint(x: tabW + width * 0.09, y: bodyY),
+            control1: CGPoint(x: tabW + r * 0.6, y: 0),
+            control2: CGPoint(x: tabW + r * 0.3, y: bodyY)
+        )
+        path.addLine(to: CGPoint(x: width - cornerRadius, y: bodyY))
+        path.addQuadCurve(to: CGPoint(x: width, y: bodyY + cornerRadius), control: CGPoint(x: width, y: bodyY))
+        path.addLine(to: CGPoint(x: width, y: height - cornerRadius))
+        path.addQuadCurve(to: CGPoint(x: width - cornerRadius, y: height), control: CGPoint(x: width, y: height))
+        path.addLine(to: CGPoint(x: cornerRadius, y: height))
+        path.addQuadCurve(to: CGPoint(x: 0, y: height - cornerRadius), control: CGPoint(x: 0, y: height))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Apple Files folder: darker tab behind, lighter gradient body in front with
+/// a top highlight edge. Same component, same metrics (84×66) as iOS — one
+/// visual language on both platforms.
+struct AppleFolderIcon: View {
+    var width: CGFloat = 84
+    var height: CGFloat = 66
+
+    var body: some View {
+        let bodyY = height * 0.13
+        let cornerRadius = height * 0.11
+
+        ZStack(alignment: .topLeading) {
+            // Back Tab / Flap
+            AppleFolderTabShape()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 60/255, green: 160/255, blue: 222/255),
+                            Color(red: 50/255, green: 146/255, blue: 206/255)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: width, height: height)
+
+            // Front Main Body
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 104/255, green: 194/255, blue: 242/255),
+                            Color(red: 80/255, green: 172/255, blue: 226/255)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.40), Color.white.opacity(0.06)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.75
+                        )
+                )
+                .frame(width: width, height: height - bodyY)
+                .offset(y: bodyY)
+        }
+        .frame(width: width, height: height)
+    }
+}
+
 struct FileGridItem: View {
     @Environment(AppState.self) private var appState
     let file: ObjectRecord
@@ -2379,86 +2455,44 @@ struct FileGridItem: View {
         }
     }
 
+    /// Finder / Apple Files-style folder tile: vector folder icon floating in a
+    /// 94pt zone (same component + metrics as the iOS app), centered name +
+    /// item count below. Private folders keep the red `#` badge (the shared
+    /// blue icon carries no privacy signal); albums/playlists render as plain
+    /// folders exactly like iOS (list rows keep their colored glyphs).
     private var folderCard: some View {
-        HStack(spacing: 12) {
-            ZStack(alignment: .bottomTrailing) {
-                if file.mime == "cascade/playlist-audio" {
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(XTheme.accent)
-                } else if file.mime == "cascade/playlist-video" {
-                    Image(systemName: "film.stack")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(XTheme.categoryCyan)
-                } else if file.mime == "cascade/album-photo" {
-                    Image(systemName: "photo.stack.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(XTheme.categoryPink)
-                } else {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 26, weight: .regular))
-                        .foregroundStyle(file.isPrivate ? XTheme.categoryRed : XTheme.accent)
-                }
-
-                if file.isPrivate {
-                    Image(systemName: "number")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(2)
-                        .background(Circle().fill(XTheme.categoryRed))
-                        .offset(x: 4, y: 2)
-                }
+        VStack(spacing: 5) {
+            ZStack(alignment: .bottom) {
+                AppleFolderIcon(width: 84, height: 66)
+                    .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
             }
+            .frame(height: 94, alignment: .bottom)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topTrailing) { tileBadges }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(spacing: 2) {
                 Text(file.name)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(XTheme.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
                     .truncationMode(.middle)
 
                 Text("\(itemCount) item\(itemCount == 1 ? "" : "s")")
                     .font(.system(size: 11))
                     .foregroundStyle(XTheme.textTertiary)
             }
-
-            Spacer(minLength: 0)
-
-            if file.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(XTheme.accent)
-            }
-
-            Menu {
-                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.black.opacity(0.40))
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 24, height: 24)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .contentShape(Circle())
-            }
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(height: 54)
+        .frame(maxWidth: .infinity, alignment: .top)
         .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? XTheme.accent.opacity(0.18) : (hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isSelected ? XTheme.accent : (dropTargeted ? XTheme.accent : Color.white.opacity(0.06)), lineWidth: isSelected || dropTargeted ? 1.5 : 1)
-        )
+        .background(tileHighlight)
+        .overlay {
+            if isSelected || dropTargeted {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(XTheme.accent, lineWidth: 1.5)
+            }
+        }
     }
 
     /// Library poster card: just the book cover in a clean 2:3 portrait frame.
@@ -2571,112 +2605,171 @@ struct FileGridItem: View {
         .padding(.vertical, 7)
     }
 
+    /// Finder / Apple Files-style file tile: the thumbnail floats aspect-fit in
+    /// a 94pt zone (same metrics as the iOS app — no card chrome behind it),
+    /// centered name + date + size below. Type placeholders mirror iOS exactly.
     private var fileCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // GeometryReader pins the thumbnail to the exact card bounds. The old
-            // `.scaledToFill().frame(maxWidth: .infinity, maxHeight: .infinity)`
-            // pattern lets wide (18:9/ultrawide) video frames blow past the 115pt
-            // box and leak out of the card; explicit width/height + clip contains it.
-            GeometryReader { geo in
-                ZStack {
-                    Color.white.opacity(0.03)
-
-                    if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
-                        Image(nsImage: ns)
-                            .resizable()
-                            .interpolation(.high)
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
-                    } else {
-                        Image(systemName: fileIcon)
-                            .font(.system(size: 36, weight: .light))
-                            .foregroundStyle(XTheme.textTertiary)
-                    }
+        VStack(spacing: 5) {
+            ZStack(alignment: .bottom) {
+                if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
+                    Image(nsImage: ns)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: 94)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                } else {
+                    placeholderView
                 }
-                .clipped()
             }
-            .frame(height: 115)
-            .clipped()
+            .frame(height: 94, alignment: .bottom)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topTrailing) { tileBadges }
 
-            HStack(spacing: 8) {
-                Image(systemName: fileIcon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(XTheme.accent)
+            VStack(spacing: 2) {
+                Text(file.name)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(XTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .truncationMode(.middle)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.name)
-                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                        .foregroundStyle(XTheme.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                Text(file.createdAt.formatted(.relative(presentation: .named)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(XTheme.textTertiary)
 
-                    Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-                        .font(.system(size: 10))
-                        .foregroundStyle(XTheme.textTertiary)
-                }
-
-                Spacer(minLength: 0)
+                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                    .font(.system(size: 11))
+                    .foregroundStyle(XTheme.textTertiary)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.04))
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? XTheme.accent.opacity(0.18) : (hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.04)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isSelected ? XTheme.accent : Color.white.opacity(0.06), lineWidth: isSelected ? 1.5 : 1)
-        )
-        .overlay(alignment: .topTrailing) {
-            HStack(spacing: 4) {
-                if file.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(4)
-                        .background(Circle().fill(XTheme.accent))
-                }
-                if file.isPrivate {
-                    Image(systemName: "number")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(4)
-                        .background(Circle().fill(XTheme.categoryRed))
-                }
-
-                Menu {
-                    FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color.black.opacity(0.55))
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .frame(width: 24, height: 24)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .contentShape(Circle())
-                }
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .contentShape(Rectangle())
+        .background(tileHighlight)
+        .overlay {
+            if isSelected || dropTargeted {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(XTheme.accent, lineWidth: 1.5)
             }
-            .padding(6)
         }
     }
 
-    private var fileIcon: String {
-        let mime = file.mime
-        if mime.hasPrefix("image/") { return "photo" }
-        if mime.hasPrefix("video/") { return "film" }
-        if mime.hasPrefix("audio/") { return "music.note" }
-        if mime.contains("pdf") { return "doc.richtext" }
-        if mime.hasPrefix("text/") { return "doc.text" }
-        return "doc"
+    /// Finder-style selection/hover wash behind a tile (the tile itself has no
+    /// card background — the highlight carries selection state like Finder).
+    private var tileHighlight: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(isSelected ? XTheme.accent.opacity(0.18) : (hovering ? Color.white.opacity(0.08) : Color.clear))
+    }
+
+    /// Pin / private badges + the card menu, pinned to the thumbnail zone's
+    /// top-trailing corner. Shared by folder and file tiles.
+    private var tileBadges: some View {
+        HStack(spacing: 4) {
+            if file.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(Circle().fill(XTheme.accent))
+            }
+            if file.isPrivate {
+                Image(systemName: "number")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(Circle().fill(XTheme.categoryRed))
+            }
+
+            Menu {
+                FileItemContextMenu(file: file, renameTarget: $renameTarget, renameText: $renameText)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.black.opacity(0.55))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 24, height: 24)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+        }
+        .padding(6)
+    }
+
+    /// No-thumbnail placeholder per file type — same cards as the iOS app
+    /// (white doc/audio cards, dark video/photo cards, EXT caption).
+    private var placeholderView: some View {
+        let ext = (file.name as NSString).pathExtension.uppercased()
+        return ZStack {
+            if file.isAudio {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white)
+                        .frame(width: 70, height: 92)
+                        .shadow(color: .black.opacity(0.16), radius: 2.5, x: 0, y: 1.5)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 34, weight: .regular))
+                        .foregroundStyle(Color(white: 0.78))
+                }
+            } else if file.isVideo {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(red: 0.13, green: 0.13, blue: 0.15))
+                        .frame(width: 90, height: 60)
+                        .shadow(color: .black.opacity(0.20), radius: 2.5, x: 0, y: 1.5)
+                    VStack(spacing: 3) {
+                        Image(systemName: "film")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.white.opacity(0.75))
+                        if !ext.isEmpty {
+                            Text(ext)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.50))
+                        }
+                    }
+                }
+            } else if file.isPhoto {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(red: 0.16, green: 0.18, blue: 0.22))
+                        .frame(width: 84, height: 62)
+                        .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                    VStack(spacing: 3) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white.opacity(0.70))
+                        if !ext.isEmpty {
+                            Text(ext)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.50))
+                        }
+                    }
+                }
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.white)
+                        .frame(width: 70, height: 92)
+                        .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                    VStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 28))
+                            .foregroundStyle(Color(white: 0.65))
+                        if !ext.isEmpty {
+                            Text(ext)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(Color(white: 0.45))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func dropIntoFolder(_ providers: [NSItemProvider]) -> Bool {

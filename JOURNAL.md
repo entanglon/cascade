@@ -2,9 +2,43 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207, threshold tuned 8 s → 4 s).
+> 2026-09-09 (evening) — Unified Mac grid on the iOS/Finder tile system (Round 208).
 
 ---
+
+## 2026-09-09 (evening) — Unified Mac grid on the iOS/Finder tile system (Round 208)
+
+User asked to restyle Mac folder + thumbnail cards on the iOS app's system —
+same folders, same thumbnail sizes, Finder-like.
+
+### What changed (`Features/FileBrowserView.swift` only)
+- Ported `AppleFolderTabShape` + `AppleFolderIcon` from `Cascade iOS/RootView`
+  verbatim (pure SwiftUI, no platform APIs) — 84×66 vector folder, same
+  gradients/highlight as iOS.
+- `folderCard` rewritten: the 54pt horizontal row card is gone; folders are
+  now vertical Finder tiles (icon floating in a 94pt zone, centered 2-line
+  name, "N items" below). Private folders keep the red `#` badge (the shared
+  blue icon carries no privacy signal); albums/playlists render as plain
+  folders like iOS (list rows keep their colored glyphs).
+- `fileCard` rewritten: the 115pt glass strip card is gone; thumbnails float
+  aspect-fit in the 94pt zone with 4pt rounding + shadow (aspect-fill cropping
+  is gone — full frames show, like Finder/iOS). Labels match iOS: centered
+  name + date + size. New per-type placeholders mirror iOS (white audio/doc
+  cards, dark video/photo cards, EXT captions).
+- Selection/hover is now a Finder-style wash behind the tile (accent tint /
+  hover lift) with an accent ring when selected or drop-targeted; pin/private
+  badges + ellipsis menu moved to the thumbnail zone's top-trailing corner.
+- Grids unified: folder section uses the same column count as files
+  (`min(cols,4)` cap removed — also fixes the off-column arrow-nav quirk),
+  both sections use iOS spacing (28pt rows / 16pt columns). Loading skeletons
+  reshaped to the new tiles.
+- Untouched by design: book poster cards, list rows, context menus,
+  drag-drop, rename sheet, reveal flash, Photos/Videos pages, iOS app.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — needs the user's eye: compare All Files grid against
+  the iPhone app + Finder icon view.
 
 ## 2026-09-09 (evening) — Pre-buffer gate for streamed video + Private Vault heading hash removed (Round 207, threshold tuned 8 s → 4 s)
 
