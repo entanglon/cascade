@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-09 (evening): Round 209 — tile chrome cleanup (menu buttons removed, hover effects removed, compact 132pt square-ish tiles). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-09 (evening): Round 210 — square 132pt tile containers with centered content, Folders/Files headings removed in grid + list + skeleton. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4205,6 +4205,11 @@ Open levers (not scheduled):
      - Menu buttons removed from folder/file tiles (grid-level right-click menu already covers it, Finder-style); pin/private badges stay; Library poster button kept (user-approved design — needs confirmation if it should go too).
      - Hover zoom + wash removed (tiles quiet until selected); kept selection wash/ring, drop-target ring, mid-drag count badge. List rows + posters keep their hover behavior.
      - Tiles now fixed 132pt blocks centered in flexible cells (wash + ring hug the block, Finder-style) instead of full-column-width rectangles.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
+ 210. **Square tile containers + section headings removed (2026-09-09 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`)
+     - Icon zones now fixed 132×132 squares, content centered with padding; selection wash + ring hug the square, labels below outside it. Tiles are 140pt blocks centered in flexible cells — uniform square rhythm. Thumbs aspect-fit (≤132×100) inside the square, never cropped.
+     - "Folders"/"Files" headings removed in grid view, list view, and skeleton (dead `skeletonBar` deleted): folders on top, files below, no titles, everywhere.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
 
 

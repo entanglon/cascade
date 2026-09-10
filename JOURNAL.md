@@ -2,9 +2,31 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-09 (evening) — Tile chrome cleanup: menu buttons removed, hover effects removed, compact square tiles (Round 209).
+> 2026-09-09 (evening) — Square tile containers + section headings removed (Round 210).
 
 ---
+
+## 2026-09-09 (evening) — Square tile containers + section headings removed (Round 210)
+
+User follow-up to Round 209: tiles should sit in proper square containers
+(good selection highlight, proper grid rhythm) and the Folders/Files section
+headings should go — folders on top, files below, everywhere.
+
+### What changed (`Features/FileBrowserView.swift` only)
+- Square containers: folder + file icon zones are now fixed 132×132 squares
+  with the content centered (comfortable padding on all sides). The selection
+  wash + ring hug the square only; labels sit below it, outside the wash.
+  Tiles are 140pt blocks centered in their flexible cells, so the grid reads
+  as uniform squares. Thumbnail content capped at 132×100 aspect-fit inside
+  the square (full frames, never cropped).
+- Headings removed in grid view, list view, and the loading skeleton (dead
+  `skeletonBar` helper deleted): folders grid/list on top, files below, no
+  titles — Finder scheme on every page. Skeleton shimmer tiles reshaped to
+  132 squares to match.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to confirm square rhythm + heading-free layout.
 
 ## 2026-09-09 (evening) — Tile chrome cleanup: menu buttons removed, hover effects removed, compact square tiles (Round 209)
 

@@ -1072,50 +1072,36 @@ struct FileBrowserView: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    // Folders Section
+                    // Folders on top, files below — no section headings
+                    // (Finder scheme, followed on every page).
                     if !currentFolders.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Folders")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(XTheme.textPrimary)
-
-                            LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                                spacing: 28
-                            ) {
-                                ForEach(currentFolders) { folder in
-                                    FileGridItem(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
-                                        .onTapGesture(count: 2) { open(folder) }
-                                        .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
-                                        .contextMenu { menu(for: folder) }
-                                        .onDrag { dragProvider(for: folder) }
-                                        .reportGridFrame(id: folder.id)
-                                }
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
+                        ) {
+                            ForEach(currentFolders) { folder in
+                                FileGridItem(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
+                                    .onTapGesture(count: 2) { open(folder) }
+                                    .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
+                                    .contextMenu { menu(for: folder) }
+                                    .onDrag { dragProvider(for: folder) }
+                                    .reportGridFrame(id: folder.id)
                             }
                         }
                     }
 
-                    // Files Section
                     if !currentFiles.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if !currentFolders.isEmpty {
-                                Text("Files")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(XTheme.textPrimary)
-                            }
-
-                            LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                                spacing: 28
-                            ) {
-                                ForEach(currentFiles) { file in
-                                    FileGridItem(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
-                                        .onTapGesture(count: 2) { open(file) }
-                                        .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
-                                        .contextMenu { menu(for: file) }
-                                        .onDrag { dragProvider(for: file) }
-                                        .reportGridFrame(id: file.id)
-                                }
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
+                        ) {
+                            ForEach(currentFiles) { file in
+                                FileGridItem(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
+                                    .onTapGesture(count: 2) { open(file) }
+                                    .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
+                                    .contextMenu { menu(for: file) }
+                                    .onDrag { dragProvider(for: file) }
+                                    .reportGridFrame(id: file.id)
                             }
                         }
                     }
@@ -1163,42 +1149,27 @@ struct FileBrowserView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if !currentFolders.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Folders")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(XTheme.textPrimary)
-
-                        LazyVStack(spacing: 4) {
-                            ForEach(currentFolders) { folder in
-                                FileListRow(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
-                                    .onTapGesture(count: 2) { open(folder) }
-                                    .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
-                                    .contextMenu { menu(for: folder) }
-                                    .onDrag { dragProvider(for: folder) }
-                                    .reportGridFrame(id: folder.id)
-                            }
+                    LazyVStack(spacing: 4) {
+                        ForEach(currentFolders) { folder in
+                            FileListRow(file: folder, isSelected: appState.selectedFiles.contains(folder.id), renameTarget: $renameTarget, renameText: $renameText)
+                                .onTapGesture(count: 2) { open(folder) }
+                                .simultaneousGesture(TapGesture(count: 1).onEnded { select(folder) })
+                                .contextMenu { menu(for: folder) }
+                                .onDrag { dragProvider(for: folder) }
+                                .reportGridFrame(id: folder.id)
                         }
                     }
                 }
 
-                // Files Section
                 if !currentFiles.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if !currentFolders.isEmpty {
-                            Text("Files")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(XTheme.textPrimary)
-                        }
-
-                        LazyVStack(spacing: 4) {
-                            ForEach(currentFiles) { file in
-                                FileListRow(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
-                                    .onTapGesture(count: 2) { open(file) }
-                                    .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
-                                    .contextMenu { menu(for: file) }
-                                    .onDrag { dragProvider(for: file) }
-                                    .reportGridFrame(id: file.id)
-                            }
+                    LazyVStack(spacing: 4) {
+                        ForEach(currentFiles) { file in
+                            FileListRow(file: file, isSelected: appState.selectedFiles.contains(file.id), renameTarget: $renameTarget, renameText: $renameText)
+                                .onTapGesture(count: 2) { open(file) }
+                                .simultaneousGesture(TapGesture(count: 1).onEnded { select(file) })
+                                .contextMenu { menu(for: file) }
+                                .onDrag { dragProvider(for: file) }
+                                .reportGridFrame(id: file.id)
                         }
                     }
                 }
@@ -1606,30 +1577,24 @@ struct FileBrowserView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     // Folders section skeleton (two rows so the feed feels full)
-                    VStack(alignment: .leading, spacing: 12) {
-                        skeletonBar(width: 70)
-                        ForEach(0..<2, id: \.self) { _ in
-                            LazyVGrid(
-                                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                                spacing: 28
-                            ) {
-                                ForEach(0..<cols, id: \.self) { _ in
-                                    folderSkeletonCard
-                                }
+                    ForEach(0..<2, id: \.self) { _ in
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                            spacing: 28
+                        ) {
+                            ForEach(0..<cols, id: \.self) { _ in
+                                folderSkeletonCard
                             }
                         }
                     }
 
                     // Files section skeleton
-                    VStack(alignment: .leading, spacing: 12) {
-                        skeletonBar(width: 50)
-                        LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
-                            spacing: 28
-                        ) {
-                            ForEach(0..<(cols * 3), id: \.self) { _ in
-                                fileSkeletonCard
-                            }
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: cols),
+                        spacing: 28
+                    ) {
+                        ForEach(0..<(cols * 3), id: \.self) { _ in
+                            fileSkeletonCard
                         }
                     }
                 }
@@ -1640,20 +1605,11 @@ struct FileBrowserView: View {
         }
     }
 
-    private func skeletonBar(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(Color.white.opacity(0.08))
-            .frame(width: width, height: 15)
-            .modifier(ShimmerModifier())
-    }
-
     private var folderSkeletonCard: some View {
-        VStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+        VStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.06))
-                .frame(width: 84, height: 66)
-                .frame(height: 94, alignment: .bottom)
-                .frame(maxWidth: .infinity)
+                .frame(width: 132, height: 132)
 
             VStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 3)
@@ -1665,17 +1621,16 @@ struct FileBrowserView: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(width: 140, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .center)
         .modifier(ShimmerModifier())
     }
 
     private var fileSkeletonCard: some View {
-        VStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+        VStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.06))
-                .frame(width: 84, height: 62)
-                .frame(height: 94, alignment: .bottom)
-                .frame(maxWidth: .infinity)
+                .frame(width: 132, height: 132)
 
             VStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 3)
@@ -1690,7 +1645,8 @@ struct FileBrowserView: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(width: 140, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .center)
         .modifier(ShimmerModifier())
     }
 
@@ -2453,19 +2409,24 @@ struct FileGridItem: View {
         }
     }
 
-    /// Finder / Apple Files-style folder tile: vector folder icon floating in a
-    /// 94pt zone (same component + metrics as the iOS app), centered name +
-    /// item count below. Private folders keep the red `#` badge (the shared
-    /// blue icon carries no privacy signal); albums/playlists render as plain
-    /// folders exactly like iOS (list rows keep their colored glyphs).
+    /// Finder / Apple Files-style folder tile: the vector folder sits centered
+    /// in a 132pt square container (comfortable padding on all sides — same
+    /// footprint as the iOS tile zone), name + item count below. The selection
+    /// wash and ring hug the square, never the full column width.
     private var folderCard: some View {
-        VStack(spacing: 5) {
-            ZStack(alignment: .bottom) {
+        VStack(spacing: 6) {
+            ZStack {
                 AppleFolderIcon(width: 84, height: 66)
                     .shadow(color: .black.opacity(0.15), radius: 2.5, x: 0, y: 1.5)
             }
-            .frame(height: 94, alignment: .bottom)
-            .frame(maxWidth: .infinity)
+            .frame(width: 132, height: 132)
+            .background(squareHighlight)
+            .overlay {
+                if isSelected || dropTargeted {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(XTheme.accent, lineWidth: 1.5)
+                }
+            }
             .overlay(alignment: .topTrailing) { tileBadges }
 
             VStack(spacing: 2) {
@@ -2482,17 +2443,7 @@ struct FileGridItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        // Compact square-ish tile: fixed 132pt block centered in the flexible
-        // cell (never a full-column-width rectangle). The selection wash and
-        // ring hug this block, Finder-style.
-        .frame(width: 132, alignment: .top)
-        .background(tileHighlight)
-        .overlay {
-            if isSelected || dropTargeted {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(XTheme.accent, lineWidth: 1.5)
-            }
-        }
+        .frame(width: 140, alignment: .top)
         .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
     }
@@ -2607,26 +2558,32 @@ struct FileGridItem: View {
         .padding(.vertical, 7)
     }
 
-    /// Finder / Apple Files-style file tile: the thumbnail floats aspect-fit in
-    /// a 94pt zone (same metrics as the iOS app — no card chrome behind it),
-    /// centered name + date + size below. Type placeholders mirror iOS exactly.
+    /// Finder / Apple Files-style file tile: the thumbnail sits centered in a
+    /// 132pt square container (aspect-fit, so full frames show with padding —
+    /// never cropped, never stretched), name + date + size below.
     private var fileCard: some View {
-        VStack(spacing: 5) {
-            ZStack(alignment: .bottom) {
+        VStack(spacing: 6) {
+            ZStack {
                 if let thumbURL, let ns = NSImage(contentsOf: thumbURL) {
                     Image(nsImage: ns)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: 94)
+                        .frame(maxWidth: 132, maxHeight: 100)
                         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
                 } else {
                     placeholderView
                 }
             }
-            .frame(height: 94, alignment: .bottom)
-            .frame(maxWidth: .infinity)
+            .frame(width: 132, height: 132)
+            .background(squareHighlight)
+            .overlay {
+                if isSelected || dropTargeted {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(XTheme.accent, lineWidth: 1.5)
+                }
+            }
             .overlay(alignment: .topTrailing) { tileBadges }
 
             VStack(spacing: 2) {
@@ -2647,22 +2604,15 @@ struct FileGridItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .frame(width: 132, alignment: .top)
-        .background(tileHighlight)
-        .overlay {
-            if isSelected || dropTargeted {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(XTheme.accent, lineWidth: 1.5)
-            }
-        }
+        .frame(width: 140, alignment: .top)
         .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
     }
 
-    /// Finder-style selection wash behind a tile (hover wash removed — tiles
-    /// stay visually quiet until selected, like Finder icon view).
-    private var tileHighlight: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+    /// Finder-style selection wash: fills the tile's square container only
+    /// (never the column). Quiet when unselected — no hover state.
+    private var squareHighlight: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
             .fill(isSelected ? XTheme.accent.opacity(0.18) : Color.clear)
     }
 
