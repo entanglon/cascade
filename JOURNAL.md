@@ -2,9 +2,32 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Theme icons back on with matching footprint (Round 234).
+> 2026-09-10 (evening) — Icon Composer pipeline: Liquid Glass icons (Round 235).
 
 ---
+
+## 2026-09-10 (evening) — Icon Composer pipeline: Liquid Glass icons (Round 235)
+
+User directed the proper fix: Apple's Icon Composer + asset catalog for a
+modern adaptive icon (the baked-shadow tiles could never carry the Tahoe
+glass effects). Read flux-adjacent docs + reverse-engineered the pipeline.
+
+### What changed
+- New artwork is full-bleed opaque tiles (dark #242428 / white)  —  flood-fill
+  extracted the cloud glyphs (verified transparent, ~1.1M px each).
+- Authored `IconComposer/AppIcon-Light.icon` + `AppIcon-Dark.icon` via the
+  community CLI driving Apple's own `ictool` (specular + layer shadow on,
+  glyph scale tuned 1.75  — > 0.9 after the first render overflowed the canvas).
+- Rendered macOS 1024s through the Apple pipeline (verified visually +
+  corner alpha); adopted into AppIcon slots, IconLight/IconDark, themed set.
+- `.icon` bundles committed as editable sources (open in Icon Composer.app
+  to tweak). Switcher/About logic untouched  —  already correct.
+
+### Verification
+- Build: **BUILD SUCCEEDED** (zero actool warnings). Tests: CascadeTests
+  **TEST SUCCEEDED**.
+- Debug app relaunched  —  user to verify the glass tile in Dock + About,
+  both appearances.
 
 ## 2026-09-10 (evening) — Theme icons back on with matching footprint (Round 234)
 

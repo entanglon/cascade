@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 234 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 235 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4355,6 +4355,10 @@ Open levers (not scheduled):
  234. **Theme icons re-enabled (2026-09-10 evening  — COMMITTED)**
      (`Cascade/Assets.xcassets`, `App/CascadeApp.swift`, `App/TerminationHandler.swift`, `Features/AboutView.swift`)
      - Light master rebuilt with identical treatment (verified visually); themed sets refreshed; switcher + About themed restored. Finder stays dark.
+ 235. **Icon Composer Liquid Glass icons (2026-09-10 evening  — COMMITTED)**
+     (`IconComposer/`, `Cascade/Assets.xcassets`)
+     - Glyph extraction + `.icon` bundles (ictool render, scale 0.9); adopted renders everywhere; sources committed.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies glass tile, both modes.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies both modes.
 
 
