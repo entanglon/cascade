@@ -2,9 +2,25 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Runtime icon footprint fix (Round 236).
+> 2026-09-10 (evening) — Measured icon footprint vs Finder, matched at 81% (Round 237).
 
 ---
+
+## 2026-09-10 (evening) — Measured icon footprint vs Finder, matched at 81% (Round 237)
+
+User asked for proof of size parity, so it was measured, not asserted:
+Finder's tile body fills 80.5% of canvas (GenericApp 85%) vs ours at 89.8%  — 
+a ~10pt gap, matching the complaint exactly. (Naive alpha-bbox lies on
+shadowed icons; solid-body threshold used.)
+
+### What changed
+- Runtime tiles (IconDark/IconLight/AppIconThemed 1024s) rescaled to 0.81
+  body fill, verified visually. Catalog AppIcon slots stay full-bleed for
+  correct system normalization (pre-insetting both would double-shrink).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched  —  user compares with neighbors (`killall Dock` if cached).
 
 ## 2026-09-10 (evening) — Runtime icon footprint fix (Round 236)
 

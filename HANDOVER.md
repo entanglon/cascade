@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 236 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 237 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4363,6 +4363,10 @@ Open levers (not scheduled):
      (`Cascade/Assets.xcassets`)
      - Full-bleed renders oversized via applicationIconImage (no system normalization); inset to 90% for runtime sets, catalog stays full-bleed.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user compares footprint.
+ 237. **Measured footprint parity (2026-09-10 evening  — COMMITTED)**
+     (`Cascade/Assets.xcassets`)
+     - Finder body 80.5% vs ours 89.8% (solid-body metric); runtime tiles rescaled to 0.81, catalog untouched.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies both modes.
 
 
