@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (morning): Round 215 — image viewer/fullscreen unification (parity chrome, theater hide/restore, dead minimize removed). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (morning): Round 216 — fullscreen fixes (focus border, nav removal, hover chrome, video-black flag, click-toggle, cursor hide, flux volume boost). Read this first in any new chat before touching the code.
 
 ---
 
@@ -4243,6 +4243,15 @@ Open levers (not scheduled):
      - Fullscreen image viewer rewritten to theater parity: top bar (title/size, exit-toggle, close), bottom bar (counter, zoom %), nav chevrons, zoom gestures, tap-toggle auto-hide chrome, arrows (non-images hand back to theater). Direct opens stay standalone.
      - Theater: `fullscreenHidesTheater` (video by kind, images by file match); dead image minimize deleted (leftover, never resurrected — other removals verified intact); keys yield to fullscreen while it owns the file.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched — manual QA: identical chrome, hide/restore, arrows, video handoff, no image minimize.
+ 216. **Fullscreen fixes + flux ports (2026-09-10 morning — COMMITTED)**
+     (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`, `Features/TheaterView.swift`)
+     - Blue border: focus ring from `.focusable()` without effect-disable; focus machinery removed (nothing needs it now).
+     - Fullscreen nav removed (buttons/keys/counter/plumbing): single-image surface, nav lives in the ordinary viewer.
+     - Tap-toggle deleted (fought double-tap zoom = the lag); chrome is hover-driven; double-tap zoom instant again.
+     - Video-black root cause: hide flag gated on snapshot presence → now sets on either attach path (no-permission case fixed).
+     - Video: click toggles chrome (surface-level tap, controls consume their own); cursor hides with chrome via `setHiddenUntilMouseMoves` (+ image fullscreen same rule).
+     - Flux volume boost: `volume-max=200`, coalesced `setBoost` 1–2x, echo clamp, speaker cycle buttons in video+audio pills (orange %), per-track reset.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
 
 
 

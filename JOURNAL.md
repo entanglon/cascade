@@ -2,9 +2,65 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (morning) — Image viewer/fullscreen unification: parity chrome, theater hide/restore, dead minimize removed (Round 215).
+> 2026-09-10 (morning) — Fullscreen fixes: focus border, nav removal, hover chrome, video-black root cause, click-toggle, cursor hide, flux volume boost (Round 216).
 
 ---
+
+## 2026-09-10 (morning) — Fullscreen fixes: focus border, nav removal, hover chrome, video-black root cause, click-toggle, cursor hide, flux volume boost (Round 216)
+
+User review: (1) blue border in fullscreen, (2) prev/next buttons don't belong
+in fullscreen, (3) tap-toggle chrome laggy, (4) video fullscreen leaves the
+ordinary player black, (5) video needs click-to-toggle + cursor auto-hide,
+(6) port flux player upgrades (volume boost etc.).
+
+### 1. Blue border — `.focusable().focused()` without `.focusEffectDisabled()`
+in ImageFullscreenRoot drew the macOS focus ring around the whole fullscreen
+root. Focus machinery removed entirely (nothing needs keyboard focus there
+anymore — see 2).
+
+### 2. Nav removed from fullscreen
+- Fullscreen image viewer is a single-image surface now: chevrons, counter,
+  arrow keys, playlist plumbing (`Session.playlist`, present params) all
+  removed. Navigation lives in the ordinary viewer per the user's model. The
+  theater key guards stay (they prevent the hidden theater from double-
+  acting, and space from killing it).
+
+### 3. Hover-only chrome (the lag root cause)
+- The tap-toggle fought the double-tap-zoom recognizer (single taps wait out
+  disambiguation = the reported lag) — deleted. Chrome now follows the mouse
+  only (hover shows + restarts the 3.5 s timer). Double-tap zoom is instant
+  again as a side effect.
+
+### 4. Video-black ordinary player — root cause + fix
+- `swapLiveVideoIn` gated `videoLiveInFullscreen = true` on `snapshotImage
+  != nil`. Without Screen Recording permission (or on capture failure) the
+  snapshot is skipped, the layer attaches pre-toggle via the fallback — and
+  the flag never set, leaving the theater fully visible with an empty black
+  player. Restructured: the flag sets whenever the layer is fullscreen by
+  either path.
+
+### 5. Click-toggle + cursor auto-hide (video)
+- Single tap on the video surface toggles chrome (attached under the controls
+  overlay — button/slider taps are consumed up there, so transport clicks
+  never toggle). Cursor follows flux's pattern: `setHiddenUntilMouseMoves`
+  when chrome hides, unhide on activity/disappear. Same cursor rule added to
+  the image fullscreen timer.
+
+### 6. Flux volume boost ported
+- `volume-max=200` at core setup (option + property, like flux);
+  `MPVController.setBoost` (1.0–2.0) on the same 60 ms coalesced write path
+  (no gain-ramming crackle); volume-echo handler ignores >100 (boost state
+  lives in `volumeBoost`, fresh controllers reset per track). Speaker buttons
+  in both video + audio pills cycle 100 → 125 → 150 → 200 → off with an
+  orange % readout. System-volume slider untouched (boost is a second gain
+  stage for quiet sources only).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: no border; no nav in fullscreen;
+  snappy hover chrome + instant double-tap zoom; video fullscreen hides the
+  theater (test with Screen Recording denied too); click toggles; cursor
+  hides; boost button on a quiet video.
 
 ## 2026-09-10 (morning) — Image viewer/fullscreen unification: parity chrome, theater hide/restore, dead minimize removed (Round 215)
 

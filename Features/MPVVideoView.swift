@@ -471,8 +471,23 @@ class MPVController: ObservableObject {
         // gain filter on every write, which makes the audio crackle/break.
         // One write per ~60 ms is plenty for a smooth fade.
         volume = value
+        writeVolumeCoalesced(value)
+    }
+
+    /// flux/VLC-style audio boost: mpv-side gain above the system volume,
+    /// 1.0 (off) … 2.0 (+18 dB, needs volume-max=200 at core setup). Fresh
+    /// controllers start at 1.0, so boost never leaks across tracks. Writes
+    /// ride the same coalescing as volume (gain re-ramps are crackly).
+    @Published var volumeBoost: Double = 1.0
+
+    func setBoost(_ value: Double) {
+        volumeBoost = min(max(value, 1.0), 2.0)
+        writeVolumeCoalesced(volumeBoost)
+    }
+
+    private func writeVolumeCoalesced(_ fraction: Double) {
         volumeSyncTask?.cancel()
-        let target = value
+        let target = fraction
         volumeSyncTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 60_000_000)
             guard !Task.isCancelled else { return }
@@ -580,7 +595,9 @@ class MPVController: ObservableObject {
                 }
             case "volume":
                 if let vol = value as? Double {
-                    self.volume = vol / 100.0
+                    // Boost writes echo back above 100 — the boost state lives
+                    // in volumeBoost; only sub-unity echoes update volume.
+                    if vol <= 100 { self.volume = vol / 100.0 }
                 }
             case "cache-buffering-state":
                 if let percent = value as? Int64 {
@@ -1193,6 +1210,10 @@ final class MPVLayerView: NSView {
         // can hand the upload path a frame with a stale/zero plane stride
         // (mpv 0.38 assert "stride > 0" in gl_upload_tex — crashed on 8K AV1).
         mpv_set_option_string(mpv, "vd-lavc-dr", "no")
+        // flux-style audio boost headroom: the volume pill's speaker button
+        // cycles mpv-side gain 100 → 200% for quiet sources (system volume is
+        // untouched — this is a second gain stage, off by default per track).
+        mpv_set_option_string(mpv, "volume-max", "200")
 
         if mpv_initialize(mpv) < 0 {
             print("[MPV] init failed")
@@ -1201,6 +1222,7 @@ final class MPVLayerView: NSView {
 
         // Properties set AFTER initialization (matching Stremio's mpv.cpp)
         mpv_set_property_string(mpv, "vo", "libmpv")
+        mpv_set_property_string(mpv, "volume-max", "200")
         mpv_set_property_string(mpv, "profile", "fast")
         mpv_set_property_string(mpv, "scale", "bilinear")
         mpv_set_property_string(mpv, "hwdec", "auto")
@@ -1888,10 +1910,6 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         /// The file being shown — non-nil in `.image` sessions (the image
         /// view resolves/downloads it itself, theater-style).
         let file: ObjectRecord?
-        /// Sibling files for the fullscreen image viewer's prev/next
-        /// navigation + "x of y" counter (theater flow passes its media
-        /// order; direct opens leave it empty = standalone viewer).
-        let playlist: [ObjectRecord]
     }
 
     @Published private(set) var isActive = false
@@ -1962,8 +1980,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onClose: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
         kind: SessionKind = .theater,
-        file: ObjectRecord? = nil,
-        playlist: [ObjectRecord] = []
+        file: ObjectRecord? = nil
     ) {
         guard !isActive, !isDismissing else { return }
         // Opening a window while another window of the app is mid-fullscreen
@@ -1972,7 +1989,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // flight.
         guard !FullscreenTransitionGate.shared.isTransitioning else {
             FullscreenTransitionGate.shared.runWhenIdle { [weak self] in
-                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file, playlist: playlist)
+                self?.present(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
             }
             return
         }
@@ -1983,10 +2000,10 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         if Self.sceneWindow != nil {
             dismissWindow?(id: "fullscreenPlayer")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file, playlist: playlist)
+                self?.presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
             }
         } else {
-            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file, playlist: playlist)
+            presentNow(player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, onClose: onClose, onDismiss: onDismiss, kind: kind, file: file)
         }
     }
 
@@ -2029,10 +2046,9 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     /// the theater (restore); the X button closes everything to the browser.
     /// The image view owns the download (view `.task`, like the theater's
     /// loadFile) — never gate it on the window's session state, which races
-    /// present()'s deferral paths. `playlist` (theater flow) powers prev/next
-    /// + the counter; direct opens leave it empty = standalone viewer.
+    /// present()'s deferral paths.
     @MainActor
-    static func presentImage(appState: AppState, file: ObjectRecord, playlist: [ObjectRecord] = []) {
+    static func presentImage(appState: AppState, file: ObjectRecord) {
         PlayerFullScreenWindow.shared.present(
             nil,
             mpv: nil,
@@ -2052,8 +2068,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
                 appState.isTheaterFullScreen = false
             },
             kind: .image,
-            file: file,
-            playlist: playlist
+            file: file
         )
     }
 
@@ -2066,8 +2081,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         onClose: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
         kind: SessionKind,
-        file: ObjectRecord? = nil,
-        playlist: [ObjectRecord] = []
+        file: ObjectRecord? = nil
     ) {
         guard !isActive, !isDismissing else { return }
         // Wave 2 item 5: PiP owns the live layer while its panel is up — the
@@ -2081,7 +2095,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         // Image sessions hide the theater's own copy underneath (restored on
         // dismiss) — ordinary + fullscreen never show together.
         if kind == .image { imageLiveInFullscreen = true }
-        session = Session(kind: kind, player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, file: file, playlist: playlist)
+        session = Session(kind: kind, player: player, mpv: mpv, title: title, subtitle: subtitle, appState: appState, file: file)
         self.onClose = onClose
         self.onDismiss = onDismiss
         playerView = player
@@ -2418,27 +2432,33 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
     /// flash; it is removed when the fade completes. Idempotent (recovery
     /// paths may re-enter).
     private func swapLiveVideoIn(window: NSWindow?) {
-        guard snapshotImage != nil, let playerView, let container = playerContainer,
-              playerView.superview !== container, container.window != nil else { return }
-        playerView.removeFromSuperview()
-        container.addSubview(playerView)
-        playerView.frame = container.bounds
-        playerView.autoresizingMask = [.width, .height]
-        playerView.alphaValue = 0
-        playerView.mpvRenderUpdate()
-        window?.contentView?.layoutSubtreeIfNeeded()
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.08
-            playerView.animator().alphaValue = 1
-        } completionHandler: { [weak self, weak container] in
-            // The live layer is opaque at the correct size now — drop the ghost.
-            for sub in container?.layer?.sublayers ?? [] where sub.name == "cascadeGhostSnapshot" {
-                sub.removeFromSuperlayer()
+        guard let playerView, let container = playerContainer, container.window != nil else { return }
+        if playerView.superview !== container, snapshotImage != nil {
+            playerView.removeFromSuperview()
+            container.addSubview(playerView)
+            playerView.frame = container.bounds
+            playerView.autoresizingMask = [.width, .height]
+            playerView.alphaValue = 0
+            playerView.mpvRenderUpdate()
+            window?.contentView?.layoutSubtreeIfNeeded()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.08
+                playerView.animator().alphaValue = 1
+            } completionHandler: { [weak self, weak container] in
+                // The live layer is opaque at the correct size now — drop the ghost.
+                for sub in container?.layer?.sublayers ?? [] where sub.name == "cascadeGhostSnapshot" {
+                    sub.removeFromSuperlayer()
+                }
+                self?.snapshotImage = nil
             }
-            self?.snapshotImage = nil
+            print("Cascade player: live video swapped in at didEnter \(container.bounds)")
         }
+        // Whether the layer moved now (ghost path) or pre-toggle (no-snapshot
+        // fallback in attachVideoThenToggle — no Screen Recording permission,
+        // capture failed), the video IS fullscreen: hide the theater either
+        // way. Gating this on the snapshot left the ordinary player visible
+        // with a black empty view whenever capture was skipped.
         videoLiveInFullscreen = true
-        print("Cascade player: live video swapped in at didEnter \(container.bounds)")
     }
 
     /// Recovery ladder for a window whose fullscreen toggle was ignored (the
@@ -2496,7 +2516,7 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         dismissWindow?(id: "fullscreenPlayer")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
-            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {}, kind: session.kind, file: session.file, playlist: session.playlist)
+            self.presentNow(session.player, mpv: session.mpv, title: session.title, subtitle: session.subtitle, appState: session.appState, onClose: close ?? {}, onDismiss: dismiss ?? {}, kind: session.kind, file: session.file)
         }
     }
 
@@ -2735,19 +2755,16 @@ struct FullscreenPlayerSceneView: View {
 }
 
 /// Image-session root ("Open in Full Screen" on an image — no engine): the
-/// image fit-to-screen on black with the SAME chrome as the theater's image
-/// viewer — top bar (title + size, exit-fullscreen toggle, close), bottom bar
-/// ("x of y" counter when a playlist exists, zoom % pill), prev/next
-/// chevrons, pinch/drag/double-tap zoom, tap-to-toggle auto-hiding chrome.
-/// The view owns the file resolution (cached → instant file URL; uncached →
-/// async download with progress — never a stream URL: NSImage loads those
-/// synchronously on the main thread, the Round 214 hard freeze). Left/right
-/// arrows walk the playlist (theater flow); stepping onto a non-image hands
-/// back to the theater, which plays it natively. ESC exits (window monitor).
+/// image fit-to-screen on black with the theater's image-viewer chrome — top
+/// bar (title + size, exit-fullscreen toggle, close), bottom zoom % pill,
+/// pinch/drag/double-tap zoom. Navigation lives in the ordinary viewer only
+/// (no prev/next here, by design). Chrome follows the mouse (shows on
+/// activity, hides after 3.5 s idle — tap-to-toggle was removed: it fought
+/// the double-tap zoom recognizer and every toggle lagged a beat); the cursor
+/// hides with it, Apple-TV style. ESC exits (window monitor).
 private struct ImageFullscreenRoot: View {
     let session: PlayerFullScreenWindow.Session
     @ObservedObject var window: PlayerFullScreenWindow
-    @State private var currentFile: ObjectRecord?
     @State private var url: URL?
     @State private var failed = false
     @State private var progress: Double = 0
@@ -2757,20 +2774,8 @@ private struct ImageFullscreenRoot: View {
     @State private var lastOffset: CGSize = .zero
     @State private var showControls = true
     @State private var controlsTimer: Timer?
-    @FocusState private var focused: Bool
 
-    private var file: ObjectRecord? { currentFile ?? session.file }
-    private var playlist: [ObjectRecord] { session.playlist }
-    private var fileIndex: Int? {
-        guard let f = file else { return nil }
-        return playlist.firstIndex(where: { $0.id == f.id })
-    }
-    private var hasPlaylistNav: Bool { fileIndex != nil && playlist.count > 1 }
-
-    private static func isImageFile(_ f: ObjectRecord) -> Bool {
-        if f.isPhoto { return true }
-        return (f.name as NSString).pathExtension.lowercased() == "svg" || f.mime.contains("svg")
-    }
+    private var file: ObjectRecord? { session.file }
 
     private var isSVG: Bool {
         guard let f = file else { return false }
@@ -2859,32 +2864,18 @@ private struct ImageFullscreenRoot: View {
                 }
             }
             .ignoresSafeArea()
-            .onTapGesture { toggleChrome() }
 
             if showControls {
                 VStack {
                     topBar
                         .transition(.move(edge: .top).combined(with: .opacity))
                     Spacer()
-                    if hasPlaylistNav || !isSVG {
+                    if !isSVG {
                         bottomBar
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
                 .animation(.easeInOut(duration: 0.25), value: showControls)
-
-                if hasPlaylistNav {
-                    HStack {
-                        navButton(delta: -1, systemName: "chevron.left")
-                            .opacity(canAdvance(-1) ? 1 : 0.3)
-                            .disabled(!canAdvance(-1))
-                        Spacer()
-                        navButton(delta: 1, systemName: "chevron.right")
-                            .opacity(canAdvance(1) ? 1 : 0.3)
-                            .disabled(!canAdvance(1))
-                    }
-                    .padding(.horizontal, 16)
-                }
             }
 
             VStack {
@@ -2900,22 +2891,17 @@ private struct ImageFullscreenRoot: View {
         .background(Color.black)
         .environment(session.appState)
         .environment(\.colorScheme, .dark)
-        .focusable()
-        .focused($focused)
         .onAppear {
-            if currentFile == nil { currentFile = session.file }
-            focused = true
             pokeChromeTimer()
         }
         .onDisappear {
             controlsTimer?.invalidate()
+            NSCursor.unhide()
         }
         .onContinuousHover { phase in
             if case .active = phase { pokeChromeTimer() }
         }
-        .onKeyPress(.leftArrow) { advance(-1); return .handled }
-        .onKeyPress(.rightArrow) { advance(1); return .handled }
-        .task(id: currentFile?.id ?? session.file?.id ?? "none") {
+        .task(id: session.file?.id ?? "none") {
             await resolve()
         }
     }
@@ -2925,11 +2911,11 @@ private struct ImageFullscreenRoot: View {
     private var topBar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(currentFile?.name ?? session.title)
+                Text(session.title)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(sizeText)
+                Text(session.subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.5))
             }
@@ -2972,97 +2958,26 @@ private struct ImageFullscreenRoot: View {
         .background(.black.opacity(0.4))
     }
 
-    private var sizeText: String {
-        guard let f = file else { return session.subtitle }
-        return ByteCountFormatter.string(fromByteCount: f.size, countStyle: .file)
-    }
-
     private var bottomBar: some View {
         HStack(spacing: 12) {
-            if let idx = fileIndex, hasPlaylistNav {
-                Text("\(idx + 1) of \(playlist.count)")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .glassEffect(.regular, in: .capsule)
-            }
-
             Spacer()
 
-            if !isSVG {
-                Text("\(Int(imageScale * 100))%")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassEffect(.regular, in: .capsule)
-            }
+            Text("\(Int(imageScale * 100))%")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .glassEffect(.regular, in: .capsule)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
     }
 
-    private func navButton(delta: Int, systemName: String) -> some View {
-        Button { advance(delta) } label: {
-            Image(systemName: systemName)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 40, height: 40)
-                .contentShape(Circle())
-                .glassEffect(.regular.interactive(), in: .circle)
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Navigation + chrome state
-
-    private func canAdvance(_ delta: Int) -> Bool {
-        guard let idx = fileIndex else { return false }
-        return playlist.indices.contains(idx + delta)
-    }
-
-    private func advance(_ delta: Int) {
-        pokeChromeTimer()
-        guard let idx = fileIndex else { return }
-        let nextIdx = idx + delta
-        guard playlist.indices.contains(nextIdx) else { return }
-        let next = playlist[nextIdx]
-        guard Self.isImageFile(next) else {
-            // Non-image siblings play in the theater — hand back to it (the
-            // ordinary viewer restores showing the video natively).
-            if session.appState.theaterFile != nil { session.appState.theaterFile = next }
-            window.dismiss()
-            return
-        }
-        currentFile = next
-        if session.appState.theaterFile != nil { session.appState.theaterFile = next }
-        resetViewState()
-    }
-
-    private func resetViewState() {
-        url = nil
-        progress = 0
-        failed = false
-        imageScale = 1.0
-        lastScale = 1.0
-        imageOffset = .zero
-        lastOffset = .zero
-    }
-
-    private func toggleChrome() {
-        if showControls {
-            controlsTimer?.invalidate()
-            withAnimation(.easeInOut(duration: 0.25)) {
-                showControls = false
-            }
-        } else {
-            pokeChromeTimer()
-        }
-    }
+    // MARK: - Chrome auto-hide (mouse-driven; no tap toggle)
 
     private func pokeChromeTimer() {
         controlsTimer?.invalidate()
+        NSCursor.unhide()
         if !showControls {
             withAnimation(.easeInOut(duration: 0.25)) {
                 showControls = true
@@ -3072,6 +2987,9 @@ private struct ImageFullscreenRoot: View {
             Task { @MainActor in
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showControls = false
+                }
+                if NSApp.isActive {
+                    NSCursor.setHiddenUntilMouseMoves(true)
                 }
             }
         }

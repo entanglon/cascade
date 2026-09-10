@@ -310,10 +310,9 @@ struct TheaterView: View {
             appState.isTheaterFullScreen = false
         } else if previewKind == .image {
             // Images have no mpv controller — the player window shows the
-            // image itself (fit-to-screen, spinner while it downloads),
-            // carrying the theater's media order for prev/next + counter.
+            // image itself (fit-to-screen, spinner while it downloads).
             // The theater hides underneath and restores on exit.
-            PlayerFullScreenWindow.presentImage(appState: appState, file: file, playlist: mediaFiles)
+            PlayerFullScreenWindow.presentImage(appState: appState, file: file)
             appState.isTheaterFullScreen = true
         } else if let mpv = AudioPlayerEngine.shared.mpvController,
                   let layer = mpv.playerView?.playerView {
@@ -1542,11 +1541,33 @@ struct TheaterAudioPlayerView: View {
                 // and this slider are the same control. Bound via @Bindable so
                 // the slider and mute icon track EXTERNAL changes (rocker
                 // keys, Control Center) live — a raw Binding(get:) would only
-                // re-read on this view's own re-renders.
+                // re-read on this view's own re-renders. The speaker cycles
+                // flux-style mpv-side boost (100 → 200%) like the video pill.
                 HStack(spacing: 10) {
-                    Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.8))
+                    if let mpv = audioEngine.mpvController {
+                        Button {
+                            let steps = [1.0, 1.25, 1.5, 2.0]
+                            let next = steps.first(where: { $0 > mpv.volumeBoost + 0.001 }) ?? 1.0
+                            mpv.setBoost(next)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(mpv.volumeBoost > 1.0 ? .orange : .white.opacity(0.8))
+                                if mpv.volumeBoost > 1.0 {
+                                    Text("\(Int((mpv.volumeBoost * 100).rounded()))%")
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help(mpv.volumeBoost > 1.0 ? "Audio boost on — click to cycle" : "Audio boost — click to amplify quiet audio")
+                    } else {
+                        Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
                     Slider(value: $volumeManager.volume, in: 0...1,
                            onEditingChanged: { volumeManager.isUserDragging = $0 })
                         .frame(width: 90)

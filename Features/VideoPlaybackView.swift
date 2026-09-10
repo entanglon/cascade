@@ -3,6 +3,11 @@ import AppKit
 
 extension Notification.Name {
     static let toggleVideoPlayback = Notification.Name("cascade_toggleVideoPlayback")
+    /// Single tap on the video surface toggles the player chrome (flux-style:
+    /// click shows/hides controls). Posted by VideoPlaybackView's tap catcher
+    /// on the video layer — control taps never reach it (buttons consume
+    /// their own taps), so pressing play never hides the chrome.
+    static let togglePlayerChrome = Notification.Name("cascade_togglePlayerChrome")
 }
 
 /// Apple-TV-style button hover: a slight white tint fills the button's shape
@@ -72,6 +77,13 @@ struct VideoPlaybackView: View {
                     // mpv (libmpv) streams any container from the local byte-range server.
                     MPVVideoView(controller: mpv)
                         .id(ObjectIdentifier(mpv)) // rebuild the view when a new controller takes over
+                        .onTapGesture {
+                            // Click toggles chrome — attached to the video
+                            // surface itself, UNDER the controls overlay, so
+                            // taps on buttons/sliders (consumed up there)
+                            // never toggle.
+                            NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
+                        }
                         .onKeyPress(.space) {
                             audioEngine.togglePlayPause()
                             return .handled
@@ -315,6 +327,18 @@ struct PlayerControlsView: View {
         .animation(.easeInOut(duration: 0.2), value: isControlsVisible)
         .animation(.easeInOut(duration: 0.2), value: showExitWarning)
         .onAppear { showControls() }
+        .onDisappear {
+            hoverTimer?.invalidate()
+            // Never leave a hidden cursor behind when the player goes away.
+            NSCursor.unhide()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .togglePlayerChrome)) { _ in
+            if isControlsVisible {
+                hideControls()
+            } else {
+                showControls()
+            }
+        }
         .onChange(of: showExitWarning) { _, newValue in
             if newValue { showControls() }
         }
@@ -373,10 +397,30 @@ struct PlayerControlsView: View {
             // slider and mute icon track EXTERNAL changes (rocker keys, Control
             // Center) live — a raw Binding(get:) would only ever re-read on
             // this view's own re-renders and appear dead to rocker changes.
+            // The speaker is a button: tap cycles flux/VLC-style mpv-side
+            // audio boost (100 → 125 → 150 → 200 → off) for quiet sources.
+            // Boost is pure mpv gain on top of the system volume (orange %),
+            // resets with every new track (fresh controller), and rides the
+            // same coalesced write path as volume (no gain-ramming crackle).
             HStack(spacing: 10) {
-                Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.8))
+                Button {
+                    let steps = [1.0, 1.25, 1.5, 2.0]
+                    let next = steps.first(where: { $0 > mpv.volumeBoost + 0.001 }) ?? 1.0
+                    mpv.setBoost(next)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(mpv.volumeBoost > 1.0 ? .orange : .white.opacity(0.8))
+                        if mpv.volumeBoost > 1.0 {
+                            Text("\(Int((mpv.volumeBoost * 100).rounded()))%")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(mpv.volumeBoost > 1.0 ? "Audio boost on — click to cycle" : "Audio boost — click to amplify quiet audio")
 
                 Slider(value: $volumeManager.volume, in: 0...1,
                        onEditingChanged: { volumeManager.isUserDragging = $0 })
@@ -752,6 +796,7 @@ struct PlayerControlsView: View {
 
     private func showControls() {
         hoverTimer?.invalidate()
+        NSCursor.unhide()
         if !isControlsVisible {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isControlsVisible = true
@@ -762,7 +807,24 @@ struct PlayerControlsView: View {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.isControlsVisible = false
                 }
+                // Apple-TV style: the cursor goes with the chrome (any mouse
+                // movement brings it back automatically).
+                if NSApp.isActive {
+                    NSCursor.setHiddenUntilMouseMoves(true)
+                }
             }
+        }
+    }
+
+    private func hideControls() {
+        hoverTimer?.invalidate()
+        if isControlsVisible {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isControlsVisible = false
+            }
+        }
+        if NSApp.isActive {
+            NSCursor.setHiddenUntilMouseMoves(true)
         }
     }
 
