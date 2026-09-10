@@ -21,6 +21,8 @@ struct TransfersView: View {
     @State private var selectedTransferID: String? = nil
     /// Transfer ID whose info panel is open (nil = closed).
     @State private var infoTargetID: String? = nil
+    @State private var columnCount = 2
+    @State private var scrollTargetID: String? = nil
 
     var body: some View {
         ZStack {
@@ -86,9 +88,16 @@ struct TransfersView: View {
                     return true
                 },
                 onEscape: {
-                    guard infoTargetID != nil else { return false }
-                    infoTargetID = nil
+                    if infoTargetID != nil {
+                        infoTargetID = nil
+                        return true
+                    }
+                    guard selectedTransferID != nil else { return false }
+                    selectedTransferID = nil
                     return true
+                },
+                onArrow: { delta, isVertical in
+                    navTransfer(delta, isVertical: isVertical)
                 }
             )
         }
@@ -106,6 +115,32 @@ struct TransfersView: View {
         center.items.filter { $0.direction == .inbound }
     }
 
+    /// Flat visual order (uploads, downloads, imports — the sections stack in
+    /// the same column count) backing arrow-key navigation.
+    private var navigableTransfers: [TransferCenter.Item] {
+        uploads + downloads + imports
+    }
+
+    /// Arrow-key selection mirroring the Shared page: arrows walk the visual
+    /// order (vertical steps a full row in grid mode, linear in list mode).
+    /// Returns false when there is nothing to move through so the event flows.
+    @discardableResult
+    private func navTransfer(_ delta: Int, isVertical: Bool) -> Bool {
+        let items = navigableTransfers
+        guard !items.isEmpty else { return false }
+        guard let current = items.firstIndex(where: { $0.id == selectedTransferID }) else {
+            selectedTransferID = items[0].id
+            scrollTargetID = items[0].id
+            return true
+        }
+        let cols = viewModeRaw == "grid" ? max(2, columnCount) : 1
+        let step = isVertical ? delta * cols : delta
+        let next = min(max(current + step, 0), items.count - 1)
+        selectedTransferID = items[next].id
+        scrollTargetID = items[next].id
+        return true
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         HStack {
             Text(title.uppercased())
@@ -121,6 +156,7 @@ struct TransfersView: View {
     private var gridView: some View {
         GeometryReader { geo in
             let cols = max(2, Int(geo.size.width / cardWidth))
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if !uploads.isEmpty {
@@ -133,6 +169,7 @@ struct TransfersView: View {
                                 TransferGridCard(item: item, isSelected: selectedTransferID == item.id) {
                                     selectedTransferID = item.id
                                 }
+                                .id(item.id)
                             }
                         }
                         .padding(.horizontal, 24)
@@ -149,6 +186,7 @@ struct TransfersView: View {
                                 TransferGridCard(item: item, isSelected: selectedTransferID == item.id) {
                                     selectedTransferID = item.id
                                 }
+                                .id(item.id)
                             }
                         }
                         .padding(.horizontal, 24)
@@ -165,6 +203,7 @@ struct TransfersView: View {
                                 TransferGridCard(item: item, isSelected: selectedTransferID == item.id) {
                                     selectedTransferID = item.id
                                 }
+                                .id(item.id)
                             }
                         }
                         .padding(.horizontal, 24)
@@ -174,10 +213,19 @@ struct TransfersView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 80)
             }
+            .onChange(of: geo.size.width, initial: true) {
+                columnCount = max(2, Int(geo.size.width / cardWidth))
+            }
+            .onChange(of: scrollTargetID) { _, newID in
+                guard let newID else { return }
+                proxy.scrollTo(newID, anchor: nil)
+            }
+            }
         }
     }
 
     private var listView: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if !uploads.isEmpty {
@@ -187,6 +235,7 @@ struct TransfersView: View {
                             TransferRow(item: item, isSelected: selectedTransferID == item.id) {
                                     selectedTransferID = item.id
                                 }
+                                .id(item.id)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -200,6 +249,7 @@ struct TransfersView: View {
                             TransferRow(item: item, isSelected: selectedTransferID == item.id) {
                                     selectedTransferID = item.id
                                 }
+                                .id(item.id)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -213,6 +263,7 @@ struct TransfersView: View {
                             TransferRow(item: item, isSelected: selectedTransferID == item.id) {
                                     selectedTransferID = item.id
                                 }
+                                .id(item.id)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -221,6 +272,11 @@ struct TransfersView: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 80)
+        }
+        .onChange(of: scrollTargetID) { _, newID in
+            guard let newID else { return }
+            proxy.scrollTo(newID, anchor: nil)
+        }
         }
     }
 
@@ -814,23 +870,27 @@ struct TransferInfoPanel: View {
 private struct TransferKeyMonitorView: NSViewRepresentable {
     var onSpace: () -> Bool
     var onEscape: () -> Bool
+    var onArrow: (Int, Bool) -> Bool
 
     func makeNSView(context: Context) -> TransferKeyView {
         let view = TransferKeyView()
         view.onSpace = onSpace
         view.onEscape = onEscape
+        view.onArrow = onArrow
         return view
     }
 
     func updateNSView(_ nsView: TransferKeyView, context: Context) {
         nsView.onSpace = onSpace
         nsView.onEscape = onEscape
+        nsView.onArrow = onArrow
     }
 }
 
 final class TransferKeyView: NSView {
     var onSpace: (() -> Bool)?
     var onEscape: (() -> Bool)?
+    var onArrow: ((Int, Bool) -> Bool)?
     private var monitor: Any?
 
     override func hitTest(_ point: NSPoint) -> NSView? { return nil }
@@ -850,6 +910,14 @@ final class TransferKeyView: NSView {
                     if self.onSpace?() == true { return nil }
                 case 53: // escape
                     if self.onEscape?() == true { return nil }
+                case 123: // left
+                    if self.onArrow?(-1, false) == true { return nil }
+                case 124: // right
+                    if self.onArrow?(1, false) == true { return nil }
+                case 125: // down
+                    if self.onArrow?(1, true) == true { return nil }
+                case 126: // up
+                    if self.onArrow?(-1, true) == true { return nil }
                 default:
                     break
                 }

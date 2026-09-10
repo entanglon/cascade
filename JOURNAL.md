@@ -2,9 +2,32 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Instant page switches, glass Transfers/Shared, Space info panel (Round 228).
+> 2026-09-10 (evening) — Arrow nav for Transfers/Shared + no-swallow rule (Round 229).
 
 ---
+
+## 2026-09-10 (evening) — Arrow nav for Transfers/Shared + no-swallow rule (Round 229)
+
+User: column/row nav isn't working on Transfers/Shared pages.
+
+### Root cause (Shared) + new coverage (Transfers)
+- The browser's arrow closure returned `true` unconditionally — even with an
+  empty file list (Shared/Transfers pages) — so depending on NSEvent monitor
+  fire order it could swallow arrows meant for the page's own monitor.
+  `keyNav` now returns Bool (false when nothing to move through) and the
+  onKeyPress paths honor it (`.handled`/`.ignored`); the file's own
+  convention (never swallow unhandled events) is now actually followed.
+- Transfers never HAD arrow nav: added `navTransfer` (flat uploads →
+  downloads → imports order, row-step in grid, linear in list), selection
+  movement, scroll-into-view, Escape clears selection. Same for the monitor
+  (arrows added alongside Space/Escape).
+- Shared hardened the same way: `navShare` returns Bool, `ShareKeyView`
+  opts out of hit-testing (macOS 26 layering hygiene, matches the browser
+  monitor).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify arrows on both pages (grid + list).
 
 ## 2026-09-10 (evening) — Instant page switches, glass Transfers/Shared, Space info panel (Round 228)
 

@@ -154,7 +154,6 @@ struct ShareManagerView: View {
                     ShareKeyMonitorView(
                         onArrow: { delta, isVertical in
                             navShare(delta, isVertical: isVertical)
-                            return true
                         },
                         onOpen: {
                             openSelected()
@@ -226,13 +225,15 @@ struct ShareManagerView: View {
     /// along the row, up/down move to the same column of the next/previous row.
     /// The flat navigable list is row-major over the grid columns, so the same
     /// math as the file grid applies (both sections share the column count).
-    private func navShare(_ delta: Int, isVertical: Bool) {
+    /// Returns false when empty so the event flows (never swallow unhandled).
+    @discardableResult
+    private func navShare(_ delta: Int, isVertical: Bool) -> Bool {
         let shares = navigableShares
-        guard !shares.isEmpty else { return }
+        guard !shares.isEmpty else { return false }
         guard let current = shares.firstIndex(where: { $0.id == selectedShareID }) else {
             selectedShareID = shares[0].id
             scrollTargetID = shares[0].id
-            return
+            return true
         }
         let nextIndex: Int
         if isVertical {
@@ -243,6 +244,7 @@ struct ShareManagerView: View {
         }
         selectedShareID = shares[nextIndex].id
         scrollTargetID = shares[nextIndex].id
+        return true
     }
 
     /// Return key: reveals the selected share's file, same as double-click.
@@ -539,6 +541,10 @@ final class ShareKeyView: NSView {
     var onArrow: ((Int, Bool) -> Bool)?
     var onOpen: (() -> Bool)?
     private var monitor: Any?
+
+    // Background event-monitor host only: never participate in mouse
+    // hit-testing (macOS 26 layering can hand sibling clicks to it).
+    override func hitTest(_ point: NSPoint) -> NSView? { return nil }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 228 — instant page switches, glass Transfers/Shared, Space info panel. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 229 — arrow nav for Transfers/Shared, no-swallow rule. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4320,6 +4320,11 @@ Open levers (not scheduled):
      - Transfer grid cards back as proper glass (transport stays, menu/hover/bold gone, tap selection); rows selectable; mini medium.
      - Share cards as glass (fit thumbs, lock badge, glass selection); 28/16 grids; caps headers kept.
      - Space info panel: live status/progress, thumbnail, size, cloud breadcrumb path, reveal action, gone-state; `TransferKeyMonitorView`; breadcrumb test.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 229. **Transfers/Shared arrow nav (2026-09-10 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`, `Features/TransfersView.swift`, `Features/ShareManagerView.swift`)
+     - Root cause: browser arrow closure always consumed, even with empty list — could starve page monitors by fire order. `keyNav`/`navShare`/`navTransfer` return Bool; unhandled events flow.
+     - Transfers gains full arrow nav (flat order, row-step grid, scroll, Escape clears); Shared hardened (hitTest nil).
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

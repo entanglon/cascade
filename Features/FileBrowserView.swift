@@ -506,19 +506,17 @@ struct FileBrowserView: View {
                 open(f)
                 return .handled
             }
-            keyNav(1, isVertical: true)
-            return .handled
+            return keyNav(1, isVertical: true) ? .handled : .ignored
         }
         .onKeyPress(.upArrow, phases: .down) { press in
             if press.modifiers.contains(.command) {
                 appState.navigateBack()
                 return .handled
             }
-            keyNav(-1, isVertical: true)
-            return .handled
+            return keyNav(-1, isVertical: true) ? .handled : .ignored
         }
-        .onKeyPress(.leftArrow)  { keyNav(-1, isVertical: false); return .handled }
-        .onKeyPress(.rightArrow) { keyNav(1, isVertical: false); return .handled }
+        .onKeyPress(.leftArrow)  { keyNav(-1, isVertical: false) ? .handled : .ignored }
+        .onKeyPress(.rightArrow) { keyNav(1, isVertical: false) ? .handled : .ignored }
         .onKeyPress(.space) {
             if let file = appState.selectedFile {
                 quickLook(file)
@@ -596,7 +594,6 @@ struct FileBrowserView: View {
                 },
                 onArrow: { delta, isVertical in
                     keyNav(delta, isVertical: isVertical)
-                    return true
                 },
                 onCmdUp: {
                     appState.navigateBack()
@@ -1416,23 +1413,27 @@ struct FileBrowserView: View {
             && viewModeRaw == "grid"
     }
 
-    private func keyNav(_ delta: Int, isVertical: Bool = false) {
+    @discardableResult
+    private func keyNav(_ delta: Int, isVertical: Bool = false) -> Bool {
         // While the sidebar has focus (last click was a sidebar row), up/down
         // moves the sidebar selection — content selection stays cleared.
         // Left/right, or any content tap, hands focus back to the content.
         if appState.isSidebarFocused, isVertical {
             Self.keyNavLogger.log("keyNav: sidebar-owned (delta=\(delta, privacy: .public))")
             appState.moveSidebarSelection(delta: delta)
-            return
+            return true
         }
         appState.isSidebarFocused = false
         let files = navigableFiles
-        guard !files.isEmpty else { return }
+        // Nothing to move through (e.g. Shared/Transfers pages list no
+        // files): do NOT consume — the page's own key monitor is newer and
+        // must still see the event regardless of monitor fire order.
+        guard !files.isEmpty else { return false }
         guard let current = files.firstIndex(where: { appState.selectedFiles.contains($0.id) }) else {
             appState.selectedFiles = [files[0].id]
             scrollTargetID = files[0].id
             Self.keyNavLogger.log("keyNav: no selection -> selected first of \(files.count, privacy: .public) (folders=\(files.filter(\.isFolder).count, privacy: .public))\(files[0].isFolder ? " [folder]" : "")")
-            return
+            return true
         }
 
         let nextIndex: Int
@@ -1444,6 +1445,7 @@ struct FileBrowserView: View {
         appState.selectedFiles = [files[nextIndex].id]
         scrollTargetID = files[nextIndex].id
         Self.keyNavLogger.log("keyNav: delta=\(delta, privacy: .public) vertical=\(isVertical, privacy: .public) total=\(files.count, privacy: .public) folders=\(files.filter(\.isFolder).count, privacy: .public) cols=\(columnCount, privacy: .public) cur=\(current, privacy: .public)(\(files[current].isFolder ? "folder" : "file")) -> next=\(nextIndex, privacy: .public)(\(files[nextIndex].isFolder ? "folder" : "file"))\(files[nextIndex].isFolder ? " " + files[nextIndex].name : "")")
+        return true
     }
 
     private static let keyNavLogger = Logger(
