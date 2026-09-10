@@ -29,7 +29,7 @@ missing for folders, (3) folders missing Share and much more.
 - `AppState.createFolder(named:parentID:isPrivate:)` (explicit parent; mime
   follows section) + `duplicateObjects(_:)` (server-side record + chunk-row
   clones, "Name Copy.ext" via `uniqueObjectName`; no undo — tombstones clear
-  chunks so redo couldn't restore; shared-chunk caveat documented).
+  chunks so redo couldn't restore).
 - `FileItemContextMenu` restructured: Share + Export ungated to folders,
   Move… + Duplicate added (files + folders), Favorite ungated, flat Move
   submenu deleted.

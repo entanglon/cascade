@@ -2134,11 +2134,12 @@ final class AppState {
 
     /// Finder "Duplicate": server-side copies sharing the source's chunk
     /// messages (no re-upload — same design as the iOS duplicate). Folder
-    /// copies are shallow (children stay put), matching iOS. NOTE: copies
-    /// share chunk messages with the source — deleting one copy's vault
-    /// messages orphans the other (same caveat as iOS; a byte-independent
-    /// deep copy would re-upload instead). No undo (chunk rows are cleared
-    /// on tombstone, so redo could not restore them).
+    /// copies are shallow (children stay put), matching iOS. Copies are
+    /// SAFE against each other's deletion: deleteForever spares any vault
+    /// message still referenced by a surviving object's chunk rows, so
+    /// deleting the original never breaks its duplicates (or vice versa) —
+    /// the bytes die only with the last copy. No undo (tombstones clear
+    /// chunks, so redo could not restore them).
     @MainActor
     func duplicateObjects(_ targets: [ObjectRecord]) {
         Task {
