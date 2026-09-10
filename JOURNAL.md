@@ -2,9 +2,43 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Animation fully removed from viewer chrome, fullscreen tap catchers (Round 219).
+> 2026-09-10 (evening) — Flux player port done properly: VolumeGauge, in-controls tap-toggle (Round 220).
 
 ---
+
+## 2026-09-10 (evening) — Flux player port done properly: VolumeGauge, in-controls tap-toggle (Round 220)
+
+User (rightly) escalated: the player looked unchanged — my boost was
+invisible until clicked and my tap-toggle lived in per-surface catcher
+layers. Instruction: actually read `~/Projects/flux` and copy the player
+upgrades. Did that this round (flux `Views/PlayerControlsView.swift`,
+`Views/MPVVideoView.swift`, `Views/PlayerView.swift` read in full).
+
+### What was ported (visible this time)
+- `VolumeGauge` (shared component, `Features/VideoPlaybackView.swift`):
+  flux's `volumeCapsule` adapted to our split architecture — white device
+  fill 0–100% (system volume, live both ways), ORANGE mpv boost zone
+  100–200% with divider notch, % readout (orange when boosted), speaker mute
+  toggle with wave.1/2/3 levels. Drag anywhere on the gauge (5% steps);
+  mute remembers pre-mute level. Video pill + music pill both use it (audio
+  falls back to the old slider before the controller exists).
+- Tap-toggle moved INSIDE `PlayerControlsView` (flux's exact structure:
+  bottom catcher layer + tap, hover only restarts the idle timer while chrome
+  is up — hover never shows, so enter-then-tap can't strand it hidden). One
+  pattern in one place = identical behavior on theater, fullscreen, direct.
+  My three external catcher layers + the notification are deleted (two
+  coexisting togglers would double-fire into a no-op).
+- Kept from our side (user-mandated, flux differs): zero animation on chrome
+  show/hide (flux animates; ours snaps per explicit instruction), per-track
+  boost reset (fresh controller), system-volume slider semantics under the
+  gauge, cursor rules from Round 216.
+- `setBoost`/`volume-max=200`/echo-clamp engine work from Round 216 reused
+  unchanged (gauge drives the same path); cycle buttons deleted.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — visible on any video: new gauge with notch + % in
+  the volume pill; click empty player area toggles chrome everywhere.
 
 ## 2026-09-10 (evening) — Animation fully removed from viewer chrome, fullscreen tap catchers (Round 219)
 

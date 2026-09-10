@@ -1527,42 +1527,22 @@ struct TheaterAudioPlayerView: View {
                 .frame(height: 68)
                 .padding(.top, 30)
 
-                // Volume pill — the app's volume IS the system output volume
-                // (SystemVolumeManager), so keyboard keys, the volume rockers,
-                // and this slider are the same control. Bound via @Bindable so
-                // the slider and mute icon track EXTERNAL changes (rocker
-                // keys, Control Center) live — a raw Binding(get:) would only
-                // re-read on this view's own re-renders. The speaker cycles
-                // flux-style mpv-side boost (100 → 200%) like the video pill.
-                HStack(spacing: 10) {
+                // Volume pill — flux-style gauge shared with the video player
+                // (system device 0–100% + orange mpv boost zone, mute toggle).
+                Group {
                     if let mpv = audioEngine.mpvController {
-                        Button {
-                            let steps = [1.0, 1.25, 1.5, 2.0]
-                            let next = steps.first(where: { $0 > mpv.volumeBoost + 0.001 }) ?? 1.0
-                            mpv.setBoost(next)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(mpv.volumeBoost > 1.0 ? .orange : .white.opacity(0.8))
-                                if mpv.volumeBoost > 1.0 {
-                                    Text("\(Int((mpv.volumeBoost * 100).rounded()))%")
-                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.orange)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .help(mpv.volumeBoost > 1.0 ? "Audio boost on — click to cycle" : "Audio boost — click to amplify quiet audio")
+                        VolumeGauge(mpv: mpv, gaugeWidth: 90)
                     } else {
-                        Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.8))
+                        HStack(spacing: 10) {
+                            Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.8))
+                            Slider(value: $volumeManager.volume, in: 0...1,
+                                   onEditingChanged: { volumeManager.isUserDragging = $0 })
+                                .frame(width: 90)
+                                .tint(.white)
+                        }
                     }
-                    Slider(value: $volumeManager.volume, in: 0...1,
-                           onEditingChanged: { volumeManager.isUserDragging = $0 })
-                        .frame(width: 90)
-                        .tint(.white)
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 34)

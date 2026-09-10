@@ -3,11 +3,6 @@ import AppKit
 
 extension Notification.Name {
     static let toggleVideoPlayback = Notification.Name("cascade_toggleVideoPlayback")
-    /// Single tap on the video surface toggles the player chrome (flux-style:
-    /// click shows/hides controls). Posted by VideoPlaybackView's tap catcher
-    /// on the video layer — control taps never reach it (buttons consume
-    /// their own taps), so pressing play never hides the chrome.
-    static let togglePlayerChrome = Notification.Name("cascade_togglePlayerChrome")
 }
 
 /// Apple-TV-style button hover: a slight white tint fills the button's shape
@@ -59,6 +54,121 @@ extension View {
     }
 }
 
+/// flux-style volume gauge (ported from flux/Views/PlayerControlsView.swift
+/// `volumeCapsule`): white device fill 0–100%, ORANGE boost zone 100–200%
+/// with a 100% divider notch, % readout, speaker mute toggle with wave
+/// levels. Split for our architecture: 0–100% drives the SYSTEM output
+/// device (SystemVolumeManager — the one volume), the orange zone drives
+/// mpv-side softvol via MPVController.setBoost (volume-max=200 at core
+/// setup) for quiet sources. Drag anywhere on the gauge; mute remembers the
+/// pre-mute level. Shared by the video pill and the music-player pill.
+struct VolumeGauge: View {
+    @ObservedObject var mpv: MPVController
+    @Bindable var device = SystemVolumeManager.shared
+    var gaugeWidth: CGFloat = 80
+    @State private var lastUnmuted: Double = 1.0
+
+    /// Combined display level: device 0–1, or boost 1–2 when active.
+    private var displayVol: Double {
+        mpv.volumeBoost > 1.0 ? mpv.volumeBoost : device.volume
+    }
+    private var isBoosted: Bool { mpv.volumeBoost > 1.0 }
+    private var isMuted: Bool { device.volume <= 0.001 && !isBoosted }
+
+    private var iconName: String {
+        if isMuted { return "speaker.slash.fill" }
+        let v = displayVol
+        if v <= 0.33 { return "speaker.wave.1.fill" }
+        if v <= 0.66 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                if device.volume > 0.001 {
+                    lastUnmuted = device.volume
+                    device.volume = 0
+                } else {
+                    device.volume = lastUnmuted > 0.001 ? lastUnmuted : 1.0
+                }
+            } label: {
+                Image(systemName: iconName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isBoosted ? .orange : (device.volume <= 0.001 ? .white.opacity(0.45) : .white.opacity(0.9)))
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .help(device.volume <= 0.001 ? "Unmute" : "Mute")
+
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+                let midX = w / 2.0
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: w, height: h)
+
+                    let normalWidth = midX * CGFloat(min(max(displayVol, 0.0), 1.0))
+                    if normalWidth > 0 {
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(width: normalWidth, height: h)
+                    }
+
+                    if isBoosted {
+                        let boostWidth = midX * CGFloat(min(max(displayVol - 1.0, 0.0), 1.0))
+                        if boostWidth > 0 {
+                            Rectangle()
+                                .fill(LinearGradient(
+                                    colors: [Color.orange.opacity(0.90), Color.orange],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ))
+                                .frame(width: boostWidth, height: h)
+                                .offset(x: midX)
+                                .shadow(color: Color.orange.opacity(0.4), radius: 3, x: 0, y: 0)
+                        }
+                    }
+
+                    Rectangle()
+                        .fill(isBoosted ? Color.black.opacity(0.35) : Color.white.opacity(0.55))
+                        .frame(width: 1.5, height: h + 2)
+                        .position(x: midX, y: h / 2.0)
+                }
+                .clipShape(Capsule())
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            device.isUserDragging = true
+                            let clampedX = max(0.0, min(value.location.x, w))
+                            let stepped = (Double(clampedX / w) * 2.0 * 20.0).rounded() / 20.0
+                            if stepped <= 1.0 {
+                                mpv.setBoost(1.0)
+                                device.volume = stepped
+                            } else {
+                                device.volume = 1.0
+                                mpv.setBoost(stepped)
+                            }
+                        }
+                        .onEnded { _ in
+                            device.isUserDragging = false
+                        }
+                )
+            }
+            .frame(width: gaugeWidth, height: 6)
+            .accessibilityLabel("Volume gauge")
+
+            Text("\(Int((displayVol * 100).rounded()))%")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundColor(isBoosted ? .orange : .white.opacity(0.75))
+                .frame(minWidth: 36, alignment: .trailing)
+        }
+    }
+}
+
 struct VideoPlaybackView: View {
     let object: ObjectRecord
     var onMinimize: () -> Void = {}
@@ -82,20 +192,6 @@ struct VideoPlaybackView: View {
                             return .handled
                         }
                         .overlay { PlayerStatusOverlay(mpv: mpv) }
-                        .overlay {
-                            // Click toggles chrome (flux-style). A transparent
-                            // SwiftUI layer UNDER the controls overlay: taps on
-                            // buttons/sliders are consumed up there and never
-                            // toggle, taps everywhere else land here. This must
-                            // NOT live on MPVVideoView itself — AppKit delivers
-                            // clicks straight to the native GL view, bypassing
-                            // SwiftUI gestures, so a tap there never fired.
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
-                                }
-                        }
                         .overlay {
                             PlayerControlsView(
                                 mpv: mpv,
@@ -272,17 +368,28 @@ struct PlayerControlsView: View {
     @State private var seekTarget: Double?
     @State private var isSharing = false
     @State private var showShareFeedback = false
-    @Bindable private var volumeManager = SystemVolumeManager.shared
 
     private let autoHideDelay: TimeInterval = 3.0
 
     var body: some View {
         ZStack {
-            // Invisible hover catcher keeps the auto-hide timer alive while the
-            // mouse is over the player and lets the chrome fade back in.
+            // Bottom interaction layer (flux pattern): click empty player area
+            // toggles chrome; hover only restarts the idle timer while chrome
+            // is up (it must NOT show chrome — enter-then-tap would show +
+            // instantly hide, stranding it hidden). So: mouse moves = cursor
+            // only (system unhides it), click = chrome. Lives INSIDE the
+            // controls, so theater, fullscreen and direct behave identically.
             Color.black.opacity(0.001)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isControlsVisible {
+                        hideControls()
+                    } else {
+                        showControls()
+                    }
+                }
                 .onContinuousHover { phase in
-                    if case .active = phase {
+                    if case .active = phase, isControlsVisible {
                         showControls()
                     }
                 }
@@ -343,13 +450,6 @@ struct PlayerControlsView: View {
             // Never leave a hidden cursor behind when the player goes away.
             NSCursor.unhide()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .togglePlayerChrome)) { _ in
-            if isControlsVisible {
-                hideControls()
-            } else {
-                showControls()
-            }
-        }
         .onChange(of: showExitWarning) { _, newValue in
             if newValue { showControls() }
         }
@@ -402,42 +502,11 @@ struct PlayerControlsView: View {
             // player, so there's no minimize chevron either.
             Spacer()
 
-            // Volume pill — the app's volume IS the system output volume
-            // (SystemVolumeManager), so keyboard keys, the volume rockers, and
-            // this slider are the same control. Bound via @Bindable so the
-            // slider and mute icon track EXTERNAL changes (rocker keys, Control
-            // Center) live — a raw Binding(get:) would only ever re-read on
-            // this view's own re-renders and appear dead to rocker changes.
-            // The speaker is a button: tap cycles flux/VLC-style mpv-side
-            // audio boost (100 → 125 → 150 → 200 → off) for quiet sources.
-            // Boost is pure mpv gain on top of the system volume (orange %),
-            // resets with every new track (fresh controller), and rides the
-            // same coalesced write path as volume (no gain-ramming crackle).
-            HStack(spacing: 10) {
-                Button {
-                    let steps = [1.0, 1.25, 1.5, 2.0]
-                    let next = steps.first(where: { $0 > mpv.volumeBoost + 0.001 }) ?? 1.0
-                    mpv.setBoost(next)
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: volumeManager.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(mpv.volumeBoost > 1.0 ? .orange : .white.opacity(0.8))
-                        if mpv.volumeBoost > 1.0 {
-                            Text("\(Int((mpv.volumeBoost * 100).rounded()))%")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundColor(.orange)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .help(mpv.volumeBoost > 1.0 ? "Audio boost on — click to cycle" : "Audio boost — click to amplify quiet audio")
-
-                Slider(value: $volumeManager.volume, in: 0...1,
-                       onEditingChanged: { volumeManager.isUserDragging = $0 })
-                    .frame(width: 80)
-                    .tint(.white)
-            }
+            // Volume pill — flux-style gauge: the slider section drives the
+            // SYSTEM output volume (keys, rockers, slider = one control, live
+            // both ways via @Bindable); dragging into the orange zone adds
+            // mpv-side boost for quiet sources (resets per track).
+            VolumeGauge(mpv: mpv)
             .padding(.horizontal, 12)
             .frame(height: 36)
             .glassEffect(.regular.interactive(), in: .capsule)

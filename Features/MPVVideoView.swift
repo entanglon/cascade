@@ -2690,15 +2690,6 @@ private struct FullscreenPlayerRoot<Controls: View>: View {
                 MPVLayerHost(playerView: mpvView)
                     .ignoresSafeArea()
             }
-            // Click toggles chrome — same transparent-catcher pattern as the
-            // windowed player (Round 217): UNDER the controls overlay, so
-            // button/slider taps are consumed up there and never toggle.
-            // (This layer was missing, so clicks did nothing in fullscreen.)
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
-                }
             controls()
         }
         .background(Color.black)
@@ -3054,13 +3045,6 @@ private struct DirectFullscreenRoot: View {
                 }
             }
             .ignoresSafeArea()
-
-            // Click toggles chrome (same catcher as theater/fullscreen roots).
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
-                }
 
             if let mpv = engine.mpvController, engine.isMPVPlayback {
                 PlayerControlsView(

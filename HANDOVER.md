@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 219 — chrome animation fully removed, fullscreen tap catchers. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 220 — flux player port (VolumeGauge, in-controls tap-toggle). Read this first in any new chat before touching the code.
 
 ---
 
@@ -4272,6 +4272,12 @@ Open levers (not scheduled):
      - All viewer chrome snaps (theater + fullscreen image bars opacity-only, no drivers). Zoom springs kept.
      - Fullscreen video roots (`FullscreenPlayerRoot`, `DirectFullscreenRoot`) gain the transparent tap-catcher layer — clicks did nothing there (native layer eats taps); boost was always shared via `PlayerControlsView`, revealed on speaker tap.
      - Arrows per user: fixed, dropped from follow-ups.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 220. **Flux player port (2026-09-10 evening — COMMITTED)**
+     (`Features/VideoPlaybackView.swift`, `Features/TheaterView.swift`)
+     - Read flux's player files in full; ported visibly: shared `VolumeGauge` (white device fill, orange boost zone + notch, %, mute with levels, gauge drag, mute memory) in video + music pills.
+     - Tap-toggle moved INSIDE `PlayerControlsView` (flux structure — one pattern, all surfaces); external catchers + notification deleted.
+     - Kept per instruction: zero chrome animation, per-track boost reset, system-volume semantics.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 
