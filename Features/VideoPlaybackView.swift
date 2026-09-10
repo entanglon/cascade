@@ -54,52 +54,47 @@ extension View {
     }
 }
 
-/// flux-style volume gauge (ported from flux/Views/PlayerControlsView.swift
-/// `volumeCapsule`): white device fill 0–100%, ORANGE boost zone 100–200%
-/// with a 100% divider notch, % readout, speaker mute toggle with wave
-/// levels. Split for our architecture: 0–100% drives the SYSTEM output
-/// device (SystemVolumeManager — the one volume), the orange zone drives
-/// mpv-side softvol via MPVController.setBoost (volume-max=200 at core
-/// setup) for quiet sources. Drag anywhere on the gauge; mute remembers the
-/// pre-mute level. Shared by the video pill and the music-player pill.
+/// flux-style volume gauge (ported mechanism from flux/Views/
+/// PlayerControlsView.swift `volumeCapsule`): white fill 0–100%, ORANGE boost
+/// zone 100–200% with divider notch, % readout, speaker mute toggle with wave
+/// levels. The gauge owns the IN-PLAYER volume end to end (mpv 0…200 via
+/// VolumeCurve) and never touches the system output device — keyboard/volume
+/// keys keep driving the device independently. Drag anywhere on the gauge;
+/// mute remembers the pre-mute level. Shared by the video pill and the
+/// music-player pill.
 struct VolumeGauge: View {
     @ObservedObject var mpv: MPVController
-    @Bindable var device = SystemVolumeManager.shared
     var gaugeWidth: CGFloat = 80
     @State private var lastUnmuted: Double = 1.0
 
-    /// Combined display level: device 0–1, or boost 1–2 when active.
-    private var displayVol: Double {
-        mpv.volumeBoost > 1.0 ? mpv.volumeBoost : device.volume
-    }
-    private var isBoosted: Bool { mpv.volumeBoost > 1.0 }
-    private var isMuted: Bool { device.volume <= 0.001 && !isBoosted }
+    private var vol: Double { mpv.playerVolume }
+    private var isBoosted: Bool { vol > 1.0 }
+    private var isMuted: Bool { vol <= 0.001 }
 
     private var iconName: String {
         if isMuted { return "speaker.slash.fill" }
-        let v = displayVol
-        if v <= 0.33 { return "speaker.wave.1.fill" }
-        if v <= 0.66 { return "speaker.wave.2.fill" }
+        if vol <= 0.33 { return "speaker.wave.1.fill" }
+        if vol <= 0.66 { return "speaker.wave.2.fill" }
         return "speaker.wave.3.fill"
     }
 
     var body: some View {
         HStack(spacing: 8) {
             Button {
-                if device.volume > 0.001 {
-                    lastUnmuted = device.volume
-                    device.volume = 0
+                if vol > 0.001 {
+                    lastUnmuted = min(vol, 1.0)
+                    mpv.setPlayerVolume(0)
                 } else {
-                    device.volume = lastUnmuted > 0.001 ? lastUnmuted : 1.0
+                    mpv.setPlayerVolume(lastUnmuted > 0.001 ? lastUnmuted : 1.0)
                 }
             } label: {
                 Image(systemName: iconName)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(isBoosted ? .orange : (device.volume <= 0.001 ? .white.opacity(0.45) : .white.opacity(0.9)))
+                    .foregroundColor(isBoosted ? .orange : (isMuted ? .white.opacity(0.45) : .white.opacity(0.9)))
                     .frame(width: 16, height: 16)
             }
             .buttonStyle(.plain)
-            .help(device.volume <= 0.001 ? "Unmute" : "Mute")
+            .help(isMuted ? "Unmute" : "Mute")
 
             GeometryReader { geo in
                 let w = geo.size.width
@@ -110,7 +105,7 @@ struct VolumeGauge: View {
                         .fill(Color.white.opacity(0.2))
                         .frame(width: w, height: h)
 
-                    let normalWidth = midX * CGFloat(min(max(displayVol, 0.0), 1.0))
+                    let normalWidth = midX * CGFloat(min(max(vol, 0.0), 1.0))
                     if normalWidth > 0 {
                         Rectangle()
                             .fill(Color.white)
@@ -118,7 +113,7 @@ struct VolumeGauge: View {
                     }
 
                     if isBoosted {
-                        let boostWidth = midX * CGFloat(min(max(displayVol - 1.0, 0.0), 1.0))
+                        let boostWidth = midX * CGFloat(min(max(vol - 1.0, 0.0), 1.0))
                         if boostWidth > 0 {
                             Rectangle()
                                 .fill(LinearGradient(
@@ -142,26 +137,16 @@ struct VolumeGauge: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
-                            device.isUserDragging = true
                             let clampedX = max(0.0, min(value.location.x, w))
                             let stepped = (Double(clampedX / w) * 2.0 * 20.0).rounded() / 20.0
-                            if stepped <= 1.0 {
-                                mpv.setBoost(1.0)
-                                device.volume = stepped
-                            } else {
-                                device.volume = 1.0
-                                mpv.setBoost(stepped)
-                            }
-                        }
-                        .onEnded { _ in
-                            device.isUserDragging = false
+                            mpv.setPlayerVolume(stepped)
                         }
                 )
             }
             .frame(width: gaugeWidth, height: 6)
             .accessibilityLabel("Volume gauge")
 
-            Text("\(Int((displayVol * 100).rounded()))%")
+            Text("\(Int((vol * 100).rounded()))%")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundColor(isBoosted ? .orange : .white.opacity(0.75))
                 .frame(minWidth: 36, alignment: .trailing)

@@ -580,7 +580,14 @@ final class AudioPlayerEngine {
                 self.lastEOFAt = now
                 self.lastEOFTrackID = self.currentTrack?.id
                 let beforeID = self.currentTrack?.id
-                if self.autoplayNextEnabled {
+                // Autoplay-next is an ORDINARY-player behavior: in a fullscreen
+                // video window the ended track must stop on its last frame
+                // (user picks what plays next), never jump tracks behind the
+                // user's back. Image fullscreen has no video EOF, so kind-gate
+                // on the video sessions only.
+                let fs = PlayerFullScreenWindow.shared
+                let videoFullscreen = fs.isActive && (fs.session?.kind == .theater || fs.session?.kind == .directVideo)
+                if self.autoplayNextEnabled && !videoFullscreen {
                     self.skipNext()
                 }
                 if self.currentTrack?.id == beforeID, beforeID != nil {
@@ -590,8 +597,9 @@ final class AudioPlayerEngine {
             }
         }
         mpvController = controller
-        // mpv's own volume stays at 100 — the app's volume IS the system
-        // output volume (SystemVolumeManager), so there is exactly one control.
+        // mpv boots at 100; the flux-style player volume (gauge, 0–200%) owns
+        // mpv gain from here — the system device volume stays fully
+        // independent (keys/Control Center never touch player volume).
         controller.setVolume(1.0)
         mpvCancellables.removeAll()
         mpvCancellables.insert(controller.$isPlaying.receive(on: DispatchQueue.main).sink { [weak self] playing in

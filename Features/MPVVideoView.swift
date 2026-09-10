@@ -124,6 +124,38 @@ struct Track: Identifiable, Equatable {
 
 // MARK: - Controller
 
+/// Perceptual volume curve + audio amplification (copied mechanism from
+/// flux/Views/MPVVideoView.swift `VolumeCurve`).
+struct VolumeCurve {
+    /// Maps UI player volume (0.0 … 2.0) to the mpv volume property
+    /// (0.0 … 200.0). 0.0 … 1.0 uses a square root curve so 0.5 reads as
+    /// perceived half loudness; 1.0 … 2.0 maps linearly up to 200.0
+    /// (+18 dB boost, VLC / Stremio semantics).
+    static func uiToMpv(_ uiVolume: Double) -> Double {
+        let clamped = max(0.0, min(uiVolume, 2.0))
+        if clamped <= 0.0001 {
+            return 0.0
+        } else if clamped <= 1.0 {
+            return sqrt(clamped) * 100.0
+        } else {
+            return clamped * 100.0
+        }
+    }
+
+    /// Maps the mpv volume property (0.0 … 200.0) back to UI player volume
+    /// (0.0 … 2.0).
+    static func mpvToUi(_ mpvVolume: Double) -> Double {
+        let clamped = max(0.0, min(mpvVolume, 200.0))
+        if clamped <= 0.0001 {
+            return 0.0
+        } else if clamped <= 100.0 {
+            return pow(clamped / 100.0, 2.0)
+        } else {
+            return clamped / 100.0
+        }
+    }
+}
+
 class MPVController: ObservableObject {
     @Published var isPlaying = false
     @Published var progress: Double = 0.0
@@ -474,15 +506,30 @@ class MPVController: ObservableObject {
         writeVolumeCoalesced(value)
     }
 
-    /// flux/VLC-style audio boost: mpv-side gain above the system volume,
-    /// 1.0 (off) … 2.0 (+18 dB, needs volume-max=200 at core setup). Fresh
-    /// controllers start at 1.0, so boost never leaks across tracks. Writes
-    /// ride the same coalescing as volume (gain re-ramps are crackly).
-    @Published var volumeBoost: Double = 1.0
+    /// flux-style player volume (copied mechanism): UI 0.0…2.0 driving mpv
+    /// 0…200 through VolumeCurve (perceptual sqrt below 100%, linear boost
+    /// above — VLC/Stremio semantics), fully INDEPENDENT of the system output
+    /// volume. The gauge owns this; keyboard/volume keys keep driving the
+    /// device via SystemVolumeManager and never touch it. Fresh controllers
+    /// start at 1.0, so volume never leaks across tracks. Writes ride the
+    /// same 60 ms coalescing as volume (gain re-ramps are crackly).
+    @Published var playerVolume: Double = 1.0
 
-    func setBoost(_ value: Double) {
-        volumeBoost = min(max(value, 1.0), 2.0)
-        writeVolumeCoalesced(volumeBoost)
+    func setPlayerVolume(_ uiValue: Double) {
+        let clamped = min(max(uiValue, 0.0), 2.0)
+        playerVolume = clamped
+        volumeSyncTask?.cancel()
+        let mpvValue = VolumeCurve.uiToMpv(clamped)
+        volumeSyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            if self.isHeadless {
+                self.headlessView?.setVolumeRaw(mpvValue)
+            } else {
+                self.playerView?.setVolumeRaw(mpvValue)
+            }
+        }
     }
 
     private func writeVolumeCoalesced(_ fraction: Double) {
@@ -595,9 +642,13 @@ class MPVController: ObservableObject {
                 }
             case "volume":
                 if let vol = value as? Double {
-                    // Boost writes echo back above 100 — the boost state lives
-                    // in volumeBoost; only sub-unity echoes update volume.
-                    if vol <= 100 { self.volume = vol / 100.0 }
+                    // flux two-way mapping: sub-unity echoes update the legacy
+                    // volume fraction; boosted echoes map back to playerVolume.
+                    if vol <= 100.0 {
+                        self.volume = vol / 100.0
+                    } else {
+                        self.playerVolume = min(VolumeCurve.mpvToUi(vol), 2.0)
+                    }
                 }
             case "cache-buffering-state":
                 if let percent = value as? Int64 {
@@ -761,7 +812,8 @@ class MPVViewController: NSViewController {
                 // Resuming a video that was minimized to the mini player (headless):
                 // this fresh view-side core loads the same URL and seeks to the exact
                 // position so expanding back to the theater continues seamlessly.
-                self.playerView.setVolume(self.delegate?.volume ?? 1.0)
+                // Carry the player volume (incl. boost) across cores.
+                self.playerView.setVolumeRaw(VolumeCurve.uiToMpv(self.delegate?.playerVolume ?? 1.0))
                 self.playerView.loadFile(handoff.url, startAt: handoff.position)
             }
         }
@@ -782,6 +834,7 @@ class MPVViewController: NSViewController {
     func seekAfterLoad(_ seconds: Double) { playerView.seekAfterLoad(seconds) }
 
     func setVolume(_ value: Double) { playerView.setVolume(value) }
+    func setVolumeRaw(_ mpvValue: Double) { playerView.setVolumeRaw(mpvValue) }
     func getTracks() -> [Track] { return playerView.getTracks() }
     func selectTrack(_ track: Track) { playerView.selectTrack(track) }
     func addExternalSubtitle(url: String, title: String) { playerView.addExternalSubtitle(url: url, title: title) }
@@ -1460,6 +1513,15 @@ final class MPVLayerView: NSView {
     func setVolume(_ value: Double) {
         guard mpv != nil else { return }
         var doubleVal = value * 100
+        mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &doubleVal)
+    }
+
+    /// Raw mpv-units write (0 … 200, needs volume-max=200) for the player
+    /// volume path, which maps through VolumeCurve instead of the ×100
+    /// fraction convention above.
+    func setVolumeRaw(_ mpvValue: Double) {
+        guard mpv != nil else { return }
+        var doubleVal = min(max(mpvValue, 0.0), 200.0)
         mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &doubleVal)
     }
 

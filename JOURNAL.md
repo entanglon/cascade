@@ -2,9 +2,41 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Flux player port done properly: VolumeGauge, in-controls tap-toggle (Round 220).
+> 2026-09-10 (evening) — Decoupled player volume (flux mechanism), EOF autoplay gate (Round 221).
 
 ---
+
+## 2026-09-10 (evening) — Decoupled player volume (flux mechanism), EOF autoplay gate (Round 221)
+
+User escalation: the gauge copied flux's LOOK but not its mechanism (player
+volume still drove the system device), plus EOF autoplay must not fire in
+fullscreen. Read flux's `VolumeCurve` + write path in full this time.
+
+### Decoupled player volume
+- New `VolumeCurve` (verbatim mechanism: sqrt perceptual below unity,
+  linear to 200 above, `mpvToUi` inverse) + `MPVController.playerVolume`
+  (UI 0…2, fresh controllers reset per track) + `setPlayerVolume` on the
+  coalesced writer + `MPVLayerView.setVolumeRaw` (+controller forwarder) +
+  two-way echo mapping + handoff carry-over. `volumeBoost`/`setBoost` deleted
+  (replaced, not duplicated).
+- `VolumeGauge` rewired: single source `playerVolume`, mpv mute with
+  sub-unity restore, gauge drag → `setPlayerVolume` only. Zero
+  SystemVolumeManager contact — keys/Control Center drive the device
+  independently, exactly the flux split.
+- `volumeCurveMapsUiToMpvAndBack` unit test (endpoints, perceptal midpoint,
+  clamps, inverse).
+
+### EOF autoplay gate
+- `AudioPlayerEngine.onEndOfFile`: autoplay-next now skips while a VIDEO
+  fullscreen session is active (theater or direct kind) — the ended track
+  marks ended so replay works; audio advancing under image fullscreen is
+  unaffected.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: gauge drag moves player volume
+  only (system keys independent), mute, boost into orange, EOF stops in
+  fullscreen but advances in the ordinary player.
 
 ## 2026-09-10 (evening) — Flux player port done properly: VolumeGauge, in-controls tap-toggle (Round 220)
 

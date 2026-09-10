@@ -471,8 +471,24 @@ struct CascadeTests {
         #expect(empty.count == 0 && empty.batchBytes == 0)
     }
 
-    @Test func sortOptionRoundTripsStoredRawValues() {
-        // Regression (Round 218): the getter compared lowercase keys that no
+    @Test func volumeCurveMapsUiToMpvAndBack() {
+        // flux VolumeCurve mechanism: perceptual sqrt below unity, linear
+        // boost above, mute at zero, clamped both ends.
+        #expect(abs(VolumeCurve.uiToMpv(0) - 0) < 1e-9)
+        #expect(abs(VolumeCurve.uiToMpv(1) - 100) < 1e-9)
+        #expect(abs(VolumeCurve.uiToMpv(2) - 200) < 1e-9)
+        #expect(abs(VolumeCurve.uiToMpv(0.5) - 70.710678) < 1e-4)
+        #expect(abs(VolumeCurve.uiToMpv(1.5) - 150) < 1e-9)
+        #expect(abs(VolumeCurve.uiToMpv(-1) - 0) < 1e-9)
+        #expect(abs(VolumeCurve.uiToMpv(5) - 200) < 1e-9)
+        #expect(abs(VolumeCurve.mpvToUi(0) - 0) < 1e-9)
+        #expect(abs(VolumeCurve.mpvToUi(100) - 1) < 1e-9)
+        #expect(abs(VolumeCurve.mpvToUi(200) - 2) < 1e-9)
+        #expect(abs(VolumeCurve.mpvToUi(50) - 0.25) < 1e-9)
+        #expect(abs(VolumeCurve.mpvToUi(150) - 1.5) < 1e-9)
+    }
+
+    @Test func sortOptionRoundTripsStoredRawValues() {        // Regression (Round 218): the getter compared lowercase keys that no
         // stored value ever matched, so the menu checkmark sat on Name while
         // sorting obeyed the (correctly written) stored value.
         #expect(FileBrowserView.sortOption(for: "Name") == .name)
