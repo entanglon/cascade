@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 224 — HUD stutter fix, Share+PiP single pill. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 225 — sort button hidden on non-sortable pages. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4298,6 +4298,10 @@ Open levers (not scheduled):
      (`Features/VideoPlaybackView.swift`, `Features/MPVVideoView.swift`)
      - HUD now static snapshot (`hudLevel`, fixed widths) re-rendered on volume ticks only; same-value + echo-epsilon guards kill republish churn.
      - Share+PiP merged into one flux-arrangement capsule (non-interactive glass, plain buttons).
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 225. **Sort button per-page (2026-09-10 evening — COMMITTED)**
+     (`Features/FileBrowserView.swift`)
+     - `showsSortButton`: hidden on Recent (MRU + dead control), Trash, Transfers, Shared, Photos, Videos; kept everywhere the listing honors it.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

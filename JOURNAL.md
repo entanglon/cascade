@@ -2,9 +2,27 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — HUD stutter fix, Share+PiP single pill (Round 224).
+> 2026-09-10 (evening) — Sort button hidden where listings don't honor it (Round 225).
 
 ---
+
+## 2026-09-10 (evening) — Sort button hidden where listings don't honor it (Round 225)
+
+User: remove the sort option from pages that don't need it (recents, trash…).
+
+### What changed (`Features/FileBrowserView.swift`)
+- New `showsSortButton` gate on the top-bar sort menu: shows on All Files,
+  Private Vault, folder browsing, Favorites, Documents, Library, Archive,
+  Audio (listings that honor sortOption); hidden on Recent (MRU order —
+  sorting would destroy its meaning, and the page early-returns past the
+  sort switch so the control was dead), Trash, Transfers, Shared
+  (non-sortable pages), Photos, Videos (own day-grouped order).
+- Fixed my own insert splitting `@ViewBuilder` off `sortPickerContent`
+  (build break, caught immediately).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched.
 
 ## 2026-09-10 (evening) — HUD stutter fix, Share+PiP single pill (Round 224)
 

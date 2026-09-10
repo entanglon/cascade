@@ -741,6 +741,20 @@ struct FileBrowserView: View {
         }
     }
 
+    /// Whether the top-bar sort button shows on the current page: only where
+    /// the listing honors sortOption (folder browsing, favorites, documents,
+    /// library, archive, audio). Recent is MRU-ordered, Trash/Transfers/
+    /// Shared aren't sortable listings, and Photos/Videos carry their own
+    /// day-grouped order.
+    private var showsSortButton: Bool {
+        switch appState.selectedDestination {
+        case .allFiles, .privateVault, .favorites, .documents, .library, .archive, .audio:
+            return true
+        case .recent, .trash, .transfers, .shared, .photos, .video:
+            return false
+        }
+    }
+
     @ViewBuilder
     private var sortPickerContent: some View {
         Picker("Sort By", selection: Binding(
@@ -771,8 +785,7 @@ struct FileBrowserView: View {
 
     private var topBar: some View {
         @Bindable var appState = appState
-        return HStack(spacing: 10) {
-            // LEFT — page heading
+        return HStack(spacing: 10) {            // LEFT — page heading
             HStack(spacing: 10) {
                 if appState.currentFolderID != nil {
                     Button {
@@ -884,26 +897,32 @@ struct FileBrowserView: View {
                 .padding(3)
                 .glassEffect(.regular, in: .capsule)
 
-                // Sort Menu Button
-                Menu {
-                    sortPickerContent
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 11, weight: .bold))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.5))
+                // Sort Menu Button — only where the listing honors it. Recent
+                // is MRU-ordered (sorting would destroy its meaning, and the
+                // page early-returns past the sort switch anyway), Trash /
+                // Transfers / Shared aren't sortable listings, and Photos /
+                // Videos grids carry their own day-grouped order.
+                if showsSortButton {
+                    Menu {
+                        sortPickerContent
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 11, weight: .bold))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 46, height: 28)
+                        .contentShape(Capsule())
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
                     }
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 46, height: 28)
-                    .contentShape(Capsule())
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.plain)
+                    .help("Sort options")
                 }
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .help("Sort options")
             }
             .frame(width: 210, alignment: .trailing)
         }
