@@ -1,4 +1,33 @@
 import SwiftUI
+import AppKit
+
+/// Dark/Light Dock icon switching for the user's dark.png/light.png artwork.
+/// macOS AppIcon catalogs do NOT support luminosity appearances (actool
+/// rejects them as unassigned children), so the bundle icon stays LIGHT and
+/// the running app swaps its own Dock tile via applicationIconImage whenever
+/// the OS appearance flips. Started from the app delegate at launch.
+final class AppIconSwitcher {
+    static let shared = AppIconSwitcher()
+    private var observer: Any?
+
+    private init() {
+        applyIcon()
+        observer = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.applyIcon() }
+    }
+
+    private var isDarkMode: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    func applyIcon() {
+        guard let image = NSImage(named: isDarkMode ? "IconDark" : "IconLight") else { return }
+        NSApplication.shared.applicationIconImage = image
+    }
+}
 
 @main
 struct CascadeApp: App {

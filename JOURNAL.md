@@ -2,9 +2,35 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Drive-style Move picker, folder menu parity (Round 230).
+> 2026-09-10 (evening) — Dark/light app icons from user artwork (Round 231).
 
 ---
+
+## 2026-09-10 (evening) — Dark/light app icons from user artwork (Round 231)
+
+User supplied `Public/dark.png` + `Public/light.png` (1254px, left untracked
+as working sources): optimize, build .icns-equivalents, use for Cascade.
+Also confirmed: duplication is DB-rows-only (one channel copy, N logical
+refs; messages die with the last reference).
+
+### What changed
+- Optimized both artworks with sips into full slot sets (16→1024).
+- `AppIcon.appiconset` rebuilt on the LIGHT artwork (10 slots). NOTE: first
+  attempt put luminosity appearances in the appiconset — actool rejects them
+  ("10 unassigned children"): macOS AppIcon catalogs do NOT support dark
+  variants (iOS 18 does). Reverted to light-only, zero warnings.
+- New `IconLight`/`IconDark` image sets (1024px) + `AppIconSwitcher`
+  (`App/CascadeApp.swift`, started in `TerminationHandler.
+  applicationDidFinishLaunching`): sets `applicationIconImage` per current
+  appearance and re-applies on `AppleInterfaceThemeChangedNotification`.
+- Verified: both sets compiled into Assets.car (`assetutil`), build clean,
+  tests green, app relaunched under Dark mode (dark tile expected in Dock).
+
+### Verification
+- Build: **BUILD SUCCEEDED** (no actool warnings). Tests: CascadeTests
+  **TEST SUCCEEDED**.
+- Debug app relaunched — user to verify: Dock tile in Dark mode, then flip
+  System Settings → Appearance → Light and confirm it swaps.
 
 ## 2026-09-10 (evening) — Drive-style Move picker, folder menu parity (Round 230)
 

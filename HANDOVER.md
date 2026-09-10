@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 230 — Drive-style Move picker, folder menu parity. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 231 — dark/light app icons with runtime switching. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4333,6 +4333,15 @@ Open levers (not scheduled):
      - Menu: Share/Export/Favorite ungated to folders; Move…/Duplicate added; flat submenu deleted. File-only stays file-only.
      - Test: `duplicateObjectsClonesRecordAndChunks`.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 231. **Dark/light app icons (2026-09-10 evening — COMMITTED)**
+     (user's `Public/dark.png`/`light.png` stay untracked sources;
+     `Cascade/Assets.xcassets`, `App/CascadeApp.swift`, `App/TerminationHandler.swift`)
+     - sips-optimized slot sets; AppIcon rebuilt on light art. Catalog dark
+       appearances REJECTED by actool (macOS doesn't support them — iOS 18
+       does); instead `IconLight`/`IconDark` sets + `AppIconSwitcher`
+       (applicationIconImage on theme change). Verified in Assets.car; zero
+       actool warnings.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched (Dark mode) — user verifies tile + Light flip.
 
 
 
