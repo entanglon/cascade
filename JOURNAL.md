@@ -2,9 +2,50 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Round 216 fixes: video-black flag timing, tap-toggle layer, fullscreen chevron removal, flicker-free chrome, arrow diagnostics (Round 217).
+> 2026-09-10 (evening) — Instant chrome toggle, sidebar headings, sort checkmark fix (Round 218).
 
 ---
+
+## 2026-09-10 (evening) — Instant chrome toggle, sidebar headings, sort checkmark fix (Round 218)
+
+User review: (1) click-toggle works but feels slow — it's the animation,
+remove it; (2) "arrows seem gone" (under investigation — see below);
+(3) sidebar headings wrong (drop Favorites, Vault → Utilities);
+(4) sort menu always shows Name checked though sorting applies.
+
+### 1. Instant chrome (`Features/VideoPlaybackView.swift`)
+- Stripped `withAnimation` from `showControls`/`hideControls` — show/hide is
+  instant now (transitions stay but snap without an animation context).
+
+### 3. Sidebar headings (`Features/SidebarView.swift`, `App/AppState.swift`)
+- Top-level entries (All Files, Recent, Favorites) sit headerless;
+  Collections kept; Vault → Utilities; Pinned kept. `favoriteItems`
+  renamed `topLevelItems` (display order unchanged).
+
+### 4. Sort checkmark — root cause + regression test
+- `sortOptionRaw` stores display strings ("Size", "Date Created", …) but the
+  getter switched on lowercase keys ("size", …) that no stored value ever
+  matched → getter returned `.name` always: checkmark stuck on Name (and
+  re-click never toggled direction). The grid obeyed the correctly-written
+  stored value, hence "works but shows wrong".
+- Fix: `SortOption(rawValue:) ?? .name` via static `sortOption(for:)`
+  (legacy lowercase "name" still maps correctly) + `sortOptionRoundTripsStoredRawValues` test.
+
+### 2. Arrows — investigation status (no blind fix applied)
+- Verified: running PID == latest binary (not stale); full arrow path traced
+  statically end-to-end (monitor → keyNav → selection; defers; focus;
+  isolation; empty guards; selection-clearing sites — all legitimate);
+  legacy `isFullScreen` defer flag confirmed never set; nav logging raised to
+  persisted `.log` last round for an evidence trail.
+- Open question to the user: WHICH arrows vanished — keyboard arrows doing
+  nothing, or on-screen chevron buttons missing somewhere? Plus the exact
+  page/mode. The answer determines whether it's event delivery, invisible
+  selection, or a genuinely missing control.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**
+  (incl. new sort round-trip test).
+- Debug app relaunched.
 
 ## 2026-09-10 (evening) — Round 216 fixes: video-black flag timing, tap-toggle layer, fullscreen chevron removal, flicker-free chrome, arrow diagnostics (Round 217)
 

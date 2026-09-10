@@ -810,16 +810,12 @@ struct PlayerControlsView: View {
     private func showControls() {
         hoverTimer?.invalidate()
         NSCursor.unhide()
-        if !isControlsVisible {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isControlsVisible = true
-            }
-        }
+        // NOTE: intentionally NOT animated — the 0.2 s fade made click-toggle
+        // feel laggy (the toggle felt a beat behind the click). Instant.
+        isControlsVisible = true
         hoverTimer = Timer.scheduledTimer(withTimeInterval: autoHideDelay, repeats: false) { _ in
             Task { @MainActor in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    self.isControlsVisible = false
-                }
+                self.isControlsVisible = false
                 // Apple-TV style: the cursor goes with the chrome (any mouse
                 // movement brings it back automatically).
                 if NSApp.isActive {
@@ -831,11 +827,7 @@ struct PlayerControlsView: View {
 
     private func hideControls() {
         hoverTimer?.invalidate()
-        if isControlsVisible {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isControlsVisible = false
-            }
-        }
+        isControlsVisible = false
         if NSApp.isActive {
             NSCursor.setHiddenUntilMouseMoves(true)
         }

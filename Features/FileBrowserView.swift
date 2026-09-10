@@ -47,18 +47,19 @@ struct FileBrowserView: View {
     @AppStorage("xc.sortAscending") private var sortAscending = false
 
     private var sortOption: SortOption {
-        get {
-            switch sortOptionRaw {
-            case "dateCreated": .dateCreated
-            case "dateModified": .dateModified
-            case "size": .size
-            case "kind": .kind
-            default: .name
-            }
-        }
+        get { Self.sortOption(for: sortOptionRaw) }
         nonmutating set {
             sortOptionRaw = newValue.rawValue
         }
+    }
+
+    /// Maps a stored raw string to its option. RawValues are display strings
+    /// ("Size", "Date Created", …) — matched directly so the getter agrees
+    /// with what the setter writes (a hand-rolled lowercase switch once
+    /// pinned the UI on Name forever). Legacy lowercase "name" falls through
+    /// to .name. Exposed for unit tests.
+    static func sortOption(for raw: String) -> SortOption {
+        SortOption(rawValue: raw) ?? .name
     }
 
     enum SortOption: String, CaseIterable, Identifiable {

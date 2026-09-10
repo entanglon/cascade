@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 217 — video-black hide timing, tap-catcher layer, fullscreen chevron removal, flicker-free chrome, arrow diagnostics. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 218 — instant chrome toggle, sidebar headings, sort checkmark fix; arrows under investigation. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4259,6 +4259,13 @@ Open levers (not scheduled):
      - Fullscreen video: edge track chevrons hidden (`!isFullScreen`); ±10 s transport stays.
      - Flicker: dropped `.animation(value:)` drivers, opacity-only transitions everywhere (flux pattern).
      - Arrows NOT reproduced statically (full path traced correct) — nav logging raised to persisted `.log`; awaiting exact user repro.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
+ 218. **Instant chrome + sidebar headings + sort fix (2026-09-10 evening — COMMITTED)**
+     (`Features/VideoPlaybackView.swift`, `Features/SidebarView.swift`, `App/AppState.swift`, `Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
+     - Chrome show/hide instant (animation stripped — the toggle lag).
+     - Sidebar: headerless top level; Collections kept; Vault → Utilities; Pinned kept.
+     - Sort: getter compared lowercase keys no stored value matched → checkmark stuck on Name; fixed via `SortOption(rawValue:)` + round-trip test.
+     - Arrows: still under investigation (path verified, binary verified) — need which-arrows + repro from user.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 

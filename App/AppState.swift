@@ -45,11 +45,12 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     }
 
     /// Finder-style sidebar groups (single source for SidebarView rendering
-    /// and arrow-key navigation order).
-    static let favoriteItems: [SidebarDestination] = [.allFiles, .recent, .favorites]
+    /// and arrow-key navigation order). Top-level entries are headerless;
+    /// only genuine groups carry headings.
+    static let topLevelItems: [SidebarDestination] = [.allFiles, .recent, .favorites]
     static let collectionItems: [SidebarDestination] = [.photos, .video, .audio, .documents, .library]
     static let vaultItems: [SidebarDestination] = [.privateVault, .shared, .transfers, .archive, .trash]
-    static let displayOrder: [SidebarDestination] = favoriteItems + collectionItems + vaultItems
+    static let displayOrder: [SidebarDestination] = topLevelItems + collectionItems + vaultItems
 }
 
 extension Notification.Name {

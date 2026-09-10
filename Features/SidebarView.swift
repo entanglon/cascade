@@ -12,9 +12,21 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    sidebarSection(title: "Favorites", items: SidebarDestination.favoriteItems)
+                    // Top-level entries sit headerless (Finder-style); only
+                    // genuine groups get headings.
+                    VStack(spacing: 4) {
+                        ForEach(SidebarDestination.topLevelItems) { item in
+                            SidebarRow(
+                                item: item,
+                                isSelected: selection == item
+                            ) {
+                                appState.isSidebarFocused = true
+                                selection = item
+                            }
+                        }
+                    }
                     sidebarSection(title: "Collections", items: SidebarDestination.collectionItems)
-                    sidebarSection(title: "Vault", items: SidebarDestination.vaultItems)
+                    sidebarSection(title: "Utilities", items: SidebarDestination.vaultItems)
                     if !pinnedFolders.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             sectionHeader("Pinned")

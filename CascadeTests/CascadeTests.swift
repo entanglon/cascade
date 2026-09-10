@@ -471,8 +471,24 @@ struct CascadeTests {
         #expect(empty.count == 0 && empty.batchBytes == 0)
     }
 
-    @Test func prebufferTargetClampsToShortClips() {
-        // Normal/long file → the full 4 s threshold.
+    @Test func sortOptionRoundTripsStoredRawValues() {
+        // Regression (Round 218): the getter compared lowercase keys that no
+        // stored value ever matched, so the menu checkmark sat on Name while
+        // sorting obeyed the (correctly written) stored value.
+        #expect(FileBrowserView.sortOption(for: "Name") == .name)
+        #expect(FileBrowserView.sortOption(for: "name") == .name) // legacy default
+        #expect(FileBrowserView.sortOption(for: "Size") == .size)
+        #expect(FileBrowserView.sortOption(for: "Date Created") == .dateCreated)
+        #expect(FileBrowserView.sortOption(for: "Date Modified") == .dateModified)
+        #expect(FileBrowserView.sortOption(for: "Kind") == .kind)
+        #expect(FileBrowserView.sortOption(for: "bogus") == .name)
+        // Setter writes exactly what the getter reads.
+        for option in [FileBrowserView.SortOption.name, .size, .dateCreated, .dateModified, .kind] {
+            #expect(FileBrowserView.sortOption(for: option.rawValue) == option)
+        }
+    }
+
+    @Test func prebufferTargetClampsToShortClips() {        // Normal/long file → the full 4 s threshold.
         #expect(MPVController.prebufferTarget(durationSecs: 3600) == 4.0)
         #expect(MPVController.prebufferTarget(durationSecs: 60) == 4.0)
         // Short clip → (duration − 0.5 s) so the gate can release instead of
