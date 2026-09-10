@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AppKit
+import os
 
 enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     case allFiles, privateVault, recent, favorites, photos, video, audio, documents, library, transfers, shared, archive, trash
@@ -1413,16 +1414,26 @@ final class AppState {
             }
             return SidebarDestination.displayOrder.firstIndex(of: selectedDestination)
         }()
-        guard let current else { return }
+        guard let current else {
+            Self.navLogger.log("moveSidebar: no position (dest=\(self.selectedDestination.rawValue, privacy: .public))")
+            return
+        }
         let next = min(max(current + delta, 0), orderCount + pins.count - 1)
-        guard next != current else { return }
+        guard next != current else {
+            Self.navLogger.log("moveSidebar: clamped at edge (cur=\(current, privacy: .public) delta=\(delta, privacy: .public))")
+            return
+        }
         if next < orderCount {
+            Self.navLogger.log("moveSidebar: \(current, privacy: .public) -> dest \(SidebarDestination.displayOrder[next].rawValue, privacy: .public)")
             selectDestination(SidebarDestination.displayOrder[next])
         } else {
+            Self.navLogger.log("moveSidebar: \(current, privacy: .public) -> pin \(pins[next - orderCount].name, privacy: .public)")
             openSidebarPin(pins[next - orderCount])
         }
         isSidebarFocused = true
     }
+
+    private static let navLogger = Logger(subsystem: "com.cascade.app", category: "keynav")
 
     @MainActor
     func navigateTo(_ id: String?) {

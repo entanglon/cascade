@@ -2323,11 +2323,21 @@ final class PlayerFullScreenWindow: NSObject, ObservableObject {
         var didObserver: NSObjectProtocol?
         willObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main
-        ) { [weak window] _ in
+        ) { [weak self, weak window] _ in
             // Reveal at the START of the slide — this is what reads as the
             // window swiping into its own Space.
             print("Cascade player: willEnterFullScreen reveal t=\(Date().timeIntervalSince1970)")
             window?.alphaValue = 1
+            // Hide the theater as the slide STARTS (not at didEnter): the old
+            // Space then shows the usable browser through the transition
+            // instead of the theater lingering ~2 s (snapshot capture + slide)
+            // before closing. Theater-kind only (direct/image sessions have no
+            // theater layer); the layer swap still happens at didEnter, and an
+            // ignored toggle never fires willEnter so a failed entry can't
+            // strand the theater hidden.
+            if self?.session?.kind == .theater {
+                self?.videoLiveInFullscreen = true
+            }
             if let willObserver { NotificationCenter.default.removeObserver(willObserver) }
         }
         didObserver = NotificationCenter.default.addObserver(

@@ -2,9 +2,60 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (morning) — Fullscreen fixes: focus border, nav removal, hover chrome, video-black root cause, click-toggle, cursor hide, flux volume boost (Round 216).
+> 2026-09-10 (evening) — Round 216 fixes: video-black flag timing, tap-toggle layer, fullscreen chevron removal, flicker-free chrome, arrow diagnostics (Round 217).
 
 ---
+
+## 2026-09-10 (evening) — Round 216 fixes: video-black flag timing, tap-toggle layer, fullscreen chevron removal, flicker-free chrome, arrow diagnostics (Round 217)
+
+User pushback on Round 216: upgrades invisible, prev/next still in video
+player, click-toggle dead, chrome flashing, theater slow to hide, arrows dead
+(grid + sidebar). Verified first: the running PID is the Round 216 build
+(same DerivedData binary) — not a stale-build illusion. Findings + fixes:
+
+### Click-toggle dead — root cause: AppKit swallows the tap
+- `.onTapGesture` sat on `MPVVideoView` (NSViewRepresentable). AppKit
+  delivers clicks straight to the native GL view, bypassing SwiftUI gestures
+  — it could never fire. Fix: a transparent SwiftUI tap-catcher overlay
+  ABOVE the video but BELOW the controls/status overlays (buttons consume
+  their own taps, so transport clicks never toggle).
+
+### Video-black ordinary player — second half of the fix
+- Round 216 fixed the no-snapshot case; this round moves the hide to
+  `willEnterFullScreen` (theater-kind only): the old Space shows the usable
+  browser through the slide instead of the theater lingering ~2 s (capture +
+  slide). Ignored toggles never fire willEnter, so a failed entry can't
+  strand the theater hidden. Layer swap still at didEnter.
+
+### Fullscreen track chevrons removed
+- The video player's edge Previous/Next TRACK buttons now hide in fullscreen
+  (`!isFullScreen` gate) — track switching belongs to the ordinary viewer,
+  same rule as Round 216's image chevrons. The ±10 s transport stays
+  (seeking, needed in fullscreen).
+
+### Chrome flicker
+- Removed the two `.animation(value:)` drivers on the controls container
+  (they re-animated mid-transition over live GL); transitions are now
+  opacity-only everywhere incl. the transport conditional (flux pattern —
+  move transitions tear on video).
+
+### Arrows — status: NOT reproduced in code, instrumented
+- Traced the full path statically (NSEvent monitor → onArrow → keyNav →
+  selection; defers; focus; isolation; empty-list guards; stale flags):
+  every link reads correct, so no blind fix was applied. What IS new: nav
+  logging is now persistence-level (`.log`, was lossy `.info`) in keyNav +
+  moveSidebarSelection, so the next repro leaves an evidence trail.
+- Awaiting the user's exact repro (page? grid/list? first press vs later?
+  anything at all happen?) to close this with evidence.
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched.
+- Research receipts (user asked): Photos single-window ⌃⌘F/ESC/arrows (Apple
+  Support); flux `VolumeCurve` 0–2→0–200 + orange boost (`MPVVideoView.swift:121`,
+  `PlayerControlsView.swift:495`), `setHiddenUntilMouseMoves` cursor pattern
+  (`PlayerControlsView.swift:416,563,575`), 2.5 s Apple-TV hide timer — all
+  ported with file:line parity noted in code.
 
 ## 2026-09-10 (morning) — Fullscreen fixes: focus border, nav removal, hover chrome, video-black root cause, click-toggle, cursor hide, flux volume boost (Round 216)
 

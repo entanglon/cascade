@@ -1404,6 +1404,7 @@ struct FileBrowserView: View {
         // moves the sidebar selection — content selection stays cleared.
         // Left/right, or any content tap, hands focus back to the content.
         if appState.isSidebarFocused, isVertical {
+            Self.keyNavLogger.log("keyNav: sidebar-owned (delta=\(delta, privacy: .public))")
             appState.moveSidebarSelection(delta: delta)
             return
         }
@@ -1413,7 +1414,7 @@ struct FileBrowserView: View {
         guard let current = files.firstIndex(where: { appState.selectedFiles.contains($0.id) }) else {
             appState.selectedFiles = [files[0].id]
             scrollTargetID = files[0].id
-            Self.keyNavLogger.info("keyNav: no selection -> selected first of \(files.count) (folders=\(files.filter(\.isFolder).count))\(files[0].isFolder ? " [folder]" : "")")
+            Self.keyNavLogger.log("keyNav: no selection -> selected first of \(files.count, privacy: .public) (folders=\(files.filter(\.isFolder).count, privacy: .public))\(files[0].isFolder ? " [folder]" : "")")
             return
         }
 
@@ -1425,7 +1426,7 @@ struct FileBrowserView: View {
         }
         appState.selectedFiles = [files[nextIndex].id]
         scrollTargetID = files[nextIndex].id
-        Self.keyNavLogger.info("keyNav: delta=\(delta) vertical=\(isVertical) total=\(files.count) folders=\(files.filter(\.isFolder).count) cols=\(columnCount) cur=\(current)(\(files[current].isFolder ? "folder" : "file")) -> next=\(nextIndex)(\(files[nextIndex].isFolder ? "folder" : "file"))\(files[nextIndex].isFolder ? " " + files[nextIndex].name : "")")
+        Self.keyNavLogger.log("keyNav: delta=\(delta, privacy: .public) vertical=\(isVertical, privacy: .public) total=\(files.count, privacy: .public) folders=\(files.filter(\.isFolder).count, privacy: .public) cols=\(columnCount, privacy: .public) cur=\(current, privacy: .public)(\(files[current].isFolder ? "folder" : "file")) -> next=\(nextIndex, privacy: .public)(\(files[nextIndex].isFolder ? "folder" : "file"))\(files[nextIndex].isFolder ? " " + files[nextIndex].name : "")")
     }
 
     private static let keyNavLogger = Logger(

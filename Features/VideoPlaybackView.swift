@@ -77,18 +77,25 @@ struct VideoPlaybackView: View {
                     // mpv (libmpv) streams any container from the local byte-range server.
                     MPVVideoView(controller: mpv)
                         .id(ObjectIdentifier(mpv)) // rebuild the view when a new controller takes over
-                        .onTapGesture {
-                            // Click toggles chrome — attached to the video
-                            // surface itself, UNDER the controls overlay, so
-                            // taps on buttons/sliders (consumed up there)
-                            // never toggle.
-                            NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
-                        }
                         .onKeyPress(.space) {
                             audioEngine.togglePlayPause()
                             return .handled
                         }
                         .overlay { PlayerStatusOverlay(mpv: mpv) }
+                        .overlay {
+                            // Click toggles chrome (flux-style). A transparent
+                            // SwiftUI layer UNDER the controls overlay: taps on
+                            // buttons/sliders are consumed up there and never
+                            // toggle, taps everywhere else land here. This must
+                            // NOT live on MPVVideoView itself — AppKit delivers
+                            // clicks straight to the native GL view, bypassing
+                            // SwiftUI gestures, so a tap there never fired.
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    NotificationCenter.default.post(name: .togglePlayerChrome, object: nil)
+                                }
+                        }
                         .overlay {
                             PlayerControlsView(
                                 mpv: mpv,
@@ -288,9 +295,11 @@ struct PlayerControlsView: View {
 
                     // Center transport — hidden until the first frame is live so it
                     // never overlaps the status spinner, and while buffering
-                    // (spinner takes over).
+                    // (spinner takes over). Opacity-only appearance (no slide):
+                    // move transitions tear over live GL content.
                     if mpv.hasFirstFrame && !mpv.isBuffering {
                         transportArea
+                            .transition(.opacity)
                     }
 
                     Spacer()
@@ -324,8 +333,10 @@ struct PlayerControlsView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isControlsVisible)
-        .animation(.easeInOut(duration: 0.2), value: showExitWarning)
+        // No .animation(value:) drivers here: show/hide already animate
+        // explicitly, and value-drivers re-animate mid-transition (flicker
+        // over live video). Transitions are opacity-only (flux pattern) —
+        // move transitions tear over GL content.
         .onAppear { showControls() }
         .onDisappear {
             hoverTimer?.invalidate()
@@ -552,12 +563,14 @@ struct PlayerControlsView: View {
                 .help("Forward 10 seconds")
             }
 
-            // Previous / next arrows on the left/right edges, vertically centered
-            // with the transport — the row fills the cluster's height band so
-            // the buttons always share its exact center. Each shows ONLY when
-            // a file exists on that side of the row navigation.
+            // Previous / next TRACK arrows on the left/right edges (playlist
+            // row navigation — not the ±10s transport above). Track switching
+            // belongs to the ordinary viewer, so these show in the windowed
+            // theater only, never in fullscreen (same rule as the image
+            // viewer's removed chevrons). Each shows ONLY when a file exists
+            // on that side of the row navigation.
             HStack {
-                if canGoPrevious {
+                if !isFullScreen, canGoPrevious {
                     Button {
                         AudioPlayerEngine.shared.skipPrevious()
                     } label: {
@@ -575,7 +588,7 @@ struct PlayerControlsView: View {
 
                 Spacer()
 
-                if canGoNext {
+                if !isFullScreen, canGoNext {
                     Button {
                         AudioPlayerEngine.shared.skipNext()
                     } label: {

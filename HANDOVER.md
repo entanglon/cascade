@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (morning): Round 216 — fullscreen fixes (focus border, nav removal, hover chrome, video-black flag, click-toggle, cursor hide, flux volume boost). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 217 — video-black hide timing, tap-catcher layer, fullscreen chevron removal, flicker-free chrome, arrow diagnostics. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4252,6 +4252,14 @@ Open levers (not scheduled):
      - Video: click toggles chrome (surface-level tap, controls consume their own); cursor hides with chrome via `setHiddenUntilMouseMoves` (+ image fullscreen same rule).
      - Flux volume boost: `volume-max=200`, coalesced `setBoost` 1–2x, echo clamp, speaker cycle buttons in video+audio pills (orange %), per-track reset.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched for user check.
+ 217. **Round 216 fixes (2026-09-10 evening — COMMITTED)**
+     (`Features/MPVVideoView.swift`, `Features/VideoPlaybackView.swift`, `Features/FileBrowserView.swift`, `App/AppState.swift`)
+     - Verified running PID == Round 216 binary (not stale). Click-toggle root cause: AppKit eats taps on the native GL view — moved to a transparent SwiftUI catcher under the controls overlay.
+     - Theater now hides at willEnter (theater-kind only) instead of didEnter — no 2 s linger; ignored toggles can't strand it.
+     - Fullscreen video: edge track chevrons hidden (`!isFullScreen`); ±10 s transport stays.
+     - Flicker: dropped `.animation(value:)` drivers, opacity-only transitions everywhere (flux pattern).
+     - Arrows NOT reproduced statically (full path traced correct) — nav logging raised to persisted `.log`; awaiting exact user repro.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug app relaunched.
 
 
 
