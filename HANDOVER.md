@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 231 — dark/light app icons with runtime switching. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 232 — squircle icons + themed in-app icon. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4342,6 +4342,11 @@ Open levers (not scheduled):
        (applicationIconImage on theme change). Verified in Assets.car; zero
        actool warnings.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched (Dark mode) — user verifies tile + Light flip.
+ 232. **Squircle icons + themed in-app icon (2026-09-10 evening — COMMITTED)**
+     (`Cascade/Assets.xcassets`, `Features/AboutView.swift`)
+     - Raw Dock tiles get no system masking (the box bug) → baked 22.5% squircle + transparency into all slots (PIL AA, corner-alpha verified). Catalog dark appearances re-tested: silently discarded, reverted to light-only.
+     - `AppIconThemed` set (Any + DarkAqua renditions, verified in car); About loads it (was unresolvable "AppIcon" + fallback). Login/Onboarding use SF Symbols — no other brand marks.
+     - Build + suite green: **BUILD SUCCEEDED**, zero actool warnings, CascadeTests **TEST SUCCEEDED**. Relaunched — user verifies both modes.
 
 
 

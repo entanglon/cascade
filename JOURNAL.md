@@ -2,9 +2,42 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Dark/light app icons from user artwork (Round 231).
+> 2026-09-10 (evening) — Proper squircle icons + themed in-app icon (Round 232).
 
 ---
+
+## 2026-09-10 (evening) — Proper squircle icons + themed in-app icon (Round 232)
+
+User review: the running tile shows as an uncropped box (research + fix),
+and the About/app UI should use the conditional (dark/light) icon.
+
+### Research (Apple HIG, current + WWDC25 icon talks)
+- macOS icons are square 1024 layers; the system masks AppIcon-catalog
+  artwork, but a raw `NSImage` (Dock tile via `applicationIconImage`) gets
+  NO masking — full-bleed squares render as boxes. Fix is the classic
+  template: bake a ~22.5% continuous-corner squircle with transparency, no
+  baked shadow (system handles depth). Verified against HIG ("never include
+  the mask in exports" applies to the layered Icon Composer flow, not to
+  raw-image Dock tiles).
+
+### What changed
+- PIL-composited squircle (22.5% radius, 2× supersampled AA; corner alpha 0
+  verified programmatically on every output) onto both masters, then
+  regenerated ALL slots: AppIcon light set, IconLight/IconDark 1024s.
+- `AppIcon.appiconset` appearances re-tested and definitively dropped:
+  compiled entries show `Appearances: None` (dark variants silently
+  discarded) — catalog stays light-only, zero warnings.
+- New `AppIconThemed` image set (Any + `NSAppearanceNameDarkAqua`
+  renditions, verified in Assets.car) for in-app UI; About now loads it
+  (was `NSImage(named: "AppIcon")`, which never resolved a catalog icon —
+  fell back to the Dock tile). Login/Onboarding use SF Symbols only — no
+  other in-app brand marks exist.
+
+### Verification
+- Build: **BUILD SUCCEEDED** (zero actool warnings). Tests: CascadeTests
+  **TEST SUCCEEDED**.
+- Debug app relaunched (Dark mode) — user to verify: rounded Dock tile, About
+  icon, then Light-mode flip for both.
 
 ## 2026-09-10 (evening) — Dark/light app icons from user artwork (Round 231)
 

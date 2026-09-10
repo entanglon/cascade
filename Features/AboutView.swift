@@ -12,8 +12,10 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            // App Icon
-            if let appIcon = NSImage(named: "AppIcon") ?? NSApp.applicationIconImage {
+            // App Icon — appearance-conditional artwork (light/dark variants
+            // resolve live per effective appearance; falls back to the
+            // running Dock tile, which the switcher keeps themed too).
+            if let appIcon = NSImage(named: "AppIconThemed") ?? NSApp.applicationIconImage {
                 Image(nsImage: appIcon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
