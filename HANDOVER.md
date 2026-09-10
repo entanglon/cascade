@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 233 — dark-only icon, proper footprint, theming parked. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 234 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4352,6 +4352,10 @@ Open levers (not scheduled):
      - Tile was 100% edge-to-edge with no shadow (read oversized/flat vs native ~90% + depth) → rebuilt at 90% + baked soft shadow.
      - Theming parked: switcher call removed (class kept, marked), About → IconDark, bundle dark-only. Light sets stay shipped.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched (`killall Dock` if cached).
+ 234. **Theme icons re-enabled (2026-09-10 evening  — COMMITTED)**
+     (`Cascade/Assets.xcassets`, `App/CascadeApp.swift`, `App/TerminationHandler.swift`, `Features/AboutView.swift`)
+     - Light master rebuilt with identical treatment (verified visually); themed sets refreshed; switcher + About themed restored. Finder stays dark.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies both modes.
 
 
 

@@ -1,11 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// Dark/Light Dock icon switching for the user's dark.png/light.png artwork.
-/// PARKED (user decision — bundle icon is dark-only for now): not started at
-/// launch. Re-enable by touching `shared` in
-/// `TerminationHandler.applicationDidFinishLaunching`; the
-/// IconLight/IconDark/AppIconThemed sets stay shipped for that day.
+/// Dark/Light Dock icon switching for the user's dark.png/light.png artwork
+/// (both rebuilt at the 90% footprint with baked shadow). macOS AppIcon
+/// catalogs do NOT support luminosity appearances (actool rejects them), so
+/// the bundle icon stays dark and the running app swaps its own Dock tile
+/// via applicationIconImage whenever the OS appearance flips. Started from
+/// the app delegate at launch.
 final class AppIconSwitcher {
     static let shared = AppIconSwitcher()
     private var observer: Any?

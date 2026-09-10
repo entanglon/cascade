@@ -2,9 +2,21 @@
 
 >> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Dark-only icon with proper footprint, theming parked (Round 233).
+> 2026-09-10 (evening) — Theme icons back on with matching footprint (Round 234).
 
 ---
+
+## 2026-09-10 (evening) — Theme icons back on with matching footprint (Round 234)
+
+User asked how theming keeps the fit, then approved: light master rebuilt
+identically (90% tile, squircle, baked shadow  — verified visually), themed
+assets refreshed, switcher re-enabled, About back on the themed set. Finder
+icon stays dark (static bundle limitation, as established).
+
+### Verification
+- Build: **BUILD SUCCEEDED**. Tests: CascadeTests **TEST SUCCEEDED**.
+- Debug app relaunched (Dark mode)  —  user to verify dark tile + About,
+  then Light flip for the swap.
 
 ## 2026-09-10 (evening) — Dark-only icon with proper footprint, theming parked (Round 233)
 
