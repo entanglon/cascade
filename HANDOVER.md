@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 238 — theme icons re-enabled with matching footprint. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-10 (evening): Round 238 — Release bundle ID + new light icon art. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4355,6 +4355,7 @@ Open levers (not scheduled):
  234. **Theme icons re-enabled (2026-09-10 evening  — COMMITTED)**
      (`Cascade/Assets.xcassets`, `App/CascadeApp.swift`, `App/TerminationHandler.swift`, `Features/AboutView.swift`)
      - Light master rebuilt with identical treatment (verified visually); themed sets refreshed; switcher + About themed restored. Finder stays dark.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies both modes.
  235. **Icon Composer Liquid Glass icons (2026-09-10 evening  — COMMITTED)**
      (`IconComposer/`, `Cascade/Assets.xcassets`)
      - Glyph extraction + `.icon` bundles (ictool render, scale 0.9); adopted renders everywhere; sources committed.
@@ -4363,19 +4364,12 @@ Open levers (not scheduled):
      (`Cascade/Assets.xcassets`)
      - Full-bleed renders oversized via applicationIconImage (no system normalization); inset to 90% for runtime sets, catalog stays full-bleed.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user compares footprint.
+ 237. **Measured footprint parity (2026-09-10 evening  — COMMITTED)**
+     (`Cascade/Assets.xcassets`)
+     - Finder body 80.5% vs ours 89.8% (solid-body metric); runtime tiles rescaled to 0.81, catalog untouched.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched.
  238. **Release bundle ID + new light art (2026-09-10 evening  — COMMITTED)**
      (`Cascade.xcodeproj`, `Storage/Models.swift`, `IconComposer/`, `Cascade/Assets.xcassets`)
      - Release ID `com.entanglon.cascade`; data-folder split extended (would have merged prod into dev data).
      - New light glyph extracted, bundle refreshed, ictool re-render adopted at 81% footprint.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug relaunched.
- 237. **Measured footprint parity (2026-09-10 evening  — COMMITTED)**
-     (`Cascade/Assets.xcassets`)
-     - Finder body 80.5% vs ours 89.8% (solid-body metric); runtime tiles rescaled to 0.81, catalog untouched.
-     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched.
-     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Relaunched  —  user verifies both modes.
-
-
-
-
-
-
