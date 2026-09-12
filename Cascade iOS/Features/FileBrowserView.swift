@@ -300,9 +300,9 @@ struct FileBrowserView: View {
         ScrollView {
             VStack(spacing: 0) {
                 LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 16),
-                    GridItem(.flexible(), spacing: 16),
-                    GridItem(.flexible(), spacing: 16)
+                    GridItem(.flexible(), spacing: 16, alignment: .top),
+                    GridItem(.flexible(), spacing: 16, alignment: .top),
+                    GridItem(.flexible(), spacing: 16, alignment: .top)
                 ], spacing: 28) {
                     // Inline New Folder Item if creating in this folder
                     if appState.isCreatingFolder && (appState.creatingFolderParentID ?? "") == folderID {

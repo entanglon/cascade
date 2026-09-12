@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (night): Round 248 — iOS Browse Monochrome Icons (macOS Parity), Selection Bar Replaces Nav Bar, Remove Bottom Item Footers, Share Thumbnail Sidecar Forward & Decrypt. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (night): Round 249 — macOS Direct Cmd+V Import, Preserved Pending Imports Across Snapshot Sync, Liquid Glass Pending Import UI, Public Password Shares, iOS Grid Alignment, Shared Thumbnails & Docked Upload Progress. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4453,4 +4453,14 @@ Open levers (not scheduled):
      - Share thumbnail sidecar forwarding & decryption: In `ShareEngine.exportShare`, forwarded `object.thumbMessageID` sidecar message into share channel and encoded in `ShareLink` (`th` query parameter). In `ShareEngine.stageImport`, forwarded `thumbMessageID` into vault channel, saved on `ObjectRecord`, and decrypted thumbnail directly into `UploadEngine.thumbnailsDirectory()/[objectID]-tg.jpg` (or `.png`).
      - Pending import dialog (macOS): In `PendingImportView.swift`, loaded and displayed real thumbnail, removed confusing "The file is already in your cloud..." label, removed unnecessary "Preview" button, and resized sheet to 440×320.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`), CascadeTests **TEST SUCCEEDED** (64 unit + 4 UI/launch tests passed).
-
+ 249. **macOS Direct Cmd+V Import, Preserved Pending Imports Across Snapshot Sync, Liquid Glass Pending Import UI, Public Password Shares, iOS Grid Alignment, Shared Thumbnails & Docked Upload Progress (2026-09-12 night)**
+     (`App/AppState.swift`, `App/CascadeApp.swift`, `Storage/DatabaseManager.swift`, `Features/FileBrowserView.swift`, `Features/PendingImportView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`)
+     - Preserved pending imports in catalog reconciliation: In `DatabaseManager.replaceCatalog`, fetched and preserved `pendingImport` objects and their chunks across the delete/reinsert cycle so background snapshot sync does not erase staged share files. In `AppState.confirmPendingImport()`, added state reset (`pendingImportID = nil`) in the `catch` block on failure, preventing spinning hang.
+     - Direct Cmd+V paste on macOS: Added global paste interception in `CascadeApp.swift` (`CommandGroup(replacing: .pasteboard)`) and `FileBrowserView.swift` (`pasteFromClipboard()`) to directly call `appState.importShareLink` when `cascade://share` is in the pasteboard without requiring text field focus.
+     - Liquid glass pending import UI (macOS): Redesigned `PendingImportView.swift` with `.ultraThinMaterial`, 20pt rounded corners, specular gradient border, 96×96 styled thumbnail, clean "Cancel", and "Import" button.
+     - Password-protected public shares (macOS): Added "Public (Password Protected…)" option to context menu in `Features/FileBrowserView.swift`, and added `sharePasswordIsPublic` routing to `App/AppState.swift` and `SharePasswordPromptSheet`.
+     - iOS shared page thumbnails: Updated `ShareGridCard` and `ShareListRow` in `Cascade iOS/RootView.swift` to load and display real thumbnails and `AppleFolderIcon` for group shares with corner badges.
+     - iOS file & folder grid alignment: In `Cascade iOS/Features/FileBrowserView.swift` and `Cascade iOS/RootView.swift` (`FileGridItem`), set top alignment on `LazyVGrid`, fixed name frame to 34pt, unified subtitle to 1 line (`size • date` or `X items`), and locked container height to 52pt, ensuring uniform 151pt card heights across rows and columns.
+     - iOS upload progress docked in CustomGlassTabBar: Removed detached floating capsule from `RootView.safeAreaInset(edge: .bottom)`. Integrated progress bar, upload status, percentage, and activity indicator directly into the top of `CustomGlassTabBar` with smooth spring transitions, and docked a slim pill when selection mode is active.
+     - iOS import share link sheet upgrade: Redesigned `ImportShareLinkSheet` in `Cascade iOS/RootView.swift` with prominent "Import" button, real thumbnail preview loading, and UTType-based file badges.
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched cleanly on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`), CascadeTests **TEST SUCCEEDED** (70 unit/integration tests passed).

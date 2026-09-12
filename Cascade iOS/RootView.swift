@@ -786,21 +786,28 @@ struct RootView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
-                if appState.isUploading {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                            .scaleEffect(0.8)
+                if let track = appState.currentAudioTrack {
+                    AudioMiniPlayerView(track: track)
+                        .padding(.horizontal, 12)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(appState.uploadStatus.isEmpty ? "Uploading..." : appState.uploadStatus)
-                                .font(.system(size: 12, weight: .medium))
-                                .lineLimit(1)
-                            ProgressView(value: max(0.02, appState.uploadProgress))
-                                .progressViewStyle(.linear)
-                                .tint(XTheme.accent)
-                        }
+                if appState.isSelecting && appState.isUploading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+
+                        Text(appState.uploadStatus.isEmpty ? "Uploading..." : appState.uploadStatus)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Text("\(Int(max(0, min(1, appState.uploadProgress)) * 100))%")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial, in: Capsule())
                     .overlay(
@@ -809,12 +816,6 @@ struct RootView: View {
                     .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
                     .padding(.horizontal, 16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
-                if let track = appState.currentAudioTrack {
-                    AudioMiniPlayerView(track: track)
-                        .padding(.horizontal, 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 if !appState.isSelecting {
@@ -860,13 +861,63 @@ struct CustomGlassTabBar: View {
     @Binding var selectedTab: RootView.Tab
 
     var body: some View {
-        HStack(spacing: 0) {
-            tabButton(tab: .recents, title: "Recents", icon: "clock")
-            tabButton(tab: .shared, title: "Shared", icon: "arrow.triangle.swap")
-            tabButton(tab: .browse, title: "Browse", icon: "folder.fill")
+        VStack(spacing: 0) {
+            if appState.isUploading {
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+
+                        Text(appState.uploadStatus.isEmpty ? "Uploading..." : appState.uploadStatus)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Text("\(Int(max(0, min(1, appState.uploadProgress)) * 100))%")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.primary.opacity(0.08))
+                                .frame(height: 3)
+
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [XTheme.accent, XTheme.accent.opacity(0.8)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: max(6, geo.size.width * CGFloat(max(0.02, min(1.0, appState.uploadProgress)))), height: 3)
+                        }
+                    }
+                    .frame(height: 3)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+
+                Divider()
+                    .opacity(0.3)
+                    .padding(.top, 2)
+            }
+
+            HStack(spacing: 0) {
+                tabButton(tab: .recents, title: "Recents", icon: "clock")
+                tabButton(tab: .shared, title: "Shared", icon: "arrow.triangle.swap")
+                tabButton(tab: .browse, title: "Browse", icon: "folder.fill")
+            }
+            .padding(.top, appState.isUploading ? 6 : 10)
+            .padding(.bottom, 2)
         }
-        .padding(.top, 10)
-        .padding(.bottom, 2)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.isUploading)
         .frame(maxWidth: .infinity)
         .background {
             UnevenRoundedRectangle(
@@ -2027,9 +2078,16 @@ struct SharedView: View {
 struct ShareGridCard: View {
     let share: ShareRecord
     @Environment(AppState.self) private var appState
+    @State private var thumbImage: UIImage? = nil
 
     private var shareLinkURL: String {
         share.linkBlob ?? share.inviteLink
+    }
+
+    private var isGroup: Bool { !share.groupObjectIDs.isEmpty }
+
+    private var targetFile: FileItem? {
+        appState.allFiles.first { $0.id == share.objectID }
     }
 
     var body: some View {
@@ -2037,18 +2095,34 @@ struct ShareGridCard: View {
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(share.isPublic ? Color.green.opacity(0.12) : Color.orange.opacity(0.12))
+                        .fill(Color.white.opacity(0.06))
 
-                    Image(systemName: share.isPublic ? "globe" : "lock.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(share.isPublic ? Color.green : Color.orange)
+                    if isGroup {
+                        AppleFolderIcon(width: 72, height: 56)
+                            .shadow(color: .black.opacity(0.18), radius: 2.5, x: 0, y: 1.5)
+                    } else if let thumbImage {
+                        Image(uiImage: thumbImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: 94)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1.5)
+                    } else {
+                        let file = targetFile
+                        let isVideo = file?.isVideo ?? false
+                        let isAudio = file?.isAudio ?? false
+                        let iconName = isVideo ? "play.rectangle.fill" : (isAudio ? "music.note" : "doc.fill")
+                        Image(systemName: iconName)
+                            .font(.system(size: 36))
+                            .foregroundStyle(XTheme.accent.opacity(0.75))
+                    }
                 }
                 .frame(height: 94)
                 .frame(maxWidth: .infinity)
 
                 HStack(spacing: 3) {
                     Image(systemName: share.isPublic ? "globe" : "lock.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: 9, weight: .bold))
                     Text(share.isPublic ? "Public" : "Private")
                         .font(.system(size: 9, weight: .bold))
                 }
@@ -2075,6 +2149,9 @@ struct ShareGridCard: View {
         }
         .padding(10)
         .frostedGlassCard(cornerRadius: 14)
+        .task(id: share.id) {
+            await loadThumbnail()
+        }
         .contextMenu {
             Button {
                 UIPasteboard.general.string = shareLinkURL
@@ -2098,6 +2175,27 @@ struct ShareGridCard: View {
             }
         }
     }
+
+    private func loadThumbnail() async {
+        if isGroup { return }
+        if let data = targetFile?.thumbnailData, let img = UIImage(data: data) {
+            thumbImage = img
+            return
+        }
+        if let dir = try? UploadEngine.thumbnailsDirectory() {
+            let candidates = ["\(share.objectID)-tg.jpg", "\(share.objectID)-tg.png", "\(share.objectID).png", "\(share.objectID)-up.jpg"]
+            for c in candidates {
+                let u = dir.appendingPathComponent(c)
+                if let img = UIImage(contentsOfFile: u.path) {
+                    thumbImage = img
+                    return
+                }
+            }
+        }
+        if let data = await appState.fetchSingleThumbnail(for: share.objectID) {
+            thumbImage = UIImage(data: data)
+        }
+    }
 }
 
 // MARK: - Share List Row
@@ -2105,21 +2203,50 @@ struct ShareGridCard: View {
 struct ShareListRow: View {
     let share: ShareRecord
     @Environment(AppState.self) private var appState
+    @State private var thumbImage: UIImage? = nil
 
     private var shareLinkURL: String {
         share.linkBlob ?? share.inviteLink
     }
 
+    private var isGroup: Bool { !share.groupObjectIDs.isEmpty }
+
+    private var targetFile: FileItem? {
+        appState.allFiles.first { $0.id == share.objectID }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(share.isPublic ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+            ZStack(alignment: .bottomTrailing) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+
+                    if isGroup {
+                        AppleFolderIcon(width: 32, height: 25)
+                    } else if let thumbImage {
+                        Image(uiImage: thumbImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 40, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    } else {
+                        let file = targetFile
+                        let icon = (file?.isVideo == true) ? "play.rectangle.fill" : ((file?.isAudio == true) ? "music.note" : "doc.fill")
+                        Image(systemName: icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(XTheme.accent)
+                    }
+                }
+                .frame(width: 40, height: 40)
+
                 Image(systemName: share.isPublic ? "globe" : "lock.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(share.isPublic ? Color.green : Color.orange)
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(2.5)
+                    .background(share.isPublic ? Color.green : Color.orange, in: Circle())
+                    .offset(x: 3, y: 3)
             }
-            .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(share.fileName)
@@ -2159,6 +2286,9 @@ struct ShareListRow: View {
         }
         .padding(12)
         .frostedGlassCard(cornerRadius: 14)
+        .task(id: share.id) {
+            await loadThumbnail()
+        }
         .contextMenu {
             Button {
                 UIPasteboard.general.string = shareLinkURL
@@ -2180,6 +2310,27 @@ struct ShareListRow: View {
             } label: {
                 Label("Revoke Share", systemImage: "xmark.circle")
             }
+        }
+    }
+
+    private func loadThumbnail() async {
+        if isGroup { return }
+        if let data = targetFile?.thumbnailData, let img = UIImage(data: data) {
+            thumbImage = img
+            return
+        }
+        if let dir = try? UploadEngine.thumbnailsDirectory() {
+            let candidates = ["\(share.objectID)-tg.jpg", "\(share.objectID)-tg.png", "\(share.objectID).png", "\(share.objectID)-up.jpg"]
+            for c in candidates {
+                let u = dir.appendingPathComponent(c)
+                if let img = UIImage(contentsOfFile: u.path) {
+                    thumbImage = img
+                    return
+                }
+            }
+        }
+        if let data = await appState.fetchSingleThumbnail(for: share.objectID) {
+            thumbImage = UIImage(data: data)
         }
     }
 }
@@ -5628,6 +5779,7 @@ struct FileGridItem: View {
                                 isRenameFocused = true
                             }
                         }
+                        .frame(height: 34, alignment: .top)
                 } else {
                     Text(file.name)
                         .font(.system(size: 13, weight: .regular))
@@ -5635,24 +5787,32 @@ struct FileGridItem: View {
                         .multilineTextAlignment(.center)
                         .truncationMode(.middle)
                         .foregroundStyle(.primary)
+                        .frame(height: 34, alignment: .top)
                 }
 
                 if file.isFolder {
                     Text("\(countChildren) \(countChildren == 1 ? "item" : "items")")
                         .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(height: 16, alignment: .top)
                 } else {
-                    Text(file.formattedDate)
+                    let subText: String = {
+                        if let size = file.formattedSize {
+                            return "\(size) • \(file.formattedDate)"
+                        } else {
+                            return file.formattedDate
+                        }
+                    }()
+                    Text(subText)
                         .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(.secondary)
-                    if let size = file.formattedSize {
-                        Text(size)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                    }
+                        .lineLimit(1)
+                        .frame(height: 16, alignment: .top)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .top)
+            .frame(height: 52, alignment: .top)
         }
         .frame(maxWidth: .infinity, alignment: .top)
     }
@@ -6409,11 +6569,21 @@ struct ImportShareLinkSheet: View {
 
     @State private var linkText: String = ""
     @State private var passwordText: String = ""
+    @State private var thumbImage: UIImage? = nil
 
     private var parsedLink: ShareEngine.ShareLink? {
         let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return ShareEngine.ShareLink.parse(trimmed)
+    }
+
+    private var canImport: Bool {
+        let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || appState.isImportingShareLink { return false }
+        if let link = parsedLink, link.isPasswordProtected && passwordText.isEmpty {
+            return false
+        }
+        return true
     }
 
     var body: some View {
@@ -6450,25 +6620,33 @@ struct ImportShareLinkSheet: View {
                     Section("Share Details") {
                         HStack(spacing: 14) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.blue.opacity(0.12))
-                                    .frame(width: 48, height: 48)
-
-                                if link.isGroup || link.files.contains(where: { $0.path != nil }) {
-                                    AppleFolderIcon(width: 40, height: 32)
+                                if let thumbImage {
+                                    Image(uiImage: thumbImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 52, height: 52)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                                        )
+                                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                                } else if link.isGroup || link.files.contains(where: { $0.path != nil }) {
+                                    AppleFolderIcon(width: 44, height: 35)
                                 } else {
-                                    let ext = (link.fileName as NSString).pathExtension.lowercased()
-                                    let isImage = ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(ext)
-                                    let isVideo = ["mp4", "mov", "m4v", "mkv", "avi"].contains(ext)
-                                    let isAudio = ["mp3", "m4a", "flac", "wav", "aac"].contains(ext)
-                                    Image(systemName: isImage ? "photo.fill" : (isVideo ? "play.rectangle.fill" : (isAudio ? "music.note" : "doc.fill")))
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(XTheme.accent)
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color.blue.opacity(0.12))
+                                        .frame(width: 52, height: 52)
+                                        .overlay(
+                                            Image(systemName: kindIcon(for: link.fileName))
+                                                .font(.system(size: 24))
+                                                .foregroundStyle(XTheme.accent)
+                                        )
                                 }
                             }
-                            .frame(width: 48, height: 48)
+                            .frame(width: 52, height: 52)
 
-                            VStack(alignment: .leading, spacing: 3) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(link.fileName)
                                     .font(.headline)
                                     .lineLimit(1)
@@ -6495,7 +6673,8 @@ struct ImportShareLinkSheet: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     } else {
-                                        Text("File")
+                                        let ext = (link.fileName as NSString).pathExtension.uppercased()
+                                        Text(ext.isEmpty ? "File" : ext)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -6516,19 +6695,31 @@ struct ImportShareLinkSheet: View {
                     Button {
                         importLink()
                     } label: {
-                        HStack {
+                        HStack(spacing: 8) {
                             Spacer()
                             if appState.isImportingShareLink {
                                 ProgressView()
-                                    .padding(.trailing, 6)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 16, weight: .semibold))
                             }
-                            Text(appState.isImportingShareLink ? "Importing..." : "Import to Drive")
-                                .font(.headline)
-                                .foregroundStyle(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.isImportingShareLink ? Color.secondary : Color.blue)
+                            Text(appState.isImportingShareLink ? "Importing..." : "Import")
+                                .font(.headline.weight(.semibold))
                             Spacer()
                         }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(
+                            canImport ? XTheme.accent : Color.secondary.opacity(0.25),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        )
                     }
-                    .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.isImportingShareLink || ((parsedLink?.isPasswordProtected == true) && passwordText.isEmpty))
+                    .buttonStyle(.plain)
+                    .disabled(!canImport)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
                 }
             }
             .navigationTitle("Add from Share Link")
@@ -6548,8 +6739,48 @@ struct ImportShareLinkSheet: View {
                 } else if linkText.isEmpty, let clip = UIPasteboard.general.string, clip.hasPrefix("cascade://") {
                     linkText = clip.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
+                updateThumbnail()
+            }
+            .onChange(of: linkText) { _, _ in
+                updateThumbnail()
             }
         }
+    }
+
+    private func updateThumbnail() {
+        guard let link = parsedLink else {
+            thumbImage = nil
+            return
+        }
+        if link.isGroup || link.files.contains(where: { $0.path != nil }) {
+            thumbImage = nil
+            return
+        }
+        if let match = appState.allFiles.first(where: { $0.name == link.fileName }),
+           let data = match.thumbnailData,
+           let img = UIImage(data: data) {
+            thumbImage = img
+            return
+        }
+        if let dir = try? UploadEngine.thumbnailsDirectory(),
+           let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+            let clean = (link.fileName as NSString).deletingPathExtension
+            if let found = items.first(where: { $0.lastPathComponent.contains(clean) }),
+               let img = UIImage(contentsOfFile: found.path) {
+                thumbImage = img
+                return
+            }
+        }
+    }
+
+    private func kindIcon(for name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ["jpg", "jpeg", "png", "gif", "webp", "heic", "svg"].contains(ext) { return "photo.fill" }
+        if ["mp4", "mov", "m4v", "mkv", "avi"].contains(ext) { return "play.rectangle.fill" }
+        if ["mp3", "m4a", "flac", "wav", "aac"].contains(ext) { return "music.note" }
+        if ["pdf"].contains(ext) { return "doc.richtext.fill" }
+        if ["zip", "tar", "gz", "rar", "7z"].contains(ext) { return "archivebox.fill" }
+        return "doc.fill"
     }
 
     private func importLink() {

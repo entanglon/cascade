@@ -107,7 +107,19 @@ struct CascadeApp: App {
                     .keyboardShortcut("x", modifiers: .command)
                 Button("Copy") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
                     .keyboardShortcut("c", modifiers: .command)
-                Button("Paste") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
+                Button("Paste") {
+                    let isEditingText: Bool = {
+                        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
+                        return firstResponder is NSTextView || firstResponder is NSTextField
+                    }()
+                    if !isEditingText,
+                       let clip = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       clip.hasPrefix("cascade://share") {
+                        appState.importShareLink(clip)
+                        return
+                    }
+                    NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                }
                     .keyboardShortcut("v", modifiers: .command)
                 Button("Move to Trash") { appState.bulkTrash() }
                     .keyboardShortcut(.delete, modifiers: [])

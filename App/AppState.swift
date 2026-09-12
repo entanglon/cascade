@@ -99,6 +99,7 @@ final class AppState {
     var movePickerTargets: [ObjectRecord]? = nil
     /// Targets queued for password-protected share link creation.
     var sharePasswordTargets: [ObjectRecord]? = nil
+    var sharePasswordIsPublic: Bool = false
     /// Share link awaiting password unlock before import.
     var passwordUnlockLink: String? = nil
     /// True when the "Import Shared Link…" dialog should appear (File menu).
@@ -1595,7 +1596,7 @@ final class AppState {
     /// persistent public channel (default: private, expiring, dedicated channel).
     /// `password` optionally protects the link with a client-side derived password key.
     @MainActor
-    func promptPasswordShare(_ objects: [ObjectRecord]) {
+    func promptPasswordShare(_ objects: [ObjectRecord], isPublic: Bool = false) {
         let shareable = objects.filter { !$0.isPrivate }
         guard !shareable.isEmpty else {
             alertMessage = ShareEngine.describe(
@@ -1605,6 +1606,7 @@ final class AppState {
             )
             return
         }
+        sharePasswordIsPublic = isPublic
         sharePasswordTargets = shareable
     }
 
@@ -1794,6 +1796,8 @@ final class AppState {
                 await self.loadFiles()
                 await self.loadShares()
             } catch {
+                self.pendingImportID = nil
+                self.pendingImportObject = nil
                 alertMessage = ShareEngine.describe(error)
             }
         }

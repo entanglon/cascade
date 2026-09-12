@@ -303,7 +303,7 @@ struct FileBrowserView: View {
                 set: { if !$0 { appState.sharePasswordTargets = nil } }
             )) {
                 if let targets = appState.sharePasswordTargets {
-                    SharePasswordPromptSheet(targets: targets)
+                    SharePasswordPromptSheet(targets: targets, isPublic: appState.sharePasswordIsPublic)
                         .environment(appState)
                 }
             }
@@ -1562,6 +1562,13 @@ struct FileBrowserView: View {
     private func pasteFromClipboard() {
         let pb = NSPasteboard.general
 
+        // 0. Check for Cascade Share Link copied to clipboard
+        if let string = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           string.hasPrefix("cascade://share") {
+            appState.importShareLink(string)
+            return
+        }
+
         // 1. Check for File URLs copied from Finder, Desktop, Downloads, etc.
         var targetURLs: [URL] = []
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
@@ -2225,14 +2232,19 @@ struct FileItemContextMenu: View {
                         Label("Private (Simple)", systemImage: "lock.fill")
                     }
                     Button {
-                        appState.promptPasswordShare(shareTargets)
+                        appState.promptPasswordShare(shareTargets, isPublic: false)
                     } label: {
                         Label("Private (Password Protected…)", systemImage: "key.fill")
                     }
                     Button {
                         appState.shareFiles(shareTargets, isPublic: true)
                     } label: {
-                        Label("Public", systemImage: "globe")
+                        Label("Public (Simple)", systemImage: "globe")
+                    }
+                    Button {
+                        appState.promptPasswordShare(shareTargets, isPublic: true)
+                    } label: {
+                        Label("Public (Password Protected…)", systemImage: "lock.shield")
                     }
                 } label: {
                     Label(shareTargets.count > 1 ? "Share \(shareTargets.count) Items" : "Share", systemImage: "arrow.triangle.swap")
@@ -4006,22 +4018,26 @@ struct SharePasswordPromptSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     let targets: [ObjectRecord]
+    var isPublic: Bool = false
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var errorMessage: String? = nil
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "key.fill")
+            Image(systemName: isPublic ? "lock.shield" : "key.fill")
                 .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(XTheme.accent)
+                .foregroundStyle(isPublic ? Color.green : XTheme.accent)
                 .padding(.top, 6)
 
-            Text("Password Protected Share")
+            Text(isPublic ? "Public Password Protected Share" : "Password Protected Share")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text("Set a password to protect this share link. The recipient will need this password to unlock and import the file(s).")
+            Text(isPublic
+                ? "Set a password to protect this public share link. It will not expire, and the recipient will need this password to unlock and import the file(s)."
+                : "Set a password to protect this share link. The recipient will need this password to unlock and import the file(s)."
+            )
                 .font(.system(size: 12))
                 .foregroundStyle(XTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -4089,7 +4105,7 @@ struct SharePasswordPromptSheet: View {
                         .padding(.vertical, 8)
                         .background(
                             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(password.isEmpty ? Color.gray.opacity(0.4) : XTheme.accent)
+                                .fill(password.isEmpty ? Color.gray.opacity(0.4) : (isPublic ? Color.green : XTheme.accent))
                         )
                 }
                 .buttonStyle(.plain)
@@ -4118,7 +4134,7 @@ struct SharePasswordPromptSheet: View {
         }
         let pw = password
         appState.sharePasswordTargets = nil
-        appState.shareFiles(targets, isPublic: false, password: pw)
+        appState.shareFiles(targets, isPublic: isPublic, password: pw)
         dismiss()
     }
 }

@@ -1340,6 +1340,13 @@ actor DatabaseManager {
                 t.tombstoneAt = Date()
                 return t
             }
+            // Preserve pending imports: staged share files awaiting user decision
+            // are local-only and excluded from snapshot payloads, but must never be
+            // erased during snapshot sync/reconciliation.
+            let pendingObjects = (try? ObjectRecord.filter(Column("state") == "pendingImport").fetchAll(db)) ?? []
+            let pendingObjectIDs = Set(pendingObjects.map(\.id))
+            let pendingChunks = (try? ChunkRecord.fetchAll(db).filter { pendingObjectIDs.contains($0.objectID) }) ?? []
+
             _ = try ChunkRecord.deleteAll(db)
             _ = try ObjectRecord.deleteAll(db)
             for object in guardedObjects {
@@ -1347,6 +1354,12 @@ actor DatabaseManager {
             }
             for chunk in validChunks {
                 try chunk.save(db)
+            }
+            for pObj in pendingObjects {
+                try pObj.save(db)
+            }
+            for pChunk in pendingChunks {
+                try pChunk.save(db)
             }
         }
     }

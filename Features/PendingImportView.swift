@@ -32,84 +32,173 @@ struct PendingImportView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header
             HStack {
                 Text("Shared File")
-                    .font(.title2.weight(.semibold))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
                 Spacer()
                 Button {
                     appState.discardPendingImport()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(6)
+                        .background(Color.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .help("Discard — the copy is deleted from your cloud")
             }
-            .padding(20)
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
 
+            // Content
             VStack(spacing: 16) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.quaternary.opacity(0.5))
                     if let thumbImage {
                         Image(nsImage: thumbImage)
                             .resizable()
                             .scaledToFill()
                             .frame(width: 96, height: 96)
                             .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                            )
+                            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
                     } else {
-                        Image(systemName: kindIcon)
-                            .font(.system(size: 44))
-                            .foregroundStyle(.tint)
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                            .frame(width: 96, height: 96)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                            .overlay(
+                                Image(systemName: kindIcon)
+                                    .font(.system(size: 40))
+                                    .foregroundStyle(XTheme.accent)
+                            )
+                            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 3)
                     }
                 }
                 .frame(width: 96, height: 96)
 
                 Text(object.name)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
 
-                HStack(spacing: 12) {
+                HStack(spacing: 14) {
                     Label(sizeText, systemImage: "internaldrive")
+                    Text("•")
+                        .foregroundStyle(.white.opacity(0.25))
                     Label(kindName, systemImage: "tag")
                 }
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.7))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.06))
+                        .overlay(
+                            Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 0.8)
+                        )
+                )
             }
-            .padding(.horizontal, 40)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 36)
+            .padding(.bottom, 12)
 
             Spacer(minLength: 0)
 
+            // Footer / Actions
             HStack(spacing: 12) {
                 Spacer()
-                Button(role: .destructive) {
+
+                Button {
                     appState.discardPendingImport()
                 } label: {
-                    Label("Cancel", systemImage: "trash")
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.8))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.white.opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        )
                 }
+                .buttonStyle(.plain)
                 .help("Deletes the copy from your cloud — it never shows in Cascade")
+
                 Button {
                     isResolving = true
                     appState.confirmPendingImport()
                 } label: {
-                    if isResolving {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Import to My Cloud", systemImage: "arrow.down.circle.fill")
+                    HStack(spacing: 6) {
+                        if isResolving {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text("Import")
+                            .font(.system(size: 13, weight: .semibold))
                     }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(XTheme.accent)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+                    .shadow(color: XTheme.accent.opacity(0.35), radius: 8, x: 0, y: 3)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(isResolving)
             }
-            .padding(20)
+            .padding(.horizontal, 22)
+            .padding(.bottom, 20)
         }
-        .frame(width: 440, height: 320)
-        .background(.regularMaterial)
+        .frame(width: 440, height: 330)
+        .background {
+            ZStack {
+                Color(red: 0.06, green: 0.08, blue: 0.12)
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.08),
+                            Color.white.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .preferredColorScheme(.dark)
         .task {
             if let dir = try? UploadEngine.thumbnailsDirectory() {
                 let candidates = ["\(object.id)-tg.jpg", "\(object.id)-tg.png", "\(object.id).png", "\(object.id)-up.jpg"]
