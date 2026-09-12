@@ -3,6 +3,7 @@ import CryptoKit
 import os
 import UniformTypeIdentifiers
 import QuickLookThumbnailing
+import AVFoundation
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -701,6 +702,78 @@ enum UploadEngine {
                    let tiff = jpgFitted.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                    let png = rep.representation(using: .png, properties: [:]) {
                     try? png.write(to: dir.appendingPathComponent("\(objectID)-up.png"))
+                }
+            }
+        }
+        return uploadPath
+#elseif os(iOS)
+        guard let dir = try? thumbnailsDirectory() else { return nil }
+        var sourceImage: UIImage? = nil
+        let ext = url.pathExtension.lowercased()
+        let imageExts = ["jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp"]
+
+        if imageExts.contains(ext), let img = UIImage(contentsOfFile: url.path) {
+            sourceImage = img
+        } else if isVideo || ["mp4", "mov", "m4v"].contains(ext) {
+            let asset = AVURLAsset(url: url)
+            let gen = AVAssetImageGenerator(asset: asset)
+            gen.appliesPreferredTrackTransform = true
+            gen.maximumSize = CGSize(width: 640, height: 640)
+            if let cg = try? gen.copyCGImage(at: .zero, actualTime: nil) {
+                sourceImage = UIImage(cgImage: cg)
+            }
+        }
+
+        if sourceImage == nil {
+            let request = QLThumbnailGenerator.Request(
+                fileAt: url,
+                size: CGSize(width: 640, height: 640),
+                scale: 1,
+                representationTypes: .thumbnail
+            )
+            if let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
+                sourceImage = UIImage(cgImage: rep.cgImage)
+            }
+        }
+
+        guard let source = sourceImage else { return nil }
+
+        func aspectFit(_ img: UIImage, maxDim: CGFloat) -> UIImage? {
+            let size = img.size
+            guard size.width > 0, size.height > 0 else { return nil }
+            let scale = min(1.0, maxDim / max(size.width, size.height))
+            let targetSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+            guard targetSize.width > 0, targetSize.height > 0 else { return nil }
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            return renderer.image { _ in
+                img.draw(in: CGRect(origin: .zero, size: targetSize))
+            }
+        }
+
+        var uploadPath: String? = nil
+
+        // 1. Grid preview: 640 max dimension
+        if let fitted = aspectFit(source, maxDim: 640) {
+            if let pngData = fitted.pngData() {
+                try? pngData.write(to: dir.appendingPathComponent("\(objectID).png"))
+            }
+
+            // 2. Upload thumbnail: <= 320 max dimension (for Telegram inputThumbnail)
+            if let upFitted = aspectFit(fitted, maxDim: 320) {
+                if let jpgData = upFitted.jpegData(compressionQuality: 0.85) {
+                    let dest = dir.appendingPathComponent("\(objectID)-up.jpg")
+                    try? jpgData.write(to: dest)
+                    if FileManager.default.fileExists(atPath: dest.path) {
+                        uploadPath = dest.path
+                    }
+                }
+                let hasAlpha: Bool = {
+                    guard let cg = source.cgImage else { return false }
+                    let info = cg.alphaInfo
+                    return info == .first || info == .last || info == .premultipliedFirst || info == .premultipliedLast
+                }()
+                if hasAlpha, let pngData = upFitted.pngData() {
+                    try? pngData.write(to: dir.appendingPathComponent("\(objectID)-up.png"))
                 }
             }
         }

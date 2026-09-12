@@ -159,6 +159,15 @@ final class AppState {
     var isImportingShareLink: Bool = false
     var pendingPasswordLink: String? = nil
 
+    // Document Scanner State
+    var showDocumentScanner: Bool = false
+    var scannerTargetFolderID: String? = nil
+
+    func startDocumentScan(in folderID: String? = nil) {
+        self.scannerTargetFolderID = folderID
+        self.showDocumentScanner = true
+    }
+
     var activeOutgoingShares: [ShareRecord] {
         outgoingShares.filter { $0.state == "active" && !$0.isArchived }
     }

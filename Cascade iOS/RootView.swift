@@ -1,6 +1,8 @@
 #if os(iOS)
 import SwiftUI
 import PDFKit
+import VisionKit
+import PhotosUI
 
 // MARK: - Reusable Blue Ellipsis Menu Button
 
@@ -93,6 +95,72 @@ struct PDFKitRepresentedView: UIViewRepresentable {
     func updateUIView(_ pdfView: PDFView, context: Context) {
         if pdfView.document?.documentURL != url {
             pdfView.document = PDFDocument(url: url)
+        }
+    }
+}
+
+// MARK: - VisionKit Document Scanner View
+
+struct DocumentScannerView: UIViewControllerRepresentable {
+    var onScanComplete: (URL) -> Void
+    var onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
+        let scanner = VNDocumentCameraViewController()
+        scanner.delegate = context.coordinator
+        return scanner
+    }
+
+    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
+
+    class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+        let parent: DocumentScannerView
+
+        init(_ parent: DocumentScannerView) {
+            self.parent = parent
+        }
+
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
+            let pdfDocument = PDFDocument()
+            for pageIndex in 0..<scan.pageCount {
+                let image = scan.imageOfPage(at: pageIndex)
+                if let pdfPage = PDFPage(image: image) {
+                    pdfDocument.insert(pdfPage, at: pageIndex)
+                }
+            }
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+            let timestamp = formatter.string(from: Date())
+            let fileName = "Scanned Document \(timestamp).pdf"
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+
+            if pdfDocument.write(to: tempURL) {
+                controller.dismiss(animated: true) {
+                    self.parent.onScanComplete(tempURL)
+                }
+            } else {
+                controller.dismiss(animated: true) {
+                    self.parent.onCancel()
+                }
+            }
+        }
+
+        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
+            controller.dismiss(animated: true) {
+                self.parent.onCancel()
+            }
+        }
+
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
+            print("[DocumentScanner] Scanner failed with error: \(error.localizedDescription)")
+            controller.dismiss(animated: true) {
+                self.parent.onCancel()
+            }
         }
     }
 }
@@ -468,16 +536,31 @@ struct RootView: View {
     private var mainTabs: some View {
         @Bindable var appState = appState
         return TabView(selection: $selectedTab) {
-            BrowseView()
-                .tag(Tab.browse)
+            RecentsView()
+                .tag(Tab.recents)
 
             SharedView()
                 .tag(Tab.shared)
 
-            RecentsView()
-                .tag(Tab.recents)
+            BrowseView()
+                .tag(Tab.browse)
         }
         .toolbar(.hidden, for: .tabBar)
+        .fullScreenCover(isPresented: $appState.showDocumentScanner) {
+            DocumentScannerView(
+                onScanComplete: { pdfURL in
+                    let targetFolderID = appState.scannerTargetFolderID
+                    appState.showDocumentScanner = false
+                    Task {
+                        await appState.uploadBatch(urls: [pdfURL], parentID: targetFolderID)
+                    }
+                },
+                onCancel: {
+                    appState.showDocumentScanner = false
+                }
+            )
+            .ignoresSafeArea()
+        }
         .fullScreenCover(item: $appState.theaterFile) { file in
             NavigationStack {
                 VideoPlaybackView(file: file)
@@ -502,7 +585,7 @@ struct RootView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 if appState.isUploading {
                     HStack(spacing: 12) {
                         ProgressView()
@@ -534,9 +617,7 @@ struct RootView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                FloatingGlassTabBar(selectedTab: $selectedTab)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 2)
+                CustomGlassTabBar(selectedTab: $selectedTab)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.isUploading)
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.currentAudioTrack != nil)
@@ -568,40 +649,52 @@ struct RootView: View {
     }
 }
 
-// MARK: - Floating Frosted Glass Bottom Navigation Bar
+// MARK: - Bespoke Frosted Glass Bottom Navigation Bar
 
-struct FloatingGlassTabBar: View {
+struct CustomGlassTabBar: View {
     @Binding var selectedTab: RootView.Tab
-    @Namespace private var tabNamespace
 
     var body: some View {
-        HStack(spacing: 4) {
-            tabButton(tab: .browse, title: "Browse", icon: "folder.fill")
-            tabButton(tab: .shared, title: "Shared", icon: "person.2.fill")
+        HStack(spacing: 0) {
             tabButton(tab: .recents, title: "Recents", icon: "clock.fill")
+            tabButton(tab: .shared, title: "Shared", icon: "folder.badge.person.crop")
+            tabButton(tab: .browse, title: "Browse", icon: "folder.fill")
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .frame(maxWidth: .infinity)
         .background {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    Capsule()
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.28),
-                                    Color.white.opacity(0.08),
-                                    Color.clear
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 1
-                        )
+            UnevenRoundedRectangle(
+                topLeadingRadius: 24,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 24,
+                style: .continuous
+            )
+            .fill(.ultraThinMaterial)
+            .overlay(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 24,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 24,
+                    style: .continuous
                 )
-                .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 8)
-                .shadow(color: XTheme.accent.opacity(0.12), radius: 20, x: 0, y: 4)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.18),
+                            Color.white.opacity(0.06),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: -4)
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -610,41 +703,20 @@ struct FloatingGlassTabBar: View {
         return Button {
             if selectedTab != tab {
                 UISelectionFeedbackGenerator().selectionChanged()
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.75)) {
+                withAnimation(.easeInOut(duration: 0.18)) {
                     selectedTab = tab
                 }
             }
         } label: {
-            HStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: isSelected ? .bold : .medium))
-                if isSelected {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
+                    .font(.system(size: 21, weight: isSelected ? .bold : .medium))
+                    .frame(height: 24)
+                Text(title)
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
             }
-            .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.55))
-            .padding(.vertical, 8)
-            .padding(.horizontal, isSelected ? 18 : 14)
-            .background {
-                if isSelected {
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    XTheme.accent.opacity(0.92),
-                                    XTheme.accentSecondary.opacity(0.82)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .matchedGeometryEffect(id: "activeTabBadge", in: tabNamespace)
-                        .shadow(color: XTheme.accent.opacity(0.40), radius: 6, x: 0, y: 2)
-                }
-            }
+            .foregroundStyle(isSelected ? XTheme.accent : Color(white: 0.52))
+            .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -665,7 +737,6 @@ enum BrowseDestination: Hashable {
     case videos
     case audio
     case documents
-    case tag(name: String)
 }
 
 // MARK: - Browse View (Cascade Bespoke Dashboard)
@@ -676,190 +747,232 @@ struct BrowseView: View {
     @State private var showSettings = false
     @State private var navPath: [BrowseDestination] = []
 
+    @State private var showPhotosPicker = false
+    @State private var showFileImporter = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+
     var body: some View {
         NavigationStack(path: $navPath) {
-            ZStack {
-                Color(red: 0.05, green: 0.06, blue: 0.08)
-                    .ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: 20) {
-                        profileHeaderCard
-
-                        // Section 1: Locations
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionTitle("LOCATIONS")
-                            VStack(spacing: 0) {
-                                destinationRow(
-                                    destination: .cascadeDrive,
-                                    badge: CategoryBadge(icon: "icloud.fill", gradient: XTheme.driveGradient),
-                                    title: "Cascade Drive",
-                                    count: appState.driveFilesCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .privateVault,
-                                    badge: CategoryBadge(icon: "lock.fill", gradient: XTheme.privateFolderGradient),
-                                    title: "Private Vault",
-                                    count: appState.vaultFilesCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .transfers,
-                                    badge: CategoryBadge(icon: "arrow.up.arrow.down", gradient: XTheme.transfersGradient),
-                                    title: "Transfers",
-                                    count: appState.isUploading ? 1 : 0,
-                                    badgeHighlight: appState.isUploading
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .archive,
-                                    badge: CategoryBadge(icon: "archivebox.fill", gradient: XTheme.archiveGradient),
-                                    title: "Archive",
-                                    count: appState.archiveFilesCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .trash,
-                                    badge: CategoryBadge(icon: "trash.fill", gradient: XTheme.trashGradient),
-                                    title: "Recently Deleted",
-                                    count: appState.trashFilesCount
-                                )
-                            }
-                            .frostedGlassCard(cornerRadius: 16)
-                        }
-
-                        // Section 2: Media Collections
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionTitle("COLLECTIONS")
-                            VStack(spacing: 0) {
-                                destinationRow(
-                                    destination: .photos,
-                                    badge: CategoryBadge(icon: "photo.fill", gradient: XTheme.photosGradient),
-                                    title: "Photos",
-                                    count: appState.photosCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .videos,
-                                    badge: CategoryBadge(icon: "film.fill", gradient: XTheme.videosGradient),
-                                    title: "Videos",
-                                    count: appState.videosCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .audio,
-                                    badge: CategoryBadge(icon: "waveform", gradient: XTheme.audioGradient),
-                                    title: "Audio",
-                                    count: appState.audioCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .documents,
-                                    badge: CategoryBadge(icon: "doc.text.fill", gradient: XTheme.documentsGradient),
-                                    title: "Documents",
-                                    count: appState.documentsCount
-                                )
-                            }
-                            .frostedGlassCard(cornerRadius: 16)
-                        }
-
-                        // Section 3: Quick Access
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionTitle("QUICK ACCESS")
-                            VStack(spacing: 0) {
-                                destinationRow(
-                                    destination: .favorites,
-                                    badge: CategoryBadge(icon: "star.fill", gradient: XTheme.favoritesGradient),
-                                    title: "Favorites",
-                                    count: appState.favoritesFilesCount
-                                )
-                                rowDivider
-                                destinationRow(
-                                    destination: .downloads,
-                                    badge: CategoryBadge(icon: "arrow.down.circle.fill", gradient: XTheme.downloadsGradient),
-                                    title: "Downloads",
-                                    count: 0
-                                )
-                            }
-                            .frostedGlassCard(cornerRadius: 16)
-                        }
-
-                        // Section 4: Tags
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionTitle("TAGS")
-                            VStack(spacing: 0) {
-                                tagCardRow(name: "Red", color: .red)
-                                rowDivider
-                                tagCardRow(name: "Orange", color: .orange)
-                                rowDivider
-                                tagCardRow(name: "Yellow", color: .yellow)
-                                rowDivider
-                                tagCardRow(name: "Green", color: .green)
-                                rowDivider
-                                tagCardRow(name: "Blue", color: .blue)
-                                rowDivider
-                                tagCardRow(name: "Purple", color: .purple)
-                                rowDivider
-                                tagCardRow(name: "Gray", color: .gray)
-                            }
-                            .frostedGlassCard(cornerRadius: 16)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 24)
+            ScrollView {
+                VStack(spacing: 20) {
+                    profileHeaderCard
+                    locationsSection
+                    collectionsSection
+                    quickAccessSection
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 24)
             }
+            .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Browse")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button { } label: {
-                            Label("Scan Documents", systemImage: "document.viewfinder")
-                        }
-                        Divider()
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Label("Settings", systemImage: "gear")
-                        }
+                uploadAndSettingsToolbar
+            }
+            .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotoItems, matching: .any(of: [.images, .videos]))
+            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                if case .success(let urls) = result {
+                    Task {
+                        await appState.uploadBatch(urls: urls, parentID: nil)
                     }
+                }
+            }
+            .onChange(of: selectedPhotoItems) { _, items in
+                guard !items.isEmpty else { return }
+                Task {
+                    await handlePhotosPicked(items)
+                    selectedPhotoItems.removeAll()
                 }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
             .navigationDestination(for: BrowseDestination.self) { destination in
-                switch destination {
-                case .cascadeDrive:
-                    FileBrowserView(folderID: "", folderTitle: "Cascade Drive")
-                case .privateVault:
-                    PrivateVaultView()
-                case .transfers:
-                    TransfersView()
-                case .archive:
-                    ArchiveView()
-                case .trash:
-                    TrashView()
-                case .favorites:
-                    FavoritesView()
-                case .downloads:
-                    FileBrowserView(folderID: "", folderTitle: "Downloads")
-                case .photos:
-                    PhotosView()
-                case .videos:
-                    VideosView()
-                case .audio:
-                    AudioView()
-                case .documents:
-                    DocumentsView()
-                case .tag(let name):
-                    TagFilterView(tag: name, color: tagColor(for: name))
+                destinationView(for: destination)
+            }
+        }
+    }
+
+    // MARK: - Subsections
+
+    private var locationsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("LOCATIONS")
+            VStack(spacing: 0) {
+                destinationRow(
+                    destination: .cascadeDrive,
+                    badge: CategoryBadge(icon: "icloud.fill", gradient: XTheme.driveGradient),
+                    title: "Cascade Drive",
+                    count: appState.driveFilesCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .privateVault,
+                    badge: CategoryBadge(icon: "lock.fill", gradient: XTheme.privateFolderGradient),
+                    title: "Private Vault",
+                    count: appState.vaultFilesCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .transfers,
+                    badge: CategoryBadge(icon: "arrow.up.arrow.down", gradient: XTheme.transfersGradient),
+                    title: "Transfers",
+                    count: appState.isUploading ? 1 : 0,
+                    badgeHighlight: appState.isUploading
+                )
+                rowDivider
+                destinationRow(
+                    destination: .archive,
+                    badge: CategoryBadge(icon: "archivebox.fill", gradient: XTheme.archiveGradient),
+                    title: "Archive",
+                    count: appState.archiveFilesCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .trash,
+                    badge: CategoryBadge(icon: "trash.fill", gradient: XTheme.trashGradient),
+                    title: "Recently Deleted",
+                    count: appState.trashFilesCount
+                )
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var collectionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("COLLECTIONS")
+            VStack(spacing: 0) {
+                destinationRow(
+                    destination: .photos,
+                    badge: CategoryBadge(icon: "photo.fill", gradient: XTheme.photosGradient),
+                    title: "Photos",
+                    count: appState.photosCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .videos,
+                    badge: CategoryBadge(icon: "film.fill", gradient: XTheme.videosGradient),
+                    title: "Videos",
+                    count: appState.videosCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .audio,
+                    badge: CategoryBadge(icon: "waveform", gradient: XTheme.audioGradient),
+                    title: "Audio",
+                    count: appState.audioCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .documents,
+                    badge: CategoryBadge(icon: "doc.text.fill", gradient: XTheme.documentsGradient),
+                    title: "Documents",
+                    count: appState.documentsCount
+                )
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var quickAccessSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("QUICK ACCESS")
+            VStack(spacing: 0) {
+                destinationRow(
+                    destination: .favorites,
+                    badge: CategoryBadge(icon: "star.fill", gradient: XTheme.favoritesGradient),
+                    title: "Favorites",
+                    count: appState.favoritesFilesCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .downloads,
+                    badge: CategoryBadge(icon: "arrow.down.circle.fill", gradient: XTheme.downloadsGradient),
+                    title: "Downloads",
+                    count: 0
+                )
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var uploadAndSettingsToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            HStack(spacing: 12) {
+                Menu {
+                    Button {
+                        showPhotosPicker = true
+                    } label: {
+                        Label("Upload Photos & Videos", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("Upload Files", systemImage: "arrow.up.doc")
+                    }
+                    Button {
+                        appState.startDocumentScan(in: nil)
+                    } label: {
+                        Label("Scan Documents", systemImage: "document.viewfinder")
+                    }
+                    Divider()
+                    Button {
+                        appState.startCreatingFolder(in: "")
+                    } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(XTheme.accent)
+                }
+
+                BlueEllipsisMenu {
+                    Button {
+                        appState.startDocumentScan(in: nil)
+                    } label: {
+                        Label("Scan Documents", systemImage: "document.viewfinder")
+                    }
+                    Divider()
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gear")
+                    }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(for destination: BrowseDestination) -> some View {
+        switch destination {
+        case .cascadeDrive:
+            FileBrowserView(folderID: "", folderTitle: "Cascade Drive")
+        case .privateVault:
+            PrivateVaultView()
+        case .transfers:
+            TransfersView()
+        case .archive:
+            ArchiveView()
+        case .trash:
+            TrashView()
+        case .favorites:
+            FavoritesView()
+        case .downloads:
+            FileBrowserView(folderID: "", folderTitle: "Downloads")
+        case .photos:
+            PhotosView()
+        case .videos:
+            VideosView()
+        case .audio:
+            AudioView()
+        case .documents:
+            DocumentsView()
         }
     }
 
@@ -884,27 +997,18 @@ struct BrowseView: View {
                                 .foregroundStyle(.white)
                         }
                 }
-                Circle()
-                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1.5)
-                    .frame(width: 44, height: 44)
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(displayName)
+                Text(accountDisplayName)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(appState.isVaultConnected ? Color.green : Color.orange)
-                        .frame(width: 7, height: 7)
-
-                    Text(vaultStatusSubtitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.60))
-                        .lineLimit(1)
-                }
+                Text(statusSubtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -914,39 +1018,62 @@ struct BrowseView: View {
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .frame(width: 36, height: 36)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .padding(8)
                     .background(Color.white.opacity(0.08), in: Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
             }
             .buttonStyle(.plain)
         }
-        .padding(14)
-        .frostedGlassCard(cornerRadius: 18)
-    }
-
-    private var displayName: String {
-        guard let id = appState.identity else { return "Cascade Cloud" }
-        let full = "\(id.firstName) \(id.lastName)".trimmingCharacters(in: .whitespaces)
-        if !full.isEmpty { return full }
-        if !id.username.isEmpty { return "@\(id.username)" }
-        return "Cascade Cloud"
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frostedGlassCard(cornerRadius: 16)
     }
 
     private var initials: String {
-        if let id = appState.identity {
-            let first = id.firstName.prefix(1)
-            let last = id.lastName.prefix(1)
-            let combined = "\(first)\(last)".uppercased()
-            if !combined.isEmpty { return combined }
+        let name = accountDisplayName
+        let parts = name.split(separator: " ")
+        if parts.count >= 2 {
+            return "\(parts[0].prefix(1))\(parts[1].prefix(1))".uppercased()
         }
-        return "CC"
+        return String(name.prefix(2)).uppercased()
     }
 
-    private var vaultStatusSubtitle: String {
+    private var accountDisplayName: String {
+        if let id = appState.identity {
+            let full = "\(id.firstName) \(id.lastName)".trimmingCharacters(in: .whitespaces)
+            if !full.isEmpty { return full }
+            if !id.username.isEmpty { return "@\(id.username)" }
+        }
+        return "Cascade Vault"
+    }
+
+    private var statusSubtitle: String {
+        let count = appState.allFiles.filter { !$0.trashed && !$0.isArchived }.count
         let used = XTheme.formatBytes(appState.totalStorageBytes)
-        let count = appState.allFiles.filter { !$0.trashed }.count
         return "\(used) · \(count) \(count == 1 ? "item" : "items")"
+    }
+
+    private func handlePhotosPicked(_ items: [PhotosPickerItem]) async {
+        var tempURLs: [URL] = []
+        let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
+
+        for (idx, item) in items.enumerated() {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                let name = "Photo_\(Int(Date().timeIntervalSince1970))_\(idx).\(ext)"
+                let targetURL = tempDir.appendingPathComponent(name)
+                do {
+                    try data.write(to: targetURL)
+                    tempURLs.append(targetURL)
+                } catch {
+                    print("[iOS] Failed to save picked photo to temp: \(error)")
+                }
+            }
+        }
+
+        if !tempURLs.isEmpty {
+            await appState.uploadBatch(urls: tempURLs, parentID: nil)
+        }
     }
 
     // MARK: - Row Helpers
@@ -1001,80 +1128,6 @@ struct BrowseView: View {
             .tracking(0.6)
             .padding(.horizontal, 6)
     }
-
-    private func tagCardRow(name: String, color: Color) -> some View {
-        NavigationLink(value: BrowseDestination.tag(name: name)) {
-            HStack(spacing: 14) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 14, height: 14)
-                    .frame(width: 30, height: 30)
-
-                Text(name)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.25))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func tagColor(for name: String) -> Color {
-        switch name.lowercased() {
-        case "red": return .red
-        case "orange": return .orange
-        case "yellow": return .yellow
-        case "green": return .green
-        case "blue": return .blue
-        case "purple": return .purple
-        default: return .gray
-        }
-    }
-}
-
-// MARK: - Tag Filter View
-
-struct TagFilterView: View {
-    let tag: String
-    let color: Color
-    @State private var searchText = ""
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "circle.circle")
-                .font(.system(size: 64))
-                .foregroundStyle(color)
-            Text("No Tagged Files")
-                .font(.title2.bold())
-            Text("Files tagged as \"\(tag)\" will appear here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            Spacer()
-        }
-        .navigationTitle(tag)
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                BlueEllipsisMenu {
-                    Button { } label: {
-                        Label("Select", systemImage: "checkmark.circle")
-                    }
-                }
-            }
-        }
-    }
 }
 
 // MARK: - Recents View
@@ -1114,8 +1167,9 @@ struct RecentsView: View {
                     listView
                 }
             }
+            .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Recents")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 if isSelecting {
@@ -1143,7 +1197,9 @@ struct RecentsView: View {
                             } label: {
                                 Label("Select", systemImage: "checkmark.circle")
                             }
-                            Button { } label: {
+                            Button {
+                                appState.startDocumentScan(in: nil)
+                            } label: {
                                 Label("Scan Documents", systemImage: "document.viewfinder")
                             }
 
@@ -1443,8 +1499,9 @@ struct SharedView: View {
                     listView
                 }
             }
+            .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Shared")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

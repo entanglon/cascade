@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 243 — iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 244 — iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4406,3 +4406,14 @@ Open levers (not scheduled):
      - Redesigned `BrowseView` into a bespoke dark frosted glass dashboard with top account profile card (avatar, Telegram identity, storage usage), squircle category badges, and live item counts on every category.
      - Replaced generic `.blue` across all iOS views, empty states, and action menus with `XTheme.accent`.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched cleanly on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (68 tests passed).
+ 244. **iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action (2026-09-12 afternoon — COMMITTED)**
+     (`Cascade iOS/RootView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/CascadeApp.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`, `Engine/UploadEngine.swift`)
+     - Restored tab order: Recents (left), Shared (middle), Browse (right).
+     - Bottom nav bar: Full-width custom frosted glass (`.ultraThinMaterial`) with `UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)`, lower corners flat hugging safe area; removed stock UIKit tab chrome.
+     - Browse page: Restructured sections to match macOS sidebar (Locations, Collections, Quick Access); Tags section and `TagFilterView` completely removed; added `+` upload menu in navigation bar.
+     - App icon: Replaced icon with 1024×1024 opaque RGB master downsampled from `Public/dark.png`, eliminating double-squircle and black border on iOS Springboard.
+     - Document scanner: Built `DocumentScannerView` (`VNDocumentCameraViewController`), compiles scanned pages to PDF and uploads directly to Cascade; wired across all menus.
+     - Large titles & smooth scroll: Configured transparent `scrollEdgeAppearance` and frosted `standardAppearance`/`compactAppearance` with `.navigationBarTitleDisplayMode(.large)` on Recents, Shared, Browse, and FileBrowser views.
+     - iOS thumbnails: Implemented iOS branch of `generateThumbnails(for:objectID:isVideo:)` in `Engine/UploadEngine.swift` (640px preview, 320px `-up.jpg` upload thumbnail).
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (107 tests passed).
+

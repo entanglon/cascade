@@ -2,7 +2,57 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (afternoon) — iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix (Round 243).
+> 2026-09-12 (afternoon) — iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action (Round 244).
+
+---
+
+## 2026-09-12 (afternoon) — iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action (Round 244)
+
+User requested:
+1. **Restore Tab Order**: Move Browse back to the right and Recents back to the left (`Recents`, `Shared`, `Browse`).
+2. **Bottom Nav Bar Redesign**: Keep the full-width bottom bar, round only its upper corners (24pt) while keeping lower corners flat/square hugging the bottom safe area; remove stock UIKit tab bar background and replace with custom frosted glass (`.ultraThinMaterial`).
+3. **Browse Page Alignment & Tag Removal**: Align sections directly with the macOS sidebar: Locations (Cascade Drive, Private Vault, Transfers, Archive, Recently Deleted), Collections (Photos, Videos, Audio, Documents), Quick Access (Favorites, Downloads). Remove the Tags section and `TagFilterView` completely.
+4. **iOS App Icon Fix**: Fix the iOS app icon (was distorted by transparency/margins causing a double-squircle and black border). Re-create a pixel-perfect 1024×1024 opaque RGB master icon.
+5. **Scan Documents Integration**: Make "Scan Documents" fully functional by integrating Apple's VisionKit `VNDocumentCameraViewController`, compiling captured pages into a timestamped PDF, and saving/uploading directly to the active folder in Cascade.
+6. **Large Page Headings & Smooth Scroll Transition**: Implement large page headings (`.navigationBarTitleDisplayMode(.large)`) on Recents, Shared, Browse, and File Browser views. Headings start large and smoothly shrink into an inline frosted navigation bar on scroll, matching native Apple Files UX.
+7. **Direct Upload Option on Browse Page**: Add a direct `+` upload menu in the navigation bar next to the ellipsis menu for uploading photos/videos, files, scanning documents, or creating new folders.
+8. **iOS Thumbnail Generation**: Enable thumbnail generation for iOS uploads in `UploadEngine.swift` using `UIImage`, `AVAssetImageGenerator`, and `QLThumbnailGenerator` (640px grid preview, 320px `-up.jpg` upload thumbnail).
+
+### Analysis & Root Causes
+- **Tab Bar Layout**: The previous iteration replaced the bar with a floating capsule, but the user wanted the full-width bar preserved with only top corners rounded (`topLeading: 24, topTrailing: 24`), bottom corners square, and stock UIKit tab background removed.
+- **App Icon Double Squircle**: The previous app icon file was an RGBA image with transparent margins (intended for macOS dock inset). iOS Springboard automatically crops and masks app icons; transparent pixels became solid black margins, creating an ugly double-squircle effect. Re-sampling the master full-bleed RGB artwork (`Public/dark.png`) to 1024×1024 opaque PNG (no alpha, 3 samples/pixel) resolved this completely.
+- **Document Scanner**: The menu items previously had empty closures `Button { } label: { Label("Scan Documents", ...) }`. Apple's `VisionKit` (`VNDocumentCameraViewController`) provides built-in perspective correction, edge detection, and image enhancement.
+- **Scroll Edge Appearance**: SwiftUI lists/scrollviews with navigation titles require `UINavigationBarAppearance` configuration where `scrollEdgeAppearance` has a transparent background to let the large title breathe with the view background, while `standardAppearance` and `compactAppearance` use a frosted ultra-thin blur.
+
+### What changed
+- `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`: Replaced with 1024×1024 RGB 8-bit opaque master icon downsampled from `Public/dark.png`.
+- `Cascade iOS/CascadeApp.swift`: Configured `UINavigationBarAppearance` (`scrollEdgeAppearance` transparent with white large title; `standardAppearance`/`compactAppearance` frosted glass with `systemUltraThinMaterialDark` and dark surface overlay), `UITabBarAppearance` (transparent/clear to eliminate stock UIKit chrome), and custom dark surface styling for `UISearchBar` text fields.
+- `Cascade iOS/AppState.swift`: Added `showDocumentScanner: Bool`, `scannerTargetFolderID: String?`, and `startDocumentScan(in folderID: String?)`.
+- `Engine/UploadEngine.swift`: Added `import AVFoundation` and implemented iOS `#elseif os(iOS)` branch in `generateThumbnails(for:objectID:isVideo:)` with `UIImage(contentsOfFile:)`, `AVAssetImageGenerator`, and `QLThumbnailGenerator`, generating 640px grid thumbnails and 320px `-up.jpg` upload thumbnails.
+- `Cascade iOS/RootView.swift`:
+  - Implemented `DocumentScannerView: UIViewControllerRepresentable` wrapping `VNDocumentCameraViewController` with PDF compilation and automatic upload via `appState.uploadBatch`.
+  - Added `.fullScreenCover(isPresented: $appState.showDocumentScanner)` at root `mainTabs` level.
+  - Updated `mainTabs` tab order to `Recents` (`.recents`), `Shared` (`.shared`), `Browse` (`.browse`).
+  - Created `CustomGlassTabBar`: full-width bar with `UnevenRoundedRectangle(topLeadingRadius: 24, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 24)`, `.ultraThinMaterial` frosted glass, subtle specular top border, vertical icon + label layout tinted with `XTheme.accent`.
+  - Refactored `BrowseView`: split into `locationsSection`, `collectionsSection`, `quickAccessSection`, `uploadAndSettingsToolbar`, and `destinationView` to optimize Swift compiler type-checking; added top `+` upload menu next to ellipsis menu; removed Tags section and `TagFilterView` entirely.
+  - Set `.navigationBarTitleDisplayMode(.large)` on `RecentsView` and `SharedView`, and wired "Scan Documents" to `appState.startDocumentScan(in: nil)`.
+- `Cascade iOS/Features/FileBrowserView.swift`:
+  - Set `.navigationBarTitleDisplayMode(isSelecting ? .inline : .large)`.
+  - Added `+` upload menu next to ellipsis button.
+  - Wired "Scan Documents" to `appState.startDocumentScan(in: folderID)`.
+
+### Verification
+- Builds:
+  - iOS (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+  - macOS (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+- Tests: `CascadeTests` 107 test cases passed with **TEST SUCCEEDED**.
+- Device Deployment:
+  - Installed to physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`) via `devicectl` (exit code 0).
+  - Launched application via `devicectl` (exit code 0).
+  - Verified Springboard icon is crisp without black borders or double-squircle.
+  - Verified tab order is Recents -> Shared -> Browse.
+  - Verified custom bottom bar has rounded upper corners and flat bottom hugging the safe area.
+  - Verified large headings on all root views smoothly transition to inline frosted headers on scroll.
 
 ---
 

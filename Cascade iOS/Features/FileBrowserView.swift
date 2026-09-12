@@ -50,7 +50,7 @@ struct FileBrowserView: View {
             }
         }
         .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : folderTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
         .navigationBarBackButtonHidden(isSelecting)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
@@ -86,56 +86,75 @@ struct FileBrowserView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Section {
-                            Menu {
-                                Button {
-                                    showFileImporter = true
-                                } label: {
-                                    Label("Choose Files", systemImage: "folder")
-                                }
+                    HStack(spacing: 12) {
+                        Menu {
+                            Button {
+                                showPhotosPicker = true
+                            } label: {
+                                Label("Upload Photos & Videos", systemImage: "photo.on.rectangle")
+                            }
 
-                                Button {
-                                    showPhotosPicker = true
-                                } label: {
-                                    Label("Photo Library", systemImage: "photo.on.rectangle")
-                                }
-
-                                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                                    Button {
-                                        showCameraPicker = true
-                                    } label: {
-                                        Label("Take Photo or Video", systemImage: "camera")
-                                    }
-                                }
+                            Button {
+                                showFileImporter = true
                             } label: {
                                 Label("Upload Files", systemImage: "arrow.up.doc")
                             }
 
-                            Button {
-                                appState.showImportShareSheet = true
-                            } label: {
-                                Label("Add from Share Link", systemImage: "link.badge.plus")
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                Button {
+                                    showCameraPicker = true
+                                } label: {
+                                    Label("Take Photo or Video", systemImage: "camera")
+                                }
                             }
+
+                            Button {
+                                appState.startDocumentScan(in: folderID.isEmpty ? nil : folderID)
+                            } label: {
+                                Label("Scan Documents", systemImage: "document.viewfinder")
+                            }
+
+                            Divider()
 
                             Button {
                                 appState.startCreatingFolder(in: folderID)
                             } label: {
                                 Label("New Folder", systemImage: "folder.badge.plus")
                             }
-
-                            Button { } label: {
-                                Label("Scan Documents", systemImage: "document.viewfinder")
-                            }
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(XTheme.accent)
                         }
 
-                        Section {
-                            Button {
-                                isSelecting = true
-                            } label: {
-                                Label("Select", systemImage: "checkmark.circle")
+                        Menu {
+                            Section {
+                                Button {
+                                    appState.showImportShareSheet = true
+                                } label: {
+                                    Label("Add from Share Link", systemImage: "link.badge.plus")
+                                }
+
+                                Button {
+                                    appState.startCreatingFolder(in: folderID)
+                                } label: {
+                                    Label("New Folder", systemImage: "folder.badge.plus")
+                                }
+
+                                Button {
+                                    appState.startDocumentScan(in: folderID.isEmpty ? nil : folderID)
+                                } label: {
+                                    Label("Scan Documents", systemImage: "document.viewfinder")
+                                }
                             }
-                        }
+
+                            Section {
+                                Button {
+                                    isSelecting = true
+                                } label: {
+                                    Label("Select", systemImage: "checkmark.circle")
+                                }
+                            }
 
                         Section {
                             Button {
@@ -187,6 +206,7 @@ struct FileBrowserView: View {
                     }
                 }
             }
+        }
         }
         .fileImporter(
             isPresented: $showFileImporter,
