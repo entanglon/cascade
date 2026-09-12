@@ -60,15 +60,11 @@ struct PendingImportView: View {
                     if let thumbImage {
                         Image(nsImage: thumbImage)
                             .resizable()
-                            .scaledToFill()
-                            .frame(width: 96, height: 96)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                            )
-                            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: 96, maxHeight: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
                     } else {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .fill(Color.white.opacity(0.06))

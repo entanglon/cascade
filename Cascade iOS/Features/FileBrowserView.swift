@@ -347,6 +347,11 @@ struct FileBrowserView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredFiles.count)
+                    .padding(.bottom, 4)
             }
             .frame(maxWidth: .infinity)
             .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
@@ -411,6 +416,10 @@ struct FileBrowserView: View {
                     }
                 }
             }
+
+            PageItemCountFooter(count: filteredFiles.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }

@@ -20,12 +20,6 @@ struct AboutView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 96, height: 96)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-                    )
             }
 
             VStack(spacing: 4) {

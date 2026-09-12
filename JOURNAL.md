@@ -2,7 +2,65 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (night) — macOS Direct Cmd+V Import, Preserved Pending Imports Across Snapshot Sync, Liquid Glass Pending Import UI, Public Password Shares, iOS Grid Alignment, Shared Thumbnails & Docked Upload Progress (Round 249).
+> 2026-09-12 (night) — Item Count Footers Clean-Up (No "Synced with Cascade"), Restored All Files Footer, Removed Browse Badge Counts, Settings About Branding & App Icon, iOS Shared Cancel All & Archived, Uncropped Import Thumbnails, Post-Import Reveal/Pulse to All Files, iOS Download (Save to Files) Action (Round 250).
+
+---
+
+## 2026-09-12 (night) — Item Count Footers Clean-Up (No "Synced with Cascade"), Restored All Files Footer, Removed Browse Badge Counts, Settings About Branding & App Icon, iOS Shared Cancel All & Archived, Uncropped Import Thumbnails, Post-Import Reveal/Pulse to All Files, iOS Download (Save to Files) Action (Round 250)
+
+User requested:
+1. **Item Count Footers without "Synced with Cascade"**:
+   - Restore the item count on the bottom of All Files (and subfolders).
+   - On Photos, Videos, Documents, Library, Favorites, Archive, Trash, and Private Vault: remove the subtitle "Synced with Cascade" because everything in Cascade is automatically synced; show only the clean item count (e.g. "16 items").
+   - Pages that do not store files (Recents, Shared, Transfers) must NOT show item count footers.
+2. **Remove Badge Counts from iOS Browse Page**:
+   - In `BrowseView` on iOS, remove the trailing badge count numbers next to page names (`destinationRow` and `actionRow`).
+3. **Settings About Branding & App Icon**:
+   - In Settings -> About on iOS and macOS, remove "telegram powered cloud drive" copy and replace with clean branding ("Private Cloud Drive").
+   - Fix the app icon displayed in the About section on both iOS and macOS to ensure the official high-resolution icon is properly rendered without double borders or flat SVG tracings.
+4. **"Cancel All" & "Archived" Options in iOS Shared View**:
+   - In `SharedView` on iOS, add "Cancel All" (with confirmation alert) and "Archived" toggle / section matching macOS `ShareManagerView`.
+5. **Uncropped Thumbnails in Shared File Import UI (Mac & iOS)**:
+   - In `PendingImportView.swift` (macOS) and `ImportShareLinkSheet` (iOS), fix cropped square thumbnails by using aspect-fit within an invisible bounding frame, matching All Files.
+6. **Post-Import Feedback & Navigation to All Files**:
+   - When importing a file (or files), show a prompt saying the file is imported and to find it in All Files (not Transfers).
+   - Automatically navigate to All Files (or destination folder) and trigger the pulse highlight ring on the imported item(s) using `revealObject`.
+7. **"Download" Context Action (Save to Files) on iOS**:
+   - Replace "Keep Downloaded" with "Download" in context menus (`FileRow`, `FileGridItem`, and `FilePreviewView`).
+   - Tapping "Download" downloads/decrypts the file to a clean file with its user-facing `file.name` and presents the iOS system share sheet (`UIActivityViewController`), allowing the user to "Save to Files".
+
+### Implementation & Verification
+- **PageItemCountFooter Clean-Up & All Files Restoration**:
+  - In `Cascade iOS/RootView.swift` (`PageItemCountFooter`): removed `Text("Synced with Cascade")` and set default `showSyncStatus = false`, leaving pure clean count labels (`"\(count) \(noun)s"`).
+  - In `Cascade iOS/Features/FileBrowserView.swift`: restored `PageItemCountFooter(count: filteredFiles.count)` at the bottom of both `gridView` and `listView`. Covers All Files, subfolders, and Private Vault.
+  - Verified Recents, Shared, and Transfers have no item count footers.
+- **Removed Count Badges in Browse**:
+  - In `Cascade iOS/RootView.swift`: removed trailing badge pills (`Text("\(count)")...`) from `destinationRow` and `actionRow`.
+- **Settings About Branding & High-Res App Icons**:
+  - In `Cascade iOS/Assets.xcassets`: created `AppIconImage.imageset` containing the official 1024×1024 master icon PNG.
+  - In `Cascade iOS/Features/SettingsView.swift`: replaced `Image("CascadeLogo")` with `Image("AppIconImage")` (48×48, 11pt continuous squircle, soft shadow) and replaced `"Telegram-powered cloud drive"` with `"Private Cloud Drive"`.
+  - In `Cascade iOS/RootView.swift`: updated `loadingView` and `LoginGateView` to use `AppIconImage` with matching squircle curvature.
+  - In `Features/SettingsView.swift` (macOS): changed `versionString` fallback from `"Telegram-powered cloud drive"` to `"Private Cloud Drive"`.
+  - In `Features/AboutView.swift` (macOS): removed redundant `RoundedRectangle(cornerRadius: 22)` clipping and stroke border that created double outlines around the squircle icon.
+- **iOS Shared Cancel All & Archived Shares**:
+  - In `Cascade iOS/AppState.swift`: implemented `cancelAllShares()`, `archiveShare(_:)`, and `unarchiveShare(_:)`.
+  - In `Cascade iOS/RootView.swift` (`SharedView`): added `showArchived` state, dynamic `activeShares` resolving between `activeOutgoingShares` and `archivedOutgoingShares`, "Archived Shares" title with leading back button, leading "Cancel All" toolbar button, "Cancel All Active Shares?" alert, and ellipsis menu toggle and cancel actions.
+  - In `ShareCard` and `ShareListRow`: added "Archive" / "Unarchive" context menu actions.
+- **Uncropped Thumbnails in Shared File Import UI**:
+  - In `Features/PendingImportView.swift` (macOS): updated thumbnail to `.aspectRatio(contentMode: .fit)` in `frame(maxWidth: 96, maxHeight: 96)` with 8pt continuous corner radius and soft shadow inside an invisible 96×96 box.
+  - In `Cascade iOS/RootView.swift` (`ImportShareLinkSheet`): updated thumbnail to `.aspectRatio(contentMode: .fit)` in `frame(maxWidth: 52, maxHeight: 52)` with 8pt continuous corner radius inside an invisible 52×52 box.
+- **Post-Import Reveal & Feedback to All Files**:
+  - In `App/AppState.swift` (macOS): updated import notification messages to `"Shared file imported — find it in All Files."` (and group `"find them in All Files."`). Added `revealObject` calls in both `confirmPendingImport()` and `importShareLink()` so the imported file is highlighted in All Files with the pulse ring.
+  - In `Cascade iOS/AppState.swift`: connected `selectedTab` to `RootView.Tab` so `revealObject` sets `selectedTab = .browse`. Updated notifications to `"Imported \"\(finalName)\" — find it in All Files"` and `"Shared file imported — find it in All Files"`.
+- **iOS Download (Save to Files) Action**:
+  - In `Cascade iOS/AppState.swift`: added `exportFileForSaving(_ file: FileItem) async throws -> URL` (exports to `temporaryDirectory/CascadeExport/[file.name]` with true user-facing filename) and `downloadAndSaveToFiles(_ file: FileItem)` (triggers `shareActivityItems = [url]`).
+  - In `Cascade iOS/RootView.swift`: added "Download" (`arrow.down.circle`) to `FileRow` and `FileGridItem` context menus, and replaced "Keep Downloaded" in `FilePreviewView` with "Download".
+- **Verification**:
+  - macOS Build (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+  - macOS Test Suite: 107 tests passed with **TEST SUCCEEDED**.
+  - iOS Build (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+  - Installed and launched on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+  - Relaunched macOS Debug app.
 
 ---
 

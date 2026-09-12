@@ -198,12 +198,14 @@ final class AppState {
     }
 
     // Navigation & Reveal State
+    var selectedTab: RootView.Tab = .browse
     var browseNavPath: [BrowseDestination] = [.allFiles]
     var revealObjectID: String? = nil
     var revealToken: Int = 0
 
     @MainActor
     func revealObject(_ object: ObjectRecord) {
+        selectedTab = .browse
         let parentID = object.parentID ?? ""
         currentFolderID = parentID
         if parentID.isEmpty {
@@ -1254,6 +1256,27 @@ final class AppState {
         }
     }
 
+    func cancelAllShares() {
+        Task {
+            await ShareEngine.cancelAllShares()
+            await loadShares()
+        }
+    }
+
+    func archiveShare(_ share: ShareRecord) {
+        Task {
+            try? await DatabaseManager.shared.archiveShare(id: share.id)
+            await loadShares()
+        }
+    }
+
+    func unarchiveShare(_ share: ShareRecord) {
+        Task {
+            try? await DatabaseManager.shared.unarchiveShare(id: share.id)
+            await loadShares()
+        }
+    }
+
     func shareFile(_ file: FileItem, isPublic: Bool = false, password: String? = nil) async throws -> String {
         guard let obj = try await DatabaseManager.shared.object(file.id) else {
             throw ShareEngine.ShareError.notShareable
@@ -1294,7 +1317,7 @@ final class AppState {
                 await MainActor.run {
                     self.pendingPasswordLink = nil
                     self.showImportShareSheet = false
-                    self.currentNotification = "Imported \"\(finalName)\""
+                    self.currentNotification = "Imported \"\(finalName)\" — find it in All Files"
                     if let importedRecord {
                         self.revealObject(importedRecord)
                     }
@@ -1306,7 +1329,7 @@ final class AppState {
                 await MainActor.run {
                     self.pendingPasswordLink = nil
                     self.showImportShareSheet = false
-                    self.currentNotification = "Shared file imported successfully"
+                    self.currentNotification = "Shared file imported — find it in All Files"
                 }
             case .selfOpen(let objectID):
                 await loadAllFiles()
@@ -1412,6 +1435,41 @@ final class AppState {
     func downloadFile(_ file: FileItem, progress: @escaping @Sendable (String, Double) -> Void) async throws -> URL? {
         guard let obj = try await DatabaseManager.shared.object(file.id) else { return nil }
         return try await DownloadEngine.download(object: obj, progress: progress)
+    }
+
+    func exportFileForSaving(_ file: FileItem) async throws -> URL {
+        let cached: URL
+        if isCached(file) {
+            cached = cachedURL(for: file)
+        } else {
+            guard let obj = try await DatabaseManager.shared.object(file.id) else {
+                throw NSError(domain: "Cascade", code: 404, userInfo: [NSLocalizedDescriptionKey: "File not found"])
+            }
+            cached = try await DownloadEngine.download(object: obj) { _, _ in }
+        }
+
+        let exportDir = FileManager.default.temporaryDirectory.appendingPathComponent("CascadeExport", isDirectory: true)
+        try? FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
+        let targetURL = exportDir.appendingPathComponent(file.name)
+        try? FileManager.default.removeItem(at: targetURL)
+        try FileManager.default.copyItem(at: cached, to: targetURL)
+        return targetURL
+    }
+
+    func downloadAndSaveToFiles(_ file: FileItem) {
+        guard !file.isFolder else { return }
+        Task {
+            do {
+                let url = try await exportFileForSaving(file)
+                await MainActor.run {
+                    self.shareActivityItems = [url]
+                }
+            } catch {
+                await MainActor.run {
+                    self.currentNotification = "Download failed: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     func deleteFilePermanently(_ file: FileItem) {

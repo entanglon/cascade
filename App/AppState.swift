@@ -1734,9 +1734,12 @@ final class AppState {
                         state: .complete
                     )
                     alertMessage = isGroup
-                        ? "Shared files imported — find them in Transfers."
-                        : "Shared file imported — find it in Transfers."
+                        ? "Shared files imported — find them in All Files."
+                        : "Shared file imported — find it in All Files."
                     await self.loadFiles()
+                    if let target = freshObjects ?? self.files.first(where: { fresh.map(\.objectID).contains($0.id) }) {
+                        self.revealObject(target)
+                    }
                 case .selfOpen(let objectID):
                     print("Cascade URL: self-open, revealing object \(objectID)")
                     self.passwordUnlockLink = nil
@@ -1783,18 +1786,23 @@ final class AppState {
         Task {
             do {
                 let name = try await ShareEngine.confirmImport(objectID: pendingImportID)
+                let importedID = pendingImportID
                 self.pendingImportID = nil
                 self.pendingImportObject = nil
                 TransferCenter.shared.begin(
                     .inbound,
-                    objectID: pendingImportID,
+                    objectID: importedID,
                     name: name,
                     statusText: "Imported",
                     state: .complete
                 )
-                alertMessage = "Shared file imported — find it in Transfers."
+                alertMessage = "Shared file imported — find it in All Files."
                 await self.loadFiles()
                 await self.loadShares()
+                let fetched = try? await DatabaseManager.shared.object(importedID)
+                if let obj = self.files.first(where: { $0.id == importedID }) ?? fetched {
+                    self.revealObject(obj)
+                }
             } catch {
                 self.pendingImportID = nil
                 self.pendingImportObject = nil

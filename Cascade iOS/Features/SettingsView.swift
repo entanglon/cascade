@@ -460,12 +460,12 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("ABOUT")
             HStack(spacing: 14) {
-                Image("CascadeLogo")
+                Image("AppIconImage")
                     .resizable()
-                    .renderingMode(.original)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 44, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Cascade")
@@ -474,7 +474,7 @@ struct SettingsView: View {
                     Text("Version 1.0 (iOS)")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.6))
-                    Text("Telegram-powered cloud drive")
+                    Text("Private Cloud Drive")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.45))
                 }

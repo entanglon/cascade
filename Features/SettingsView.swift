@@ -878,7 +878,7 @@ struct SettingsView: View {
 
     private var versionString: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        return v.isEmpty ? "Telegram-powered cloud drive" : "Version \(v)"
+        return v.isEmpty ? "Private Cloud Drive" : "Version \(v)"
     }
 
     private var displayName: String {

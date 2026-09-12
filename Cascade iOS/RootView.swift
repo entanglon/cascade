@@ -160,21 +160,14 @@ struct ZoomableImageView: UIViewRepresentable {
 struct PageItemCountFooter: View {
     let count: Int
     var noun: String = "item"
-    var showSyncStatus: Bool = true
+    var showSyncStatus: Bool = false
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text("\(count) \(count == 1 ? noun : "\(noun)s")")
-                .font(.subheadline.bold())
-                .foregroundStyle(.primary)
-            if showSyncStatus {
-                Text("Synced with Cascade")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 20)
+        Text("\(count) \(count == 1 ? noun : "\(noun)s")")
+            .font(.subheadline.bold())
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 20)
     }
 }
 
@@ -425,9 +418,9 @@ struct FilePreviewView: View {
                         }
 
                         Button {
-                            appState.togglePin(file)
+                            appState.downloadAndSaveToFiles(file)
                         } label: {
-                            Label(file.isPinned ? "Remove Download" : "Keep Downloaded", systemImage: file.isPinned ? "arrow.down.circle.fill" : "arrow.down.circle")
+                            Label("Download", systemImage: "arrow.down.circle")
                         }
 
                         Divider()
@@ -665,13 +658,19 @@ struct FilePreviewView: View {
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedTab: Tab = .browse
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
 
     enum Tab: Hashable {
         case recents
         case shared
         case browse
+    }
+
+    private var selectedTabBinding: Binding<Tab> {
+        Binding(
+            get: { appState.selectedTab },
+            set: { appState.selectedTab = $0 }
+        )
     }
 
     var body: some View {
@@ -691,11 +690,12 @@ struct RootView: View {
 
     private var loadingView: some View {
         VStack(spacing: 20) {
-            Image("CascadeLogo")
+            Image("AppIconImage")
                 .resizable()
-                .renderingMode(.original)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
             ProgressView()
                 .tint(XTheme.accent)
         }
@@ -703,14 +703,14 @@ struct RootView: View {
 
     private var mainTabs: some View {
         @Bindable var appState = appState
-        return TabView(selection: $selectedTab) {
+        return TabView(selection: selectedTabBinding) {
             RecentsView()
                 .tag(Tab.recents)
 
             SharedView()
                 .tag(Tab.shared)
 
-            BrowseView(selectedTab: $selectedTab)
+            BrowseView(selectedTab: selectedTabBinding)
                 .tag(Tab.browse)
         }
         .toolbar(.hidden, for: .tabBar)
@@ -819,7 +819,7 @@ struct RootView: View {
                 }
 
                 if !appState.isSelecting {
-                    CustomGlassTabBar(selectedTab: $selectedTab)
+                    CustomGlassTabBar(selectedTab: selectedTabBinding)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -1393,15 +1393,6 @@ struct BrowseView: View {
 
                 Spacer()
 
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(badgeHighlight ? Color.white : Color.white.opacity(0.55))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(badgeHighlight ? XTheme.accent : Color.white.opacity(0.08), in: Capsule())
-                }
-
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.25))
@@ -1432,15 +1423,6 @@ struct BrowseView: View {
                     .foregroundStyle(.white)
 
                 Spacer()
-
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(badgeHighlight ? Color.white : Color.white.opacity(0.55))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(badgeHighlight ? XTheme.accent : Color.white.opacity(0.08), in: Capsule())
-                }
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
@@ -1772,6 +1754,8 @@ struct SharedView: View {
     @State private var sortBy: SortOption = .date
     @State private var sortAscending = false
     @State private var isSelecting = false
+    @State private var showArchived = false
+    @State private var showCancelAllAlert = false
 
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
@@ -1786,7 +1770,7 @@ struct SharedView: View {
     }
 
     private var activeShares: [ShareRecord] {
-        let shares = appState.activeOutgoingShares
+        let shares = showArchived ? appState.archivedOutgoingShares : appState.activeOutgoingShares
         var filtered = shares
         if !searchText.isEmpty {
             filtered = filtered.filter { $0.fileName.localizedCaseInsensitiveContains(searchText) }
@@ -1841,10 +1825,32 @@ struct SharedView: View {
                     }
                 }
             }
-            .navigationTitle("Shared")
+            .navigationTitle(showArchived ? "Archived Shares" : "Shared")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if showArchived {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showArchived = false
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                Text("Active")
+                            }
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(XTheme.accent)
+                        }
+                    } else if appState.activeOutgoingShares.count > 0 {
+                        Button("Cancel All", role: .destructive) {
+                            showCancelAllAlert = true
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
                         StandardAddMenu(folderID: "", isPrivate: false)
@@ -1855,6 +1861,24 @@ struct SharedView: View {
                                     isSelecting = true
                                 } label: {
                                     Label("Select", systemImage: "checkmark.circle")
+                                }
+                            }
+
+                            Section {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showArchived.toggle()
+                                    }
+                                } label: {
+                                    Label(showArchived ? "Show Active Shares" : "Show Archived Shares", systemImage: showArchived ? "tray.and.arrow.up" : "tray")
+                                }
+
+                                if !showArchived && appState.activeOutgoingShares.count > 0 {
+                                    Button(role: .destructive) {
+                                        showCancelAllAlert = true
+                                    } label: {
+                                        Label("Cancel All Shares", systemImage: "xmark.circle")
+                                    }
                                 }
                             }
 
@@ -1905,6 +1929,14 @@ struct SharedView: View {
                     }
                 }
             }
+            .alert("Cancel All Active Shares?", isPresented: $showCancelAllAlert) {
+                Button("Cancel All", role: .destructive) {
+                    appState.cancelAllShares()
+                }
+                Button("Keep Shares", role: .cancel) {}
+            } message: {
+                Text("Every shared link will be revoked and recipients will lose access immediately.")
+            }
             .task {
                 await appState.loadShares()
             }
@@ -1916,13 +1948,13 @@ struct SharedView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "folder.badge.person.crop")
+            Image(systemName: showArchived ? "tray" : "folder.badge.person.crop")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
-            Text("No Shared Files")
+            Text(showArchived ? "No Archived Shares" : "No Shared Files")
                 .font(.title2.bold())
                 .foregroundStyle(.white)
-            Text("Files and folders shared with you or shared by you will appear here.")
+            Text(showArchived ? "Shares you archive will appear here." : "Files and folders shared with you or shared by you will appear here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -2168,6 +2200,20 @@ struct ShareGridCard: View {
 
             Divider()
 
+            if share.isArchived {
+                Button {
+                    appState.unarchiveShare(share)
+                } label: {
+                    Label("Unarchive", systemImage: "tray.and.arrow.up")
+                }
+            } else {
+                Button {
+                    appState.archiveShare(share)
+                } label: {
+                    Label("Archive", systemImage: "tray.and.arrow.down")
+                }
+            }
+
             Button(role: .destructive) {
                 appState.cancelShare(share)
             } label: {
@@ -2304,6 +2350,20 @@ struct ShareListRow: View {
             }
 
             Divider()
+
+            if share.isArchived {
+                Button {
+                    appState.unarchiveShare(share)
+                } label: {
+                    Label("Unarchive", systemImage: "tray.and.arrow.up")
+                }
+            } else {
+                Button {
+                    appState.archiveShare(share)
+                } label: {
+                    Label("Archive", systemImage: "tray.and.arrow.down")
+                }
+            }
 
             Button(role: .destructive) {
                 appState.cancelShare(share)
@@ -5352,6 +5412,12 @@ struct FileRow: View {
 
                 if !file.isFolder {
                     Button {
+                        appState.downloadAndSaveToFiles(file)
+                    } label: {
+                        Label("Download", systemImage: "arrow.down.circle")
+                    }
+
+                    Button {
                         appState.openFile(file)
                     } label: {
                         Label("Quick Look", systemImage: "eye")
@@ -5662,6 +5728,12 @@ struct FileGridItem: View {
 
             if !file.isFolder {
                 Button {
+                    appState.downloadAndSaveToFiles(file)
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+
+                Button {
                     appState.openFile(file)
                 } label: {
                     Label("Quick Look", systemImage: "eye")
@@ -5948,11 +6020,12 @@ struct LoginGateView: View {
                 VStack(spacing: 32) {
                     Spacer()
                     VStack(spacing: 12) {
-                        Image("CascadeLogo")
+                        Image("AppIconImage")
                             .resizable()
-                            .renderingMode(.original)
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
                         Text("Cascade")
                             .font(.system(size: 32, weight: .bold, design: .rounded))
                         Text("Your private cloud")
@@ -6623,14 +6696,10 @@ struct ImportShareLinkSheet: View {
                                 if let thumbImage {
                                     Image(uiImage: thumbImage)
                                         .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 52, height: 52)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-                                        )
-                                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxWidth: 52, maxHeight: 52)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
                                 } else if link.isGroup || link.files.contains(where: { $0.path != nil }) {
                                     AppleFolderIcon(width: 44, height: 35)
                                 } else {
