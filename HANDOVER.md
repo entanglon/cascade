@@ -4397,7 +4397,7 @@ Open levers (not scheduled):
      - `.md`, `.markdown`, `.txt`, `.json`, `.swift`, etc. preview natively in `TheaterView` via `TheaterTextContentView` (formatted markdown with Rendered/Raw toggle, line numbers for code/text, copy-all button with feedback).
      - Directory copy-paste (`⌘V`) and drag-and-drop: `AppState.startUpload` detects directories and invokes `importDirectoryRecursively`, recreating identical folder hierarchies via `uniqueObjectName` and queueing all nested files into `UploadManager`. `PendingUpload` retains `parentID` and `isPrivate` throughout the upload drain loop.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), CascadeTests **TEST SUCCEEDED** (111 tests passed). Debug app relaunched.
- 243. **iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix (2026-09-12 afternoon — COMMITTED)**
+ 243. **iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix (2026-09-12 afternoon — COMMITTED `de84364`)**
      (`Cascade iOS/AppState.swift`, `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`, `Cascade iOS/XTheme.swift`, `Cascade iOS/RootView.swift`, `Cascade iOS/Features/FileBrowserView.swift`)
      - Flashing screen bug resolved: eliminated `isInitialLoading` toggle from `completePostAuthSetup()` and removed redundant `.task` trigger from `mainTabs`; switched `RootView.body` auth check to observable `appState.isAuthorized`.
      - Master Liquid Glass 1024×1024 app icon ported to iOS springboard asset catalog.

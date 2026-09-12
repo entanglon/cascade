@@ -54,6 +54,7 @@ User reported and requested:
   - Springboard displays the new Liquid Glass icon.
   - Floating frosted glass tab bar floats cleanly above the bottom edge; tabs animate smoothly with haptic feedback.
 - Tests: `CascadeTests` 68 tests (64 unit + 2 UI + 2 launch) passed with **TEST SUCCEEDED**.
+- Commit: `de84364`.
 
 ---
 
