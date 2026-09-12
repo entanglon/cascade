@@ -4,6 +4,7 @@ import Foundation
 import GRDB
 import SwiftUI
 import TDLibKit
+import PhotosUI
 
 typealias Date = Foundation.Date
 typealias Notification = Foundation.Notification
@@ -20,15 +21,22 @@ struct FileItem: Identifiable, Hashable {
     let mime: String
     let isPrivate: Bool
     let createdAt: Date
-    let parentID: String?
+    var parentID: String?
     var thumbnailData: Data?
-    let isFavorite: Bool
-    let isArchived: Bool
-    let trashed: Bool
+    var isFavorite: Bool
+    var isArchived: Bool
+    var trashed: Bool
     let isPinned: Bool
 
     static func == (lhs: FileItem, rhs: FileItem) -> Bool {
-        lhs.id == rhs.id && (lhs.thumbnailData != nil) == (rhs.thumbnailData != nil) && lhs.isFavorite == rhs.isFavorite && lhs.isPinned == rhs.isPinned && lhs.name == rhs.name
+        lhs.id == rhs.id &&
+        lhs.trashed == rhs.trashed &&
+        lhs.parentID == rhs.parentID &&
+        lhs.isArchived == rhs.isArchived &&
+        lhs.isFavorite == rhs.isFavorite &&
+        lhs.isPinned == rhs.isPinned &&
+        lhs.name == rhs.name &&
+        (lhs.thumbnailData != nil) == (rhs.thumbnailData != nil)
     }
 
     func hash(into hasher: inout Hasher) {
@@ -166,6 +174,54 @@ final class AppState {
     func startDocumentScan(in folderID: String? = nil) {
         self.scannerTargetFolderID = folderID
         self.showDocumentScanner = true
+    }
+
+    // Global Upload Pickers State
+    var showPhotosPicker: Bool = false
+    var showFileImporter: Bool = false
+    var showCameraPicker: Bool = false
+    var uploadTargetFolderID: String? = nil
+    var uploadTargetIsPrivate: Bool = false
+
+    func triggerPhotoUpload(in folderID: String? = nil, isPrivate: Bool = false) {
+        uploadTargetFolderID = folderID
+        uploadTargetIsPrivate = isPrivate
+        showPhotosPicker = true
+    }
+
+    func triggerFileUpload(in folderID: String? = nil, isPrivate: Bool = false) {
+        uploadTargetFolderID = folderID
+        uploadTargetIsPrivate = isPrivate
+        showFileImporter = true
+    }
+
+    func triggerCameraCapture(in folderID: String? = nil, isPrivate: Bool = false) {
+        uploadTargetFolderID = folderID
+        uploadTargetIsPrivate = isPrivate
+        showCameraPicker = true
+    }
+
+    func uploadPhotos(_ items: [PhotosPickerItem], folderID: String? = nil, isPrivate: Bool = false) async {
+        var tempURLs: [URL] = []
+        let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
+
+        for (idx, item) in items.enumerated() {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                let name = "Photo_\(Int(Date().timeIntervalSince1970))_\(idx).\(ext)"
+                let targetURL = tempDir.appendingPathComponent(name)
+                do {
+                    try data.write(to: targetURL)
+                    tempURLs.append(targetURL)
+                } catch {
+                    print("[iOS] Failed to save picked photo to temp: \(error)")
+                }
+            }
+        }
+
+        if !tempURLs.isEmpty {
+            await uploadBatch(urls: tempURLs, parentID: folderID, isPrivate: isPrivate)
+        }
     }
 
     var activeOutgoingShares: [ShareRecord] {
@@ -401,19 +457,16 @@ final class AppState {
         return data
     }
 
-    func loadAllFiles(reconcileCloud: Bool = true) async {
+    func loadAllFiles(reconcileCloud: Bool = false) async {
         isLoadingFiles = true
         defer { isLoadingFiles = false }
         do {
-            if reconcileCloud && TelegramClient.shared.isAuthorized,
-               let vault = try? await DatabaseManager.shared.firstVault() {
-                _ = await CatalogSnapshot.upload()
-            }
-
             let objects = try await DatabaseManager.shared.allObjects()
                 .filter { $0.tombstoneAt == nil }
-            self.allFiles = objects.map { FileItem(record: $0) }
-            self.files = currentFiles
+            await MainActor.run {
+                self.allFiles = objects.map { FileItem(record: $0) }
+                self.files = currentFiles
+            }
             print("[iOS] loadAllFiles: loaded \(allFiles.count) files (\(files.count) in current folder)")
 
             // If vault is connected but catalog is empty, retry repair
@@ -422,15 +475,26 @@ final class AppState {
                 _ = await VaultRepair.run()
                 let retryObjects = try await DatabaseManager.shared.allObjects()
                     .filter { $0.tombstoneAt == nil }
-                self.allFiles = retryObjects.map { FileItem(record: $0) }
-                self.files = currentFiles
+                await MainActor.run {
+                    self.allFiles = retryObjects.map { FileItem(record: $0) }
+                    self.files = currentFiles
+                }
                 print("[iOS] After retry: \(allFiles.count) files")
             }
 
             // 1. Fast pass: load from local disk cache immediately on main thread
             loadThumbnailsFromDisk()
 
-            // 2. Fetch missing thumbnails asynchronously in background so pull-to-refresh returns immediately
+            // 2. Reconcile cloud snapshot in background without blocking local catalog reads
+            if reconcileCloud && TelegramClient.shared.isAuthorized {
+                Task.detached(priority: .utility) {
+                    if let _ = try? await DatabaseManager.shared.firstVault() {
+                        _ = await CatalogSnapshot.upload()
+                    }
+                }
+            }
+
+            // 3. Fetch missing thumbnails asynchronously in background
             Task.detached(priority: .utility) { [weak self] in
                 await self?.loadMissingThumbnailsFromNetwork()
             }
@@ -670,12 +734,20 @@ final class AppState {
     }
 
     func trashFile(_ file: FileItem) {
+        if let idx = allFiles.firstIndex(where: { $0.id == file.id }) {
+            allFiles[idx].trashed = true
+            files = currentFiles
+        }
         Task {
             do {
                 guard var obj = try await DatabaseManager.shared.object(file.id) else { return }
                 obj.trashed = true
+                obj.modifiedAt = Date()
                 try await DatabaseManager.shared.save(obj)
-                await loadAllFiles()
+                await loadAllFiles(reconcileCloud: false)
+                Task.detached(priority: .utility) {
+                    _ = await CatalogSnapshot.upload()
+                }
             } catch {
                 print("[iOS] trashFile failed: \(error)")
             }
@@ -815,16 +887,26 @@ final class AppState {
 
     func trashFiles(_ fileIDs: Set<String>) {
         guard !fileIDs.isEmpty else { return }
+        for i in 0..<allFiles.count {
+            if fileIDs.contains(allFiles[i].id) {
+                allFiles[i].trashed = true
+            }
+        }
+        files = currentFiles
+
         Task {
             do {
                 for id in fileIDs {
                     if var obj = try await DatabaseManager.shared.object(id) {
                         obj.trashed = true
+                        obj.modifiedAt = Date()
                         try await DatabaseManager.shared.save(obj)
                     }
                 }
-                _ = await CatalogSnapshot.upload()
-                await loadAllFiles()
+                await loadAllFiles(reconcileCloud: false)
+                Task.detached(priority: .utility) {
+                    _ = await CatalogSnapshot.upload()
+                }
             } catch {
                 print("[iOS] trashFiles failed: \(error)")
             }
@@ -833,16 +915,26 @@ final class AppState {
 
     func restoreFiles(_ fileIDs: Set<String>) {
         guard !fileIDs.isEmpty else { return }
+        for i in 0..<allFiles.count {
+            if fileIDs.contains(allFiles[i].id) {
+                allFiles[i].trashed = false
+            }
+        }
+        files = currentFiles
+
         Task {
             do {
                 for id in fileIDs {
                     if var obj = try await DatabaseManager.shared.object(id) {
                         obj.trashed = false
+                        obj.modifiedAt = Date()
                         try await DatabaseManager.shared.save(obj)
                     }
                 }
-                _ = await CatalogSnapshot.upload()
-                await loadAllFiles()
+                await loadAllFiles(reconcileCloud: false)
+                Task.detached(priority: .utility) {
+                    _ = await CatalogSnapshot.upload()
+                }
             } catch {
                 print("[iOS] restoreFiles failed: \(error)")
             }
@@ -851,13 +943,18 @@ final class AppState {
 
     func deletePermanently(_ fileIDs: Set<String>) {
         guard !fileIDs.isEmpty else { return }
+        allFiles.removeAll { fileIDs.contains($0.id) }
+        files = currentFiles
+
         Task {
             do {
                 for id in fileIDs {
                     try await DatabaseManager.shared.deleteObjectWithChunks(id: id)
                 }
-                _ = await CatalogSnapshot.upload()
-                await loadAllFiles()
+                await loadAllFiles(reconcileCloud: false)
+                Task.detached(priority: .utility) {
+                    _ = await CatalogSnapshot.upload()
+                }
             } catch {
                 print("[iOS] deletePermanently failed: \(error)")
             }
@@ -1016,17 +1113,27 @@ final class AppState {
     func moveFiles(_ fileIDs: Set<String>, to destinationParentID: String?) {
         guard !fileIDs.isEmpty else { return }
         let effectiveDest = (destinationParentID?.isEmpty == true) ? nil : destinationParentID
+        for i in 0..<allFiles.count {
+            if fileIDs.contains(allFiles[i].id) && allFiles[i].id != effectiveDest {
+                allFiles[i].parentID = effectiveDest
+            }
+        }
+        files = currentFiles
+
         Task {
             do {
                 for id in fileIDs {
                     if id == effectiveDest { continue }
                     if var obj = try await DatabaseManager.shared.object(id) {
                         obj.parentID = effectiveDest
+                        obj.modifiedAt = Date()
                         try await DatabaseManager.shared.save(obj)
                     }
                 }
-                _ = await CatalogSnapshot.upload()
-                await loadAllFiles()
+                await loadAllFiles(reconcileCloud: false)
+                Task.detached(priority: .utility) {
+                    _ = await CatalogSnapshot.upload()
+                }
             } catch {
                 print("[iOS] moveFiles failed: \(error)")
             }

@@ -2,7 +2,63 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (afternoon) — iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action (Round 244).
+> 2026-09-12 (afternoon) — iOS macOS-Style Search Bar, Add Button Unification & Deduplication, File Operations (Delete/Move) Fix, and Full-Screen Zoomable Photo Viewer (Round 245).
+
+---
+
+## 2026-09-12 (afternoon) — iOS macOS-Style Search Bar, Add Button Unification & Deduplication, File Operations (Delete/Move) Fix, and Full-Screen Zoomable Photo Viewer (Round 245)
+
+User requested:
+1. **Search Bar**: Replace stock iOS search bar (which looked like the old Apple Files search drawer) with our bespoke macOS-style search bar.
+2. **Add Button Icon & Ubiquity**: The Add button next to the ellipsis menu must follow the exact same icon set as the menu button (`plus.circle` outline matching `ellipsis.circle` with 18pt regular weight, `XTheme.accent`). Must appear on **all** pages, not just the Browse page.
+3. **Deduplicate Menus**: Remove all creation and upload actions from the ellipsis (`...`) menu ("Upload Photos & Videos", "Upload Files", "Scan Documents", "New Folder", "Add from Share Link…") so they reside **exclusively** in the Add (`+`) button without duplication.
+4. **File Operations Fix**: Fix delete and move which were unresponsive/failing on iOS.
+5. **Photo/Media Preview Fix**: Fix photo preview which was sliding up from the bottom as a card/sheet; provide a proper full-screen zoomable photo viewer.
+
+### Analysis & Root Causes
+- **Stock Search Bar**: SwiftUI's `.searchable(placement: .navigationBarDrawer)` rendered UIKit's stock `UISearchController` drawer inside the navigation bar, conflicting with the macOS glass design. Replacing it with `CustomSearchBar` (dark translucent surface, 12pt continuous curvature, focus ring + accent glow, magnifying glass, clear button, cancel button) delivers macOS parity.
+- **Add Button Icon Mismatch**: An earlier commit used `plus.circle.fill` with `size: 20, weight: .semibold` while the menu was `ellipsis.circle` outline with `size: 18, weight: .regular`. Creating `BlueAddMenu` with `plus.circle` outline at 18pt regular weight ensures a 1:1 visual match.
+- **File Operations (Delete & Move) Unresponsiveness**:
+  1. `FileItem.==` did not compare `trashed`, `parentID`, or `isArchived`. When an object was trashed or moved, SwiftUI diffing evaluated the new `FileItem` as `==` to the old one and skipped re-rendering the list.
+  2. `loadAllFiles()` was awaiting `CatalogSnapshot.upload()` before reading local DB records. If the Telegram network was slow or pending, `loadAllFiles()` stalled and the UI never updated.
+  3. `MoveDestinationPickerSheet` performed `$0.parentID == currentFolderID` with unnormalized `nil` vs `""`, causing root folders (`parentID == ""` or `nil`) to mismatch against `currentFolderID == nil`, making all folders invisible in the move sheet.
+  4. No optimistic updates were being applied in `trashFile`, `trashFiles`, `restoreFiles`, `moveFiles`. Updating `allFiles` and `files` immediately on `@MainActor` gives 0ms response.
+- **Sliding Sheet Photo Preview**: `RootView.swift` was presenting `FilePreviewView` via `.sheet(item: ...)`. On iOS, sheets always slide up as rounded bottom sheets. Changing to `.fullScreenCover` provides native full-screen viewing, and embedding `ZoomableImageView: UIViewRepresentable` with `UIScrollView` delivers smooth pinch-to-zoom (up to 5x magnification), double-tap zoom, and panning.
+
+### What changed
+- `Cascade iOS/AppState.swift`:
+  - Updated `FileItem.==` to include `lhs.trashed == rhs.trashed`, `lhs.parentID == rhs.parentID`, `lhs.isArchived == rhs.isArchived`.
+  - Made `trashed`, `parentID`, `isFavorite`, `isArchived` mutable `var` in `FileItem` for instant in-memory optimistic updates.
+  - Updated `loadAllFiles(reconcileCloud:)` to load local database objects first on `@MainActor` without blocking on Telegram network; `CatalogSnapshot.upload()` runs in background detached task.
+  - Updated `trashFile(_:)`, `trashFiles(_:)`, `restoreFiles(_:)`, `deletePermanently(_:)`, and `moveFiles(_:to:)` with immediate optimistic UI updates on `@MainActor` (0ms response) before DB sync.
+  - Added global upload triggers in `AppState`: `showPhotosPicker`, `showFileImporter`, `showCameraPicker`, `uploadTargetFolderID`, `uploadTargetIsPrivate`, `uploadPhotos(_:folderID:isPrivate:)`.
+- `Cascade iOS/RootView.swift`:
+  - Added `BlueAddMenu` with `Image(systemName: "plus.circle").font(.system(size: 18, weight: .regular)).foregroundStyle(XTheme.accent)` matching `BlueEllipsisMenu`.
+  - Added `StandardAddMenu(folderID:isPrivate:)` hosting all creation/upload triggers ("Upload Photos & Videos", "Upload Files", "Take Photo or Video", "Scan Documents", "New Folder", "Add from Share Link…").
+  - Added `CustomSearchBar(text:prompt:)` matching macOS app (dark translucent surface, 12pt continuous curvature, focus ring + glow, clear button, cancel button).
+  - Replaced `.searchable` across `BrowseView`, `RecentsView`, `SharedView`, `PhotosView`, `VideosView`, `AudioView`, `DocumentsView`, `FavoritesView`, `ArchiveView`, `TrashView`, and `TransfersView` with `CustomSearchBar`.
+  - Added live `browseSearchResults` to `BrowseView` so searching in Browse immediately shows matching files.
+  - Added `StandardAddMenu` across all view toolbars and removed duplicate creation actions from all ellipsis menus.
+  - Fixed `MoveDestinationPickerSheet` folder matching logic for root and subfolders (`parentMatch` normalization).
+  - Added `ZoomableImageView: UIViewRepresentable` with pinch-to-zoom (up to 5x), double-tap zoom, and smooth panning.
+  - Updated `FilePreviewView`: full-screen black background, `ZoomableImageView`, instant placeholder thumbnail while high-res download finishes, leading "Done" button, trailing action buttons.
+  - Changed `mainTabs` sheet presentation for `presentedFile` from `.sheet` to `.fullScreenCover`.
+  - Attached global `.photosPicker`, `.fileImporter`, and `.fullScreenCover(isPresented: $appState.showCameraPicker)` to `mainTabs` in `RootView`.
+- `Cascade iOS/Features/FileBrowserView.swift`:
+  - Replaced `.searchable(...)` with `CustomSearchBar(text: $searchText, prompt: "Search")`.
+  - Updated toolbar trailing item to use `StandardAddMenu(folderID:isPrivate:)`.
+  - Cleaned up `BlueEllipsisMenu` by removing duplicate creation actions.
+  - Removed local redundant picker state and handlers.
+
+### Verification
+- Builds:
+  - iOS (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+  - macOS (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+- Tests: `CascadeTests` 107 test cases passed with **TEST SUCCEEDED**.
+- Device Deployment:
+  - Installed to physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`) via `devicectl` (exit code 0).
+  - Launched application via `devicectl` (exit code 0).
+- Commit: (Pending commit).
 
 ---
 

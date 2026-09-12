@@ -20,6 +20,200 @@ struct BlueEllipsisMenu<Content: View>: View {
     }
 }
 
+// MARK: - Reusable Blue Add Menu Button
+
+struct BlueAddMenu<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Menu {
+            content()
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(XTheme.accent)
+        }
+    }
+}
+
+// MARK: - Standard Add Menu
+
+struct StandardAddMenu: View {
+    var folderID: String? = nil
+    var isPrivate: Bool = false
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        BlueAddMenu {
+            Button {
+                appState.triggerPhotoUpload(in: folderID, isPrivate: isPrivate)
+            } label: {
+                Label("Upload Photos & Videos", systemImage: "photo.on.rectangle")
+            }
+
+            Button {
+                appState.triggerFileUpload(in: folderID, isPrivate: isPrivate)
+            } label: {
+                Label("Upload Files", systemImage: "arrow.up.doc")
+            }
+
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    appState.triggerCameraCapture(in: folderID, isPrivate: isPrivate)
+                } label: {
+                    Label("Take Photo or Video", systemImage: "camera")
+                }
+            }
+
+            Button {
+                appState.startDocumentScan(in: folderID)
+            } label: {
+                Label("Scan Documents", systemImage: "document.viewfinder")
+            }
+
+            Divider()
+
+            Button {
+                appState.startCreatingFolder(in: folderID)
+            } label: {
+                Label("New Folder", systemImage: "folder.badge.plus")
+            }
+
+            Divider()
+
+            Button {
+                appState.showImportShareSheet = true
+            } label: {
+                Label("Add from Share Link…", systemImage: "link.badge.plus")
+            }
+        }
+    }
+}
+
+// MARK: - Custom Bespoke macOS-style Search Bar
+
+struct CustomSearchBar: View {
+    @Binding var text: String
+    var prompt: String = "Search"
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isFocused ? XTheme.accent : .white.opacity(0.40))
+
+                TextField(prompt, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white)
+                    .focused($isFocused)
+
+                if !text.isEmpty {
+                    Button {
+                        text = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.40))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(Color.white.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        isFocused ? XTheme.accent : Color.white.opacity(0.12),
+                        lineWidth: isFocused ? 1.5 : 1
+                    )
+            )
+            .shadow(color: isFocused ? XTheme.accent.opacity(0.35) : .clear, radius: 8, y: 0)
+
+            if isFocused {
+                Button("Cancel") {
+                    isFocused = false
+                    text = ""
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(XTheme.accent)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isFocused)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Zoomable Interactive Image View
+
+struct ZoomableImageView: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.delegate = context.coordinator
+        scrollView.maximumZoomScale = 5.0
+        scrollView.minimumZoomScale = 1.0
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.backgroundColor = .clear
+
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.tag = 999
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(imageView)
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            imageView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            imageView.heightAnchor.constraint(equalTo: scrollView.heightAnchor),
+        ])
+
+        let doubleTapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
+        doubleTapGesture.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTapGesture)
+
+        return scrollView
+    }
+
+    func updateUIView(_ uiView: UIScrollView, context: Context) {
+        if let imageView = uiView.viewWithTag(999) as? UIImageView {
+            imageView.image = image
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            scrollView.viewWithTag(999)
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard let scrollView = gesture.view as? UIScrollView else { return }
+            if scrollView.zoomScale > 1.0 {
+                scrollView.setZoomScale(1.0, animated: true)
+            } else {
+                let center = gesture.location(in: scrollView)
+                let zoomRect = CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
+                scrollView.zoom(to: zoomRect, animated: true)
+            }
+        }
+    }
+}
+
 // MARK: - Reusable Bottom Item Count Footer
 
 struct PageItemCountFooter: View {
@@ -180,7 +374,7 @@ struct FilePreviewView: View {
     @State private var showShareSheet = false
     @State private var showInfo = false
     @State private var errorMessage: String? = nil
-    @State private var showControls = false
+    @State private var showControls = true
 
     private var isPDF: Bool {
         file.name.lowercased().hasSuffix(".pdf") || file.mime == "application/pdf"
@@ -193,25 +387,17 @@ struct FilePreviewView: View {
 
     /// Whether the current file resolves to an image that can be displayed full-screen.
     private var isImageContent: Bool {
-        guard let localURL else { return false }
-        return loadedImage(for: localURL) != nil
+        file.isImage || (localURL != nil && loadedImage(for: localURL!) != nil)
     }
 
     var body: some View {
         ZStack {
-            // Black background for images (like Apple Files), system background for other files
-            if isImageContent {
-                Color.black.ignoresSafeArea()
-            } else {
-                Color(.systemBackground).ignoresSafeArea()
-            }
+            // Black background for media/photos, system background for text/docs
+            Color.black.ignoresSafeArea()
 
             if let localURL {
                 if let uiImage = loadedImage(for: localURL) {
-                    // Apple-Files-style image viewer: aspect-fit, centered, black background
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    ZoomableImageView(image: uiImage)
                         .ignoresSafeArea()
                         .onTapGesture {
                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -225,6 +411,7 @@ struct FilePreviewView: View {
                     ScrollView {
                         Text(textContent)
                             .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.white)
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -232,7 +419,29 @@ struct FilePreviewView: View {
                     cachedFileFallback(localURL)
                 }
             } else if isDownloading {
-                downloadingView
+                if file.isImage, let thumb = placeholderThumbnail {
+                    ZStack {
+                        Image(uiImage: thumb)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .blur(radius: 2)
+                            .ignoresSafeArea()
+
+                        VStack(spacing: 8) {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(1.2)
+                            Text(downloadStatus.isEmpty ? "Loading full resolution…" : downloadStatus)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                        }
+                    }
+                } else {
+                    downloadingView
+                }
             } else {
                 notDownloadedView
             }
@@ -241,6 +450,14 @@ struct FilePreviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarVisibility(isImageContent && !showControls ? .hidden : .visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") {
+                    dismiss()
+                }
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(XTheme.accent)
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
                     if let localURL {
@@ -248,12 +465,14 @@ struct FilePreviewView: View {
                             showShareSheet = true
                         } label: {
                             Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(XTheme.accent)
                         }
                     } else if !isDownloading {
                         Button {
                             startDownload()
                         } label: {
                             Image(systemName: "arrow.down.circle")
+                                .foregroundStyle(XTheme.accent)
                         }
                     }
 
@@ -287,11 +506,6 @@ struct FilePreviewView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     }
-
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
                 }
             }
         }
@@ -319,6 +533,18 @@ struct FilePreviewView: View {
             return img
         }
         if let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
+            return img
+        }
+        return nil
+    }
+
+    private var placeholderThumbnail: UIImage? {
+        if let data = file.thumbnailData, let img = UIImage(data: data) {
+            return img
+        }
+        if let diskURL = UploadEngine.thumbnailURL(for: file.id),
+           let data = try? Data(contentsOf: diskURL),
+           let img = UIImage(data: data) {
             return img
         }
         return nil
@@ -499,6 +725,7 @@ struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: Tab = .browse
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
 
     enum Tab: Hashable {
         case recents
@@ -566,7 +793,7 @@ struct RootView: View {
                 VideoPlaybackView(file: file)
             }
         }
-        .sheet(item: Binding(
+        .fullScreenCover(item: Binding(
             get: {
                 if let file = appState.presentedFile, !file.isVideo, !file.isAudio {
                     return file
@@ -578,6 +805,38 @@ struct RootView: View {
             NavigationStack {
                 FilePreviewView(file: file)
             }
+        }
+        .photosPicker(
+            isPresented: $appState.showPhotosPicker,
+            selection: $selectedPhotoItems,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            let picked = items
+            selectedPhotoItems = []
+            Task {
+                await appState.uploadPhotos(picked, folderID: appState.uploadTargetFolderID, isPrivate: appState.uploadTargetIsPrivate)
+            }
+        }
+        .fileImporter(
+            isPresented: $appState.showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                Task {
+                    await appState.uploadBatch(urls: urls, parentID: appState.uploadTargetFolderID, isPrivate: appState.uploadTargetIsPrivate)
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $appState.showCameraPicker) {
+            CameraMediaPicker { url in
+                Task {
+                    await appState.uploadBatch(urls: [url], parentID: appState.uploadTargetFolderID, isPrivate: appState.uploadTargetIsPrivate)
+                }
+            }
+            .ignoresSafeArea()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
@@ -747,18 +1006,19 @@ struct BrowseView: View {
     @State private var showSettings = false
     @State private var navPath: [BrowseDestination] = []
 
-    @State private var showPhotosPicker = false
-    @State private var showFileImporter = false
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
-
     var body: some View {
         NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 20) {
-                    profileHeaderCard
-                    locationsSection
-                    collectionsSection
-                    quickAccessSection
+                    CustomSearchBar(text: $searchText, prompt: "Search")
+                    if !searchText.isEmpty {
+                        browseSearchResults
+                    } else {
+                        profileHeaderCard
+                        locationsSection
+                        collectionsSection
+                        quickAccessSection
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
@@ -767,24 +1027,8 @@ struct BrowseView: View {
             .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Browse")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 uploadAndSettingsToolbar
-            }
-            .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotoItems, matching: .any(of: [.images, .videos]))
-            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result {
-                    Task {
-                        await appState.uploadBatch(urls: urls, parentID: nil)
-                    }
-                }
-            }
-            .onChange(of: selectedPhotoItems) { _, items in
-                guard !items.isEmpty else { return }
-                Task {
-                    await handlePhotosPicked(items)
-                    selectedPhotoItems.removeAll()
-                }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
@@ -903,41 +1147,9 @@ struct BrowseView: View {
     private var uploadAndSettingsToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             HStack(spacing: 12) {
-                Menu {
-                    Button {
-                        showPhotosPicker = true
-                    } label: {
-                        Label("Upload Photos & Videos", systemImage: "photo.on.rectangle")
-                    }
-                    Button {
-                        showFileImporter = true
-                    } label: {
-                        Label("Upload Files", systemImage: "arrow.up.doc")
-                    }
-                    Button {
-                        appState.startDocumentScan(in: nil)
-                    } label: {
-                        Label("Scan Documents", systemImage: "document.viewfinder")
-                    }
-                    Divider()
-                    Button {
-                        appState.startCreatingFolder(in: "")
-                    } label: {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                    }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(XTheme.accent)
-                }
+                StandardAddMenu(folderID: "", isPrivate: false)
 
                 BlueEllipsisMenu {
-                    Button {
-                        appState.startDocumentScan(in: nil)
-                    } label: {
-                        Label("Scan Documents", systemImage: "document.viewfinder")
-                    }
-                    Divider()
                     Button {
                         showSettings = true
                     } label: {
@@ -1053,26 +1265,45 @@ struct BrowseView: View {
         return "\(used) · \(count) \(count == 1 ? "item" : "items")"
     }
 
-    private func handlePhotosPicked(_ items: [PhotosPickerItem]) async {
-        var tempURLs: [URL] = []
-        let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
-
-        for (idx, item) in items.enumerated() {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                let name = "Photo_\(Int(Date().timeIntervalSince1970))_\(idx).\(ext)"
-                let targetURL = tempDir.appendingPathComponent(name)
-                do {
-                    try data.write(to: targetURL)
-                    tempURLs.append(targetURL)
-                } catch {
-                    print("[iOS] Failed to save picked photo to temp: \(error)")
-                }
-            }
+    private var searchResults: [FileItem] {
+        guard !searchText.isEmpty else { return [] }
+        return appState.allFiles.filter {
+            !$0.trashed && !$0.isArchived && $0.name.localizedCaseInsensitiveContains(searchText)
         }
+    }
 
-        if !tempURLs.isEmpty {
-            await appState.uploadBatch(urls: tempURLs, parentID: nil)
+    @ViewBuilder
+    private var browseSearchResults: some View {
+        if searchResults.isEmpty {
+            NoSearchResultsView(query: searchText)
+                .padding(.top, 40)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("SEARCH RESULTS (\(searchResults.count))")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.secondary)
+                    .tracking(0.5)
+
+                VStack(spacing: 0) {
+                    ForEach(searchResults) { file in
+                        Button {
+                            if file.isFolder {
+                                navPath.append(BrowseDestination.cascadeDrive)
+                            } else {
+                                appState.openFile(file)
+                            }
+                        } label: {
+                            FileRow(file: file)
+                        }
+                        .buttonStyle(.plain)
+
+                        if file.id != searchResults.last?.id {
+                            rowDivider
+                        }
+                    }
+                }
+                .frostedGlassCard(cornerRadius: 16)
+            }
         }
     }
 
@@ -1154,23 +1385,29 @@ struct RecentsView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if filteredFiles.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
+            VStack(spacing: 0) {
+                CustomSearchBar(text: $searchText, prompt: "Search")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+
+                Group {
+                    if filteredFiles.isEmpty {
+                        if !searchText.isEmpty {
+                            NoSearchResultsView(query: searchText)
+                        } else {
+                            emptyState
+                        }
+                    } else if viewMode == .grid {
+                        gridView
                     } else {
-                        emptyState
+                        listView
                     }
-                } else if viewMode == .grid {
-                    gridView
-                } else {
-                    listView
                 }
             }
             .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Recents")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 if isSelecting {
                     ToolbarItem(placement: .topBarLeading) {
@@ -1191,57 +1428,56 @@ struct RecentsView: View {
                     }
                 } else {
                     ToolbarItem(placement: .topBarTrailing) {
-                        BlueEllipsisMenu {
-                            Button {
-                                isSelecting = true
-                            } label: {
-                                Label("Select", systemImage: "checkmark.circle")
-                            }
-                            Button {
-                                appState.startDocumentScan(in: nil)
-                            } label: {
-                                Label("Scan Documents", systemImage: "document.viewfinder")
-                            }
+                        HStack(spacing: 12) {
+                            StandardAddMenu(folderID: "", isPrivate: false)
 
-                            Divider()
-
-                            Button {
-                                viewMode = .grid
-                            } label: {
-                                HStack {
-                                    Text("Icons")
-                                    if viewMode == .grid {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            Button {
-                                viewMode = .list
-                            } label: {
-                                HStack {
-                                    Text("List")
-                                    if viewMode == .list {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            Divider()
-
-                            ForEach(SortOption.allCases, id: \.self) { option in
+                            BlueEllipsisMenu {
                                 Button {
-                                    if sortBy == option {
-                                        sortAscending.toggle()
-                                    } else {
-                                        sortBy = option
-                                        sortAscending = true
-                                    }
+                                    isSelecting = true
+                                } label: {
+                                    Label("Select", systemImage: "checkmark.circle")
+                                }
+
+                                Divider()
+
+                                Button {
+                                    viewMode = .grid
                                 } label: {
                                     HStack {
-                                        Text(option.rawValue)
+                                        Text("Icons")
+                                        if viewMode == .grid {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    viewMode = .list
+                                } label: {
+                                    HStack {
+                                        Text("List")
+                                        if viewMode == .list {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Divider()
+
+                                ForEach(SortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if sortBy == option {
-                                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                            sortAscending.toggle()
+                                        } else {
+                                            sortBy = option
+                                            sortAscending = true
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if sortBy == option {
+                                                Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
@@ -1476,99 +1712,97 @@ struct SharedView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if activeShares.isEmpty {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            if showBanner {
-                                familyBanner
-                            }
+            VStack(spacing: 0) {
+                CustomSearchBar(text: $searchText, prompt: "Search")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
 
-                            if !searchText.isEmpty {
-                                NoSearchResultsView(query: searchText)
-                            } else {
-                                emptyState
+                Group {
+                    if activeShares.isEmpty {
+                        ScrollView {
+                            VStack(spacing: 24) {
+                                if showBanner {
+                                    familyBanner
+                                }
+
+                                if !searchText.isEmpty {
+                                    NoSearchResultsView(query: searchText)
+                                } else {
+                                    emptyState
+                                }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
+                    } else if viewMode == .grid {
+                        gridView
+                    } else {
+                        listView
                     }
-                } else if viewMode == .grid {
-                    gridView
-                } else {
-                    listView
                 }
             }
             .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Shared")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Section {
-                            Button {
-                                appState.showImportShareSheet = true
-                            } label: {
-                                Label("Add from Share Link...", systemImage: "link.badge.plus")
-                            }
-                        }
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
 
-                        Section {
-                            Button {
-                                isSelecting = true
-                            } label: {
-                                Label("Select", systemImage: "checkmark.circle")
-                            }
-                        }
-
-                        Section {
-                            Button {
-                                viewMode = .grid
-                            } label: {
-                                HStack {
-                                    Text("Icons")
-                                    if viewMode == .grid {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            Button {
-                                viewMode = .list
-                            } label: {
-                                HStack {
-                                    Text("List")
-                                    if viewMode == .list {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-
-                        Section {
-                            ForEach(SortOption.allCases, id: \.self) { option in
+                        BlueEllipsisMenu {
+                            Section {
                                 Button {
-                                    if sortBy == option {
-                                        sortAscending.toggle()
-                                    } else {
-                                        sortBy = option
-                                        sortAscending = (option == .name)
-                                    }
+                                    isSelecting = true
+                                } label: {
+                                    Label("Select", systemImage: "checkmark.circle")
+                                }
+                            }
+
+                            Section {
+                                Button {
+                                    viewMode = .grid
                                 } label: {
                                     HStack {
-                                        Text(option.rawValue)
+                                        Text("Icons")
+                                        if viewMode == .grid {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    viewMode = .list
+                                } label: {
+                                    HStack {
+                                        Text("List")
+                                        if viewMode == .list {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                ForEach(SortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if sortBy == option {
-                                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                            sortAscending.toggle()
+                                        } else {
+                                            sortBy = option
+                                            sortAscending = (option == .name)
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if sortBy == option {
+                                                Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 17, weight: .regular))
-                            .foregroundStyle(XTheme.accent)
                     }
                 }
             }
@@ -2019,7 +2253,14 @@ struct MoveDestinationPickerSheet: View {
     @State private var folderStack: [(id: String?, name: String)] = [(nil, "Cascade Drive")]
 
     private var currentFolders: [FileItem] {
-        appState.allFiles.filter { $0.isFolder && !$0.trashed && !fileIDs.contains($0.id) && $0.parentID == currentFolderID }
+        let parentMatch = (currentFolderID?.isEmpty == true) ? nil : currentFolderID
+        return appState.allFiles.filter {
+            $0.isFolder &&
+            !$0.trashed &&
+            !$0.isArchived &&
+            !fileIDs.contains($0.id) &&
+            (($0.parentID == nil || $0.parentID?.isEmpty == true) ? (parentMatch == nil) : ($0.parentID == parentMatch))
+        }
     }
 
     private var currentFolderName: String {
@@ -2085,10 +2326,12 @@ struct MoveDestinationPickerSheet: View {
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Move Here") {
-                        appState.moveFiles(fileIDs, to: currentFolderID)
+                        let target = (currentFolderID?.isEmpty == true) ? nil : currentFolderID
+                        appState.moveFiles(fileIDs, to: target)
                         dismiss()
                     }
                     .font(.headline)
+                    .foregroundStyle(XTheme.accent)
                 }
             }
         }
@@ -2117,20 +2360,27 @@ struct PhotosView: View {
     @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
-        Group {
-            if filteredPhotos.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            Group {
+                if filteredPhotos.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
                 } else {
-                    emptyState
+                    gridView
                 }
-            } else {
-                gridView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Photos")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2151,11 +2401,15 @@ struct PhotosView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
                         }
                     }
                 }
@@ -2302,20 +2556,27 @@ struct VideosView: View {
     @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
-        Group {
-            if filteredVideos.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            Group {
+                if filteredVideos.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
                 } else {
-                    emptyState
+                    gridView
                 }
-            } else {
-                gridView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2336,11 +2597,15 @@ struct VideosView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
                         }
                     }
                 }
@@ -2493,22 +2758,29 @@ struct AudioView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredAudio.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            Group {
+                if filteredAudio.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Audio")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2529,23 +2801,27 @@ struct AudioView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
-                        }
-                        Divider()
-                        Button { viewMode = .grid } label: {
-                            HStack {
-                                Text("Icons")
-                                if viewMode == .grid { Image(systemName: "checkmark") }
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
                             }
-                        }
-                        Button { viewMode = .list } label: {
-                            HStack {
-                                Text("List")
-                                if viewMode == .list { Image(systemName: "checkmark") }
+                            Divider()
+                            Button { viewMode = .grid } label: {
+                                HStack {
+                                    Text("Icons")
+                                    if viewMode == .grid { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Button { viewMode = .list } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list { Image(systemName: "checkmark") }
+                                }
                             }
                         }
                     }
@@ -2724,22 +3000,29 @@ struct DocumentsView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredDocs.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            Group {
+                if filteredDocs.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Documents")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2760,23 +3043,27 @@ struct DocumentsView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
-                        }
-                        Divider()
-                        Button { viewMode = .grid } label: {
-                            HStack {
-                                Text("Icons")
-                                if viewMode == .grid { Image(systemName: "checkmark") }
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
                             }
-                        }
-                        Button { viewMode = .list } label: {
-                            HStack {
-                                Text("List")
-                                if viewMode == .list { Image(systemName: "checkmark") }
+                            Divider()
+                            Button { viewMode = .grid } label: {
+                                HStack {
+                                    Text("Icons")
+                                    if viewMode == .grid { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Button { viewMode = .list } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list { Image(systemName: "checkmark") }
+                                }
                             }
                         }
                     }
@@ -3161,22 +3448,29 @@ struct FavoritesView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredFavorites.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            Group {
+                if filteredFavorites.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Favorites")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -3197,23 +3491,27 @@ struct FavoritesView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
-                        }
-                        Divider()
-                        Button { viewMode = .grid } label: {
-                            HStack {
-                                Text("Icons")
-                                if viewMode == .grid { Image(systemName: "checkmark") }
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
                             }
-                        }
-                        Button { viewMode = .list } label: {
-                            HStack {
-                                Text("List")
-                                if viewMode == .list { Image(systemName: "checkmark") }
+                            Divider()
+                            Button { viewMode = .grid } label: {
+                                HStack {
+                                    Text("Icons")
+                                    if viewMode == .grid { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Button { viewMode = .list } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list { Image(systemName: "checkmark") }
+                                }
                             }
                         }
                     }
@@ -3388,6 +3686,11 @@ struct TransfersView: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
             Spacer()
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 48))
@@ -3399,9 +3702,9 @@ struct TransfersView: View {
                 .foregroundStyle(.secondary)
             Spacer()
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Transfers")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
     }
 }
 
@@ -3421,22 +3724,29 @@ struct ArchiveView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredArchived.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            Group {
+                if filteredArchived.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Archive")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -3457,23 +3767,27 @@ struct ArchiveView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    BlueEllipsisMenu {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checkmark.circle")
-                        }
-                        Divider()
-                        Button { viewMode = .grid } label: {
-                            HStack {
-                                Text("Icons")
-                                if viewMode == .grid { Image(systemName: "checkmark") }
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
                             }
-                        }
-                        Button { viewMode = .list } label: {
-                            HStack {
-                                Text("List")
-                                if viewMode == .list { Image(systemName: "checkmark") }
+                            Divider()
+                            Button { viewMode = .grid } label: {
+                                HStack {
+                                    Text("Icons")
+                                    if viewMode == .grid { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Button { viewMode = .list } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list { Image(systemName: "checkmark") }
+                                }
                             }
                         }
                     }
@@ -3643,83 +3957,90 @@ struct TrashView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredTrash.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
-                } else {
-                    emptyState
-                }
-            } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Text("Recently deleted items may be permanently deleted by your storage provider.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 8)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
 
-                        if viewMode == .grid {
-                            LazyVGrid(columns: [
-                                GridItem(.flexible(), spacing: 16),
-                                GridItem(.flexible(), spacing: 16),
-                                GridItem(.flexible(), spacing: 16)
-                            ], spacing: 28) {
-                                ForEach(filteredTrash) { file in
-                                    if isSelecting {
-                                        FileGridItem(
-                                            file: file,
-                                            isSelecting: true,
-                                            isSelected: selectedFileIDs.contains(file.id)
-                                        ) {
-                                            toggleSelection(file.id)
-                                        }
-                                    } else {
-                                        FileGridItem(file: file) { }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(filteredTrash) { file in
-                                    if isSelecting {
-                                        FileRow(
-                                            file: file,
-                                            isSelecting: true,
-                                            isSelected: selectedFileIDs.contains(file.id)
-                                        ) {
-                                            toggleSelection(file.id)
-                                        }
-                                    } else {
-                                        FileRow(file: file) { }
-                                    }
-                                    Divider().padding(.leading, 60)
-                                }
-                            }
-                        }
-
-                        Spacer(minLength: 40)
-
-                        PageItemCountFooter(count: filteredTrash.count, showSyncStatus: false)
-                            .padding(.bottom, 4)
+            Group {
+                if filteredTrash.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
-                }
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear
-                            .onAppear { viewportHeight = proxy.size.height }
-                            .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            Text("Recently deleted items may be permanently deleted by your storage provider.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 8)
+
+                            if viewMode == .grid {
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16)
+                                ], spacing: 28) {
+                                    ForEach(filteredTrash) { file in
+                                        if isSelecting {
+                                            FileGridItem(
+                                                file: file,
+                                                isSelecting: true,
+                                                isSelected: selectedFileIDs.contains(file.id)
+                                            ) {
+                                                toggleSelection(file.id)
+                                            }
+                                        } else {
+                                            FileGridItem(file: file) { }
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                            } else {
+                                VStack(spacing: 0) {
+                                    ForEach(filteredTrash) { file in
+                                        if isSelecting {
+                                            FileRow(
+                                                file: file,
+                                                isSelecting: true,
+                                                isSelected: selectedFileIDs.contains(file.id)
+                                            ) {
+                                                toggleSelection(file.id)
+                                            }
+                                        } else {
+                                            FileRow(file: file) { }
+                                        }
+                                        Divider().padding(.leading, 60)
+                                    }
+                                }
+                            }
+
+                            Spacer(minLength: 40)
+
+                            PageItemCountFooter(count: filteredTrash.count, showSyncStatus: false)
+                                .padding(.bottom, 4)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+                    }
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear { viewportHeight = proxy.size.height }
+                                .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
+                        }
                     }
                 }
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Recently Deleted")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {

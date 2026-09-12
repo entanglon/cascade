@@ -18,11 +18,6 @@ struct FileBrowserView: View {
     @State private var isSelecting = false
     @State private var selectedFileIDs: Set<String> = []
 
-    @State private var showFileImporter = false
-    @State private var showPhotosPicker = false
-    @State private var showCameraPicker = false
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
-
     enum ViewMode: String, CaseIterable {
         case grid = "Icons"
         case list = "List"
@@ -36,23 +31,27 @@ struct FileBrowserView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredFiles.isEmpty && !appState.isCreatingFolder {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        VStack(spacing: 0) {
+            CustomSearchBar(text: $searchText, prompt: "Search")
+
+            Group {
+                if filteredFiles.isEmpty && !appState.isCreatingFolder {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : folderTitle)
         .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
         .navigationBarBackButtonHidden(isSelecting)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -87,67 +86,9 @@ struct FileBrowserView: View {
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
-                        Menu {
-                            Button {
-                                showPhotosPicker = true
-                            } label: {
-                                Label("Upload Photos & Videos", systemImage: "photo.on.rectangle")
-                            }
+                        StandardAddMenu(folderID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
 
-                            Button {
-                                showFileImporter = true
-                            } label: {
-                                Label("Upload Files", systemImage: "arrow.up.doc")
-                            }
-
-                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                                Button {
-                                    showCameraPicker = true
-                                } label: {
-                                    Label("Take Photo or Video", systemImage: "camera")
-                                }
-                            }
-
-                            Button {
-                                appState.startDocumentScan(in: folderID.isEmpty ? nil : folderID)
-                            } label: {
-                                Label("Scan Documents", systemImage: "document.viewfinder")
-                            }
-
-                            Divider()
-
-                            Button {
-                                appState.startCreatingFolder(in: folderID)
-                            } label: {
-                                Label("New Folder", systemImage: "folder.badge.plus")
-                            }
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(XTheme.accent)
-                        }
-
-                        Menu {
-                            Section {
-                                Button {
-                                    appState.showImportShareSheet = true
-                                } label: {
-                                    Label("Add from Share Link", systemImage: "link.badge.plus")
-                                }
-
-                                Button {
-                                    appState.startCreatingFolder(in: folderID)
-                                } label: {
-                                    Label("New Folder", systemImage: "folder.badge.plus")
-                                }
-
-                                Button {
-                                    appState.startDocumentScan(in: folderID.isEmpty ? nil : folderID)
-                                } label: {
-                                    Label("Scan Documents", systemImage: "document.viewfinder")
-                                }
-                            }
-
+                        BlueEllipsisMenu {
                             Section {
                                 Button {
                                     isSelecting = true
@@ -156,91 +97,53 @@ struct FileBrowserView: View {
                                 }
                             }
 
-                        Section {
-                            Button {
-                                viewMode = .grid
-                            } label: {
-                                HStack {
-                                    Text("Icons")
-                                    if viewMode == .grid {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            Button {
-                                viewMode = .list
-                            } label: {
-                                HStack {
-                                    Text("List")
-                                    if viewMode == .list {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-
-                        Section {
-                            ForEach(SortOption.allCases, id: \.self) { option in
+                            Section {
                                 Button {
-                                    if sortBy == option {
-                                        sortAscending.toggle()
-                                    } else {
-                                        sortBy = option
-                                        sortAscending = true
-                                    }
+                                    viewMode = .grid
                                 } label: {
                                     HStack {
-                                        Text(option.rawValue)
+                                        Text("Icons")
+                                        if viewMode == .grid {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    viewMode = .list
+                                } label: {
+                                    HStack {
+                                        Text("List")
+                                        if viewMode == .list {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                ForEach(SortOption.allCases, id: \.self) { option in
+                                    Button {
                                         if sortBy == option {
-                                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                            sortAscending.toggle()
+                                        } else {
+                                            sortBy = option
+                                            sortAscending = true
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if sortBy == option {
+                                                Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 18, weight: .regular))
-                            .foregroundStyle(XTheme.accent)
                     }
                 }
             }
-        }
-        }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
-                Task {
-                    await appState.uploadBatch(urls: urls, parentID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
-                }
-            case .failure(let err):
-                print("[iOS] File importer error: \(err)")
-            }
-        }
-        .photosPicker(
-            isPresented: $showPhotosPicker,
-            selection: $selectedPhotoItems,
-            matching: .any(of: [.images, .videos])
-        )
-        .onChange(of: selectedPhotoItems) { _, items in
-            guard !items.isEmpty else { return }
-            Task {
-                await handlePhotosPicked(items)
-                selectedPhotoItems.removeAll()
-            }
-        }
-        .fullScreenCover(isPresented: $showCameraPicker) {
-            CameraMediaPicker { capturedURL in
-                Task {
-                    await appState.uploadBatch(urls: [capturedURL], parentID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
-                }
-            }
-            .ignoresSafeArea()
         }
         .safeAreaInset(edge: .bottom) {
             if isSelecting {
@@ -249,25 +152,6 @@ struct FileBrowserView: View {
         }
         .refreshable {
             await appState.loadAllFiles()
-        }
-    }
-
-    private func handlePhotosPicked(_ items: [PhotosPickerItem]) async {
-        var tempURLs: [URL] = []
-        let tempDir = (try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory
-
-        for (idx, item) in items.enumerated() {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                let filename = "Photo_\(Int(Date().timeIntervalSince1970))_\(idx + 1).\(ext)"
-                let dest = tempDir.appendingPathComponent(filename)
-                try? data.write(to: dest)
-                tempURLs.append(dest)
-            }
-        }
-
-        if !tempURLs.isEmpty {
-            await appState.uploadBatch(urls: tempURLs, parentID: folderID.isEmpty ? nil : folderID, isPrivate: filterPrivate)
         }
     }
 

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 244 — iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 245 — iOS macOS-Style Search Bar, Add Button Unification & Deduplication, File Operations (Delete/Move) Fix, and Full-Screen Zoomable Photo Viewer. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4416,4 +4416,10 @@ Open levers (not scheduled):
      - Large titles & smooth scroll: Configured transparent `scrollEdgeAppearance` and frosted `standardAppearance`/`compactAppearance` with `.navigationBarTitleDisplayMode(.large)` on Recents, Shared, Browse, and FileBrowser views.
      - iOS thumbnails: Implemented iOS branch of `generateThumbnails(for:objectID:isVideo:)` in `Engine/UploadEngine.swift` (640px preview, 320px `-up.jpg` upload thumbnail).
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (107 tests passed).
-
+ 245. **iOS macOS-Style Search Bar, Add Button Unification & Deduplication, File Operations (Delete/Move) Fix, and Full-Screen Zoomable Photo Viewer (2026-09-12 afternoon — COMMITTED)**
+     (`Cascade iOS/RootView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/AppState.swift`)
+     - Search bar parity: Replaced stock UIKit `.searchable` drawer across all views (Browse, Recents, Shared, FileBrowserView, Collections, Quick Access, Trash, Transfers) with bespoke `CustomSearchBar` matching macOS app (dark translucent surface, 12pt continuous corner curvature, focus ring + accent glow, clear button, cancel button); added live `browseSearchResults` list in Browse.
+     - Add button unification & deduplication: Matched `BlueAddMenu` icon to menu button (`plus.circle` outline, 18pt regular weight, `XTheme.accent`); provided `StandardAddMenu` on all views; removed duplicate creation and upload actions from all ellipsis menus.
+     - File operations (Delete/Move) fix: Fixed `FileItem.==` to compare `trashed`, `parentID`, and `isArchived`; added immediate optimistic UI updates on `@MainActor` in `trashFile`, `trashFiles`, `restoreFiles`, `deletePermanently`, and `moveFiles`; removed blocking cloud sync from local DB load; normalized root `parentID` comparison in `MoveDestinationPickerSheet`.
+     - Full-screen photo viewer: Switched `FilePreviewView` from card sheet to `.fullScreenCover`; built `ZoomableImageView: UIViewRepresentable` with pinch-to-zoom (up to 5x), double-tap zoom, and smooth panning; instant placeholder thumbnail display while high-res download finishes; leading "Done" dismiss button.
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (107 tests passed).
