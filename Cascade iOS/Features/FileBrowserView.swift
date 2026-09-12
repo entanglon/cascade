@@ -182,8 +182,8 @@ struct FileBrowserView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 17, weight: .regular))
-                            .foregroundStyle(.blue)
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(XTheme.accent)
                     }
                 }
             }

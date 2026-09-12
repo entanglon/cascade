@@ -12,8 +12,8 @@ struct BlueEllipsisMenu<Content: View>: View {
             content()
         } label: {
             Image(systemName: "ellipsis.circle")
-                .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(.blue)
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(XTheme.accent)
         }
     }
 }
@@ -51,7 +51,7 @@ struct NoSearchResultsView: View {
             Spacer()
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Results")
                 .font(.title2.bold())
             Text("No results found for “\(query)”.")
@@ -315,7 +315,7 @@ struct FilePreviewView: View {
             } else {
                 Image(systemName: file.systemIcon)
                     .font(.system(size: 64))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
             }
 
             VStack(spacing: 8) {
@@ -347,7 +347,7 @@ struct FilePreviewView: View {
             } else {
                 Image(systemName: file.systemIcon)
                     .font(.system(size: 64))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
             }
 
             VStack(spacing: 6) {
@@ -392,7 +392,7 @@ struct FilePreviewView: View {
         VStack(spacing: 20) {
             Image(systemName: file.systemIcon)
                 .font(.system(size: 64))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
 
             VStack(spacing: 6) {
                 Text(file.name)
@@ -440,9 +440,12 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08)
+                .ignoresSafeArea()
+
             if appState.isInitialLoading {
                 loadingView
-            } else if TelegramClient.shared.isAuthorized {
+            } else if appState.isAuthorized {
                 mainTabs
             } else {
                 LoginGateView()
@@ -458,35 +461,23 @@ struct RootView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 64, height: 64)
             ProgressView()
+                .tint(XTheme.accent)
         }
     }
 
     private var mainTabs: some View {
         @Bindable var appState = appState
         return TabView(selection: $selectedTab) {
-            RecentsView()
-                .tabItem {
-                    Label("Recents", systemImage: "clock")
-                }
-                .tag(Tab.recents)
+            BrowseView()
+                .tag(Tab.browse)
 
             SharedView()
-                .tabItem {
-                    Label("Shared", systemImage: "folder.badge.person.crop")
-                }
                 .tag(Tab.shared)
 
-            BrowseView()
-                .tabItem {
-                    Label("Browse", systemImage: "folder")
-                }
-                .tag(Tab.browse)
+            RecentsView()
+                .tag(Tab.recents)
         }
-        .task {
-            if appState.allFiles.isEmpty {
-                await appState.completePostAuthSetup()
-            }
-        }
+        .toolbar(.hidden, for: .tabBar)
         .fullScreenCover(item: $appState.theaterFile) { file in
             NavigationStack {
                 VideoPlaybackView(file: file)
@@ -511,7 +502,7 @@ struct RootView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 if appState.isUploading {
                     HStack(spacing: 12) {
                         ProgressView()
@@ -523,12 +514,15 @@ struct RootView: View {
                                 .lineLimit(1)
                             ProgressView(value: max(0.02, appState.uploadProgress))
                                 .progressViewStyle(.linear)
-                                .tint(.blue)
+                                .tint(XTheme.accent)
                         }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(
+                        Capsule().strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                    )
                     .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 3)
                     .padding(.horizontal, 16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -537,11 +531,15 @@ struct RootView: View {
                 if let track = appState.currentAudioTrack {
                     AudioMiniPlayerView(track: track)
                         .padding(.horizontal, 12)
-                        .padding(.bottom, 4)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+
+                FloatingGlassTabBar(selectedTab: $selectedTab)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 2)
             }
-            .animation(.easeInOut(duration: 0.25), value: appState.isUploading)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.isUploading)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.currentAudioTrack != nil)
         }
         .sheet(isPresented: $appState.showFullAudioPlayer) {
             if let track = appState.currentAudioTrack {
@@ -570,6 +568,89 @@ struct RootView: View {
     }
 }
 
+// MARK: - Floating Frosted Glass Bottom Navigation Bar
+
+struct FloatingGlassTabBar: View {
+    @Binding var selectedTab: RootView.Tab
+    @Namespace private var tabNamespace
+
+    var body: some View {
+        HStack(spacing: 4) {
+            tabButton(tab: .browse, title: "Browse", icon: "folder.fill")
+            tabButton(tab: .shared, title: "Shared", icon: "person.2.fill")
+            tabButton(tab: .recents, title: "Recents", icon: "clock.fill")
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.28),
+                                    Color.white.opacity(0.08),
+                                    Color.clear
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 8)
+                .shadow(color: XTheme.accent.opacity(0.12), radius: 20, x: 0, y: 4)
+        }
+    }
+
+    private func tabButton(tab: RootView.Tab, title: String, icon: String) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            if selectedTab != tab {
+                UISelectionFeedbackGenerator().selectionChanged()
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.75)) {
+                    selectedTab = tab
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: isSelected ? .bold : .medium))
+                if isSelected {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }
+            .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.55))
+            .padding(.vertical, 8)
+            .padding(.horizontal, isSelected ? 18 : 14)
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    XTheme.accent.opacity(0.92),
+                                    XTheme.accentSecondary.opacity(0.82)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .matchedGeometryEffect(id: "activeTabBadge", in: tabNamespace)
+                        .shadow(color: XTheme.accent.opacity(0.40), radius: 6, x: 0, y: 2)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Browse Destination Enum
 
 enum BrowseDestination: Hashable {
@@ -587,102 +668,149 @@ enum BrowseDestination: Hashable {
     case tag(name: String)
 }
 
-// MARK: - Browse View (Files-app style with Locations, Media, Tags)
+// MARK: - Browse View (Cascade Bespoke Dashboard)
 
 struct BrowseView: View {
     @Environment(AppState.self) private var appState
     @State private var searchText = ""
     @State private var showSettings = false
-    @State private var locationsExpanded = true
-    @State private var favoritesExpanded = true
-    @State private var mediaExpanded = true
-    @State private var tagsExpanded = true
-    @State private var navPath: [BrowseDestination] = [.cascadeDrive]
+    @State private var navPath: [BrowseDestination] = []
 
     var body: some View {
         NavigationStack(path: $navPath) {
-            List {
-                // Locations section
-                Section {
-                    if locationsExpanded {
-                        NavigationLink(value: BrowseDestination.cascadeDrive) {
-                            locationRow(icon: "icloud", name: "Cascade Drive", color: .blue)
+            ZStack {
+                Color(red: 0.05, green: 0.06, blue: 0.08)
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        profileHeaderCard
+
+                        // Section 1: Locations
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionTitle("LOCATIONS")
+                            VStack(spacing: 0) {
+                                destinationRow(
+                                    destination: .cascadeDrive,
+                                    badge: CategoryBadge(icon: "icloud.fill", gradient: XTheme.driveGradient),
+                                    title: "Cascade Drive",
+                                    count: appState.driveFilesCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .privateVault,
+                                    badge: CategoryBadge(icon: "lock.fill", gradient: XTheme.privateFolderGradient),
+                                    title: "Private Vault",
+                                    count: appState.vaultFilesCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .transfers,
+                                    badge: CategoryBadge(icon: "arrow.up.arrow.down", gradient: XTheme.transfersGradient),
+                                    title: "Transfers",
+                                    count: appState.isUploading ? 1 : 0,
+                                    badgeHighlight: appState.isUploading
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .archive,
+                                    badge: CategoryBadge(icon: "archivebox.fill", gradient: XTheme.archiveGradient),
+                                    title: "Archive",
+                                    count: appState.archiveFilesCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .trash,
+                                    badge: CategoryBadge(icon: "trash.fill", gradient: XTheme.trashGradient),
+                                    title: "Recently Deleted",
+                                    count: appState.trashFilesCount
+                                )
+                            }
+                            .frostedGlassCard(cornerRadius: 16)
                         }
 
-                        NavigationLink(value: BrowseDestination.privateVault) {
-                            locationRow(icon: "lock", name: "Private Vault", color: .blue)
+                        // Section 2: Media Collections
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionTitle("COLLECTIONS")
+                            VStack(spacing: 0) {
+                                destinationRow(
+                                    destination: .photos,
+                                    badge: CategoryBadge(icon: "photo.fill", gradient: XTheme.photosGradient),
+                                    title: "Photos",
+                                    count: appState.photosCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .videos,
+                                    badge: CategoryBadge(icon: "film.fill", gradient: XTheme.videosGradient),
+                                    title: "Videos",
+                                    count: appState.videosCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .audio,
+                                    badge: CategoryBadge(icon: "waveform", gradient: XTheme.audioGradient),
+                                    title: "Audio",
+                                    count: appState.audioCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .documents,
+                                    badge: CategoryBadge(icon: "doc.text.fill", gradient: XTheme.documentsGradient),
+                                    title: "Documents",
+                                    count: appState.documentsCount
+                                )
+                            }
+                            .frostedGlassCard(cornerRadius: 16)
                         }
 
-                        NavigationLink(value: BrowseDestination.transfers) {
-                            locationRow(icon: "arrow.up.arrow.down", name: "Transfers", color: .blue)
+                        // Section 3: Quick Access
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionTitle("QUICK ACCESS")
+                            VStack(spacing: 0) {
+                                destinationRow(
+                                    destination: .favorites,
+                                    badge: CategoryBadge(icon: "star.fill", gradient: XTheme.favoritesGradient),
+                                    title: "Favorites",
+                                    count: appState.favoritesFilesCount
+                                )
+                                rowDivider
+                                destinationRow(
+                                    destination: .downloads,
+                                    badge: CategoryBadge(icon: "arrow.down.circle.fill", gradient: XTheme.downloadsGradient),
+                                    title: "Downloads",
+                                    count: 0
+                                )
+                            }
+                            .frostedGlassCard(cornerRadius: 16)
                         }
 
-                        NavigationLink(value: BrowseDestination.archive) {
-                            locationRow(icon: "archivebox", name: "Archive", color: .blue)
-                        }
-
-                        NavigationLink(value: BrowseDestination.trash) {
-                            locationRow(icon: "trash", name: "Recently Deleted", color: .blue)
+                        // Section 4: Tags
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionTitle("TAGS")
+                            VStack(spacing: 0) {
+                                tagCardRow(name: "Red", color: .red)
+                                rowDivider
+                                tagCardRow(name: "Orange", color: .orange)
+                                rowDivider
+                                tagCardRow(name: "Yellow", color: .yellow)
+                                rowDivider
+                                tagCardRow(name: "Green", color: .green)
+                                rowDivider
+                                tagCardRow(name: "Blue", color: .blue)
+                                rowDivider
+                                tagCardRow(name: "Purple", color: .purple)
+                                rowDivider
+                                tagCardRow(name: "Gray", color: .gray)
+                            }
+                            .frostedGlassCard(cornerRadius: 16)
                         }
                     }
-                } header: {
-                    sectionHeader(title: "Locations", isExpanded: $locationsExpanded)
-                }
-
-                // Favorites section
-                Section {
-                    if favoritesExpanded {
-                        NavigationLink(value: BrowseDestination.favorites) {
-                            locationRow(icon: "star", name: "Favorites", color: .blue)
-                        }
-
-                        NavigationLink(value: BrowseDestination.downloads) {
-                            locationRow(icon: "arrow.down.circle", name: "Downloads", color: .blue)
-                        }
-                    }
-                } header: {
-                    sectionHeader(title: "Favorites", isExpanded: $favoritesExpanded)
-                }
-
-                // Media section
-                Section {
-                    if mediaExpanded {
-                        NavigationLink(value: BrowseDestination.photos) {
-                            locationRow(icon: "photo", name: "Photos", color: .blue)
-                        }
-
-                        NavigationLink(value: BrowseDestination.videos) {
-                            locationRow(icon: "film", name: "Videos", color: .blue)
-                        }
-
-                        NavigationLink(value: BrowseDestination.audio) {
-                            locationRow(icon: "music.note", name: "Audio", color: .blue)
-                        }
-
-                        NavigationLink(value: BrowseDestination.documents) {
-                            locationRow(icon: "doc.text", name: "Documents", color: .blue)
-                        }
-                    }
-                } header: {
-                    sectionHeader(title: "Media", isExpanded: $mediaExpanded)
-                }
-
-                // Tags section
-                Section {
-                    if tagsExpanded {
-                        tagRow(name: "Red", color: .red)
-                        tagRow(name: "Orange", color: .orange)
-                        tagRow(name: "Yellow", color: .yellow)
-                        tagRow(name: "Green", color: .green)
-                        tagRow(name: "Blue", color: .blue)
-                        tagRow(name: "Purple", color: .purple)
-                        tagRow(name: "Gray", color: .gray)
-                    }
-                } header: {
-                    sectionHeader(title: "Tags", isExpanded: $tagsExpanded)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 24)
                 }
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Browse")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -735,38 +863,168 @@ struct BrowseView: View {
         }
     }
 
-    private func sectionHeader(title: String, isExpanded: Binding<Bool>) -> some View {
-        Button {
-            withAnimation(.snappy(duration: 0.25)) {
-                isExpanded.wrappedValue.toggle()
+    // MARK: - Profile Header Card
+
+    private var profileHeaderCard: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                if let photoData = appState.profilePhotoData, let uiImage = UIImage(data: photoData) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(XTheme.brandGradient)
+                        .frame(width: 44, height: 44)
+                        .overlay {
+                            Text(initials)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                }
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1.5)
+                    .frame(width: 44, height: 44)
             }
-        } label: {
-            HStack {
-                Text(title)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.blue)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(displayName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(appState.isVaultConnected ? Color.green : Color.orange)
+                        .frame(width: 7, height: 7)
+
+                    Text(vaultStatusSubtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.60))
+                        .lineLimit(1)
+                }
             }
+
+            Spacer()
+
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(width: 36, height: 36)
+                    .background(Color.white.opacity(0.08), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .textCase(nil)
-        .padding(.vertical, 4)
+        .padding(14)
+        .frostedGlassCard(cornerRadius: 18)
     }
 
-    private func locationRow(icon: String, name: String, color: Color) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 21, weight: .regular))
-                .foregroundStyle(color)
-                .frame(width: 28, height: 28, alignment: .center)
-            Text(name)
-                .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(.primary)
+    private var displayName: String {
+        guard let id = appState.identity else { return "Cascade Cloud" }
+        let full = "\(id.firstName) \(id.lastName)".trimmingCharacters(in: .whitespaces)
+        if !full.isEmpty { return full }
+        if !id.username.isEmpty { return "@\(id.username)" }
+        return "Cascade Cloud"
+    }
+
+    private var initials: String {
+        if let id = appState.identity {
+            let first = id.firstName.prefix(1)
+            let last = id.lastName.prefix(1)
+            let combined = "\(first)\(last)".uppercased()
+            if !combined.isEmpty { return combined }
         }
-        .padding(.vertical, 2)
+        return "CC"
+    }
+
+    private var vaultStatusSubtitle: String {
+        let used = XTheme.formatBytes(appState.totalStorageBytes)
+        let count = appState.allFiles.filter { !$0.trashed }.count
+        return "\(used) · \(count) \(count == 1 ? "item" : "items")"
+    }
+
+    // MARK: - Row Helpers
+
+    private func destinationRow(
+        destination: BrowseDestination,
+        badge: some View,
+        title: String,
+        count: Int = 0,
+        badgeHighlight: Bool = false
+    ) -> some View {
+        NavigationLink(value: destination) {
+            HStack(spacing: 14) {
+                badge
+
+                Text(title)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(badgeHighlight ? Color.white : Color.white.opacity(0.55))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(badgeHighlight ? XTheme.accent : Color.white.opacity(0.08), in: Capsule())
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var rowDivider: some View {
+        Divider()
+            .background(Color.white.opacity(0.06))
+            .padding(.leading, 56)
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(Color.white.opacity(0.40))
+            .tracking(0.6)
+            .padding(.horizontal, 6)
+    }
+
+    private func tagCardRow(name: String, color: Color) -> some View {
+        NavigationLink(value: BrowseDestination.tag(name: name)) {
+            HStack(spacing: 14) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 14, height: 14)
+                    .frame(width: 30, height: 30)
+
+                Text(name)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func tagColor(for name: String) -> Color {
@@ -778,21 +1036,6 @@ struct BrowseView: View {
         case "blue": return .blue
         case "purple": return .purple
         default: return .gray
-        }
-    }
-
-    private func tagRow(name: String, color: Color) -> some View {
-        NavigationLink(value: BrowseDestination.tag(name: name)) {
-            HStack(spacing: 14) {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(color)
-                    .frame(width: 28, height: 28, alignment: .center)
-                Text(name)
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(.primary)
-            }
-            .padding(.vertical, 2)
         }
     }
 }
@@ -1024,7 +1267,7 @@ struct RecentsView: View {
             VStack(spacing: 16) {
                 Image(systemName: "clock")
                     .font(.system(size: 48))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
                 Text("No Recent Files")
                     .font(.title2.bold())
                 Text("Files you open or add will appear here.")
@@ -1268,7 +1511,7 @@ struct SharedView: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .font(.system(size: 17, weight: .regular))
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(XTheme.accent)
                     }
                 }
             }
@@ -1285,7 +1528,7 @@ struct SharedView: View {
         VStack(spacing: 16) {
             Image(systemName: "folder.badge.person.crop")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Shared Files")
                 .font(.title2.bold())
             Text("Files and folders shared with you or shared by you will appear here.")
@@ -1408,7 +1651,7 @@ struct SharedView: View {
                         Text("Add from Share Link")
                     }
                     .font(.subheadline.bold())
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
                     .padding(.top, 2)
                 }
             }
@@ -1547,7 +1790,7 @@ struct ShareListRow: View {
             } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 16))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
             }
             .buttonStyle(.plain)
         }
@@ -1599,7 +1842,7 @@ struct ShareFileSheet: View {
                                 .fill(Color.blue.opacity(0.12))
                             Image(systemName: file.isFolder ? "folder.fill" : "doc.fill")
                                 .font(.system(size: 20))
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(XTheme.accent)
                         }
                         .frame(width: 40, height: 40)
 
@@ -1737,10 +1980,10 @@ struct MoveDestinationPickerSheet: View {
                         HStack(spacing: 12) {
                             Image(systemName: "arrow.backward.circle.fill")
                                 .font(.title3)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(XTheme.accent)
                             Text("Back to \(folderStack[folderStack.count - 2].name)")
                                 .font(.body)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(XTheme.accent)
                         }
                     }
                 }
@@ -1759,7 +2002,7 @@ struct MoveDestinationPickerSheet: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: "folder.fill")
                                         .font(.title3)
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(XTheme.accent)
                                     Text(folder.name)
                                         .font(.body)
                                         .foregroundStyle(.primary)
@@ -1932,7 +2175,7 @@ struct PhotosView: View {
             Spacer()
             Image(systemName: "photo")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Photos")
                 .font(.title2.bold())
             Spacer()
@@ -2117,7 +2360,7 @@ struct VideosView: View {
             Spacer()
             Image(systemName: "film")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Videos")
                 .font(.title2.bold())
             Spacer()
@@ -2323,7 +2566,7 @@ struct AudioView: View {
             Spacer()
             Image(systemName: "music.note")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Audio Files")
                 .font(.title2.bold())
             Spacer()
@@ -2554,7 +2797,7 @@ struct DocumentsView: View {
             Spacer()
             Image(systemName: "doc.text")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Documents")
                 .font(.title2.bold())
             Spacer()
@@ -2669,7 +2912,7 @@ struct VaultPINView: View {
                     .frame(width: 80, height: 80)
                 Image(systemName: isRecovery ? "key.fill" : "lock.fill")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
             }
 
             // Title & Subtitle
@@ -2729,7 +2972,7 @@ struct VaultPINView: View {
                             Image(systemName: BiometricUnlock.biometryName == "Face ID" ? "faceid" : "touchid")
                                 .font(.system(size: 28))
                                 .frame(width: 72, height: 72)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(XTheme.accent)
                         }
                     } else {
                         Spacer().frame(width: 72, height: 72)
@@ -2993,7 +3236,7 @@ struct FavoritesView: View {
             Spacer()
             Image(systemName: "star")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Favorites")
                 .font(.title2.bold())
             Text("Mark files as favorites to see them here.")
@@ -3091,7 +3334,7 @@ struct TransfersView: View {
             Spacer()
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Active Transfers")
                 .font(.title2.bold())
             Text("Uploads and downloads will appear here.")
@@ -3239,7 +3482,7 @@ struct ArchiveView: View {
             Spacer()
             Image(systemName: "archivebox")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Archived Files")
                 .font(.title2.bold())
             Text("Archived files are stored safely in cold storage.")
@@ -3522,7 +3765,7 @@ struct TrashView: View {
             Spacer()
             Image(systemName: "trash")
                 .font(.system(size: 48))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("No Recently Deleted Files")
                 .font(.title2.bold())
             Text("Deleted files will appear here.")
@@ -4034,7 +4277,7 @@ struct FileRow: View {
                     .fill(Color(.tertiarySystemFill))
                 Image(systemName: file.systemIcon)
                     .font(.system(size: 16))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(XTheme.accent)
             }
         }
     }
@@ -4366,7 +4609,7 @@ struct FileGridItem: View {
                 VStack(spacing: 4) {
                     Image(systemName: file.systemIcon)
                         .font(.system(size: 28))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(XTheme.accent)
                     let ext = (file.name as NSString).pathExtension.uppercased()
                     if !ext.isEmpty {
                         Text(ext)
@@ -4431,7 +4674,7 @@ struct LoginGateView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if appState.databaseError != nil || appState.hasTelegramCredentials {
                         Button("Back") { appState.logout() }
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(XTheme.accent)
                     }
                 }
             }
@@ -4469,7 +4712,7 @@ struct TelegramSetupSheet: View {
                     VStack(spacing: 4) {
                         Image(systemName: "key.fill")
                             .font(.title2)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(XTheme.accent)
                         Text("Telegram API")
                             .font(.headline)
                         Text("Get these from my.telegram.org")
@@ -4648,7 +4891,7 @@ struct LoginStepsView: View {
         VStack(spacing: 16) {
             Image(systemName: "iphone.gen3")
                 .font(.system(size: 44))
-                .foregroundStyle(.blue)
+                .foregroundStyle(XTheme.accent)
             Text("Confirm Login").font(.headline)
             Text("Approve this login from another device.")
                 .font(.subheadline)

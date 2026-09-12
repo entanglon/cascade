@@ -171,6 +171,38 @@ final class AppState {
         (try? KeychainStore.loadTelegramCredentials()) != nil
     }
 
+    // MARK: - Category Item Counts & Storage
+    var driveFilesCount: Int {
+        allFiles.filter { !$0.trashed && !$0.isPrivate && $0.parentID == nil }.count
+    }
+    var vaultFilesCount: Int {
+        allFiles.filter { $0.isPrivate && !$0.trashed }.count
+    }
+    var trashFilesCount: Int {
+        allFiles.filter { $0.trashed }.count
+    }
+    var archiveFilesCount: Int {
+        allFiles.filter { $0.isArchived && !$0.trashed }.count
+    }
+    var favoritesFilesCount: Int {
+        allFiles.filter { $0.isFavorite && !$0.trashed && !$0.isArchived }.count
+    }
+    var photosCount: Int {
+        allFiles.filter { $0.isImage && !$0.trashed && !$0.isArchived }.count
+    }
+    var videosCount: Int {
+        allFiles.filter { $0.isVideo && !$0.trashed && !$0.isArchived }.count
+    }
+    var audioCount: Int {
+        allFiles.filter { $0.isAudio && !$0.trashed && !$0.isArchived }.count
+    }
+    var documentsCount: Int {
+        allFiles.filter { $0.isDocument && !$0.trashed && !$0.isArchived }.count
+    }
+    var totalStorageBytes: Int64 {
+        allFiles.filter { !$0.trashed }.reduce(into: Int64(0)) { $0 += $1.size }
+    }
+
     func bootstrap() async {
         isInitialLoading = true
         defer { isInitialLoading = false }
@@ -210,9 +242,6 @@ final class AppState {
     }
 
     func completePostAuthSetup() async {
-        isInitialLoading = true
-        defer { isInitialLoading = false }
-
         identity = try? await TelegramClient.shared.fetchIdentity()
         profilePhotoData = try? await TelegramClient.shared.fetchProfilePhotoData()
 

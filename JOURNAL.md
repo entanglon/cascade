@@ -2,7 +2,58 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (morning) — AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste (Round 242).
+> 2026-09-12 (afternoon) — iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix (Round 243).
+
+---
+
+## 2026-09-12 (afternoon) — iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix (Round 243)
+
+User reported and requested:
+1. **Flashing & Loading Screen Bug**: On launch, the iPhone XS Max screen flashes repeatedly between the main UI and the loading screen (`CascadeLogo` + `ProgressView`).
+2. **App Icon & Asset Refresh**: Rebuild the iOS app with the new Liquid Glass master icon matching the macOS app.
+3. **Reinvent iOS UI/UX (Beyond Apple Files)**:
+   - Move beyond the stock Apple Files clone design while retaining a clean, hierarchical iOS structure.
+   - Design a custom floating frosted glass bottom navigation bar with rounded edges (`Capsule()`), specular border, drop shadow, and spring-animated active tab pill with haptic feedback.
+   - Adopt Cascade's macOS visual identity (`XTheme` brand colors, squircle category badges, frosted glass cards, and account profile header).
+
+### Analysis & Root Causes
+- **Flashing Loop**:
+  - `RootView.swift:485` contained `.task { if appState.allFiles.isEmpty { await appState.completePostAuthSetup() } }`.
+  - `AppState.swift:212` in `completePostAuthSetup()` had `isInitialLoading = true` and `defer { isInitialLoading = false }`.
+  - When `allFiles` was empty on launch, `mainTabs.task` triggered `completePostAuthSetup()`, flipping `isInitialLoading = true`. `RootView.body` tore down `mainTabs` to mount `loadingView`. When `completePostAuthSetup()` finished, `isInitialLoading` flipped back to `false`, remounting `mainTabs` and re-triggering `.task` in an infinite loop.
+- **Old App Icon**: `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png` was still using the pre-Round 235 icon. The new Liquid Glass icon resides in `Cascade/Assets.xcassets/IconDark.imageset/icon-1024.png`.
+- **UI/UX Audit**:
+  - Stock `TabView` was using the default UIKit opaque/blur tab bar stuck at the screen bottom with no custom styling.
+  - `BrowseView` was using standard `.insetGrouped` list styling with plain SF Symbols and `.blue` tints.
+  - No account/profile summary or live category counts were visible on iOS.
+
+### What changed
+- `Cascade iOS/AppState.swift`: Removed `isInitialLoading = true` and `defer { isInitialLoading = false }` from `completePostAuthSetup()`; added category count getters (`driveFilesCount`, `vaultFilesCount`, `trashFilesCount`, `archiveFilesCount`, `favoritesFilesCount`, `photosCount`, `videosCount`, `audioCount`, `documentsCount`, `totalStorageBytes`).
+- `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`: Updated with the master 1024×1024 Liquid Glass icon.
+- `Cascade iOS/XTheme.swift`: Ported `XTheme` design tokens to iOS (accent `#4085FF`, category colors & gradients, dark surfaces, `formatBytes`, `CategoryBadge` squircle component, `.frostedGlassCard` view modifier).
+- `Cascade iOS/RootView.swift`:
+  - Removed `mainTabs.task` that was triggering `completePostAuthSetup()`; updated `RootView.body` to use observable `appState.isAuthorized`.
+  - Created `FloatingGlassTabBar` with rounded capsule shape, `.ultraThinMaterial` frosted glass, specular top-edge gradient stroke, ambient drop shadow, spring-animated active tab pill (`.matchedGeometryEffect`), and `UISelectionFeedbackGenerator` haptics.
+  - Embedded `FloatingGlassTabBar` in `.safeAreaInset(edge: .bottom)` while hiding the system tab bar with `.toolbar(.hidden, for: .tabBar)`; content smoothly blurs behind the bar while maintaining safe bottom clearance.
+  - Stacked upload progress capsule and `AudioMiniPlayerView` cleanly above the floating tab bar.
+  - Redesigned `BrowseView` from a plain list into a bespoke dark frosted glass dashboard:
+    - Added top **Profile Header Card** showing Telegram identity, avatar photo/initials, connection status, and total storage usage.
+    - Added frosted glass card sections for **Locations**, **Collections**, **Quick Access**, and **Tags**.
+    - Replaced plain blue symbols with custom squircle `CategoryBadge` views matching macOS sidebar colors.
+    - Added live item count pill badges on each destination row.
+  - Replaced `.foregroundStyle(.blue)` and `.tint(.blue)` with `XTheme.accent` across all views, empty states, and ellipsis menus.
+- `Cascade iOS/Features/FileBrowserView.swift`: Updated ellipsis button tint to `XTheme.accent`.
+
+### Verification
+- Builds:
+  - iOS (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+  - macOS (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+- Device Deployment:
+  - Installed onto physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`) via `devicectl` (code 0).
+  - Launched app via `devicectl` (code 0). Flashing screen loop completely resolved; loading screen displays once during initial bootstrap and transitions smoothly to the main interface.
+  - Springboard displays the new Liquid Glass icon.
+  - Floating frosted glass tab bar floats cleanly above the bottom edge; tabs animate smoothly with haptic feedback.
+- Tests: `CascadeTests` 68 tests (64 unit + 2 UI + 2 launch) passed with **TEST SUCCEEDED**.
 
 ---
 

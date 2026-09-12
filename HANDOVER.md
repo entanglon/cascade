@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (morning): Round 242 — AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 243 — iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4397,6 +4397,12 @@ Open levers (not scheduled):
      - `.md`, `.markdown`, `.txt`, `.json`, `.swift`, etc. preview natively in `TheaterView` via `TheaterTextContentView` (formatted markdown with Rendered/Raw toggle, line numbers for code/text, copy-all button with feedback).
      - Directory copy-paste (`⌘V`) and drag-and-drop: `AppState.startUpload` detects directories and invokes `importDirectoryRecursively`, recreating identical folder hierarchies via `uniqueObjectName` and queueing all nested files into `UploadManager`. `PendingUpload` retains `parentID` and `isPrivate` throughout the upload drain loop.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), CascadeTests **TEST SUCCEEDED** (111 tests passed). Debug app relaunched.
-
-
-
+ 243. **iOS UI/UX Reinvention, Floating Frosted Glass Tab Bar, App Icon & Flashing Fix (2026-09-12 afternoon — COMMITTED)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`, `Cascade iOS/XTheme.swift`, `Cascade iOS/RootView.swift`, `Cascade iOS/Features/FileBrowserView.swift`)
+     - Flashing screen bug resolved: eliminated `isInitialLoading` toggle from `completePostAuthSetup()` and removed redundant `.task` trigger from `mainTabs`; switched `RootView.body` auth check to observable `appState.isAuthorized`.
+     - Master Liquid Glass 1024×1024 app icon ported to iOS springboard asset catalog.
+     - Ported `XTheme` tokens to iOS with brand accent `#4085FF`, squircle `CategoryBadge` component, and `.frostedGlassCard` modifier.
+     - Built custom `FloatingGlassTabBar`: floating capsule with `.ultraThinMaterial`, specular gradient border, ambient drop shadow, spring-animated active tab pill (`.matchedGeometryEffect`), and `UISelectionFeedbackGenerator` haptics, embedded in `.safeAreaInset(edge: .bottom)` with hidden system tab bar.
+     - Redesigned `BrowseView` into a bespoke dark frosted glass dashboard with top account profile card (avatar, Telegram identity, storage usage), squircle category badges, and live item counts on every category.
+     - Replaced generic `.blue` across all iOS views, empty states, and action menus with `XTheme.accent`.
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched cleanly on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (68 tests passed).
