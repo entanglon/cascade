@@ -1,10 +1,31 @@
 # Cascade — Development Journal
 
->> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
+> Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-10 (evening) — Release bundle ID + new light icon art (Round 238).
+> 2026-09-12 (morning) — Window-mode main UI top padding and search bar clickability fix (Round 239).
 
 ---
+
+## 2026-09-12 (morning) — Window-mode main UI top padding and search bar clickability fix (Round 239)
+
+User reported that in macOS windowed mode, the window-level titlebar/toolbar area (traffic lights and drag region) laid over the search bar and top controls in `FileBrowserView`, making them unclickable. The request was to add top padding for the main UI content in window mode (matching the sidebar's comfortable top spacing) while letting the outer visual card box continue stretching to the top.
+
+### Root cause
+- `Cascade` uses `.titled` and `.fullSizeContentView` with transparent chrome (`WindowChromeView`). AppKit overlays an invisible `NSTitlebarContainerView` (~28pt high) across the top of the window for window dragging and traffic light controls. Any SwiftUI controls positioned in this top 28pt band have mouse events intercepted and swallowed by AppKit.
+- `FileBrowserView`'s `topBar` sits in the main content container which has `.padding(.top, 10)` in `RootView`. With a 52pt `topBar` height, the search bar and action buttons were positioned between `y = 18.5` and `y = 53.5`, causing the top 10pt of all controls to be completely unclickable.
+- In native macOS fullscreen mode, the titlebar autohides off-screen, so this extra clearance is not needed and would create wasted whitespace.
+
+### What changed
+- `App/AppState.swift`: Added `@Observable` state variable `var isWindowFullScreen: Bool = false`.
+- `Features/RootView.swift`: Passed `appState` into `WindowChromeFixer`. In `WindowChromeView`, initialized `isWindowFullScreen` from `window.styleMask.contains(.fullScreen)` and observed `NSWindow.willEnterFullScreenNotification`, `didEnterFullScreenNotification`, `willExitFullScreenNotification`, and `didExitFullScreenNotification` to keep `appState.isWindowFullScreen` synchronized. Added smooth animation `.animation(.easeInOut(duration: 0.20), value: appState.isWindowFullScreen)` to `RootView`.
+- `Features/FileBrowserView.swift`: Added `topBarTopPadding` (`appState.isWindowFullScreen ? 0 : 36`) and applied `.padding(.top, topBarTopPadding)` to `topBar` before its background `.background(.black.opacity(0.22), ignoresSafeAreaEdges: .top)`. The dark header background card continues extending cleanly to `y = 10`, but interactive elements (search field, search mode selector, sorting menu, grid/list toggle) now sit at `y = 54.5..89.5` (center `y = 72`), completely clearing the 28pt drag strip and aligning visually with the sidebar items (center `y = 67`).
+- `Features/SidebarView.swift`: Made sidebar content top padding responsive: `.padding(.top, appState.isWindowFullScreen ? 14 : 40)`.
+- `Features/TheaterView.swift` & `Features/BookReaderView.swift`: Updated top controls padding to conditionally pad by `+36pt` in window mode, ensuring full clickability of back/close buttons and toolbars when windowed.
+
+### Verification
+- Builds: macOS (`Cascade` scheme) and iOS (`Cascade iOS` scheme, `sdk iphoneos`) **BUILD SUCCEEDED**.
+- Test suite: `CascadeTests` 106 tests passed, 0 failures (**TEST SUCCEEDED**).
+- Debug app relaunched: verified clean layout and window dragging in the empty header area.
 
 ## 2026-09-10 (evening) — Release bundle ID + new light icon art (Round 238)
 

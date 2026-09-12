@@ -81,7 +81,7 @@ struct BookReaderView: View {
                         pdfToolbar
                         Spacer()
                     }
-                    .padding(.top, 12)
+                    .padding(.top, appState.isWindowFullScreen ? 12 : 12 + 36)
                 } else {
                     VStack {
                         topControls
@@ -89,7 +89,7 @@ struct BookReaderView: View {
                         bottomControls
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 12)
+                    .padding(.top, appState.isWindowFullScreen ? 12 : 12 + 36)
                     .padding(.bottom, 16)
                     .opacity(chromeVisible ? 1 : 0)
                     .allowsHitTesting(chromeVisible)

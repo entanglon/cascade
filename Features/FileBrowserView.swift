@@ -786,6 +786,10 @@ struct FileBrowserView: View {
         .pickerStyle(.inline)
     }
 
+    private var topBarTopPadding: CGFloat {
+        appState.isWindowFullScreen ? 0 : 36
+    }
+
     private var topBar: some View {
         @Bindable var appState = appState
         return HStack(spacing: 10) {            // LEFT — page heading
@@ -931,6 +935,7 @@ struct FileBrowserView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 52)
+        .padding(.top, topBarTopPadding)
         .background(.black.opacity(0.22), ignoresSafeAreaEdges: .top)
         .overlay(alignment: .bottom) {
             Divider().overlay(.white.opacity(0.08))

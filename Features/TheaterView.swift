@@ -474,8 +474,9 @@ struct TheaterView: View {
             .help("Close Player")
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.black.opacity(0.4))
+        .padding(.top, appState.isWindowFullScreen ? 12 : 12 + 36)
+        .padding(.bottom, 12)
+        .background(.black.opacity(0.4), ignoresSafeAreaEdges: .top)
     }
 
     // MARK: - Bottom Info

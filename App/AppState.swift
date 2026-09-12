@@ -222,6 +222,10 @@ final class AppState {
     /// File whose version history sheet is open (context menu → "Version History…").
     var versionHistoryTarget: ObjectRecord? = nil
     var isTheaterFullScreen: Bool = false
+    /// True while the main application window is in native macOS fullscreen mode.
+    /// In window mode (false), the main UI adds top padding so that controls
+    /// (search bar, buttons, title) are not covered by the window-level titlebar/traffic lights.
+    var isWindowFullScreen: Bool = false
 
     /// Object whose card should flash its border after a "reveal in folder"
     /// (double-click on a completed transfer card). Cleared automatically once the

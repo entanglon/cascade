@@ -96,6 +96,7 @@ struct RootView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.currentNotification)
         .animation(.easeOut(duration: 0.18), value: appState.isTheaterFullScreen)
         .animation(.easeOut(duration: 0.25), value: TelegramClient.shared.isAuthorized)
+        .animation(.easeInOut(duration: 0.20), value: appState.isWindowFullScreen)
         .sheet(isPresented: Binding(
             get: { appState.showOnboarding },
             set: { appState.showOnboarding = $0 }
@@ -127,7 +128,7 @@ struct RootView: View {
                     .environment(appState)
             }
         }
-        .background(WindowChromeFixer())
+        .background(WindowChromeFixer(appState: appState))
         .onReceive(NotificationCenter.default.publisher(for: .cascadeUploadFinished)) { _ in
             // Refresh the file list the moment an upload completes so files appear
             // in the browser in real time (also covers resume/retry completions).
@@ -189,16 +190,25 @@ struct AuthSplashView: View {
 }
 
 struct WindowChromeFixer: NSViewRepresentable {
+    var appState: AppState? = nil
+
     func makeNSView(context: Context) -> NSView {
-        WindowChromeView()
+        let view = WindowChromeView()
+        view.appState = appState
+        return view
     }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let chromeView = nsView as? WindowChromeView {
+            chromeView.appState = appState
+        }
+    }
 }
 
 /// Applies the transparent-titlebar window styling as soon as the view is attached
 /// to a window (and again on every window change), so windowed mode never shows the
 /// default macOS titlebar band over the app's dark UI.
 final class WindowChromeView: NSView {
+    weak var appState: AppState?
     private var fullScreenObservers: [NSObjectProtocol] = []
 
     override func viewDidMoveToWindow() {
@@ -210,6 +220,9 @@ final class WindowChromeView: NSView {
         }
         DispatchQueue.main.async { [weak self] in
             self?.applyChrome()
+            if let win = self?.window {
+                self?.appState?.isWindowFullScreen = win.styleMask.contains(.fullScreen)
+            }
         }
         observeFullScreenTransitions(window)
     }
@@ -227,6 +240,7 @@ final class WindowChromeView: NSView {
             forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main
         ) { [weak self] _ in
             self?.window?.collectionBehavior.remove(.moveToActiveSpace)
+            self?.appState?.isWindowFullScreen = true
         })
         // Belt and suspenders: re-assert the removal once the transition completes
         // (in case something re-inserted the flag mid-transition), and restore it
@@ -235,11 +249,18 @@ final class WindowChromeView: NSView {
             forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
         ) { [weak self] _ in
             self?.window?.collectionBehavior.remove(.moveToActiveSpace)
+            self?.appState?.isWindowFullScreen = true
+        })
+        fullScreenObservers.append(nc.addObserver(
+            forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            self?.appState?.isWindowFullScreen = false
         })
         fullScreenObservers.append(nc.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
         ) { [weak self] _ in
             self?.window?.collectionBehavior.insert(.moveToActiveSpace)
+            self?.appState?.isWindowFullScreen = false
         })
     }
 

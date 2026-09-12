@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-10 (evening): Round 238 — Release bundle ID + new light icon art. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (morning): Round 239 — Window-mode main UI top padding and search bar clickability fix. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4373,3 +4373,10 @@ Open levers (not scheduled):
      - Release ID `com.entanglon.cascade`; data-folder split extended (would have merged prod into dev data).
      - New light glyph extracted, bundle refreshed, ictool re-render adopted at 81% footprint.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED**. Debug relaunched.
+ 239. **Window-mode main UI top padding & search bar clickability (2026-09-12 morning — COMMITTED)**
+     (`App/AppState.swift`, `Features/RootView.swift`, `Features/FileBrowserView.swift`, `Features/SidebarView.swift`, `Features/TheaterView.swift`, `Features/BookReaderView.swift`)
+     - AppKit titlebar container (~28pt) overlapped `topBar` controls (search field, sort/view buttons) in window mode, intercepting clicks as window drags.
+     - Added `AppState.isWindowFullScreen` synced via `NSWindow` notifications in `WindowChromeView`.
+     - In window mode, `topBar` content is padded 36pt down while its `.background(.black.opacity(0.22))` card stretches to the top, matching the sidebar alignment and ensuring full clickability. Fullscreen collapses to 0pt.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
+
