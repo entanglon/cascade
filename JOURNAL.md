@@ -40,6 +40,7 @@ User requested:
 - iOS Build (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
 - Unit & UI Tests: 64 unit tests + 2 UI tests + 2 launch tests = all passed with **TEST SUCCEEDED**.
 - Installed and launched cleanly on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
+- Commit: `9c4fef8`.
 
 ---
 
