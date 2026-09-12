@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 246 — iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (evening): Round 247 — iOS UI/UX Parity & Engine Fixes: Password-Protected Folder Shares, Import Preview & Post-Import Reveal/Pulse, Multi-File Import Sibling Confirmation, Background Bleed Fixes, Browse Pop-to-Root, Default Launch to All Files, Transfers & Settings Modernization. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4433,3 +4433,16 @@ Open levers (not scheduled):
      - Library view: Created full-featured `LibraryView` for EPUBs, PDFs, and MOBI books (`isBook || isBookFile || isInLibrary`) with grid/list modes, search, selection, and multi-file actions.
      - Settings redesign: Rebuilt `SettingsView` with Telegram profile avatar, initials fallback, cloud sync status & manual sync trigger, vault security/PIN & biometrics, vault usage storage breakdown bar, cache purge, and sign out.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), CascadeTests **TEST SUCCEEDED** (64 unit + 4 UI/launch tests passed).
+ 247. **iOS UI/UX Parity & Engine Fixes: Password-Protected Folder Shares, Import Preview & Post-Import Reveal/Pulse, Multi-File Import Sibling Confirmation, Background Bleed Fixes, Browse Pop-to-Root, Default Launch to All Files, Transfers & Settings Modernization (2026-09-12 evening)**
+     (`App/AppState.swift`, `Engine/ShareEngine.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/RootView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/Features/SettingsView.swift`)
+     - Password-protected folder shares: Removed folder restriction in `AppState.promptPasswordShare(_:)`; fixed path retention in `ShareEngine.walk(object, object.name)`; wrapped verification sentinel with `linkKey` for multi-file/folder links; enforced early password validation in `stageImport` (`ShareError.invalidPassword`).
+     - Multi-file / Folder import sibling confirmation: Fixed folder import bug where only 1 item was marked ready. In `confirmImport(_:)`, cascaded confirmation to all pending sibling files sharing the same `inviteLink`, marking them ready, setting unique names, and queueing chunks to `BackupSync`. Cascaded `discardImport(_:)` across siblings.
+     - Import preview & immediate thumbnails: Redesigned `ImportShareLinkSheet` with a reactive preview card that parses pasted link and shows thumbnail, title, item count, and "Import to Drive" action; cached thumbnail directly from share channel message during `stageImport` into `UploadEngine.thumbnailsDirectory()/[objectID]-tg.jpg`.
+     - Post-import reveal & pulse animation: Added `revealObjectID` and `revealObject(_:)` in `AppState`. Upon import completion, automatically navigates into the target folder and pulses a blue `RevealFlashRing` on the imported item for 3 seconds.
+     - Background bleed fixes: Enclosed `FileBrowserView`, `TrashView`, and all subviews in solid dark `ZStack` (`Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()`) and updated empty state views to take `maxWidth: .infinity, maxHeight: .infinity`, eliminating system white/gray bleeds behind lists and cards.
+     - Browse pop-to-root: Re-tapping the Browse tab in `CustomGlassTabBar` pops back to root dashboard (`browseNavPath.removeAll()`).
+     - Default launch to All Files: Set default `browseNavPath` to `[.allFiles]` so the app opens into All Files on cold start, while Browse tab returns to Browse dashboard.
+     - Transfers & Shared page modernization: Redesigned `SharedView` with frosted glass cards (`ShareGridCard` and `ShareListRow`), section headers ("PUBLIC SHARES", "PRIVATE SHARES"), and clean share stats. Modernized `TransfersView` observing `TransferCenter.shared.items` with "UPLOADS", "DOWNLOADS", and "IMPORTS" sections, real-time progress bars, speed, pause/resume/retry/clear controls, and tap-to-reveal.
+     - Settings redesign: Converted `SettingsView` from grouped `List` to dark `ScrollView` with `.frostedGlassCard(cornerRadius: 16)` cards (Account, Cloud Sync, Private Vault & Security, Vault Usage storage breakdown bar, Local Cache management, About, and Sign Out).
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched cleanly on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`), CascadeTests **TEST SUCCEEDED** (70 unit/integration tests passed).
+

@@ -80,267 +80,39 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                // MARK: - User Account Section
-                Section {
-                    HStack(spacing: 16) {
-                        ZStack {
-                            if let photoData = appState.profilePhotoData,
-                               let uiImage = UIImage(data: photoData) {
-                                Image(uiImage: uiImage)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 58, height: 58)
-                                    .clipShape(Circle())
-                            } else {
-                                Circle()
-                                    .fill(XTheme.brandGradient)
-                                    .frame(width: 58, height: 58)
-                                    .overlay {
-                                        Text(initials)
-                                            .font(.system(size: 20, weight: .bold))
-                                            .foregroundStyle(.white)
-                                    }
-                            }
-                        }
-                        .frame(width: 58, height: 58)
+            ZStack {
+                Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(displayName)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // MARK: - User Account Section
+                        accountCard
 
-                            Text(accountLine)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        // MARK: - Cloud Sync Section
+                        cloudSyncCard
 
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(appState.isAuthorized ? Color.green : Color.orange)
-                                    .frame(width: 7, height: 7)
-                                Text(appState.isAuthorized ? "Telegram Connected" : "Not Authorized")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.top, 2)
+                        // MARK: - Private Vault & Security Section
+                        securityCard
+
+                        // MARK: - Vault Usage / Storage Breakdown Section
+                        vaultUsageCard
+
+                        // MARK: - Local Storage / Cache Section
+                        localStorageCard
+
+                        // MARK: - About Section
+                        aboutCard
+
+                        // MARK: - Sign Out Section
+                        if appState.isAuthorized {
+                            signOutCard
                         }
                     }
-                    .padding(.vertical, 6)
-                }
-
-                // MARK: - Cloud Sync Section
-                Section("Cloud Sync") {
-                    HStack {
-                        Label("Last Synced", systemImage: "arrow.triangle.2.circlepath")
-                        Spacer()
-                        Text(lastSyncText)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Label("Sync Now", systemImage: "arrow.clockwise")
-                        Spacer()
-                        Button {
-                            Task {
-                                await appState.syncNow()
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                if appState.isSyncing {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                }
-                                Text(appState.isSyncing ? "Syncing…" : "Sync")
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(XTheme.accent)
-                            }
-                        }
-                        .disabled(appState.isSyncing)
-                    }
-                }
-
-                // MARK: - Private Vault & Security Section
-                Section("Private Vault & Security") {
-                    HStack {
-                        Label("Vault Status", systemImage: "lock.shield")
-                        Spacer()
-                        if let error = appState.databaseError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .multilineTextAlignment(.trailing)
-                        } else if appState.isVaultConnected {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Text("Connected")
-                                    .foregroundStyle(.green)
-                            }
-                        } else if appState.isAuthorized {
-                            HStack(spacing: 4) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Setting up…")
-                                    .foregroundStyle(.orange)
-                            }
-                        } else {
-                            HStack(spacing: 4) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.red)
-                                Text("Not Connected")
-                                    .foregroundStyle(.red)
-                            }
-                        }
-                    }
-
-                    HStack {
-                        Label("Vault Key", systemImage: "key.fill")
-                        Spacer()
-                        if appState.isVaultLocked {
-                            Button("Unlock with PIN") {
-                                appState.showVaultUnlockSheet = true
-                            }
-                            .font(.subheadline.bold())
-                            .foregroundStyle(XTheme.accent)
-                        } else {
-                            HStack(spacing: 4) {
-                                Image(systemName: "lock.open.fill")
-                                    .foregroundStyle(.green)
-                                Text("Unlocked")
-                                    .foregroundStyle(.green)
-                            }
-                            .font(.subheadline)
-                        }
-                    }
-
-                    if BiometricUnlock.isAvailable() {
-                        Toggle(isOn: Binding(
-                            get: { biometricEnabled },
-                            set: { newValue in
-                                biometricEnabled = newValue
-                                BiometricUnlock.setEnabled(newValue)
-                            }
-                        )) {
-                            Label(
-                                "Unlock with \(BiometricUnlock.biometryName)",
-                                systemImage: BiometricUnlock.biometryName == "Face ID" ? "faceid" : "touchid"
-                            )
-                        }
-                        .tint(XTheme.accent)
-                    }
-                }
-
-                // MARK: - Vault Usage / Storage Breakdown Section
-                Section("Vault Usage") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        storageBar
-                            .padding(.top, 4)
-
-                        ForEach(storageBreakdown) { item in
-                            if item.bytes > 0 {
-                                HStack(spacing: 8) {
-                                    Image(systemName: item.category.icon)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(item.category.color)
-                                        .frame(width: 20)
-                                    Text(item.category.title)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    Text("\(XTheme.formatBytes(item.bytes)) · \(item.percentText)")
-                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-
-                    HStack {
-                        Label("Files", systemImage: "doc.fill")
-                        Spacer()
-                        Text("\(stats.files)")
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Label("Folders", systemImage: "folder.fill")
-                        Spacer()
-                        Text("\(stats.folders)")
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Label("Cloud Storage Used", systemImage: "icloud.fill")
-                        Spacer()
-                        Text(XTheme.formatBytes(stats.size))
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.primary)
-                    }
-                }
-
-                // MARK: - Local Storage / Cache Section
-                Section("Local Storage") {
-                    HStack {
-                        Label("Cache Size", systemImage: "internaldrive")
-                        Spacer()
-                        Text(ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button(role: .destructive) {
-                        showClearCacheAlert = true
-                    } label: {
-                        Label("Clear Local Cache", systemImage: "trash")
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                // MARK: - About Section
-                Section("About") {
-                    HStack(spacing: 14) {
-                        Image("CascadeLogo")
-                            .resizable()
-                            .renderingMode(.original)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 40, height: 40)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Cascade")
-                                .font(.headline)
-                            Text("Version 1.0 (iOS)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("Telegram-powered cloud drive")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary.opacity(0.8))
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                // MARK: - Sign Out Section
-                if appState.isAuthorized {
-                    Section {
-                        Button(role: .destructive) {
-                            showSignOutAlert = true
-                        } label: {
-                            HStack {
-                                Spacer()
-                                Text("Sign Out")
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(.red)
-                                Spacer()
-                            }
-                        }
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 36)
                 }
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -349,6 +121,7 @@ struct SettingsView: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
+                    .foregroundStyle(XTheme.accent)
                 }
             }
             .task {
@@ -376,6 +149,366 @@ struct SettingsView: View {
                 Text("Are you sure you want to sign out? You will need to log in again with Telegram to access your files.")
             }
         }
+    }
+
+    // MARK: - Section Components
+
+    private var accountCard: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                if let photoData = appState.profilePhotoData,
+                   let uiImage = UIImage(data: photoData) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 58, height: 58)
+                        .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(XTheme.brandGradient)
+                        .frame(width: 58, height: 58)
+                        .overlay {
+                            Text(initials)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                }
+            }
+            .frame(width: 58, height: 58)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(displayName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Text(accountLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.65))
+
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(appState.isAuthorized ? Color.green : Color.orange)
+                        .frame(width: 7, height: 7)
+                    Text(appState.isAuthorized ? "Telegram Connected" : "Not Authorized")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(appState.isAuthorized ? Color.green : Color.orange)
+                }
+                .padding(.top, 2)
+            }
+
+            Spacer()
+        }
+        .padding(16)
+        .frostedGlassCard(cornerRadius: 16)
+    }
+
+    private var cloudSyncCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("CLOUD SYNC")
+            VStack(spacing: 0) {
+                HStack {
+                    Label("Last Synced", systemImage: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text(lastSyncText)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.leading, 16)
+
+                HStack {
+                    Label("Sync Now", systemImage: "arrow.clockwise")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Button {
+                        Task {
+                            await appState.syncNow()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if appState.isSyncing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(appState.isSyncing ? "Syncing…" : "Sync")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(XTheme.accent)
+                        }
+                    }
+                    .disabled(appState.isSyncing)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var securityCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("PRIVATE VAULT & SECURITY")
+            VStack(spacing: 0) {
+                HStack {
+                    Label("Vault Status", systemImage: "lock.shield")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    if let error = appState.databaseError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.trailing)
+                    } else if appState.isVaultConnected {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Connected")
+                                .foregroundStyle(.green)
+                        }
+                    } else if appState.isAuthorized {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Setting up…")
+                                .foregroundStyle(.orange)
+                        }
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                            Text("Not Connected")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.leading, 16)
+
+                HStack {
+                    Label("Vault Key", systemImage: "key.fill")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    if appState.isVaultLocked {
+                        Button("Unlock with PIN") {
+                            appState.showVaultUnlockSheet = true
+                        }
+                        .font(.subheadline.bold())
+                        .foregroundStyle(XTheme.accent)
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "lock.open.fill")
+                                .foregroundStyle(.green)
+                            Text("Unlocked")
+                                .foregroundStyle(.green)
+                        }
+                        .font(.subheadline)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                if BiometricUnlock.isAvailable() {
+                    Divider()
+                        .background(Color.white.opacity(0.06))
+                        .padding(.leading, 16)
+
+                    Toggle(isOn: Binding(
+                        get: { biometricEnabled },
+                        set: { newValue in
+                            biometricEnabled = newValue
+                            BiometricUnlock.setEnabled(newValue)
+                        }
+                    )) {
+                        Label(
+                            "Unlock with \(BiometricUnlock.biometryName)",
+                            systemImage: BiometricUnlock.biometryName == "Face ID" ? "faceid" : "touchid"
+                        )
+                        .foregroundStyle(.white)
+                    }
+                    .tint(XTheme.accent)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var vaultUsageCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("VAULT USAGE")
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    storageBar
+
+                    VStack(spacing: 8) {
+                        ForEach(storageBreakdown) { item in
+                            if item.bytes > 0 {
+                                HStack(spacing: 8) {
+                                    Image(systemName: item.category.icon)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(item.category.color)
+                                        .frame(width: 20)
+                                    Text(item.category.title)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Text("\(XTheme.formatBytes(item.bytes)) · \(item.percentText)")
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.6))
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.leading, 16)
+
+                HStack {
+                    Label("Files", systemImage: "doc.fill")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("\(stats.files)")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.leading, 16)
+
+                HStack {
+                    Label("Folders", systemImage: "folder.fill")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("\(stats.folders)")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.leading, 16)
+
+                HStack {
+                    Label("Cloud Storage Used", systemImage: "icloud.fill")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text(XTheme.formatBytes(stats.size))
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var localStorageCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("LOCAL STORAGE")
+            VStack(spacing: 0) {
+                HStack {
+                    Label("Cache Size", systemImage: "internaldrive")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text(ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                Divider()
+                    .background(Color.white.opacity(0.06))
+                    .padding(.leading, 16)
+
+                Button {
+                    showClearCacheAlert = true
+                } label: {
+                    HStack {
+                        Label("Clear Local Cache", systemImage: "trash")
+                            .foregroundStyle(.red)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(.plain)
+            }
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var aboutCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("ABOUT")
+            HStack(spacing: 14) {
+                Image("CascadeLogo")
+                    .resizable()
+                    .renderingMode(.original)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cascade")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Text("Version 1.0 (iOS)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text("Telegram-powered cloud drive")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+
+                Spacer()
+            }
+            .padding(16)
+            .frostedGlassCard(cornerRadius: 16)
+        }
+    }
+
+    private var signOutCard: some View {
+        Button {
+            showSignOutAlert = true
+        } label: {
+            HStack {
+                Spacer()
+                Text("Sign Out")
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.red)
+                Spacer()
+            }
+            .padding(.vertical, 14)
+            .frostedGlassCard(cornerRadius: 16)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(Color.white.opacity(0.40))
+            .tracking(0.6)
+            .padding(.horizontal, 4)
     }
 
     private func updateCacheSize() {

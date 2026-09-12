@@ -1596,7 +1596,7 @@ final class AppState {
     /// `password` optionally protects the link with a client-side derived password key.
     @MainActor
     func promptPasswordShare(_ objects: [ObjectRecord]) {
-        let shareable = objects.filter { !$0.isFolder && !$0.isPrivate }
+        let shareable = objects.filter { !$0.isPrivate }
         guard !shareable.isEmpty else {
             alertMessage = ShareEngine.describe(
                 objects.contains(where: { $0.isPrivate })

@@ -196,6 +196,41 @@ final class AppState {
         self.showDocumentScanner = true
     }
 
+    // Navigation & Reveal State
+    var browseNavPath: [BrowseDestination] = [.allFiles]
+    var revealObjectID: String? = nil
+    var revealToken: Int = 0
+
+    @MainActor
+    func revealObject(_ object: ObjectRecord) {
+        let parentID = object.parentID ?? ""
+        currentFolderID = parentID
+        if parentID.isEmpty {
+            currentFolderName = "All Files"
+            folderStack.removeAll()
+        } else {
+            var stack: [(id: String, name: String)] = []
+            var currentID: String? = parentID
+            let allObjs = allFiles
+            while let cid = currentID, !cid.isEmpty, let f = allObjs.first(where: { $0.id == cid }) {
+                stack.insert((id: f.id, name: f.name), at: 0)
+                currentID = f.parentID
+            }
+            if let target = stack.popLast() {
+                currentFolderName = target.name
+                folderStack = stack
+            }
+        }
+        files = currentFiles
+
+        if !browseNavPath.contains(.allFiles) {
+            browseNavPath = [.allFiles]
+        }
+
+        revealObjectID = object.id
+        revealToken &+= 1
+    }
+
     // Global Upload Pickers State
     var showPhotosPicker: Bool = false
     var showFileImporter: Bool = false
@@ -1254,10 +1289,14 @@ final class AppState {
                 _ = await CatalogSnapshot.upload()
                 await loadAllFiles()
                 await loadShares()
+                let importedRecord = try? await DatabaseManager.shared.object(objectID)
                 await MainActor.run {
                     self.pendingPasswordLink = nil
                     self.showImportShareSheet = false
                     self.currentNotification = "Imported \"\(finalName)\""
+                    if let importedRecord {
+                        self.revealObject(importedRecord)
+                    }
                 }
             case .imported:
                 _ = await CatalogSnapshot.upload()
@@ -1270,22 +1309,24 @@ final class AppState {
                 }
             case .selfOpen(let objectID):
                 await loadAllFiles()
+                let targetRecord = try? await DatabaseManager.shared.object(objectID)
                 await MainActor.run {
                     self.pendingPasswordLink = nil
                     self.showImportShareSheet = false
-                    if let file = self.allFiles.first(where: { $0.id == objectID }) {
-                        self.currentNotification = "This is your own file: \(file.name)"
-                        self.openFile(file)
+                    if let targetRecord {
+                        self.currentNotification = "This is your own file: \(targetRecord.name)"
+                        self.revealObject(targetRecord)
                     }
                 }
             case .alreadyImported(let objectID):
                 await loadAllFiles()
+                let targetRecord = try? await DatabaseManager.shared.object(objectID)
                 await MainActor.run {
                     self.pendingPasswordLink = nil
                     self.showImportShareSheet = false
-                    if let file = self.allFiles.first(where: { $0.id == objectID }) {
-                        self.currentNotification = "Already in your drive: \(file.name)"
-                        self.openFile(file)
+                    if let targetRecord {
+                        self.currentNotification = "Already in your drive: \(targetRecord.name)"
+                        self.revealObject(targetRecord)
                     }
                 }
             }

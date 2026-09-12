@@ -385,7 +385,7 @@ enum ShareEngine {
                     walk(child, (prefix.isEmpty ? "" : prefix + "/") + child.name)
                 }
             }
-            for object in objects where object.isFolder { walk(object, "") }
+            for object in objects where object.isFolder { walk(object, object.name) }
             for object in objects where !object.isFolder {
                 if expandedIDs.insert(object.id).inserted { expanded.append((object, nil)) }
             }
@@ -567,11 +567,24 @@ enum ShareEngine {
             files.append(ShareFile(name: object.name, messageIDs: fileIDs, wrappedKey: wrappedForLink, path: pathByObjectID[object.id] ?? nil))
         }
 
+        if isProtected && singleWrappedKeyB64.isEmpty {
+            let sentinelKey = SymmetricKey(size: .bits256)
+            if let wrappedSentinel = try? CryptoEngine.wrap(sentinelKey, with: linkKey) {
+                singleWrappedKeyB64 = wrappedSentinel.base64EncodedString()
+            }
+        }
+
         // Group links present a combined name; the record also stores every object
         // ID so single-file reuse never hands out a group link and group reuse can
         // match the exact same selection.
-        let isGroup = files.count > 1
-        let displayName = isGroup ? "\(files.count) files" : (files.first?.name ?? "Shared file")
+        let isGroup = files.count > 1 || files.contains(where: { $0.path != nil })
+        let displayName: String
+        let folderPrefixes = Set(files.compactMap { $0.path?.split(separator: "/").first.map(String.init) })
+        if folderPrefixes.count == 1, let folderName = folderPrefixes.first {
+            displayName = folderName
+        } else {
+            displayName = isGroup ? "\(files.count) files" : (files.first?.name ?? "Shared file")
+        }
 
         // Public shares never expire; private shares live for `lifetime`.
         let expiry = isPublic ? Foundation.Date.distantFuture : Foundation.Date().addingTimeInterval(lifetime)
@@ -1195,6 +1208,19 @@ enum ShareEngine {
                 // 100k. Try current first, fall back to legacy for old links.
                 linkKey = CryptoEngine.deriveLinkKey(from: password, salt: saltData)
                 legacyLinkKey = CryptoEngine.deriveLegacyLinkKey(from: password, salt: saltData)
+
+                // If link is password-protected and carries a wrapped key or verification sentinel, verify password now
+                if !link.wrappedKeyB64.isEmpty, let rawWrapped = Data(base64Encoded: link.wrappedKeyB64) {
+                    var verified = false
+                    if let linkKey, (try? CryptoEngine.unwrap(rawWrapped, with: linkKey)) != nil {
+                        verified = true
+                    } else if let legacy = legacyLinkKey, (try? CryptoEngine.unwrap(rawWrapped, with: legacy)) != nil {
+                        verified = true
+                    }
+                    if !verified {
+                        throw ShareError.invalidPassword
+                    }
+                }
             } else if !link.shareKey.isEmpty {
                 guard let keyData = Data(base64Encoded: link.shareKey) else {
                     throw ShareError.invalidLink
@@ -1267,6 +1293,16 @@ enum ShareEngine {
 
                 // Forward every chunk message into our vault channel (server-side copy).
                 let objectID = UUID().uuidString
+
+                // Cache thumbnail directly from the share channel's message before leaving
+                if let firstMessageId = messages.first?.messageId {
+                    if let thumbData = try? await TelegramClient.shared.thumbnailData(forMessage: firstMessageId, chatId: channelID),
+                       !thumbData.isEmpty,
+                       let thumbDir = try? UploadEngine.thumbnailsDirectory() {
+                        let dest = thumbDir.appendingPathComponent("\(objectID)-tg.jpg")
+                        try? thumbData.write(to: dest)
+                    }
+                }
                 let chunkSize = first.effectiveChunkSize
                 var chunkRecords: [ChunkRecord] = []
                 for (message, meta) in zip(messages, metas) {
@@ -1398,6 +1434,36 @@ enum ShareEngine {
             updated.state = "imported"
             updated.fileName = finalName
             try? await DatabaseManager.shared.saveShare(updated)
+
+            // Multi-file / Folder batch confirmation:
+            // If this share was part of a multi-file or folder link (sharing the same inviteLink),
+            // confirm and catalog all other pending sibling files in this batch!
+            if !record.inviteLink.isEmpty {
+                let pendingSiblings = ((try? await DatabaseManager.shared.shares(role: "incoming")) ?? [])
+                    .filter { $0.inviteLink == record.inviteLink && $0.state == "pending" && $0.objectID != objectID }
+                for sibling in pendingSiblings {
+                    if var sibObj = try? await DatabaseManager.shared.object(sibling.objectID),
+                       sibObj.state == "pendingImport" {
+                        let sibFinalName = try await Self.uniqueImportName(sibObj.name)
+                        sibObj.name = sibFinalName
+                        sibObj.state = "ready"
+                        try? await DatabaseManager.shared.save(sibObj)
+
+                        let sibChunks = (try? await DatabaseManager.shared.chunks(for: sibling.objectID)) ?? []
+                        for chunk in sibChunks {
+                            if let mid = chunk.messageID {
+                                BackupSync.enqueue(messageID: mid, objectID: sibling.objectID)
+                            }
+                        }
+
+                        var updatedSib = sibling
+                        updatedSib.state = "imported"
+                        updatedSib.fileName = sibFinalName
+                        try? await DatabaseManager.shared.saveShare(updatedSib)
+                        logger.info("Pending sibling import \(sibling.objectID): imported as \(sibFinalName)")
+                    }
+                }
+            }
         }
         NotificationCenter.default.post(name: .cascadeUploadFinished, object: nil)
         logger.info("Pending import \(objectID): imported as \(finalName) (\(chunks.count) chunks)")
@@ -1416,6 +1482,18 @@ enum ShareEngine {
         }
         if let record = (try? await DatabaseManager.shared.shares(role: "incoming"))?
             .first(where: { $0.objectID == objectID && $0.state == "pending" }) {
+            if !record.inviteLink.isEmpty {
+                let pendingSiblings = ((try? await DatabaseManager.shared.shares(role: "incoming")) ?? [])
+                    .filter { $0.inviteLink == record.inviteLink && $0.state == "pending" && $0.objectID != objectID }
+                for sibling in pendingSiblings {
+                    let sibMids = ((try? await DatabaseManager.shared.chunks(for: sibling.objectID)) ?? []).compactMap(\.messageID)
+                    if !sibMids.isEmpty, let vault = try? await VaultManager.ensureVault() {
+                        try? await TelegramClient.shared.deleteMessages(chatId: vault.channelID, messageIds: sibMids)
+                    }
+                    try? await DatabaseManager.shared.deleteShare(id: sibling.id)
+                    try? await DatabaseManager.shared.deleteObjectWithChunks(id: sibling.objectID)
+                }
+            }
             try? await DatabaseManager.shared.deleteShare(id: record.id)
         }
         try? await DatabaseManager.shared.deleteObjectWithChunks(id: objectID)

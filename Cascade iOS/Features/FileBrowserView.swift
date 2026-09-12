@@ -31,7 +31,10 @@ struct FileBrowserView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08)
+                .ignoresSafeArea()
+
             if filteredFiles.isEmpty && !appState.isCreatingFolder {
                 if !searchText.isEmpty {
                     NoSearchResultsView(query: searchText)
@@ -44,7 +47,6 @@ struct FileBrowserView: View {
                 listView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : folderTitle)
         .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
         .navigationBarBackButtonHidden(isSelecting)
@@ -235,21 +237,20 @@ struct FileBrowserView: View {
     }
 
     private var emptyState: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Spacer(minLength: 80)
-                AppleFolderIcon(width: 68, height: 54)
-                Text("No Files")
-                    .font(.title2.bold())
-                Text("Upload files from the Mac app to see them here.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
+        VStack(spacing: 16) {
+            Spacer()
+            AppleFolderIcon(width: 68, height: 54)
+            Text("No Files")
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+            Text("Upload files from the Mac app or tap + to add files.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {

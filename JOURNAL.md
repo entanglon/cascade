@@ -2,7 +2,57 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (afternoon) — iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch (Round 246).
+> 2026-09-12 (evening) — iOS UI/UX Parity & Engine Fixes: Password-Protected Folder Shares, Import Preview & Post-Import Reveal/Pulse, Multi-File Import Sibling Confirmation, Background Bleed Fixes, Browse Pop-to-Root, Default Launch to All Files, Transfers & Settings Modernization (Round 247).
+
+---
+
+## 2026-09-12 (evening) — iOS UI/UX Parity & Engine Fixes: Password-Protected Folder Shares, Import Preview & Post-Import Reveal/Pulse, Multi-File Import Sibling Confirmation, Background Bleed Fixes, Browse Pop-to-Root, Default Launch to All Files, Transfers & Settings Modernization (Round 247)
+
+User requested:
+1. **Password-Protected Share for Folders**: Fix password-protected sharing failing for folders (macOS and iOS).
+2. **Share Link Import Improvements**:
+   - Preview card on link paste: show thumbnail/icon, title, item count, and an "Import to Drive" button.
+   - Post-import navigation & highlight: navigate directly into the folder and blink/highlight the newly imported item.
+   - Import thumbnails: immediately cache thumbnails for imported files instead of leaving them blank.
+   - Multi-file / Folder import fix: folder imports previously only imported a single photo/file instead of all files.
+3. **Recently Deleted & Empty View Backgrounds**: Fix background showing white/gray bleeds behind empty states and lists on iPhone.
+4. **Browse Nav Bar Re-tap**: Tapping Browse in the navigation bar when inside a subfolder or pushed page must pop back to root Browse dashboard.
+5. **Default Launch Page**: App should launch directly into "All Files", while tapping Browse returns to the Browse dashboard.
+6. **Transfers & Shared Page Modernization**: Redesign Transfers and Shared views with frosted glass cards matching macOS design.
+7. **Settings Redesign**: Convert Settings on iOS from raw grouped `List` into modern frosted glass cards matching macOS.
+
+### Analysis & Implementation
+- **Password-Protected Folder Shares**:
+  - `App/AppState.swift`: Removed folder exclusion (`!$0.isFolder`) in `promptPasswordShare(_:)`.
+  - `Engine/ShareEngine.swift`: Fixed recursive path walk `walk(object, object.name)` to retain folder names in paths.
+  - Added a client-side verification sentinel key wrapped with `linkKey` when exporting multi-file/folder password-protected links.
+  - In `stageImport`, added immediate password verification using derived `linkKey` and legacy key on `link.wrappedKeyB64`, throwing `ShareError.invalidPassword` before transferring files if incorrect.
+- **Folder & Multi-File Import Sibling Confirmation**:
+  - In `ShareEngine.confirmImport(_:)`, added cascading confirmation of all pending sibling files sharing the same `inviteLink`, updating their states to `"imported"`, assigning unique file names, and adding chunks to backup sync. Added cascading deletion in `discardImport(_:)`.
+  - In `ShareEngine.stageImport`, downloaded thumbnail data directly from share channel message (`TelegramClient.shared.thumbnailData(forMessage:chatId:)`) into `UploadEngine.thumbnailsDirectory()/[objectID]-tg.jpg`.
+- **Post-Import Reveal & Pulse Highlight**:
+  - `Cascade iOS/AppState.swift`: Added `revealObjectID`, `revealToken`, and `revealObject(_:)`.
+  - In `Cascade iOS/RootView.swift`, added `RevealFlashRing` modifier to `FileListRow` and `FileGridItem` when matching `appState.revealObjectID`, displaying a pulsing blue ring animation for 3 seconds.
+  - Upon successful share import, `appState.importShareLink` automatically calls `revealObject(importedRecord)`, opening the destination folder and highlighting the item.
+- **Import Preview Card**:
+  - `Cascade iOS/RootView.swift`: Redesigned `ImportShareLinkSheet` with a reactive preview card that parses the pasted share URL, displays thumbnail/file icon, title, item count, and an "Import to Drive" button.
+- **Background Bleed Fixes**:
+  - Enclosed `Cascade iOS/Features/FileBrowserView.swift` and all subviews in `Cascade iOS/RootView.swift` (`TrashView`, `RecentsView`, `PhotosView`, `VideosView`, `AudioView`, `DocumentsView`, `LibraryView`, `FavoritesView`, `ArchiveView`) in solid dark `ZStack` (`Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()`) with full-frame empty states.
+- **Browse Tab Re-tap / Pop to Root**:
+  - In `CustomGlassTabBar`, tapping Browse when already selected clears `appState.browseNavPath` to pop back to root dashboard.
+- **Default Launch Page**:
+  - In `Cascade iOS/AppState.swift`, initialized `browseNavPath` to `[.allFiles]`, opening directly into All Files on cold start.
+- **Transfers & Shared Page Redesign**:
+  - Modernized `SharedView` with frosted glass cards (`ShareGridCard` and `ShareListRow`), section headers ("PUBLIC SHARES", "PRIVATE SHARES"), and clean share stats.
+  - Modernized `TransfersView` to observe `TransferCenter.shared.items` with "UPLOADS", "DOWNLOADS", and "IMPORTS" sections, real-time progress bars, speed, pause/resume/retry/clear controls, and tap-to-reveal.
+- **Settings Redesign**:
+  - Rebuilt `Cascade iOS/Features/SettingsView.swift` using dark `ScrollView` with `.frostedGlassCard(cornerRadius: 16)` cards (Account, Cloud Sync, Private Vault & Security, Vault Usage storage breakdown bar, Local Cache management, About, and Sign Out).
+
+### Verification
+- iOS Build (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+- macOS Build (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+- Test Suite: 70 unit and integration tests passed with **TEST SUCCEEDED**.
+- Installed and launched cleanly on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 ---
 

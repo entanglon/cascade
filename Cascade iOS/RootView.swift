@@ -852,12 +852,13 @@ struct RootView: View {
 // MARK: - Bespoke Frosted Glass Bottom Navigation Bar
 
 struct CustomGlassTabBar: View {
+    @Environment(AppState.self) private var appState
     @Binding var selectedTab: RootView.Tab
 
     var body: some View {
         HStack(spacing: 0) {
-            tabButton(tab: .recents, title: "Recents", icon: "clock.fill")
-            tabButton(tab: .shared, title: "Shared", icon: "folder.badge.person.crop")
+            tabButton(tab: .recents, title: "Recents", icon: "clock")
+            tabButton(tab: .shared, title: "Shared", icon: "arrow.triangle.swap")
             tabButton(tab: .browse, title: "Browse", icon: "folder.fill")
         }
         .padding(.top, 10)
@@ -906,6 +907,14 @@ struct CustomGlassTabBar: View {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     selectedTab = tab
                 }
+            } else if tab == .browse {
+                UISelectionFeedbackGenerator().selectionChanged()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    appState.currentFolderID = ""
+                    appState.currentFolderName = "All Files"
+                    appState.folderStack.removeAll()
+                    appState.browseNavPath.removeAll()
+                }
             }
         } label: {
             VStack(spacing: 4) {
@@ -946,10 +955,10 @@ struct BrowseView: View {
     @Binding var selectedTab: RootView.Tab
     @State private var searchText = ""
     @State private var showSettings = false
-    @State private var navPath: [BrowseDestination] = []
 
     var body: some View {
-        NavigationStack(path: $navPath) {
+        @Bindable var bindableAppState = appState
+        return NavigationStack(path: $bindableAppState.browseNavPath) {
             ScrollView {
                 VStack(spacing: 20) {
                     if !searchText.isEmpty {
@@ -1246,7 +1255,7 @@ struct BrowseView: View {
                     ForEach(searchResults) { file in
                         Button {
                             if file.isFolder {
-                                navPath.append(BrowseDestination.allFiles)
+                                appState.browseNavPath.append(BrowseDestination.allFiles)
                             } else {
                                 appState.openFile(file)
                             }
@@ -1380,20 +1389,23 @@ struct RecentsView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if filteredFiles.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
+            ZStack {
+                Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+                Group {
+                    if filteredFiles.isEmpty {
+                        if !searchText.isEmpty {
+                            NoSearchResultsView(query: searchText)
+                        } else {
+                            emptyState
+                        }
+                    } else if viewMode == .grid {
+                        gridView
                     } else {
-                        emptyState
+                        listView
                     }
-                } else if viewMode == .grid {
-                    gridView
-                } else {
-                    listView
                 }
             }
-            .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Recents")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -1544,20 +1556,18 @@ struct RecentsView: View {
     }
 
     private var emptyState: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Image(systemName: "clock")
-                    .font(.system(size: 48))
-                    .foregroundStyle(XTheme.accent)
-                Text("No Recent Files")
-                    .font(.title2.bold())
-                Text("Files you open or add will appear here.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 100)
+        VStack(spacing: 16) {
+            Image(systemName: "clock")
+                .font(.system(size: 48))
+                .foregroundStyle(XTheme.accent)
+            Text("No Recent Files")
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+            Text("Files you open or add will appear here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var recentFiles: [FileItem] {
@@ -1701,30 +1711,33 @@ struct SharedView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if activeShares.isEmpty {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            if showBanner {
-                                familyBanner
-                            }
+            ZStack {
+                Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
 
-                            if !searchText.isEmpty {
-                                NoSearchResultsView(query: searchText)
-                            } else {
-                                emptyState
+                Group {
+                    if activeShares.isEmpty {
+                        ScrollView {
+                            VStack(spacing: 24) {
+                                if showBanner {
+                                    familyBanner
+                                }
+
+                                if !searchText.isEmpty {
+                                    NoSearchResultsView(query: searchText)
+                                } else {
+                                    emptyState
+                                }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
+                    } else if viewMode == .grid {
+                        gridView
+                    } else {
+                        listView
                     }
-                } else if viewMode == .grid {
-                    gridView
-                } else {
-                    listView
                 }
             }
-            .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Shared")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -1805,13 +1818,15 @@ struct SharedView: View {
                 .foregroundStyle(XTheme.accent)
             Text("No Shared Files")
                 .font(.title2.bold())
+                .foregroundStyle(.white)
             Text("Files and folders shared with you or shared by you will appear here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
-        .padding(.top, showBanner ? 20 : 80)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, showBanner ? 20 : 60)
     }
 
     private var gridView: some View {
@@ -1824,12 +1839,13 @@ struct SharedView: View {
 
                 if !publicShares.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Public Shares (\(publicShares.count))")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
+                        Text("PUBLIC SHARES (\(publicShares.count))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.40))
+                            .tracking(0.6)
                             .padding(.horizontal, 16)
 
-                        LazyVGrid(columns: gridColumns, spacing: 28) {
+                        LazyVGrid(columns: gridColumns, spacing: 20) {
                             ForEach(publicShares) { share in
                                 ShareGridCard(share: share)
                             }
@@ -1840,12 +1856,13 @@ struct SharedView: View {
 
                 if !privateShares.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Private Shares (\(privateShares.count))")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
+                        Text("PRIVATE SHARES (\(privateShares.count))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.40))
+                            .tracking(0.6)
                             .padding(.horizontal, 16)
 
-                        LazyVGrid(columns: gridColumns, spacing: 28) {
+                        LazyVGrid(columns: gridColumns, spacing: 20) {
                             ForEach(privateShares) { share in
                                 ShareGridCard(share: share)
                             }
@@ -1855,38 +1872,53 @@ struct SharedView: View {
                 }
             }
             .padding(.top, 12)
-            .padding(.bottom, 24)
+            .padding(.bottom, 32)
         }
     }
 
     private var listView: some View {
-        List {
-            if showBanner {
-                familyBanner
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if showBanner {
+                    familyBanner
+                }
 
-            if !publicShares.isEmpty {
-                Section("Public Shares") {
-                    ForEach(publicShares) { share in
-                        ShareListRow(share: share)
+                if !publicShares.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("PUBLIC SHARES (\(publicShares.count))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.40))
+                            .tracking(0.6)
+                            .padding(.horizontal, 4)
+
+                        VStack(spacing: 8) {
+                            ForEach(publicShares) { share in
+                                ShareListRow(share: share)
+                            }
+                        }
+                    }
+                }
+
+                if !privateShares.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("PRIVATE SHARES (\(privateShares.count))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.40))
+                            .tracking(0.6)
+                            .padding(.horizontal, 4)
+
+                        VStack(spacing: 8) {
+                            ForEach(privateShares) { share in
+                                ShareListRow(share: share)
+                            }
+                        }
                     }
                 }
             }
-
-            if !privateShares.isEmpty {
-                Section("Private Shares") {
-                    ForEach(privateShares) { share in
-                        ShareListRow(share: share)
-                    }
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 32)
         }
-        .listStyle(.insetGrouped)
     }
 
     private var familyBanner: some View {
@@ -1903,10 +1935,10 @@ struct SharedView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Share Files with Anyone")
                     .font(.headline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
                 Text("Long-press any file in your drive and choose Share to generate a secure link.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.65))
 
                 Button {
                     appState.showImportShareSheet = true
@@ -1928,14 +1960,13 @@ struct SharedView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.caption2.bold())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.6))
                     .padding(6)
-                    .background(Color(.tertiarySystemFill), in: Circle())
+                    .background(Color.white.opacity(0.1), in: Circle())
             }
         }
         .padding(14)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .frostedGlassCard(cornerRadius: 16)
     }
 }
 
@@ -1950,32 +1981,30 @@ struct ShareGridCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 5) {
-            ZStack(alignment: .bottom) {
-                ZStack(alignment: .topTrailing) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        VStack(spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(share.isPublic ? Color.green.opacity(0.12) : Color.orange.opacity(0.12))
 
-                        Image(systemName: share.isPublic ? "globe" : "lock.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(share.isPublic ? Color.green : Color.orange)
-                    }
-                    .frame(height: 94)
-                    .frame(maxWidth: .infinity)
-
-                    HStack(spacing: 3) {
-                        Image(systemName: share.isPublic ? "lock.open.fill" : "lock.fill")
-                            .font(.system(size: 9))
-                        Text(share.isPublic ? "Public" : "Private")
-                            .font(.system(size: 9, weight: .bold))
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(share.isPublic ? Color.green.opacity(0.85) : Color.orange.opacity(0.85), in: Capsule())
-                    .foregroundStyle(.white)
-                    .padding(6)
+                    Image(systemName: share.isPublic ? "globe" : "lock.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(share.isPublic ? Color.green : Color.orange)
                 }
+                .frame(height: 94)
+                .frame(maxWidth: .infinity)
+
+                HStack(spacing: 3) {
+                    Image(systemName: share.isPublic ? "globe" : "lock.fill")
+                        .font(.system(size: 9))
+                    Text(share.isPublic ? "Public" : "Private")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(share.isPublic ? Color.green.opacity(0.85) : Color.orange.opacity(0.85), in: Capsule())
+                .foregroundStyle(.white)
+                .padding(6)
             }
 
             VStack(spacing: 2) {
@@ -1983,15 +2012,17 @@ struct ShareGridCard: View {
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
 
                 Text(share.isPublic ? "Never expires" : "Expires \(share.expiry.formatted(.relative(presentation: .named)))")
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.55))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
         }
+        .padding(10)
+        .frostedGlassCard(cornerRadius: 14)
         .contextMenu {
             Button {
                 UIPasteboard.general.string = shareLinkURL
@@ -2030,21 +2061,34 @@ struct ShareListRow: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(share.isPublic ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
                 Image(systemName: share.isPublic ? "globe" : "lock.fill")
-                    .font(.system(size: 16))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(share.isPublic ? Color.green : Color.orange)
             }
-            .frame(width: 36, height: 36)
+            .frame(width: 40, height: 40)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(share.fileName)
-                    .font(.body)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(share.isPublic ? "Public Share • Never expires" : "Private Share • Expires \(share.expiry.formatted(.relative(presentation: .named)))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .truncationMode(.middle)
+
+                HStack(spacing: 6) {
+                    Text(share.isPublic ? "Public Share" : "Private Share")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(share.isPublic ? Color.green : Color.orange)
+
+                    Text("•")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.3))
+
+                    Text(share.isPublic ? "Never expires" : "Expires \(share.expiry.formatted(.relative(presentation: .named)))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
             }
 
             Spacer()
@@ -2054,11 +2098,15 @@ struct ShareListRow: View {
                 appState.shareActivityItems = [URL(string: shareLinkURL) ?? shareLinkURL]
             } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16))
+                    .font(.system(size: 15))
                     .foregroundStyle(XTheme.accent)
+                    .frame(width: 32, height: 32)
+                    .background(Color.white.opacity(0.06), in: Circle())
             }
             .buttonStyle(.plain)
         }
+        .padding(12)
+        .frostedGlassCard(cornerRadius: 14)
         .contextMenu {
             Button {
                 UIPasteboard.general.string = shareLinkURL
@@ -2334,18 +2382,21 @@ struct PhotosView: View {
     @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
-        Group {
-            if filteredPhotos.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredPhotos.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
                 } else {
-                    emptyState
+                    gridView
                 }
-            } else {
-                gridView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Photos")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -2451,14 +2502,14 @@ struct PhotosView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "photo")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Photos")
                 .font(.title2.bold())
-            Spacer()
+                .foregroundStyle(.white)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -2524,18 +2575,21 @@ struct VideosView: View {
     @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
-        Group {
-            if filteredVideos.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredVideos.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
                 } else {
-                    emptyState
+                    gridView
                 }
-            } else {
-                gridView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -2641,14 +2695,14 @@ struct VideosView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "film")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Videos")
                 .font(.title2.bold())
-            Spacer()
+                .foregroundStyle(.white)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -2720,20 +2774,23 @@ struct AudioView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredAudio.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredAudio.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Audio")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -2852,14 +2909,14 @@ struct AudioView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "music.note")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Audio Files")
                 .font(.title2.bold())
-            Spacer()
+                .foregroundStyle(.white)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -2956,20 +3013,23 @@ struct DocumentsView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredDocs.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredDocs.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Documents")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -3088,14 +3148,14 @@ struct DocumentsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "doc.text")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Documents")
                 .font(.title2.bold())
-            Spacer()
+                .foregroundStyle(.white)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -3192,20 +3252,23 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredBooks.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredBooks.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -3324,19 +3387,19 @@ struct LibraryView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "books.vertical")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Books in Library")
                 .font(.title2.bold())
+                .foregroundStyle(.white)
             Text("EPUB, PDF, MOBI, and other books will appear here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -3639,20 +3702,23 @@ struct FavoritesView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredFavorites.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredFavorites.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Favorites")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -3773,17 +3839,17 @@ struct FavoritesView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "star")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Favorites")
                 .font(.title2.bold())
+                .foregroundStyle(.white)
             Text("Mark files as favorites to see them here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -3867,25 +3933,368 @@ struct FavoritesView: View {
 // MARK: - Transfers View
 
 struct TransfersView: View {
+    @Environment(AppState.self) private var appState
+    private var center: TransferCenter { TransferCenter.shared }
     @State private var searchText = ""
 
+    private var filteredItems: [TransferCenter.Item] {
+        guard !searchText.isEmpty else { return center.items }
+        return center.items.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var uploads: [TransferCenter.Item] {
+        filteredItems.filter { $0.direction == .upload }
+    }
+
+    private var downloads: [TransferCenter.Item] {
+        filteredItems.filter { $0.direction == .download }
+    }
+
+    private var imports: [TransferCenter.Item] {
+        filteredItems.filter { $0.direction == .inbound }
+    }
+
+    private var hasFinishedTransfers: Bool {
+        center.items.contains(where: { $0.state == .complete || $0.state == .failed })
+    }
+
     var body: some View {
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            if filteredItems.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
+                } else {
+                    emptyState
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if !uploads.isEmpty {
+                            transferSection(title: "Uploads", items: uploads)
+                        }
+
+                        if !downloads.isEmpty {
+                            transferSection(title: "Downloads", items: downloads)
+                        }
+
+                        if !imports.isEmpty {
+                            transferSection(title: "Imports", items: imports)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 32)
+                }
+            }
+        }
+        .navigationTitle("Transfers")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+        .toolbar {
+            if hasFinishedTransfers {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Clear") {
+                        center.clearFinished()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(XTheme.accent)
+                }
+            }
+        }
+    }
+
+    private func transferSection(title: String, items: [TransferCenter.Item]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("\(title.uppercased()) (\(items.count))")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.white.opacity(0.40))
+                .tracking(0.6)
+                .padding(.horizontal, 4)
+
+            VStack(spacing: 8) {
+                ForEach(items) { item in
+                    IOSTransferCard(item: item)
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Active Transfers")
                 .font(.title2.bold())
-            Text("Uploads and downloads will appear here.")
+                .foregroundStyle(.white)
+            Text("Uploads, downloads, and link imports will appear here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Spacer()
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
-        .navigationTitle("Transfers")
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - iOS Transfer Card
+
+struct IOSTransferCard: View {
+    let item: TransferCenter.Item
+    @Environment(AppState.self) private var appState
+    @State private var thumbURL: URL? = nil
+
+    private var center: TransferCenter { TransferCenter.shared }
+
+    private var statusColor: Color {
+        switch item.state {
+        case .failed: return .red
+        case .paused: return .orange
+        case .complete: return .green
+        case .active: return XTheme.accent
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            leadingIcon
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(item.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer()
+
+                    if item.state == .active || item.state == .paused {
+                        Text("\(Int(item.progress * 100))%")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(statusColor)
+                    }
+                }
+
+                // Progress Bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 4)
+
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [statusColor, statusColor.opacity(0.65)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(0, geo.size.width * CGFloat(min(max(item.progress, 0), 1))), height: 4)
+                            .animation(.easeInOut(duration: 0.2), value: item.progress)
+                    }
+                }
+                .frame(height: 4)
+
+                HStack {
+                    Text(item.statusText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(statusColor)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    if item.state == .complete {
+                        Text("Show in Folder")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(XTheme.accent)
+                    }
+                }
+            }
+
+            trailingAction
+        }
+        .padding(14)
+        .frostedGlassCard(cornerRadius: 16)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if item.state == .complete {
+                revealInFolder()
+            }
+        }
+        .contextMenu {
+            transferContextMenu
+        }
+        .task(id: item.id) {
+            await loadThumbnail()
+        }
+    }
+
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if let thumbURL {
+            AsyncImage(url: thumbURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 40, height: 40)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                default:
+                    iconFallback
+                }
+            }
+        } else {
+            iconFallback
+        }
+    }
+
+    private var iconFallback: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(statusColor.opacity(0.15))
+                .frame(width: 40, height: 40)
+
+            Image(systemName: directionIconName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(statusColor)
+        }
+    }
+
+    private var directionIconName: String {
+        switch item.state {
+        case .complete: return "checkmark"
+        case .failed: return "exclamationmark.triangle.fill"
+        default:
+            switch item.direction {
+            case .upload: return "arrow.up"
+            case .download: return "arrow.down"
+            case .inbound: return "tray.and.arrow.down"
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var trailingAction: some View {
+        switch item.state {
+        case .active:
+            Button {
+                center.cancel(item.id)
+            } label: {
+                Image(systemName: "pause.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 28, height: 28)
+                    .background(Color.orange.opacity(0.15), in: Circle())
+            }
+            .buttonStyle(.plain)
+        case .paused:
+            Button {
+                Task { await center.resume(item.id) }
+            } label: {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 28, height: 28)
+                    .background(Color.orange.opacity(0.15), in: Circle())
+            }
+            .buttonStyle(.plain)
+        case .failed:
+            Button {
+                Task { await center.resume(item.id) }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.red)
+                    .frame(width: 28, height: 28)
+                    .background(Color.red.opacity(0.15), in: Circle())
+            }
+            .buttonStyle(.plain)
+        case .complete:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.green)
+                .frame(width: 28, height: 28)
+        }
+    }
+
+    @ViewBuilder
+    private var transferContextMenu: some View {
+        switch item.state {
+        case .active:
+            Button {
+                center.cancel(item.id)
+            } label: {
+                Label("Pause", systemImage: "pause.fill")
+            }
+            Button(role: .destructive) {
+                center.discard(item.id)
+            } label: {
+                Label("Cancel Transfer", systemImage: "xmark.circle")
+            }
+        case .paused:
+            Button {
+                Task { await center.resume(item.id) }
+            } label: {
+                Label("Resume", systemImage: "play.fill")
+            }
+            Button(role: .destructive) {
+                center.discard(item.id)
+            } label: {
+                Label("Delete Transfer", systemImage: "trash")
+            }
+        case .failed:
+            Button {
+                Task { await center.resume(item.id) }
+            } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+            }
+            Button(role: .destructive) {
+                center.discard(item.id)
+            } label: {
+                Label("Delete Transfer", systemImage: "trash")
+            }
+        case .complete:
+            Button {
+                revealInFolder()
+            } label: {
+                Label("Show in Folder", systemImage: "folder")
+            }
+            Button {
+                center.removeItems(forObjectID: item.objectID)
+            } label: {
+                Label("Remove from List", systemImage: "xmark.circle")
+            }
+        }
+    }
+
+    private func revealInFolder() {
+        Task {
+            if let obj = try? await DatabaseManager.shared.object(item.objectID) {
+                appState.revealObject(obj)
+            }
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard item.state == .complete, item.direction != .upload else { return }
+        if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
+            let jpg = thumbDir.appendingPathComponent("\(item.objectID)-tg.jpg")
+            if FileManager.default.fileExists(atPath: jpg.path) {
+                thumbURL = jpg
+                return
+            }
+            let png = thumbDir.appendingPathComponent("\(item.objectID)-tg.png")
+            if FileManager.default.fileExists(atPath: png.path) {
+                thumbURL = png
+                return
+            }
+        }
     }
 }
 
@@ -3905,20 +4314,23 @@ struct ArchiveView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredArchived.isEmpty {
-                if !searchText.isEmpty {
-                    NoSearchResultsView(query: searchText)
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea()
+
+            Group {
+                if filteredArchived.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
+                    } else {
+                        emptyState
+                    }
+                } else if viewMode == .grid {
+                    gridView
                 } else {
-                    emptyState
+                    listView
                 }
-            } else if viewMode == .grid {
-                gridView
-            } else {
-                listView
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Archive")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -4025,17 +4437,17 @@ struct ArchiveView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer()
             Image(systemName: "archivebox")
                 .font(.system(size: 48))
                 .foregroundStyle(XTheme.accent)
             Text("No Archived Files")
                 .font(.title2.bold())
+                .foregroundStyle(.white)
             Text("Archived files are stored safely in cold storage.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var gridView: some View {
@@ -4133,7 +4545,10 @@ struct TrashView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
+            Color(red: 0.05, green: 0.06, blue: 0.08)
+                .ignoresSafeArea()
+
             if filteredTrash.isEmpty {
                 if !searchText.isEmpty {
                     NoSearchResultsView(query: searchText)
@@ -4207,7 +4622,6 @@ struct TrashView: View {
                 }
             }
         }
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Recently Deleted")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -4333,11 +4747,14 @@ struct TrashView: View {
                 .foregroundStyle(XTheme.accent)
             Text("No Recently Deleted Files")
                 .font(.title2.bold())
+                .foregroundStyle(.white)
             Text("Deleted files will appear here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 32)
     }
 
     private func toggleSelection(_ id: String) {
@@ -4558,6 +4975,51 @@ struct InlineNewFolderRow: View {
     }
 }
 
+// MARK: - Reveal Flash Ring
+
+struct RevealFlashRing: View {
+    @Environment(AppState.self) private var appState
+    let fileID: String
+    @State private var pulse: CGFloat = 0
+    @State private var scale: CGFloat = 0.96
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(XTheme.accent.opacity(0.12 * pulse))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(XTheme.accent, lineWidth: 2.5)
+                .shadow(color: XTheme.accent.opacity(0.8), radius: 8)
+                .opacity(pulse)
+        }
+        .scaleEffect(scale)
+        .allowsHitTesting(false)
+        .onAppear {
+            startFlash()
+        }
+    }
+
+    private func startFlash() {
+        Task { @MainActor in
+            for _ in 0..<2 {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    pulse = 1
+                    scale = 1.0
+                }
+                try? await Task.sleep(nanoseconds: 160_000_000)
+                withAnimation(.easeIn(duration: 0.20)) {
+                    pulse = 0
+                    scale = 1.04
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if appState.revealObjectID == fileID {
+                appState.revealObjectID = nil
+            }
+        }
+    }
+}
+
 // MARK: - File Row
 
 struct FileRow: View {
@@ -4578,6 +5040,11 @@ struct FileRow: View {
     var body: some View {
         rowContent
             .contentShape(Rectangle())
+            .overlay {
+                if file.id == appState.revealObjectID {
+                    RevealFlashRing(fileID: file.id)
+                }
+            }
             .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
                 guard !file.isFolder else { return }
                 // Use already-loaded data from the bulk pass if available
@@ -4883,6 +5350,11 @@ struct FileGridItem: View {
             }
         }
         .contentShape(Rectangle())
+        .overlay {
+            if file.id == appState.revealObjectID {
+                RevealFlashRing(fileID: file.id)
+            }
+        }
         .task(id: "\(file.id)-\(appState.thumbnailVersion)") {
             guard !file.isFolder else { return }
             // Use already-loaded data from the bulk pass if available
@@ -5822,6 +6294,12 @@ struct ImportShareLinkSheet: View {
     @State private var linkText: String = ""
     @State private var passwordText: String = ""
 
+    private var parsedLink: ShareEngine.ShareLink? {
+        let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return ShareEngine.ShareLink.parse(trimmed)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -5852,7 +6330,67 @@ struct ImportShareLinkSheet: View {
                     .padding(.vertical, 4)
                 }
 
-                if appState.pendingPasswordLink != nil || !passwordText.isEmpty {
+                if let link = parsedLink {
+                    Section("Share Details") {
+                        HStack(spacing: 14) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.blue.opacity(0.12))
+                                    .frame(width: 48, height: 48)
+
+                                if link.isGroup || link.files.contains(where: { $0.path != nil }) {
+                                    AppleFolderIcon(width: 40, height: 32)
+                                } else {
+                                    let ext = (link.fileName as NSString).pathExtension.lowercased()
+                                    let isImage = ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(ext)
+                                    let isVideo = ["mp4", "mov", "m4v", "mkv", "avi"].contains(ext)
+                                    let isAudio = ["mp3", "m4a", "flac", "wav", "aac"].contains(ext)
+                                    Image(systemName: isImage ? "photo.fill" : (isVideo ? "play.rectangle.fill" : (isAudio ? "music.note" : "doc.fill")))
+                                        .font(.system(size: 22))
+                                        .foregroundStyle(XTheme.accent)
+                                }
+                            }
+                            .frame(width: 48, height: 48)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(link.fileName)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+
+                                HStack(spacing: 6) {
+                                    if link.isPasswordProtected {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "lock.fill")
+                                                .font(.system(size: 10))
+                                            Text("Protected")
+                                                .font(.caption2.weight(.semibold))
+                                        }
+                                        .foregroundStyle(.orange)
+                                    }
+
+                                    let itemCount = link.files.count
+                                    if itemCount > 1 {
+                                        Text("\(itemCount) files")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    } else if link.files.contains(where: { $0.path != nil }) {
+                                        Text("Folder")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Text("File")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                if (parsedLink?.isPasswordProtected == true) || appState.pendingPasswordLink != nil || !passwordText.isEmpty {
                     Section("Password Protected") {
                         SecureField("Enter Password", text: $passwordText)
                     }
@@ -5874,7 +6412,7 @@ struct ImportShareLinkSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.isImportingShareLink)
+                    .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.isImportingShareLink || ((parsedLink?.isPasswordProtected == true) && passwordText.isEmpty))
                 }
             }
             .navigationTitle("Add from Share Link")
