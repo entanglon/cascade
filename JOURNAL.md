@@ -28,6 +28,8 @@ User requested three improvements:
 ### Verification
 - Builds: macOS (`Cascade` scheme) and iOS (`Cascade iOS` scheme, `sdk iphoneos`) **BUILD SUCCEEDED**.
 - Tests: `CascadeTests` 111 tests passed (107 unit + 2 UI + 2 launch), 0 failures (**TEST SUCCEEDED**).
+- Commit: `27a44f6`.
+- Debug app relaunched: verified folder preview with AppleFolderIcon, markdown/text preview with copy and rendered/raw toggle, and recursive folder paste.
 
 ---
 

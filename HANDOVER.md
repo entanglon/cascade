@@ -4391,7 +4391,7 @@ Open levers (not scheduled):
      - Defined unified top bar layout metrics in `XTheme`: `topBarBaseHeight = 52`, `topBarTopPadding(isFullScreen:)`, and `topBarTotalHeight(isFullScreen:)`.
      - In `SidebarView.swift`, dynamically set top padding to `XTheme.topBarTotalHeight(...) + 10`. Sidebar options now always start strictly below the content top bar's lower divider line (`y = 98` windowed, `y = 62` fullscreen).
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
- 242. **AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste (2026-09-12 morning — COMMITTED)**
+ 242. **AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste (2026-09-12 morning — COMMITTED `27a44f6`)**
      (`Features/TheaterView.swift`, `Engine/UploadManager.swift`, `App/AppState.swift`, `Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
      - Folder Quick Look in `TheaterView` now displays `AppleFolderIcon(124x98)` with a 16pt soft drop shadow and an "Open Folder" action button instead of the 116×116 gray box and SF Symbol.
      - `.md`, `.markdown`, `.txt`, `.json`, `.swift`, etc. preview natively in `TheaterView` via `TheaterTextContentView` (formatted markdown with Rendered/Raw toggle, line numbers for code/text, copy-all button with feedback).
