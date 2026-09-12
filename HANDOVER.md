@@ -4406,7 +4406,7 @@ Open levers (not scheduled):
      - Redesigned `BrowseView` into a bespoke dark frosted glass dashboard with top account profile card (avatar, Telegram identity, storage usage), squircle category badges, and live item counts on every category.
      - Replaced generic `.blue` across all iOS views, empty states, and action menus with `XTheme.accent`.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched cleanly on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (68 tests passed).
- 244. **iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action (2026-09-12 afternoon — COMMITTED)**
+ 244. **iOS UX Refinements: Restored Tab Order, Rounded Glass Tab Bar, Large Headings, Document Scanner & Upload Action (2026-09-12 afternoon — COMMITTED `a5c6cb7`)**
      (`Cascade iOS/RootView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/CascadeApp.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`, `Engine/UploadEngine.swift`)
      - Restored tab order: Recents (left), Shared (middle), Browse (right).
      - Bottom nav bar: Full-width custom frosted glass (`.ultraThinMaterial`) with `UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)`, lower corners flat hugging safe area; removed stock UIKit tab chrome.

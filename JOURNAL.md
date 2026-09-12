@@ -53,6 +53,7 @@ User requested:
   - Verified tab order is Recents -> Shared -> Browse.
   - Verified custom bottom bar has rounded upper corners and flat bottom hugging the safe area.
   - Verified large headings on all root views smoothly transition to inline frosted headers on scroll.
+- Commit: `a5c6cb7`.
 
 ---
 
