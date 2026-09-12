@@ -50,7 +50,7 @@ struct FileBrowserView: View {
         .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : folderTitle)
         .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
         .navigationBarBackButtonHidden(isSelecting)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: isSelecting ? .automatic : .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -149,6 +149,15 @@ struct FileBrowserView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
         .refreshable {
             await appState.loadAllFiles()
         }
@@ -199,9 +208,43 @@ struct FileBrowserView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .frame(maxWidth: .infinity)
+        .background {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 24,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 24,
+                style: .continuous
+            )
+            .fill(.ultraThinMaterial)
+            .overlay(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 24,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 24,
+                    style: .continuous
+                )
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.18),
+                            Color.white.opacity(0.06),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: -4)
+            .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private var currentFolderFiles: [FileItem] {
@@ -304,12 +347,6 @@ struct FileBrowserView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-
-                Spacer(minLength: 40)
-
-                // Footer
-                PageItemCountFooter(count: filteredFiles.count)
-                    .padding(.bottom, 4)
             }
             .frame(maxWidth: .infinity)
             .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
@@ -374,10 +411,6 @@ struct FileBrowserView: View {
                     }
                 }
             }
-
-            PageItemCountFooter(count: filteredFiles.count)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }

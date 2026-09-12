@@ -176,6 +176,7 @@ final class AppState {
     var editingFileID: String? = nil
     var isCreatingFolder: Bool = false
     var creatingFolderParentID: String? = nil
+    var isSelecting: Bool = false
 
     // Share & Move Presentation State
     var outgoingShares: [ShareRecord] = []

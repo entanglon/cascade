@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (evening): Round 247 — iOS UI/UX Parity & Engine Fixes: Password-Protected Folder Shares, Import Preview & Post-Import Reveal/Pulse, Multi-File Import Sibling Confirmation, Background Bleed Fixes, Browse Pop-to-Root, Default Launch to All Files, Transfers & Settings Modernization. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (night): Round 248 — iOS Browse Monochrome Icons (macOS Parity), Selection Bar Replaces Nav Bar, Remove Bottom Item Footers, Share Thumbnail Sidecar Forward & Decrypt. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4445,4 +4445,12 @@ Open levers (not scheduled):
      - Transfers & Shared page modernization: Redesigned `SharedView` with frosted glass cards (`ShareGridCard` and `ShareListRow`), section headers ("PUBLIC SHARES", "PRIVATE SHARES"), and clean share stats. Modernized `TransfersView` observing `TransferCenter.shared.items` with "UPLOADS", "DOWNLOADS", and "IMPORTS" sections, real-time progress bars, speed, pause/resume/retry/clear controls, and tap-to-reveal.
      - Settings redesign: Converted `SettingsView` from grouped `List` to dark `ScrollView` with `.frostedGlassCard(cornerRadius: 16)` cards (Account, Cloud Sync, Private Vault & Security, Vault Usage storage breakdown bar, Local Cache management, About, and Sign Out).
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched cleanly on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`), CascadeTests **TEST SUCCEEDED** (70 unit/integration tests passed).
+ 248. **iOS Browse Monochrome Icons (macOS Parity), Selection Bar Replaces Nav Bar, Remove Bottom Item Footers, Share Thumbnail Sidecar Forward & Decrypt (2026-09-12 night — COMMITTED)**
+     (`Cascade iOS/AppState.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/RootView.swift`, `Engine/ShareEngine.swift`, `Features/PendingImportView.swift`)
+     - Browse page monochrome icons: Removed `CategoryBadge` usages across `BrowseView`. Rows render pure, unboxed monochrome `Image(systemName: icon).font(.system(size: 18, weight: .regular)).foregroundStyle(XTheme.accent)` in 28×28 frames matching macOS sidebar 1:1.
+     - Removed bottom item footers: Removed `PageItemCountFooter(count: filteredFiles.count)` from `RecentsView` (grid and list) and `FileBrowserView` (grid and list), eliminating the bottom sync status footer.
+     - Selection mode nav bar replacement: Added `isSelecting` to iOS `AppState`. Bound child view selection states to `appState.isSelecting`. In `RootView.body`, hidden `CustomGlassTabBar` when selecting. Applied `glassSelectionBarBackground()` to selection bars so selection actions (Favorite, Archive, Delete / Recover) cleanly occupy and replace the bottom navigation bar with matching frosted glass styling. Set `.searchable` to `.automatic` displayMode during selection.
+     - Share thumbnail sidecar forwarding & decryption: In `ShareEngine.exportShare`, forwarded `object.thumbMessageID` sidecar message into share channel and encoded in `ShareLink` (`th` query parameter). In `ShareEngine.stageImport`, forwarded `thumbMessageID` into vault channel, saved on `ObjectRecord`, and decrypted thumbnail directly into `UploadEngine.thumbnailsDirectory()/[objectID]-tg.jpg` (or `.png`).
+     - Pending import dialog (macOS): In `PendingImportView.swift`, loaded and displayed real thumbnail, removed confusing "The file is already in your cloud..." label, removed unnecessary "Preview" button, and resized sheet to 440×320.
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`), CascadeTests **TEST SUCCEEDED** (64 unit + 4 UI/launch tests passed).
 

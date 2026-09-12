@@ -2,7 +2,44 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (evening) — iOS UI/UX Parity & Engine Fixes: Password-Protected Folder Shares, Import Preview & Post-Import Reveal/Pulse, Multi-File Import Sibling Confirmation, Background Bleed Fixes, Browse Pop-to-Root, Default Launch to All Files, Transfers & Settings Modernization (Round 247).
+> 2026-09-12 (night) — iOS Browse Monochrome Icons (macOS Parity), Selection Bar Replaces Nav Bar, Remove Bottom Item Footers, Share Thumbnail Sidecar Forward & Decrypt (Round 248).
+
+---
+
+## 2026-09-12 (night) — iOS Browse Monochrome Icons (macOS Parity), Selection Bar Replaces Nav Bar, Remove Bottom Item Footers, Share Thumbnail Sidecar Forward & Decrypt (Round 248)
+
+User requested:
+1. **Browse Page Icons on iOS**: Replace colorful squircle badges with pure monochrome SF Symbols matching macOS sidebar style (no background color boxes, matching icons in `XTheme.accent`).
+2. **Bottom Item Count / Sync Status Footers**: Remove the item count ("2 items \n Synced with Cascade") from the bottom of `RecentsView` and `FileBrowserView`.
+3. **Selection Mode UI on iOS**:
+   - Selection action options (Favorite, Archive, Delete) should appear in the nav bar replacing the nav menus, rather than appearing as a separate bar stacked over the nav bar.
+   - Clean up top navigation bar and collapse search bar drawer during selection.
+4. **Share Import & Thumbnails (macOS & iOS)**:
+   - When sharing a file from iOS, the receiver was not seeing thumbnails because thumbnail sidecars were not forwarded.
+   - Fix `PendingImportView` on macOS: display the real thumbnail, remove the confusing label *"The file is already in your cloud — preview it now, and only Import if you want it in your library."*, and remove the *"Preview"* button.
+
+### Analysis & Implementation
+- **Browse Page Monochrome Icons**:
+  - In `Cascade iOS/RootView.swift`, eliminated `CategoryBadge` usages across `BrowseView` (`topLevelSection`, `collectionsSection`, and `utilitiesSection`).
+  - Updated `destinationRow` and `actionRow` to accept `icon: String` and render pure, unboxed monochrome `Image(systemName: icon).font(.system(size: 18, weight: .regular)).foregroundStyle(XTheme.accent).frame(width: 28, height: 28, alignment: .center)` with 56-pt row divider indentation, matching the macOS sidebar 1:1.
+- **Removed Bottom Item Count Footers**:
+  - Removed `PageItemCountFooter(count: filteredFiles.count)` from `RecentsView` (grid and list) in `Cascade iOS/RootView.swift` and from `FileBrowserView` (grid and list) in `Cascade iOS/Features/FileBrowserView.swift`.
+- **Selection Mode Nav Bar Replacement**:
+  - Added `var isSelecting: Bool = false` to `Cascade iOS/AppState.swift`.
+  - In `FileBrowserView`, `RecentsView`, `PhotosDestinationView`, `VideosDestinationView`, `AudioDestinationView`, `DocumentsDestinationView`, `LibraryDestinationView`, `FavoritesDestinationView`, `ArchiveDestinationView`, and `TrashDestinationView`: synced `isSelecting` with `appState.isSelecting` via `.onChange(of: isSelecting)` and `.onDisappear`.
+  - In `RootView.body`: wrapped `CustomGlassTabBar` in `if !appState.isSelecting` with a `.move(edge: .bottom).combined(with: .opacity)` transition and spring animation.
+  - Added `glassSelectionBarBackground()` extension matching `CustomGlassTabBar`'s frosted glass styling (24pt continuous corner radius, `.ultraThinMaterial`, subtle top gradient border, and drop shadow). Selection bars now smoothly replace the bottom navigation tab bar at the exact same location.
+  - Updated `.searchable` placement displayMode to `isSelecting ? .automatic : .always` so the search bar collapses into the navigation bar when selection is active.
+- **Share Thumbnail Sidecar Forwarding & Decryption**:
+  - In `Engine/ShareEngine.swift` (`exportShare`): forwarded `object.thumbMessageID` sidecar message into `channelID`, tracked in `thumbMIDByObjectID`, and appended `thumbMessageID` to `ShareFile` and `ShareLink` (`th` URL query parameter).
+  - In `Engine/ShareEngine.swift` (`stageImport`): forwarded `shareThumbMID` into the recipient's `vault.channelID` as `importedThumbMID`, saved `thumbMessageID: importedThumbMID` on the staged `ObjectRecord`, and decrypted the thumbnail sidecar document directly into `UploadEngine.thumbnailsDirectory()/[objectID]-tg.jpg` (or `.png`) using `unwrappedObjectKey`.
+  - In `Features/PendingImportView.swift` (macOS): added asynchronous thumbnail loading from `thumbnailsDirectory()` and `ThumbnailService`, removed the confusing *"The file is already in your cloud..."* label, removed the *"Preview"* button, and resized the window to 440×320.
+
+### Verification
+- macOS Build (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+- iOS Build (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+- Unit & UI Tests: 64 unit tests + 2 UI tests + 2 launch tests = all passed with **TEST SUCCEEDED**.
+- Installed and launched cleanly on physical iPhone XS Max (`8F28E614-EA35-5B10-8DC9-E390026D4599`).
 
 ---
 

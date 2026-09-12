@@ -817,10 +817,14 @@ struct RootView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                CustomGlassTabBar(selectedTab: $selectedTab)
+                if !appState.isSelecting {
+                    CustomGlassTabBar(selectedTab: $selectedTab)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.isUploading)
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: appState.currentAudioTrack != nil)
+            .animation(.easeInOut(duration: 0.22), value: appState.isSelecting)
         }
         .sheet(isPresented: $appState.showFullAudioPlayer) {
             if let track = appState.currentAudioTrack {
@@ -932,6 +936,48 @@ struct CustomGlassTabBar: View {
     }
 }
 
+extension View {
+    func glassSelectionBarBackground() -> some View {
+        self
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+            .frame(maxWidth: .infinity)
+            .background {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 24,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 24,
+                    style: .continuous
+                )
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 24,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 24,
+                        style: .continuous
+                    )
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.18),
+                                Color.white.opacity(0.06),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+                )
+                .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: -4)
+                .ignoresSafeArea(edges: .bottom)
+            }
+    }
+}
+
 // MARK: - Browse Destination Enum
 
 enum BrowseDestination: Hashable {
@@ -999,13 +1045,13 @@ struct BrowseView: View {
         VStack(spacing: 0) {
             destinationRow(
                 destination: .allFiles,
-                badge: CategoryBadge(icon: "square.grid.2x2", gradient: XTheme.driveGradient),
+                icon: "square.grid.2x2",
                 title: "All Files",
                 count: appState.driveFilesCount
             )
             rowDivider
             actionRow(
-                badge: CategoryBadge(icon: "clock", gradient: XTheme.brandGradient),
+                icon: "clock",
                 title: "Recent",
                 count: appState.recentFilesCount
             ) {
@@ -1014,7 +1060,7 @@ struct BrowseView: View {
             rowDivider
             destinationRow(
                 destination: .favorites,
-                badge: CategoryBadge(icon: "star", gradient: XTheme.favoritesGradient),
+                icon: "star",
                 title: "Favorites",
                 count: appState.favoritesFilesCount
             )
@@ -1028,35 +1074,35 @@ struct BrowseView: View {
             VStack(spacing: 0) {
                 destinationRow(
                     destination: .photos,
-                    badge: CategoryBadge(icon: "photo.fill", gradient: XTheme.photosGradient),
+                    icon: "photo.fill",
                     title: "Photos",
                     count: appState.photosCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .videos,
-                    badge: CategoryBadge(icon: "play.rectangle", gradient: XTheme.videosGradient),
+                    icon: "play.rectangle",
                     title: "Video",
                     count: appState.videosCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .audio,
-                    badge: CategoryBadge(icon: "music.note", gradient: XTheme.audioGradient),
+                    icon: "music.note",
                     title: "Audio",
                     count: appState.audioCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .documents,
-                    badge: CategoryBadge(icon: "doc.text", gradient: XTheme.documentsGradient),
+                    icon: "doc.text",
                     title: "Documents",
                     count: appState.documentsCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .library,
-                    badge: CategoryBadge(icon: "books.vertical", gradient: XTheme.booksGradient),
+                    icon: "books.vertical",
                     title: "Library",
                     count: appState.libraryCount
                 )
@@ -1071,13 +1117,13 @@ struct BrowseView: View {
             VStack(spacing: 0) {
                 destinationRow(
                     destination: .privateVault,
-                    badge: CategoryBadge(icon: "lock.fill", gradient: XTheme.privateFolderGradient),
+                    icon: "lock.fill",
                     title: "Private Vault",
                     count: appState.vaultFilesCount
                 )
                 rowDivider
                 actionRow(
-                    badge: CategoryBadge(icon: "arrow.triangle.swap", gradient: XTheme.sharedGradient),
+                    icon: "arrow.triangle.swap",
                     title: "Shared",
                     count: appState.sharedFilesCount
                 ) {
@@ -1086,7 +1132,7 @@ struct BrowseView: View {
                 rowDivider
                 destinationRow(
                     destination: .transfers,
-                    badge: CategoryBadge(icon: "arrow.up.arrow.down", gradient: XTheme.transfersGradient),
+                    icon: "arrow.up.arrow.down",
                     title: "Transfers",
                     count: appState.isUploading ? 1 : 0,
                     badgeHighlight: appState.isUploading
@@ -1094,14 +1140,14 @@ struct BrowseView: View {
                 rowDivider
                 destinationRow(
                     destination: .archive,
-                    badge: CategoryBadge(icon: "archivebox", gradient: XTheme.archiveGradient),
+                    icon: "archivebox",
                     title: "Archive",
                     count: appState.archiveFilesCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .trash,
-                    badge: CategoryBadge(icon: "trash", gradient: XTheme.trashGradient),
+                    icon: "trash",
                     title: "Recently Deleted",
                     count: appState.trashFilesCount
                 )
@@ -1278,14 +1324,17 @@ struct BrowseView: View {
 
     private func destinationRow(
         destination: BrowseDestination,
-        badge: some View,
+        icon: String,
         title: String,
         count: Int = 0,
         badgeHighlight: Bool = false
     ) -> some View {
         NavigationLink(value: destination) {
             HStack(spacing: 14) {
-                badge
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(XTheme.accent)
+                    .frame(width: 28, height: 28, alignment: .center)
 
                 Text(title)
                     .font(.system(size: 16, weight: .medium))
@@ -1314,7 +1363,7 @@ struct BrowseView: View {
     }
 
     private func actionRow(
-        badge: some View,
+        icon: String,
         title: String,
         count: Int = 0,
         badgeHighlight: Bool = false,
@@ -1322,7 +1371,10 @@ struct BrowseView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                badge
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(XTheme.accent)
+                    .frame(width: 28, height: 28, alignment: .center)
 
                 Text(title)
                     .font(.system(size: 16, weight: .medium))
@@ -1406,9 +1458,10 @@ struct RecentsView: View {
                     }
                 }
             }
-            .navigationTitle("Recents")
-            .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+            .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : "Recents")
+            .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
+            .navigationBarBackButtonHidden(isSelecting)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: isSelecting ? .automatic : .always), prompt: "Search")
             .toolbar {
                 if isSelecting {
                     ToolbarItem(placement: .topBarLeading) {
@@ -1492,6 +1545,15 @@ struct RecentsView: View {
                     selectionBottomBar
                 }
             }
+            .onChange(of: isSelecting) { _, new in
+                appState.isSelecting = new
+            }
+            .onDisappear {
+                if isSelecting {
+                    isSelecting = false
+                    appState.isSelecting = false
+                }
+            }
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Material.ultraThinMaterial, for: .navigationBar)
             .task {
@@ -1550,9 +1612,8 @@ struct RecentsView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var emptyState: some View {
@@ -1615,11 +1676,6 @@ struct RecentsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-
-                Spacer(minLength: 40)
-
-                PageItemCountFooter(count: filteredFiles.count, showSyncStatus: false)
-                    .padding(.bottom, 4)
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -1642,10 +1698,6 @@ struct RecentsView: View {
                     }
                 }
             }
-
-            PageItemCountFooter(count: filteredFiles.count, showSyncStatus: false)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
     }
@@ -2439,6 +2491,15 @@ struct PhotosView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -2486,9 +2547,8 @@ struct PhotosView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var photoFiles: [FileItem] {
@@ -2632,6 +2692,15 @@ struct VideosView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -2679,9 +2748,8 @@ struct VideosView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var videoFiles: [FileItem] {
@@ -2846,6 +2914,15 @@ struct AudioView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -2893,9 +2970,8 @@ struct AudioView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var audioFiles: [FileItem] {
@@ -3085,6 +3161,15 @@ struct DocumentsView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -3132,9 +3217,8 @@ struct DocumentsView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var documentFiles: [FileItem] {
@@ -3324,6 +3408,15 @@ struct LibraryView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -3371,9 +3464,8 @@ struct LibraryView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var libraryFiles: [FileItem] {
@@ -3774,6 +3866,15 @@ struct FavoritesView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -3823,9 +3924,8 @@ struct FavoritesView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var favoriteFiles: [FileItem] {
@@ -4386,6 +4486,15 @@ struct ArchiveView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -4422,8 +4531,7 @@ struct ArchiveView: View {
             .disabled(selectedFileIDs.isEmpty)
         }
         .padding(.horizontal, 48)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .glassSelectionBarBackground()
     }
 
     private var archivedFiles: [FileItem] {
@@ -4690,6 +4798,15 @@ struct TrashView: View {
                 selectionBottomBar
             }
         }
+        .onChange(of: isSelecting) { _, new in
+            appState.isSelecting = new
+        }
+        .onDisappear {
+            if isSelecting {
+                isSelecting = false
+                appState.isSelecting = false
+            }
+        }
     }
 
     private var selectionBottomBar: some View {
@@ -4725,9 +4842,8 @@ struct TrashView: View {
             }
             .disabled(selectedFileIDs.isEmpty)
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 10)
-        .background(Material.bar)
+        .padding(.horizontal, 44)
+        .glassSelectionBarBackground()
     }
 
     private var trashedFiles: [FileItem] {

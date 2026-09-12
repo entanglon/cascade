@@ -98,6 +98,7 @@ enum ShareEngine {
         /// group links carry one entry per shared file, each naming that file's
         /// forwarded chunk messages in the share channel.
         var files: [ShareFile] = []
+        var thumbMessageID: Int64? = nil
 
         var isForwardBased: Bool { !files.isEmpty || !messageIDs.isEmpty }
         /// True when the link carries TWO OR MORE files shared together as a group.
@@ -124,6 +125,9 @@ enum ShareEngine {
             if isForwardBased {
                 if !saltB64.isEmpty {
                     items.append(URLQueryItem(name: "salt", value: saltB64))
+                }
+                if let th = thumbMessageID {
+                    items.append(URLQueryItem(name: "th", value: String(th)))
                 }
                 if isGroup {
                     // Group share: `f` carries the per-file manifest; `m` stays the
@@ -167,6 +171,7 @@ enum ShareEngine {
             var messageIDs: [Int64] = []
             var wrappedKeyB64 = ""
             var files: [ShareFile] = []
+            let parsedThumbMID = q["th"].flatMap { Int64($0) }
             if version == "2" {
                 if let manifest = q["f"], !manifest.isEmpty {
                     // Group share: `f` names each file with its own chunk message
@@ -185,7 +190,7 @@ enum ShareEngine {
                     wrappedKeyB64 = q["w"] ?? ""
                     // Single-file links synthesize one entry so the import path can
                     // treat every forward-based link uniformly.
-                    files = [ShareFile(name: q["name"] ?? "Shared file", messageIDs: messageIDs, wrappedKey: wrappedKeyB64.isEmpty ? nil : wrappedKeyB64)]
+                    files = [ShareFile(name: q["name"] ?? "Shared file", messageIDs: messageIDs, wrappedKey: wrappedKeyB64.isEmpty ? nil : wrappedKeyB64, path: nil, thumbMessageID: parsedThumbMID)]
                 }
             } else {
                 // Legacy disposable-channel links always carry the share secret.
@@ -205,7 +210,8 @@ enum ShareEngine {
                 messageIDs: messageIDs,
                 wrappedKeyB64: wrappedKeyB64,
                 saltB64: saltB64,
-                files: files
+                files: files,
+                thumbMessageID: parsedThumbMID
             )
         }
 
@@ -218,9 +224,10 @@ enum ShareEngine {
                 var m: String
                 var w: String? = nil
                 var p: String? = nil
+                var th: Int64? = nil
             }
             let payload = files.map {
-                Payload(n: $0.name, m: $0.messageIDs.map(String.init).joined(separator: ","), w: $0.wrappedKey, p: $0.path)
+                Payload(n: $0.name, m: $0.messageIDs.map(String.init).joined(separator: ","), w: $0.wrappedKey, p: $0.path, th: $0.thumbMessageID)
             }
             guard let data = try? JSONEncoder().encode(payload) else { return "" }
             return base64URLEncode(data)
@@ -232,11 +239,12 @@ enum ShareEngine {
                 var m: String
                 var w: String?
                 var p: String?
+                var th: Int64?
             }
             guard let data = base64URLDecode(raw),
                   let payload = try? JSONDecoder().decode([Payload].self, from: data) else { return nil }
             let files = payload.map {
-                ShareFile(name: $0.n, messageIDs: $0.m.split(separator: ",").compactMap { Int64($0) }, wrappedKey: $0.w, path: $0.p)
+                ShareFile(name: $0.n, messageIDs: $0.m.split(separator: ",").compactMap { Int64($0) }, wrappedKey: $0.w, path: $0.p, thumbMessageID: $0.th)
             }
             // Every entry must resolve to at least one message — a file with zero
             // chunks would import-fail and silently drop from the group.
@@ -296,6 +304,7 @@ enum ShareEngine {
         /// Relative path inside a shared folder ("sub/dir/file.ext"); nil for
         /// plain file shares. Imports rebuild hierarchy under the destination.
         var path: String? = nil
+        var thumbMessageID: Int64? = nil
     }
 
     // MARK: - Legacy manifest (pre-v22 per-chunk caption, disposable channels)
@@ -492,6 +501,7 @@ enum ShareEngine {
         // Telegram copies the document server-side: no re-upload, no size limit.
         var allMessageIDs: [Int64] = []
         var forwardedPerFile: [(object: ObjectRecord, fileIDs: [Int64])] = []
+        var thumbMIDByObjectID: [String: Int64] = [:]
         do {
             for (object, chunks) in perFileChunks {
                 var fileIDs: [Int64] = []
@@ -512,6 +522,18 @@ enum ShareEngine {
                 guard fileIDs.count == chunks.count else { throw ShareError.uploadFailed("Partial forward") }
                 forwardedPerFile.append((object, fileIDs))
                 allMessageIDs.append(contentsOf: fileIDs)
+
+                // Forward thumbnail sidecar message if present so recipient receives the preview
+                if let thumbMID = object.thumbMessageID {
+                    if let fwdThumb = try? await TelegramClient.shared.forwardMessage(
+                        chatId: channelID,
+                        fromChatId: vault.channelID,
+                        messageId: thumbMID
+                    ) {
+                        thumbMIDByObjectID[object.id] = fwdThumb
+                        allMessageIDs.append(fwdThumb)
+                    }
+                }
             }
         } catch {
             // Roll back the forwarded copies so the reusable channel stays clean.
@@ -564,7 +586,13 @@ enum ShareEngine {
             if forwardedPerFile.count == 1 {
                 singleWrappedKeyB64 = wrappedForLink ?? ""
             }
-            files.append(ShareFile(name: object.name, messageIDs: fileIDs, wrappedKey: wrappedForLink, path: pathByObjectID[object.id] ?? nil))
+            files.append(ShareFile(
+                name: object.name,
+                messageIDs: fileIDs,
+                wrappedKey: wrappedForLink,
+                path: pathByObjectID[object.id] ?? nil,
+                thumbMessageID: thumbMIDByObjectID[object.id]
+            ))
         }
 
         if isProtected && singleWrappedKeyB64.isEmpty {
@@ -588,6 +616,7 @@ enum ShareEngine {
 
         // Public shares never expire; private shares live for `lifetime`.
         let expiry = isPublic ? Foundation.Date.distantFuture : Foundation.Date().addingTimeInterval(lifetime)
+        let singleThumbMID = forwardedPerFile.count == 1 ? thumbMIDByObjectID[forwardedPerFile.first?.object.id ?? ""] : nil
         let plainLink = ShareLink(
             id: UUID().uuidString,
             channelID: channelID,
@@ -598,7 +627,8 @@ enum ShareEngine {
             messageIDs: allMessageIDs,
             wrappedKeyB64: singleWrappedKeyB64,
             saltB64: saltB64,
-            files: isGroup ? files : []
+            files: isGroup ? files : [],
+            thumbMessageID: singleThumbMID
         ).urlString
         // Hand out the obfuscated form: the link travels as an opaque blob with no
         // visible t.me invite, channel id, or key material. The exact string is
@@ -1266,6 +1296,7 @@ enum ShareEngine {
                 // Resolve and re-wrap object key:
                 let wrappedKeyForFile = file.wrappedKey ?? (files.count == 1 ? link.wrappedKeyB64 : nil)
                 let rewrappedKey: Data?
+                var unwrappedObjectKey: SymmetricKey? = nil
                 if let wrappedKeyForFile, !wrappedKeyForFile.isEmpty, let linkKey, let recipientVaultKey {
                     guard let rawWrapped = Data(base64Encoded: wrappedKeyForFile) else {
                         throw ShareError.invalidPayload
@@ -1279,6 +1310,7 @@ enum ShareEngine {
                             guard let legacy = legacyLinkKey else { throw error }
                             objectKey = try CryptoEngine.unwrap(rawWrapped, with: legacy)
                         }
+                        unwrappedObjectKey = objectKey
                         rewrappedKey = try CryptoEngine.wrap(objectKey, with: recipientVaultKey)
                     } catch {
                         if link.isPasswordProtected {
@@ -1294,8 +1326,32 @@ enum ShareEngine {
                 // Forward every chunk message into our vault channel (server-side copy).
                 let objectID = UUID().uuidString
 
-                // Cache thumbnail directly from the share channel's message before leaving
-                if let firstMessageId = messages.first?.messageId {
+                // Forward thumbnail sidecar message if present so recipient gets the thumbnail
+                let shareThumbMID = file.thumbMessageID ?? (files.count == 1 ? link.thumbMessageID : nil)
+                var importedThumbMID: Int64? = nil
+                if let shareThumbMID {
+                    importedThumbMID = try? await TelegramClient.shared.forwardMessage(
+                        chatId: vault.channelID,
+                        fromChatId: channelID,
+                        messageId: shareThumbMID
+                    )
+                }
+
+                // Cache thumbnail directly from the share channel or vault before leaving
+                if let shareThumbMID, let unwrappedObjectKey {
+                    let tmp = ((try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory)
+                        .appendingPathComponent("thumb-\(objectID).bin")
+                    try? FileManager.default.removeItem(at: tmp)
+                    if (try? await TelegramClient.shared.downloadMessageFile(messageId: shareThumbMID, chatId: channelID, to: tmp)) != nil,
+                       let encrypted = try? Data(contentsOf: tmp),
+                       let plain = try? CryptoEngine.decryptChunk(encrypted, objectKey: unwrappedObjectKey, startSliceIndex: 0),
+                       let thumbDir = try? UploadEngine.thumbnailsDirectory() {
+                        let isPNG = plain.prefix(8) == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+                        let dest = thumbDir.appendingPathComponent("\(objectID)-tg.\(isPNG ? "png" : "jpg")")
+                        try? plain.write(to: dest)
+                    }
+                    try? FileManager.default.removeItem(at: tmp)
+                } else if let firstMessageId = messages.first?.messageId {
                     if let thumbData = try? await TelegramClient.shared.thumbnailData(forMessage: firstMessageId, chatId: channelID),
                        !thumbData.isEmpty,
                        let thumbDir = try? UploadEngine.thumbnailsDirectory() {
@@ -1357,7 +1413,8 @@ enum ShareEngine {
                     isFolder: false,
                     isPrivate: false,
                     sourcePath: nil,
-                    chunkSize: first.chunkSize
+                    chunkSize: first.chunkSize,
+                    thumbMessageID: importedThumbMID
                 )
                 try await DatabaseManager.shared.save(object)
                 for chunk in chunkRecords {

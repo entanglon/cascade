@@ -8,6 +8,7 @@ struct PendingImportView: View {
     @Environment(AppState.self) private var appState
     let object: ObjectRecord
     @State private var isResolving = false
+    @State private var thumbImage: NSImage? = nil
 
     private var kindIcon: String {
         if object.isVideo { return "play.rectangle.fill" }
@@ -51,9 +52,18 @@ struct PendingImportView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(.quaternary.opacity(0.5))
-                    Image(systemName: kindIcon)
-                        .font(.system(size: 44))
-                        .foregroundStyle(.tint)
+                    if let thumbImage {
+                        Image(nsImage: thumbImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 96, height: 96)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    } else {
+                        Image(systemName: kindIcon)
+                            .font(.system(size: 44))
+                            .foregroundStyle(.tint)
+                    }
                 }
                 .frame(width: 96, height: 96)
 
@@ -69,14 +79,6 @@ struct PendingImportView: View {
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
-
-                Label(
-                    "The file is already in your cloud — preview it now, and only Import if you want it in your library.",
-                    systemImage: "checkmark.icloud"
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 40)
             .padding(.bottom, 8)
@@ -84,14 +86,6 @@ struct PendingImportView: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 12) {
-                if object.isVideo || object.isAudio || object.isPhoto {
-                    Button {
-                        appState.openFile(object)
-                    } label: {
-                        Label("Preview", systemImage: "play.circle")
-                    }
-                    .help("Stream and preview without importing")
-                }
                 Spacer()
                 Button(role: .destructive) {
                     appState.discardPendingImport()
@@ -114,7 +108,25 @@ struct PendingImportView: View {
             }
             .padding(20)
         }
-        .frame(width: 460, height: 420)
+        .frame(width: 440, height: 320)
         .background(.regularMaterial)
+        .task {
+            if let dir = try? UploadEngine.thumbnailsDirectory() {
+                let candidates = ["\(object.id)-tg.jpg", "\(object.id)-tg.png", "\(object.id).png", "\(object.id)-up.jpg"]
+                for c in candidates {
+                    let u = dir.appendingPathComponent(c)
+                    if let img = NSImage(contentsOf: u) {
+                        thumbImage = img
+                        break
+                    }
+                }
+            }
+            if thumbImage == nil {
+                if let url = await ThumbnailService.shared.thumbnailURL(for: object),
+                   let img = NSImage(contentsOf: url) {
+                    thumbImage = img
+                }
+            }
+        }
     }
 }
