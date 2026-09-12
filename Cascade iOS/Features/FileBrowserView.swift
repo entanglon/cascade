@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct FileBrowserView: View {
     @Environment(AppState.self) private var appState
     var folderID: String = ""
-    var folderTitle: String = "Cascade Drive"
+    var folderTitle: String = "All Files"
     var filterPrivate: Bool = false
 
     @State private var searchText = ""
@@ -31,27 +31,24 @@ struct FileBrowserView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-
-            Group {
-                if filteredFiles.isEmpty && !appState.isCreatingFolder {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
-                } else if viewMode == .grid {
-                    gridView
+        Group {
+            if filteredFiles.isEmpty && !appState.isCreatingFolder {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    listView
+                    emptyState
                 }
+            } else if viewMode == .grid {
+                gridView
+            } else {
+                listView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle(isSelecting ? (selectedFileIDs.isEmpty ? "Select Items" : "\(selectedFileIDs.count) \(selectedFileIDs.count == 1 ? "Item" : "Items") Selected") : folderTitle)
         .navigationBarTitleDisplayMode(isSelecting ? .inline : .large)
         .navigationBarBackButtonHidden(isSelecting)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {

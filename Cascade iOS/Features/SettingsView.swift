@@ -1,57 +1,169 @@
 #if os(iOS)
 import SwiftUI
 
+// MARK: - Vault Storage Breakdown (Matching macOS "About This Mac" / Vault Usage)
+
+private enum StorageCategory: String, CaseIterable, Identifiable {
+    case images, videos, audio, documents, other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .images: return "Images"
+        case .videos: return "Videos"
+        case .audio: return "Audio"
+        case .documents: return "Documents"
+        case .other: return "Other"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .images: return "photo"
+        case .videos: return "film"
+        case .audio: return "music.note"
+        case .documents: return "doc.text"
+        case .other: return "shippingbox"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .images: return XTheme.categoryPink
+        case .videos: return XTheme.categoryBlue
+        case .audio: return XTheme.categoryPurple
+        case .documents: return XTheme.categoryYellow
+        case .other: return Color.white.opacity(0.35)
+        }
+    }
+}
+
+private struct StorageBreakdownItem: Identifiable {
+    let category: StorageCategory
+    let bytes: Int64
+    let total: Int64
+
+    var id: String { category.id }
+
+    var fraction: Double {
+        total <= 0 ? 0 : min(1, Double(bytes) / Double(total))
+    }
+
+    var percent: Int {
+        Int((fraction * 100).rounded())
+    }
+
+    var percentText: String {
+        if bytes > 0 && percent == 0 { return "<1%" }
+        return "\(percent)%"
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
     @State private var showClearCacheAlert = false
+    @State private var showSignOutAlert = false
     @State private var cacheSize: Int64 = 0
     @State private var biometricEnabled: Bool = BiometricUnlock.isEnabled
+
+    private var identity: TelegramClient.AccountIdentity? { appState.identity }
+
+    private var stats: (files: Int, folders: Int, size: Int64) {
+        let files = appState.allFiles.filter { !$0.isFolder && !$0.trashed }
+        let folders = appState.allFiles.filter { $0.isFolder && !$0.trashed }
+        let size = files.reduce(0) { $0 + $1.size }
+        return (files.count, folders.count, size)
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                // Profile section
+                // MARK: - User Account Section
                 Section {
-                    HStack(spacing: 14) {
-                        if let photoData = appState.profilePhotoData,
-                           let uiImage = UIImage(data: photoData) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 56, height: 56)
-                                .clipShape(Circle())
-                        } else {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 56))
-                                .foregroundStyle(.blue)
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let identity = appState.identity {
-                                Text("\(identity.firstName) \(identity.lastName)".trimmingCharacters(in: .whitespaces))
-                                    .font(.headline)
-                                Text(identity.phone)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            } else if appState.isAuthorized {
-                                Text("Signed In")
-                                    .font(.headline)
-                                Text("Telegram")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                    HStack(spacing: 16) {
+                        ZStack {
+                            if let photoData = appState.profilePhotoData,
+                               let uiImage = UIImage(data: photoData) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 58, height: 58)
+                                    .clipShape(Circle())
                             } else {
-                                Text("Not Signed In")
-                                    .font(.headline)
+                                Circle()
+                                    .fill(XTheme.brandGradient)
+                                    .frame(width: 58, height: 58)
+                                    .overlay {
+                                        Text(initials)
+                                            .font(.system(size: 20, weight: .bold))
+                                            .foregroundStyle(.white)
+                                    }
                             }
                         }
+                        .frame(width: 58, height: 58)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(displayName)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            Text(accountLine)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(appState.isAuthorized ? Color.green : Color.orange)
+                                    .frame(width: 7, height: 7)
+                                Text(appState.isAuthorized ? "Telegram Connected" : "Not Authorized")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 2)
+                        }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 6)
                 }
 
-                // Vault section
-                Section("Vault") {
+                // MARK: - Cloud Sync Section
+                Section("Cloud Sync") {
                     HStack {
-                        Label("Status", systemImage: "lock.shield")
+                        Label("Last Synced", systemImage: "arrow.triangle.2.circlepath")
+                        Spacer()
+                        Text(lastSyncText)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Label("Sync Now", systemImage: "arrow.clockwise")
+                        Spacer()
+                        Button {
+                            Task {
+                                await appState.syncNow()
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if appState.isSyncing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(appState.isSyncing ? "Syncing…" : "Sync")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(XTheme.accent)
+                            }
+                        }
+                        .disabled(appState.isSyncing)
+                    }
+                }
+
+                // MARK: - Private Vault & Security Section
+                Section("Private Vault & Security") {
+                    HStack {
+                        Label("Vault Status", systemImage: "lock.shield")
                         Spacer()
                         if let error = appState.databaseError {
                             Text(error)
@@ -81,10 +193,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                }
 
-                // Security section
-                Section("Security") {
                     HStack {
                         Label("Vault Key", systemImage: "key.fill")
                         Spacer()
@@ -93,11 +202,15 @@ struct SettingsView: View {
                                 appState.showVaultUnlockSheet = true
                             }
                             .font(.subheadline.bold())
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(XTheme.accent)
                         } else {
-                            Text("Unlocked")
-                                .font(.subheadline)
-                                .foregroundStyle(.green)
+                            HStack(spacing: 4) {
+                                Image(systemName: "lock.open.fill")
+                                    .foregroundStyle(.green)
+                                Text("Unlocked")
+                                    .foregroundStyle(.green)
+                            }
+                            .font(.subheadline)
                         }
                     }
 
@@ -109,59 +222,120 @@ struct SettingsView: View {
                                 BiometricUnlock.setEnabled(newValue)
                             }
                         )) {
-                            Label("Unlock with \(BiometricUnlock.biometryName)", systemImage: BiometricUnlock.biometryName == "Face ID" ? "faceid" : "touchid")
+                            Label(
+                                "Unlock with \(BiometricUnlock.biometryName)",
+                                systemImage: BiometricUnlock.biometryName == "Face ID" ? "faceid" : "touchid"
+                            )
                         }
+                        .tint(XTheme.accent)
                     }
                 }
 
-                // Storage & Cache section
-                Section("Storage & Cache") {
+                // MARK: - Vault Usage / Storage Breakdown Section
+                Section("Vault Usage") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        storageBar
+                            .padding(.top, 4)
+
+                        ForEach(storageBreakdown) { item in
+                            if item.bytes > 0 {
+                                HStack(spacing: 8) {
+                                    Image(systemName: item.category.icon)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(item.category.color)
+                                        .frame(width: 20)
+                                    Text(item.category.title)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Text("\(XTheme.formatBytes(item.bytes)) · \(item.percentText)")
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+
                     HStack {
-                        Label("Local Cache", systemImage: "internaldrive")
+                        Label("Files", systemImage: "doc.fill")
+                        Spacer()
+                        Text("\(stats.files)")
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Label("Folders", systemImage: "folder.fill")
+                        Spacer()
+                        Text("\(stats.folders)")
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Label("Cloud Storage Used", systemImage: "icloud.fill")
+                        Spacer()
+                        Text(XTheme.formatBytes(stats.size))
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.primary)
+                    }
+                }
+
+                // MARK: - Local Storage / Cache Section
+                Section("Local Storage") {
+                    HStack {
+                        Label("Cache Size", systemImage: "internaldrive")
                         Spacer()
                         Text(ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
+                            .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
 
                     Button(role: .destructive) {
                         showClearCacheAlert = true
                     } label: {
-                        Label("Clear Cache", systemImage: "trash")
+                        Label("Clear Local Cache", systemImage: "trash")
                             .foregroundStyle(.red)
                     }
                 }
 
-                // About section
+                // MARK: - About Section
                 Section("About") {
                     HStack(spacing: 14) {
                         Image("CascadeLogo")
                             .resizable()
                             .renderingMode(.original)
                             .aspectRatio(contentMode: .fit)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 40, height: 40)
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Cascade")
                                 .font(.headline)
                             Text("Version 1.0 (iOS)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Text("Telegram-powered cloud drive")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary.opacity(0.8))
                         }
                     }
-                    .padding(.vertical, 2)
-
-                    HStack {
-                        Text("Total Files")
-                        Spacer()
-                        Text("\(appState.allFiles.count)")
-                            .foregroundStyle(.secondary)
-                    }
+                    .padding(.vertical, 4)
                 }
 
-                // Account section
+                // MARK: - Sign Out Section
                 if appState.isAuthorized {
                     Section {
-                        Button("Sign Out", role: .destructive) {
-                            appState.logout()
+                        Button(role: .destructive) {
+                            showSignOutAlert = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text("Sign Out")
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.red)
+                                Spacer()
+                            }
                         }
                     }
                 }
@@ -169,8 +343,17 @@ struct SettingsView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
             .task {
                 updateCacheSize()
+                await appState.fetchProfilePhotoIfNeeded()
             }
             .alert("Clear Local Cache?", isPresented: $showClearCacheAlert) {
                 Button("Clear", role: .destructive) {
@@ -183,11 +366,95 @@ struct SettingsView: View {
             } message: {
                 Text("This will remove downloaded files and cached thumbnails from your device. Your cloud files will not be affected.")
             }
+            .alert("Sign Out?", isPresented: $showSignOutAlert) {
+                Button("Sign Out", role: .destructive) {
+                    appState.logout()
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to sign out? You will need to log in again with Telegram to access your files.")
+            }
         }
     }
 
     private func updateCacheSize() {
         cacheSize = appState.calculateCacheSize()
+    }
+
+    private var displayName: String {
+        guard let id = identity else { return "Telegram User" }
+        let full = "\(id.firstName) \(id.lastName)".trimmingCharacters(in: .whitespaces)
+        return full.isEmpty ? "Telegram User" : full
+    }
+
+    private var initials: String {
+        let parts = displayName.split(separator: " ")
+        let s = parts.prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return s.isEmpty ? "T" : s
+    }
+
+    private var accountLine: String {
+        guard let id = identity else { return "Telegram account" }
+        if !id.username.isEmpty { return "@\(id.username)" }
+        if !id.phone.isEmpty { return "+\(id.phone)" }
+        return "Telegram account"
+    }
+
+    private var lastSyncText: String {
+        guard let date = appState.lastSyncDate else { return "Never synced" }
+        let elapsed = Date().timeIntervalSince(date)
+        if elapsed < 60 { return "Just now" }
+        if elapsed < 3600 {
+            let m = Int(elapsed / 60)
+            return "\(m)m ago"
+        }
+        if elapsed < 86400 {
+            let h = Int(elapsed / 3600)
+            return "\(h)h ago"
+        }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func category(of file: FileItem) -> StorageCategory {
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        if file.isImage { return .images }
+        if file.isVideo { return .videos }
+        if file.isAudio { return .audio }
+        if file.isDocument || file.isBook || file.isBookFile { return .documents }
+        return .other
+    }
+
+    private var storageBreakdown: [StorageBreakdownItem] {
+        var buckets: [StorageCategory: Int64] = [:]
+        for file in appState.allFiles where !file.isFolder && !file.trashed {
+            buckets[category(of: file), default: 0] += max(0, file.size)
+        }
+        let total = stats.size
+        return StorageCategory.allCases.map {
+            StorageBreakdownItem(category: $0, bytes: buckets[$0] ?? 0, total: total)
+        }
+    }
+
+    private var storageBar: some View {
+        let items = storageBreakdown.filter { $0.bytes > 0 }
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+
+            if stats.size > 0 {
+                GeometryReader { geo in
+                    HStack(spacing: 2) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { _, item in
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(item.category.color)
+                                .frame(width: max(2, geo.size.width * item.fraction - 2))
+                        }
+                    }
+                }
+            }
+        }
+        .frame(height: 10)
     }
 }
 #endif

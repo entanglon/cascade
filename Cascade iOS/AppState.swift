@@ -28,6 +28,8 @@ struct FileItem: Identifiable, Hashable {
     var trashed: Bool
     let isPinned: Bool
 
+    var isInLibrary: Bool = false
+
     static func == (lhs: FileItem, rhs: FileItem) -> Bool {
         lhs.id == rhs.id &&
         lhs.trashed == rhs.trashed &&
@@ -35,6 +37,7 @@ struct FileItem: Identifiable, Hashable {
         lhs.isArchived == rhs.isArchived &&
         lhs.isFavorite == rhs.isFavorite &&
         lhs.isPinned == rhs.isPinned &&
+        lhs.isInLibrary == rhs.isInLibrary &&
         lhs.name == rhs.name &&
         (lhs.thumbnailData != nil) == (rhs.thumbnailData != nil)
     }
@@ -71,6 +74,18 @@ struct FileItem: Identifiable, Hashable {
         return ["pdf", "txt", "md", "doc", "docx", "pages", "xls", "xlsx", "numbers", "ppt", "pptx", "key", "rtf", "csv", "json"].contains(ext)
     }
 
+    var isBook: Bool {
+        guard !isFolder else { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["epub", "cbz", "cbr"].contains(ext) || (["pdf", "txt", "md"].contains(ext) && (isInLibrary || ext == "epub"))
+    }
+
+    var isBookFile: Bool {
+        guard !isFolder else { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["epub", "cbz", "cbr", "pdf", "txt", "md", "mobi", "azw3"].contains(ext)
+    }
+
     private static let shortDateFormatter: DateFormatter = {
         let df = DateFormatter()
         df.dateFormat = "dd/MM/yy"
@@ -83,6 +98,7 @@ struct FileItem: Identifiable, Hashable {
 
     var systemIcon: String {
         if isFolder { return "folder.fill" }
+        if isBook || isBookFile { return "books.vertical" }
         if isVideo { return "film" }
         if isAudio { return "music.note" }
         if isImage { return "photo" }
@@ -94,6 +110,7 @@ struct FileItem: Identifiable, Hashable {
 
     var iconColor: Color {
         if isFolder { return .blue }
+        if isBook || isBookFile { return .brown }
         if isVideo { return .purple }
         if isImage { return .green }
         if isAudio { return .orange }
@@ -119,6 +136,7 @@ struct FileItem: Identifiable, Hashable {
         self.isArchived = record.isArchived
         self.trashed = record.trashed
         self.isPinned = record.isPinned
+        self.isInLibrary = record.isInLibrary
     }
 }
 
@@ -145,6 +163,8 @@ final class AppState {
     var presentedFile: FileItem?
     var thumbnailVersion: Int = 0
     var isVaultLocked: Bool = false
+    var lastSyncDate: Date? = Date()
+    var isSyncing: Bool = false
     var showVaultUnlockSheet: Bool = false
     var hasRecoveryBlob: Bool = false
     var currentAudioTrack: FileItem?
@@ -249,6 +269,12 @@ final class AppState {
     var archiveFilesCount: Int {
         allFiles.filter { $0.isArchived && !$0.trashed }.count
     }
+    var recentFilesCount: Int {
+        allFiles.filter { !$0.isFolder && !$0.trashed && !$0.isArchived }.count
+    }
+    var sharedFilesCount: Int {
+        activeOutgoingShares.count
+    }
     var favoritesFilesCount: Int {
         allFiles.filter { $0.isFavorite && !$0.trashed && !$0.isArchived }.count
     }
@@ -263,6 +289,9 @@ final class AppState {
     }
     var documentsCount: Int {
         allFiles.filter { $0.isDocument && !$0.trashed && !$0.isArchived }.count
+    }
+    var libraryCount: Int {
+        allFiles.filter { !$0.isFolder && !$0.trashed && !$0.isArchived && ($0.isBook || $0.isBookFile) }.count
     }
     var totalStorageBytes: Int64 {
         allFiles.filter { !$0.trashed }.reduce(into: Int64(0)) { $0 += $1.size }
@@ -675,6 +704,18 @@ final class AppState {
         }
     }
 
+    func syncNow() async {
+        isSyncing = true
+        defer { isSyncing = false }
+        if (try? await DatabaseManager.shared.firstVault()) != nil {
+            _ = await CatalogSnapshot.restore(force: true)
+            _ = await VaultRepair.run()
+            await loadAllFiles(reconcileCloud: false)
+            await syncRecentsFromCloud()
+            lastSyncDate = Date()
+        }
+    }
+
     func openFile(_ file: FileItem) {
         markFileAsRecent(file.id)
         if file.isVideo {
@@ -959,6 +1000,17 @@ final class AppState {
                 print("[iOS] deletePermanently failed: \(error)")
             }
         }
+    }
+
+    func emptyTrash() {
+        let trashIDs = Set(allFiles.filter { $0.trashed }.map(\.id))
+        guard !trashIDs.isEmpty else { return }
+        deletePermanently(trashIDs)
+    }
+
+    func fetchProfilePhotoIfNeeded() async {
+        guard profilePhotoData == nil, isAuthorized else { return }
+        profilePhotoData = try? await TelegramClient.shared.fetchProfilePhotoData()
     }
 
     func toggleFavorites(_ fileIDs: Set<String>) {

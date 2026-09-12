@@ -134,6 +134,22 @@ enum XTheme {
         )
     }
 
+    static var booksGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.85, green: 0.55, blue: 0.25), Color(red: 0.65, green: 0.38, blue: 0.16)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    static var sharedGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.25, green: 0.55, blue: 0.95), Color(red: 0.15, green: 0.40, blue: 0.85)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     // MARK: - Dark Theme Surfaces
     static let surface = Color.white.opacity(0.06)
     static let surfaceHover = Color.white.opacity(0.10)

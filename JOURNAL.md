@@ -2,7 +2,40 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (afternoon) — iOS macOS-Style Search Bar, Add Button Unification & Deduplication, File Operations (Delete/Move) Fix, and Full-Screen Zoomable Photo Viewer (Round 245).
+> 2026-09-12 (afternoon) — iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch (Round 246).
+
+---
+
+## 2026-09-12 (afternoon) — iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch (Round 246)
+
+User requested:
+1. **Search Bar Revert**: Revert custom search bar changes back to native iOS `.searchable` ("undo the changes you did to the search bar, I think the older one looked better").
+2. **Empty Bin**: Add "Empty Bin" / "Empty Trash" option in the ellipsis menu for Recently Deleted page so users can permanently clear the trash.
+3. **Recents Footer Clean-up**: Remove "Synced with Cascade" status footer from Recents page.
+4. **Shared Page Button Deduplication**: Remove the standalone "Add from Share Link" button in Shared empty state, keeping it strictly in the Add button and family banner prompt.
+5. **Consolidate Transfers & Downloads**: Merge separate downloads page into Transfers.
+6. **macOS Sidebar Parity on Browse Page**:
+   - Headerless Top Section: All Files (`square.grid.2x2`), Recent (`clock`), Favorites (`star`).
+   - Collections: Photos (`photo.fill`), Video (`play.rectangle`), Audio (`music.note`), Documents (`doc.text`), Library (`books.vertical`).
+   - Utilities: Private Vault (`lock.fill`), Shared (`arrow.triangle.swap`), Transfers (`arrow.up.arrow.down`), Archive (`archivebox`), Recently Deleted (`trash`).
+   - Tapping Recent or Shared must switch to their respective root tabs rather than pushing separate duplicate views.
+7. **Library Page**: Full-featured book library page for EPUB, PDF, and MOBI files with grid/list view and actions.
+8. **Settings Page Redesign & Avatar**: Redesign Settings matching macOS layout with user profile avatar, cloud sync status, vault usage storage breakdown bar, cache management, and security controls.
+
+### Analysis & Implementation
+- **Search Bar**: Reverted from custom view back to native SwiftUI `.searchable(text:placement:prompt:)` across all 11 views in `RootView.swift` and `FileBrowserView.swift`.
+- **Empty Bin**: Added `appState.emptyTrash()` which permanently deletes all objects with `trashed == true`. Wired into `TrashView` ellipsis menu with a destructive confirmation dialog.
+- **Recents Footer**: Passed `showSyncStatus: false` to `PageItemCountFooter` in both grid and list modes of `RecentsView`.
+- **Shared Empty State**: Removed standalone prominent button while preserving banner prompt.
+- **Browse Structure**: Refactored `BrowseDestination` and `BrowseView` to mirror `SidebarDestination` in `App/AppState.swift`. Tapping Recent or Shared calls `selectedTab = .recents` / `selectedTab = .shared` via `@Binding var selectedTab: RootView.Tab`.
+- **Library View**: Implemented `LibraryView` displaying books (`$0.isBook || $0.isBookFile || $0.isInLibrary`) with sorting, grid/list view modes, search, selection, and multi-file actions.
+- **Settings Redesign**: Implemented modern macOS-parity `SettingsView` featuring live Telegram avatar with initials fallback, Cloud Sync section with last sync time and manual trigger, Private Vault & Biometrics, Vault Usage with proportional multi-category storage bar, Local Storage cache purge, and Sign Out.
+- **Icons**: Exact SF Symbols aligned 1:1 with macOS sidebar (`square.grid.2x2`, `clock`, `star`, `photo.fill`, `play.rectangle`, `music.note`, `doc.text`, `books.vertical`, `lock.fill`, `arrow.triangle.swap`, `arrow.up.arrow.down`, `archivebox`, `trash`).
+
+### Verification
+- iOS Build (`Cascade iOS` scheme, `sdk iphoneos`, Debug): **BUILD SUCCEEDED**.
+- macOS Build (`Cascade` scheme, Debug): **BUILD SUCCEEDED**.
+- Test Suite: 64 unit tests + 4 UI/launch tests passed with **TEST SUCCEEDED**.
 
 ---
 

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 245 — iOS macOS-Style Search Bar, Add Button Unification & Deduplication, File Operations (Delete/Move) Fix, and Full-Screen Zoomable Photo Viewer. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (afternoon): Round 246 — iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4423,3 +4423,13 @@ Open levers (not scheduled):
      - File operations (Delete/Move) fix: Fixed `FileItem.==` to compare `trashed`, `parentID`, and `isArchived`; added immediate optimistic UI updates on `@MainActor` in `trashFile`, `trashFiles`, `restoreFiles`, `deletePermanently`, and `moveFiles`; removed blocking cloud sync from local DB load; normalized root `parentID` comparison in `MoveDestinationPickerSheet`.
      - Full-screen photo viewer: Switched `FilePreviewView` from card sheet to `.fullScreenCover`; built `ZoomableImageView: UIViewRepresentable` with pinch-to-zoom (up to 5x), double-tap zoom, and smooth panning; instant placeholder thumbnail display while high-res download finishes; leading "Done" dismiss button.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (107 tests passed).
+ 246. **iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch (2026-09-12 afternoon — COMMITTED)**
+     (`Cascade iOS/RootView.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/Features/SettingsView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/XTheme.swift`)
+     - Search bar reverted: Reverted from custom view back to native SwiftUI `.searchable(text:placement:prompt:)` across all 11 views and FileBrowserView.
+     - Empty Bin: Added `appState.emptyTrash()` with destructive role and confirmation dialog in `TrashView` ellipsis menu.
+     - Recents footer clean-up: Removed "Synced with Cascade" status footer on Recents (`showSyncStatus: false`).
+     - Shared button deduplication: Removed standalone prominent "Add from Share Link" button in Shared empty state (preserved banner prompt & Add button).
+     - Browse macOS sidebar parity: Restructured Browse dashboard into headerless Top Section (`allFiles`, `recent` with instant tab switch to `.recents`, `favorites`), `COLLECTIONS` (`photos`, `video`, `audio`, `documents`, `library`), and `UTILITIES` (`privateVault`, `shared` with instant tab switch to `.shared`, `transfers` [consolidated Downloads], `archive`, `trash`). Exact SF Symbols matching macOS sidebar (`square.grid.2x2`, `clock`, `star`, `photo.fill`, `play.rectangle`, `music.note`, `doc.text`, `books.vertical`, `lock.fill`, `arrow.triangle.swap`, `arrow.up.arrow.down`, `archivebox`, `trash`).
+     - Library view: Created full-featured `LibraryView` for EPUBs, PDFs, and MOBI books (`isBook || isBookFile || isInLibrary`) with grid/list modes, search, selection, and multi-file actions.
+     - Settings redesign: Rebuilt `SettingsView` with Telegram profile avatar, initials fallback, cloud sync status & manual sync trigger, vault security/PIN & biometrics, vault usage storage breakdown bar, cache purge, and sign out.
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), CascadeTests **TEST SUCCEEDED** (64 unit + 4 UI/launch tests passed).

@@ -90,65 +90,6 @@ struct StandardAddMenu: View {
     }
 }
 
-// MARK: - Custom Bespoke macOS-style Search Bar
-
-struct CustomSearchBar: View {
-    @Binding var text: String
-    var prompt: String = "Search"
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isFocused ? XTheme.accent : .white.opacity(0.40))
-
-                TextField(prompt, text: $text)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white)
-                    .focused($isFocused)
-
-                if !text.isEmpty {
-                    Button {
-                        text = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.40))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            .background(Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(
-                        isFocused ? XTheme.accent : Color.white.opacity(0.12),
-                        lineWidth: isFocused ? 1.5 : 1
-                    )
-            )
-            .shadow(color: isFocused ? XTheme.accent.opacity(0.35) : .clear, radius: 8, y: 0)
-
-            if isFocused {
-                Button("Cancel") {
-                    isFocused = false
-                    text = ""
-                }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(XTheme.accent)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: isFocused)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    }
-}
 
 // MARK: - Zoomable Interactive Image View
 
@@ -769,7 +710,7 @@ struct RootView: View {
             SharedView()
                 .tag(Tab.shared)
 
-            BrowseView()
+            BrowseView(selectedTab: $selectedTab)
                 .tag(Tab.browse)
         }
         .toolbar(.hidden, for: .tabBar)
@@ -985,23 +926,24 @@ struct CustomGlassTabBar: View {
 // MARK: - Browse Destination Enum
 
 enum BrowseDestination: Hashable {
-    case cascadeDrive
+    case allFiles
     case privateVault
-    case transfers
-    case archive
-    case trash
     case favorites
-    case downloads
     case photos
     case videos
     case audio
     case documents
+    case library
+    case transfers
+    case archive
+    case trash
 }
 
 // MARK: - Browse View (Cascade Bespoke Dashboard)
 
 struct BrowseView: View {
     @Environment(AppState.self) private var appState
+    @Binding var selectedTab: RootView.Tab
     @State private var searchText = ""
     @State private var showSettings = false
     @State private var navPath: [BrowseDestination] = []
@@ -1010,14 +952,13 @@ struct BrowseView: View {
         NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 20) {
-                    CustomSearchBar(text: $searchText, prompt: "Search")
                     if !searchText.isEmpty {
                         browseSearchResults
                     } else {
                         profileHeaderCard
-                        locationsSection
+                        topLevelSection
                         collectionsSection
-                        quickAccessSection
+                        utilitiesSection
                     }
                 }
                 .padding(.horizontal, 16)
@@ -1027,11 +968,15 @@ struct BrowseView: View {
             .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Browse")
             .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 uploadAndSettingsToolbar
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
+            }
+            .task {
+                await appState.fetchProfilePhotoIfNeeded()
             }
             .navigationDestination(for: BrowseDestination.self) { destination in
                 destinationView(for: destination)
@@ -1041,48 +986,31 @@ struct BrowseView: View {
 
     // MARK: - Subsections
 
-    private var locationsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("LOCATIONS")
-            VStack(spacing: 0) {
-                destinationRow(
-                    destination: .cascadeDrive,
-                    badge: CategoryBadge(icon: "icloud.fill", gradient: XTheme.driveGradient),
-                    title: "Cascade Drive",
-                    count: appState.driveFilesCount
-                )
-                rowDivider
-                destinationRow(
-                    destination: .privateVault,
-                    badge: CategoryBadge(icon: "lock.fill", gradient: XTheme.privateFolderGradient),
-                    title: "Private Vault",
-                    count: appState.vaultFilesCount
-                )
-                rowDivider
-                destinationRow(
-                    destination: .transfers,
-                    badge: CategoryBadge(icon: "arrow.up.arrow.down", gradient: XTheme.transfersGradient),
-                    title: "Transfers",
-                    count: appState.isUploading ? 1 : 0,
-                    badgeHighlight: appState.isUploading
-                )
-                rowDivider
-                destinationRow(
-                    destination: .archive,
-                    badge: CategoryBadge(icon: "archivebox.fill", gradient: XTheme.archiveGradient),
-                    title: "Archive",
-                    count: appState.archiveFilesCount
-                )
-                rowDivider
-                destinationRow(
-                    destination: .trash,
-                    badge: CategoryBadge(icon: "trash.fill", gradient: XTheme.trashGradient),
-                    title: "Recently Deleted",
-                    count: appState.trashFilesCount
-                )
+    private var topLevelSection: some View {
+        VStack(spacing: 0) {
+            destinationRow(
+                destination: .allFiles,
+                badge: CategoryBadge(icon: "square.grid.2x2", gradient: XTheme.driveGradient),
+                title: "All Files",
+                count: appState.driveFilesCount
+            )
+            rowDivider
+            actionRow(
+                badge: CategoryBadge(icon: "clock", gradient: XTheme.brandGradient),
+                title: "Recent",
+                count: appState.recentFilesCount
+            ) {
+                selectedTab = .recents
             }
-            .frostedGlassCard(cornerRadius: 16)
+            rowDivider
+            destinationRow(
+                destination: .favorites,
+                badge: CategoryBadge(icon: "star", gradient: XTheme.favoritesGradient),
+                title: "Favorites",
+                count: appState.favoritesFilesCount
+            )
         }
+        .frostedGlassCard(cornerRadius: 16)
     }
 
     private var collectionsSection: some View {
@@ -1098,45 +1026,75 @@ struct BrowseView: View {
                 rowDivider
                 destinationRow(
                     destination: .videos,
-                    badge: CategoryBadge(icon: "film.fill", gradient: XTheme.videosGradient),
-                    title: "Videos",
+                    badge: CategoryBadge(icon: "play.rectangle", gradient: XTheme.videosGradient),
+                    title: "Video",
                     count: appState.videosCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .audio,
-                    badge: CategoryBadge(icon: "waveform", gradient: XTheme.audioGradient),
+                    badge: CategoryBadge(icon: "music.note", gradient: XTheme.audioGradient),
                     title: "Audio",
                     count: appState.audioCount
                 )
                 rowDivider
                 destinationRow(
                     destination: .documents,
-                    badge: CategoryBadge(icon: "doc.text.fill", gradient: XTheme.documentsGradient),
+                    badge: CategoryBadge(icon: "doc.text", gradient: XTheme.documentsGradient),
                     title: "Documents",
                     count: appState.documentsCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .library,
+                    badge: CategoryBadge(icon: "books.vertical", gradient: XTheme.booksGradient),
+                    title: "Library",
+                    count: appState.libraryCount
                 )
             }
             .frostedGlassCard(cornerRadius: 16)
         }
     }
 
-    private var quickAccessSection: some View {
+    private var utilitiesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("QUICK ACCESS")
+            sectionTitle("UTILITIES")
             VStack(spacing: 0) {
                 destinationRow(
-                    destination: .favorites,
-                    badge: CategoryBadge(icon: "star.fill", gradient: XTheme.favoritesGradient),
-                    title: "Favorites",
-                    count: appState.favoritesFilesCount
+                    destination: .privateVault,
+                    badge: CategoryBadge(icon: "lock.fill", gradient: XTheme.privateFolderGradient),
+                    title: "Private Vault",
+                    count: appState.vaultFilesCount
+                )
+                rowDivider
+                actionRow(
+                    badge: CategoryBadge(icon: "arrow.triangle.swap", gradient: XTheme.sharedGradient),
+                    title: "Shared",
+                    count: appState.sharedFilesCount
+                ) {
+                    selectedTab = .shared
+                }
+                rowDivider
+                destinationRow(
+                    destination: .transfers,
+                    badge: CategoryBadge(icon: "arrow.up.arrow.down", gradient: XTheme.transfersGradient),
+                    title: "Transfers",
+                    count: appState.isUploading ? 1 : 0,
+                    badgeHighlight: appState.isUploading
                 )
                 rowDivider
                 destinationRow(
-                    destination: .downloads,
-                    badge: CategoryBadge(icon: "arrow.down.circle.fill", gradient: XTheme.downloadsGradient),
-                    title: "Downloads",
-                    count: 0
+                    destination: .archive,
+                    badge: CategoryBadge(icon: "archivebox", gradient: XTheme.archiveGradient),
+                    title: "Archive",
+                    count: appState.archiveFilesCount
+                )
+                rowDivider
+                destinationRow(
+                    destination: .trash,
+                    badge: CategoryBadge(icon: "trash", gradient: XTheme.trashGradient),
+                    title: "Recently Deleted",
+                    count: appState.trashFilesCount
                 )
             }
             .frostedGlassCard(cornerRadius: 16)
@@ -1163,8 +1121,8 @@ struct BrowseView: View {
     @ViewBuilder
     private func destinationView(for destination: BrowseDestination) -> some View {
         switch destination {
-        case .cascadeDrive:
-            FileBrowserView(folderID: "", folderTitle: "Cascade Drive")
+        case .allFiles:
+            FileBrowserView(folderID: "", folderTitle: "All Files")
         case .privateVault:
             PrivateVaultView()
         case .transfers:
@@ -1175,8 +1133,6 @@ struct BrowseView: View {
             TrashView()
         case .favorites:
             FavoritesView()
-        case .downloads:
-            FileBrowserView(folderID: "", folderTitle: "Downloads")
         case .photos:
             PhotosView()
         case .videos:
@@ -1185,6 +1141,8 @@ struct BrowseView: View {
             AudioView()
         case .documents:
             DocumentsView()
+        case .library:
+            LibraryView()
         }
     }
 
@@ -1288,7 +1246,7 @@ struct BrowseView: View {
                     ForEach(searchResults) { file in
                         Button {
                             if file.isFolder {
-                                navPath.append(BrowseDestination.cascadeDrive)
+                                navPath.append(BrowseDestination.allFiles)
                             } else {
                                 appState.openFile(file)
                             }
@@ -1317,6 +1275,43 @@ struct BrowseView: View {
         badgeHighlight: Bool = false
     ) -> some View {
         NavigationLink(value: destination) {
+            HStack(spacing: 14) {
+                badge
+
+                Text(title)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(badgeHighlight ? Color.white : Color.white.opacity(0.55))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(badgeHighlight ? XTheme.accent : Color.white.opacity(0.08), in: Capsule())
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func actionRow(
+        badge: some View,
+        title: String,
+        count: Int = 0,
+        badgeHighlight: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 14) {
                 badge
 
@@ -1385,29 +1380,23 @@ struct RecentsView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                CustomSearchBar(text: $searchText, prompt: "Search")
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
-
-                Group {
-                    if filteredFiles.isEmpty {
-                        if !searchText.isEmpty {
-                            NoSearchResultsView(query: searchText)
-                        } else {
-                            emptyState
-                        }
-                    } else if viewMode == .grid {
-                        gridView
+            Group {
+                if filteredFiles.isEmpty {
+                    if !searchText.isEmpty {
+                        NoSearchResultsView(query: searchText)
                     } else {
-                        listView
+                        emptyState
                     }
+                } else if viewMode == .grid {
+                    gridView
+                } else {
+                    listView
                 }
             }
             .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Recents")
             .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 if isSelecting {
                     ToolbarItem(placement: .topBarLeading) {
@@ -1619,7 +1608,7 @@ struct RecentsView: View {
 
                 Spacer(minLength: 40)
 
-                PageItemCountFooter(count: filteredFiles.count)
+                PageItemCountFooter(count: filteredFiles.count, showSyncStatus: false)
                     .padding(.bottom, 4)
             }
             .frame(maxWidth: .infinity, alignment: .top)
@@ -1644,7 +1633,7 @@ struct RecentsView: View {
                 }
             }
 
-            PageItemCountFooter(count: filteredFiles.count)
+            PageItemCountFooter(count: filteredFiles.count, showSyncStatus: false)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
         }
@@ -1712,39 +1701,33 @@ struct SharedView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                CustomSearchBar(text: $searchText, prompt: "Search")
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
-
-                Group {
-                    if activeShares.isEmpty {
-                        ScrollView {
-                            VStack(spacing: 24) {
-                                if showBanner {
-                                    familyBanner
-                                }
-
-                                if !searchText.isEmpty {
-                                    NoSearchResultsView(query: searchText)
-                                } else {
-                                    emptyState
-                                }
+            Group {
+                if activeShares.isEmpty {
+                    ScrollView {
+                        VStack(spacing: 24) {
+                            if showBanner {
+                                familyBanner
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
+
+                            if !searchText.isEmpty {
+                                NoSearchResultsView(query: searchText)
+                            } else {
+                                emptyState
+                            }
                         }
-                    } else if viewMode == .grid {
-                        gridView
-                    } else {
-                        listView
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
                     }
+                } else if viewMode == .grid {
+                    gridView
+                } else {
+                    listView
                 }
             }
             .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
             .navigationTitle("Shared")
             .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
@@ -1827,15 +1810,6 @@ struct SharedView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-
-            Button {
-                appState.showImportShareSheet = true
-            } label: {
-                Label("Add from Share Link", systemImage: "link.badge.plus")
-                    .font(.headline)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 8)
         }
         .padding(.top, showBanner ? 20 : 80)
     }
@@ -2360,27 +2334,21 @@ struct PhotosView: View {
     @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredPhotos.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
+        Group {
+            if filteredPhotos.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    gridView
+                    emptyState
                 }
+            } else {
+                gridView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Photos")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2556,27 +2524,21 @@ struct VideosView: View {
     @State private var selectedFileIDs: Set<String> = []
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredVideos.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
+        Group {
+            if filteredVideos.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    gridView
+                    emptyState
                 }
+            } else {
+                gridView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2758,29 +2720,23 @@ struct AudioView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredAudio.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
-                } else if viewMode == .grid {
-                    gridView
+        Group {
+            if filteredAudio.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    listView
+                    emptyState
                 }
+            } else if viewMode == .grid {
+                gridView
+            } else {
+                listView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Audio")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -3000,29 +2956,23 @@ struct DocumentsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredDocs.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
-                } else if viewMode == .grid {
-                    gridView
+        Group {
+            if filteredDocs.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    listView
+                    emptyState
                 }
+            } else if viewMode == .grid {
+                gridView
+            } else {
+                listView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Documents")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -3211,6 +3161,247 @@ struct DocumentsView: View {
             }
 
             PageItemCountFooter(count: filteredDocs.count)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedFileIDs.contains(id) {
+            selectedFileIDs.remove(id)
+        } else {
+            selectedFileIDs.insert(id)
+        }
+    }
+}
+
+// MARK: - Library View
+
+struct LibraryView: View {
+    @Environment(AppState.self) private var appState
+    @State private var searchText = ""
+    @State private var viewMode: ViewMode = .grid
+    @State private var viewportHeight: CGFloat = 0
+    @State private var isSelecting = false
+    @State private var selectedFileIDs: Set<String> = []
+
+    enum ViewMode: String {
+        case grid = "Icons"
+        case list = "List"
+    }
+
+    var body: some View {
+        Group {
+            if filteredBooks.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
+                } else {
+                    emptyState
+                }
+            } else if viewMode == .grid {
+                gridView
+            } else {
+                listView
+            }
+        }
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
+        .navigationTitle("Library")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+        .toolbar {
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedFileIDs.count == filteredBooks.count ? "Deselect All" : "Select All") {
+                        if selectedFileIDs.count == filteredBooks.count {
+                            selectedFileIDs.removeAll()
+                        } else {
+                            selectedFileIDs = Set(filteredBooks.map(\.id))
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        isSelecting = false
+                        selectedFileIDs.removeAll()
+                    }
+                    .fontWeight(.semibold)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 12) {
+                        StandardAddMenu(folderID: "", isPrivate: false)
+
+                        BlueEllipsisMenu {
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
+                            Divider()
+                            Button { viewMode = .grid } label: {
+                                HStack {
+                                    Text("Icons")
+                                    if viewMode == .grid { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Button { viewMode = .list } label: {
+                                HStack {
+                                    Text("List")
+                                    if viewMode == .list { Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBottomBar
+            }
+        }
+    }
+
+    private var selectionBottomBar: some View {
+        HStack {
+            Button {
+                appState.toggleFavorites(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "heart")
+                        .font(.system(size: 20))
+                    Text("Favorite")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button {
+                appState.toggleArchive(selectedFileIDs)
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 20))
+                    Text("Archive")
+                        .font(.system(size: 10))
+                }
+            }
+            .disabled(selectedFileIDs.isEmpty)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                appState.trashFiles(selectedFileIDs)
+                selectedFileIDs.removeAll()
+                isSelecting = false
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 20))
+                    Text("Delete")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(selectedFileIDs.isEmpty ? Color.secondary : Color.red)
+            }
+            .disabled(selectedFileIDs.isEmpty)
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 10)
+        .background(Material.bar)
+    }
+
+    private var libraryFiles: [FileItem] {
+        appState.allFiles.filter { !$0.isFolder && !$0.trashed && !$0.isArchived && ($0.isInLibrary || $0.isBook || $0.isBookFile) }
+    }
+
+    private var filteredBooks: [FileItem] {
+        guard !searchText.isEmpty else { return libraryFiles }
+        return libraryFiles.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "books.vertical")
+                .font(.system(size: 48))
+                .foregroundStyle(XTheme.accent)
+            Text("No Books in Library")
+                .font(.title2.bold())
+            Text("EPUB, PDF, MOBI, and other books will appear here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
+        }
+    }
+
+    private var gridView: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ], spacing: 28) {
+                    ForEach(filteredBooks) { file in
+                        if isSelecting {
+                            FileGridItem(
+                                file: file,
+                                isSelecting: true,
+                                isSelected: selectedFileIDs.contains(file.id)
+                            ) {
+                                toggleSelection(file.id)
+                            }
+                        } else {
+                            FileGridItem(file: file) {
+                                appState.openFile(file)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer(minLength: 40)
+
+                PageItemCountFooter(count: filteredBooks.count, noun: "book")
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { viewportHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
+            }
+        }
+    }
+
+    private var listView: some View {
+        List {
+            ForEach(filteredBooks) { file in
+                if isSelecting {
+                    FileRow(
+                        file: file,
+                        isSelecting: true,
+                        isSelected: selectedFileIDs.contains(file.id)
+                    ) {
+                        toggleSelection(file.id)
+                    }
+                } else {
+                    FileRow(file: file) {
+                        appState.openFile(file)
+                    }
+                }
+            }
+
+            PageItemCountFooter(count: filteredBooks.count, noun: "book")
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
         }
@@ -3448,29 +3639,23 @@ struct FavoritesView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredFavorites.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
-                } else if viewMode == .grid {
-                    gridView
+        Group {
+            if filteredFavorites.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    listView
+                    emptyState
                 }
+            } else if viewMode == .grid {
+                gridView
+            } else {
+                listView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Favorites")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -3686,11 +3871,6 @@ struct TransfersView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
             Spacer()
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 48))
@@ -3705,6 +3885,7 @@ struct TransfersView: View {
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Transfers")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
     }
 }
 
@@ -3724,29 +3905,23 @@ struct ArchiveView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredArchived.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
-                } else if viewMode == .grid {
-                    gridView
+        Group {
+            if filteredArchived.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    listView
+                    emptyState
                 }
+            } else if viewMode == .grid {
+                gridView
+            } else {
+                listView
             }
         }
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Archive")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -3950,6 +4125,7 @@ struct TrashView: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var isSelecting = false
     @State private var selectedFileIDs: Set<String> = []
+    @State private var showEmptyTrashConfirmation = false
 
     enum ViewMode: String {
         case grid = "Icons"
@@ -3957,83 +4133,76 @@ struct TrashView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            CustomSearchBar(text: $searchText, prompt: "Search")
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            Group {
-                if filteredTrash.isEmpty {
-                    if !searchText.isEmpty {
-                        NoSearchResultsView(query: searchText)
-                    } else {
-                        emptyState
-                    }
+        Group {
+            if filteredTrash.isEmpty {
+                if !searchText.isEmpty {
+                    NoSearchResultsView(query: searchText)
                 } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            Text("Recently deleted items may be permanently deleted by your storage provider.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 8)
+                    emptyState
+                }
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Text("Recently deleted items may be permanently deleted by your storage provider.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 8)
 
-                            if viewMode == .grid {
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: 16),
-                                    GridItem(.flexible(), spacing: 16),
-                                    GridItem(.flexible(), spacing: 16)
-                                ], spacing: 28) {
-                                    ForEach(filteredTrash) { file in
-                                        if isSelecting {
-                                            FileGridItem(
-                                                file: file,
-                                                isSelecting: true,
-                                                isSelected: selectedFileIDs.contains(file.id)
-                                            ) {
-                                                toggleSelection(file.id)
-                                            }
-                                        } else {
-                                            FileGridItem(file: file) { }
+                        if viewMode == .grid {
+                            LazyVGrid(columns: [
+                                GridItem(.flexible(), spacing: 16),
+                                GridItem(.flexible(), spacing: 16),
+                                GridItem(.flexible(), spacing: 16)
+                            ], spacing: 28) {
+                                ForEach(filteredTrash) { file in
+                                    if isSelecting {
+                                        FileGridItem(
+                                            file: file,
+                                            isSelecting: true,
+                                            isSelected: selectedFileIDs.contains(file.id)
+                                        ) {
+                                            toggleSelection(file.id)
                                         }
-                                    }
-                                }
-                                .padding(.horizontal, 16)
-                            } else {
-                                VStack(spacing: 0) {
-                                    ForEach(filteredTrash) { file in
-                                        if isSelecting {
-                                            FileRow(
-                                                file: file,
-                                                isSelecting: true,
-                                                isSelected: selectedFileIDs.contains(file.id)
-                                            ) {
-                                                toggleSelection(file.id)
-                                            }
-                                        } else {
-                                            FileRow(file: file) { }
-                                        }
-                                        Divider().padding(.leading, 60)
+                                    } else {
+                                        FileGridItem(file: file) { }
                                     }
                                 }
                             }
-
-                            Spacer(minLength: 40)
-
-                            PageItemCountFooter(count: filteredTrash.count, showSyncStatus: false)
-                                .padding(.bottom, 4)
+                            .padding(.horizontal, 16)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(filteredTrash) { file in
+                                    if isSelecting {
+                                        FileRow(
+                                            file: file,
+                                            isSelecting: true,
+                                            isSelected: selectedFileIDs.contains(file.id)
+                                        ) {
+                                            toggleSelection(file.id)
+                                        }
+                                    } else {
+                                        FileRow(file: file) { }
+                                    }
+                                    Divider().padding(.leading, 60)
+                                }
+                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+
+                        Spacer(minLength: 40)
+
+                        PageItemCountFooter(count: filteredTrash.count, showSyncStatus: false)
+                            .padding(.bottom, 4)
                     }
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear
-                                .onAppear { viewportHeight = proxy.size.height }
-                                .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
-                        }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: max(0, viewportHeight - 16), alignment: .top)
+                }
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { viewportHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { _, newHeight in viewportHeight = newHeight }
                     }
                 }
             }
@@ -4041,6 +4210,7 @@ struct TrashView: View {
         .background(Color(red: 0.05, green: 0.06, blue: 0.08).ignoresSafeArea())
         .navigationTitle("Recently Deleted")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -4080,9 +4250,26 @@ struct TrashView: View {
                                 if viewMode == .list { Image(systemName: "checkmark") }
                             }
                         }
+                        Divider()
+                        Button(role: .destructive) {
+                            showEmptyTrashConfirmation = true
+                        } label: {
+                            Label("Empty Bin", systemImage: "trash")
+                        }
+                        .disabled(trashedFiles.isEmpty)
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Are you sure you want to permanently erase all items in the Bin?",
+            isPresented: $showEmptyTrashConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Empty Bin", role: .destructive) {
+                appState.emptyTrash()
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .safeAreaInset(edge: .bottom) {
             if isSelecting {
