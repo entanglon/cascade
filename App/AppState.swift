@@ -1066,7 +1066,13 @@ final class AppState {
             )
             // Same serial queue as user-initiated uploads — resumed files go one
             // at a time too, so a launch-time pileup can't congest TDLib again.
-            uploads.enqueue(UploadManager.PendingUpload(url: URL(fileURLWithPath: path), resumeObject: object, transferID: transferID))
+            uploads.enqueue(UploadManager.PendingUpload(
+                url: URL(fileURLWithPath: path),
+                resumeObject: object,
+                transferID: transferID,
+                parentID: object.parentID,
+                isPrivate: object.isPrivate
+            ))
         }
         uploads.drain()
         await self.loadFiles()
@@ -1144,8 +1150,19 @@ final class AppState {
     }
 
     @MainActor
-    func startUpload(url: URL) {
+    func startUpload(url: URL, parentID: String? = nil, isPrivate: Bool? = nil) {
+        let resolvedParent = parentID ?? ((selectedDestination == .allFiles || selectedDestination == .privateVault) ? currentFolderID : nil)
+        let resolvedPrivate = isPrivate ?? (selectedDestination == .privateVault || isFolderPrivate(resolvedParent))
+
+        var isDir: ObjCBool = false
         let path = url.path(percentEncoded: false)
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+            Task {
+                await importDirectoryRecursively(from: url, targetParentID: resolvedParent, isPrivate: resolvedPrivate)
+            }
+            return
+        }
+
         let fileName = url.lastPathComponent
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
         let chunks = max(1, ChunkPlanner.plan(fileSize: fileSize).items.count)
@@ -1159,7 +1176,68 @@ final class AppState {
             state: .active,
             totalWork: Double(chunks)
         )
-        uploads.enqueue(UploadManager.PendingUpload(url: url, resumeObject: nil, transferID: transferID))
+        uploads.enqueue(UploadManager.PendingUpload(
+            url: url,
+            resumeObject: nil,
+            transferID: transferID,
+            parentID: resolvedParent,
+            isPrivate: resolvedPrivate
+        ))
+    }
+
+    /// Recursively imports a local directory hierarchy into Cascade, creating
+    /// matching folder records in SQLite/Telegram and queuing all nested files
+    /// for upload under their respective parent folders.
+    @MainActor
+    func importDirectoryRecursively(
+        from dirURL: URL,
+        targetParentID: String?,
+        isPrivate: Bool
+    ) async {
+        let rawName = dirURL.lastPathComponent
+        guard !rawName.isEmpty else { return }
+
+        let scoped = dirURL.startAccessingSecurityScopedResource()
+        defer { if scoped { dirURL.stopAccessingSecurityScopedResource() } }
+
+        let folderName = (try? await DatabaseManager.shared.uniqueObjectName(base: rawName, parentID: targetParentID)) ?? rawName
+
+        guard let newFolderID = await createFolder(
+            named: folderName,
+            parentID: targetParentID,
+            isPrivate: isPrivate,
+            refresh: true,
+            registerUndo: false
+        ) else {
+            return
+        }
+
+        let fm = FileManager.default
+        let contents = (try? fm.contentsOfDirectory(
+            at: dirURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        let sortedContents = contents.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+
+        for itemURL in sortedContents {
+            var isDir: ObjCBool = false
+            let itemPath = itemURL.path(percentEncoded: false)
+            if fm.fileExists(atPath: itemPath, isDirectory: &isDir), isDir.boolValue {
+                await importDirectoryRecursively(
+                    from: itemURL,
+                    targetParentID: newFolderID,
+                    isPrivate: isPrivate
+                )
+            } else {
+                startUpload(url: itemURL, parentID: newFolderID, isPrivate: isPrivate)
+            }
+        }
+
+        await self.loadFiles()
     }
 
     /// Wave 2 item 1 — sidecar subtitles: uploads the picked .srt/.ass/.vtt file
@@ -2102,7 +2180,7 @@ final class AppState {
     /// Folder), mirroring createFolder/createPrivateFolder exactly (mime
     /// follows the section). Returns the new folder's ID for navigation.
     @MainActor
-    func createFolder(named name: String, parentID: String?, isPrivate: Bool) async -> String? {
+    func createFolder(named name: String, parentID: String?, isPrivate: Bool, refresh: Bool = true, registerUndo registerUndoAction: Bool = true) async -> String? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let vault = try? await DatabaseManager.shared.firstVault()
@@ -2125,13 +2203,17 @@ final class AppState {
         )
         try? await DatabaseManager.shared.save(folder)
         syncObjectMetadataToTelegram(folder)
-        await self.loadFiles()
-        registerUndo(isPrivate ? "Create Private Folder" : "Create Folder") {
-            try? await DatabaseManager.shared.deleteObjectWithChunks(id: folder.id)
+        if refresh {
             await self.loadFiles()
-        } redo: {
-            try? await DatabaseManager.shared.save(folder)
-            await self.loadFiles()
+        }
+        if registerUndoAction {
+            registerUndo(isPrivate ? "Create Private Folder" : "Create Folder") {
+                try? await DatabaseManager.shared.deleteObjectWithChunks(id: folder.id)
+                await self.loadFiles()
+            } redo: {
+                try? await DatabaseManager.shared.save(folder)
+                await self.loadFiles()
+            }
         }
         return folder.id
     }

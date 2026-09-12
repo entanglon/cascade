@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (morning): Round 241 — Dynamic sidebar padding linked to content top bar lower line. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (morning): Round 242 — AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4391,6 +4391,12 @@ Open levers (not scheduled):
      - Defined unified top bar layout metrics in `XTheme`: `topBarBaseHeight = 52`, `topBarTopPadding(isFullScreen:)`, and `topBarTotalHeight(isFullScreen:)`.
      - In `SidebarView.swift`, dynamically set top padding to `XTheme.topBarTotalHeight(...) + 10`. Sidebar options now always start strictly below the content top bar's lower divider line (`y = 98` windowed, `y = 62` fullscreen).
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
+ 242. **AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste (2026-09-12 morning — COMMITTED)**
+     (`Features/TheaterView.swift`, `Engine/UploadManager.swift`, `App/AppState.swift`, `Features/FileBrowserView.swift`, `CascadeTests/CascadeTests.swift`)
+     - Folder Quick Look in `TheaterView` now displays `AppleFolderIcon(124x98)` with a 16pt soft drop shadow and an "Open Folder" action button instead of the 116×116 gray box and SF Symbol.
+     - `.md`, `.markdown`, `.txt`, `.json`, `.swift`, etc. preview natively in `TheaterView` via `TheaterTextContentView` (formatted markdown with Rendered/Raw toggle, line numbers for code/text, copy-all button with feedback).
+     - Directory copy-paste (`⌘V`) and drag-and-drop: `AppState.startUpload` detects directories and invokes `importDirectoryRecursively`, recreating identical folder hierarchies via `uniqueObjectName` and queueing all nested files into `UploadManager`. `PendingUpload` retains `parentID` and `isPrivate` throughout the upload drain loop.
+     - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), CascadeTests **TEST SUCCEEDED** (111 tests passed). Debug app relaunched.
 
 
 

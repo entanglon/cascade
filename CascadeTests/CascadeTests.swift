@@ -3407,6 +3407,18 @@ struct CascadeTests {
         #expect(interactiveItem?.priority == .interactive)
         #expect((bgItem?.priority ?? .standard) < (interactiveItem?.priority ?? .standard))
     }
+
+    @Test func pendingUploadRetainsParentIDAndPrivacy() {
+        let upload = UploadManager.PendingUpload(
+            url: URL(fileURLWithPath: "/tmp/sample.txt"),
+            resumeObject: nil,
+            transferID: "t-1",
+            parentID: "folder-123",
+            isPrivate: true
+        )
+        #expect(upload.parentID == "folder-123")
+        #expect(upload.isPrivate == true)
+    }
 }
 
 

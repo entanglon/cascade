@@ -49,7 +49,7 @@ struct TheaterView: View {
         if file.isAudio { return .audio }
         let ext = (file.name as NSString).pathExtension.lowercased()
         if file.mime.contains("pdf") || ext == "pdf" { return .pdf }
-        if file.mime.hasPrefix("text/") || ["txt", "md", "json", "log", "csv", "swift", "js", "ts", "py", "sh", "yml", "yaml", "xml", "html", "css"].contains(ext) { return .text }
+        if file.mime.hasPrefix("text/") || ["txt", "md", "markdown", "json", "log", "csv", "swift", "js", "ts", "py", "sh", "yml", "yaml", "xml", "html", "css", "c", "h", "cpp", "hpp", "rs", "go", "sql"].contains(ext) { return .text }
         return .other
     }
 
@@ -59,7 +59,7 @@ struct TheaterView: View {
     /// contents (folders have nothing to download; unsupported types show Finder-style
     /// info and only fetch on demand when the user asks to open them).
     private var isMetadataOnly: Bool {
-        previewKind == .folder || previewKind == .pdf || previewKind == .text || previewKind == .other
+        previewKind == .folder || previewKind == .pdf || previewKind == .other
     }
 
     var body: some View {
@@ -619,6 +619,12 @@ struct TheaterView: View {
                 },
                 onClose: closePlayer
             )
+        case .text:
+            if let targetURL = url {
+                TheaterTextContentView(url: targetURL, file: file)
+            } else {
+                ProgressView().tint(.white)
+            }
         default:
             // Folders and unsupported types get a Finder-style details panel.
             detailsView
@@ -629,14 +635,20 @@ struct TheaterView: View {
 
     private var detailsView: some View {
         VStack(spacing: 22) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-                    .frame(width: 116, height: 116)
+            if previewKind == .folder {
+                AppleFolderIcon(width: 124, height: 98)
+                    .shadow(color: .black.opacity(0.40), radius: 16, x: 0, y: 8)
+                    .padding(.top, 4)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                        .frame(width: 116, height: 116)
 
-                Image(systemName: previewKind == .folder ? "folder.fill" : iconForFile)
-                    .font(.system(size: 54, weight: .light))
-                    .foregroundStyle(previewKind == .folder ? XTheme.accent : XTheme.accent.opacity(0.65))
+                    Image(systemName: iconForFile)
+                        .font(.system(size: 54, weight: .light))
+                        .foregroundStyle(XTheme.accent.opacity(0.65))
+                }
             }
 
             Text(file.name)
@@ -666,7 +678,22 @@ struct TheaterView: View {
                     .fill(Color.white.opacity(0.04))
             )
 
-            if previewKind != .folder {
+            if previewKind == .folder {
+                Button {
+                    let folderToOpen = file
+                    appState.theaterFile = nil
+                    appState.openFolder(folderToOpen)
+                } label: {
+                    Label("Open Folder", systemImage: "arrow.forward.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .contentShape(Capsule())
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
+            } else {
                 Button {
                     openWithDefaultApp()
                 } label: {
@@ -1877,3 +1904,214 @@ struct SVGWebView: NSViewRepresentable {
         nsView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
     }
 }
+
+// MARK: - Text & Markdown Content Viewer
+
+struct TheaterTextContentView: View {
+    let url: URL
+    let file: ObjectRecord
+
+    @State private var text: String = ""
+    @State private var isMarkdownPreview: Bool = true
+    @State private var showLineNumbers: Bool = true
+    @State private var isCopied: Bool = false
+    @State private var isLoading: Bool = true
+    @State private var lineCount: Int = 0
+
+    private var ext: String {
+        (file.name as NSString).pathExtension.lowercased()
+    }
+
+    private var isMarkdownFile: Bool {
+        ext == "md" || ext == "markdown"
+    }
+
+    private var iconName: String {
+        if isMarkdownFile { return "text.book.closed" }
+        if ["swift", "js", "ts", "py", "sh", "json", "c", "cpp", "rs", "go", "sql"].contains(ext) {
+            return "curlybraces"
+        }
+        return "doc.plaintext"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Document Header Bar
+            HStack(spacing: 12) {
+                Image(systemName: iconName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(XTheme.accent)
+
+                Text(file.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                Text("•")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.3))
+
+                Text("\(lineCount) lines")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+
+                Text("•")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.3))
+
+                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+
+                Spacer()
+
+                if isMarkdownFile {
+                    Picker("", selection: $isMarkdownPreview) {
+                        Text("Preview").tag(true)
+                        Text("Raw").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 140)
+                } else {
+                    Button {
+                        showLineNumbers.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "list.number")
+                            Text("Lines")
+                        }
+                        .font(.system(size: 11, weight: showLineNumbers ? .semibold : .regular))
+                        .foregroundStyle(showLineNumbers ? XTheme.accent : .white.opacity(0.6))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .contentShape(Capsule())
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle Line Numbers")
+                }
+
+                // Copy all text button
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    isCopied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        isCopied = false
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                        Text(isCopied ? "Copied" : "Copy")
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isCopied ? .green : .white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(Color.white.opacity(0.04))
+
+            Divider()
+                .background(Color.white.opacity(0.08))
+
+            // Document Body
+            if isLoading {
+                Spacer()
+                ProgressView()
+                    .tint(.white)
+                Spacer()
+            } else if text.isEmpty {
+                Spacer()
+                Text("Empty File")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.4))
+                Spacer()
+            } else {
+                ScrollView([.vertical, .horizontal]) {
+                    if isMarkdownFile && isMarkdownPreview {
+                        if let attr = try? AttributedString(markdown: text, options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+                            Text(attr)
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .lineSpacing(5)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(24)
+                        } else {
+                            Text(text)
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .lineSpacing(5)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(24)
+                        }
+                    } else {
+                        HStack(alignment: .top, spacing: 14) {
+                            if showLineNumbers && lineCount > 0 {
+                                let lineNumbersText = (1...lineCount).map { "\($0)" }.joined(separator: "\n")
+                                Text(lineNumbersText)
+                                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.3))
+                                    .lineSpacing(4)
+                                    .multilineTextAlignment(.trailing)
+                                    .padding(.leading, 14)
+                                    .padding(.trailing, 4)
+
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.08))
+                                    .frame(width: 1)
+                            }
+
+                            Text(text)
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .lineSpacing(4)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.trailing, 16)
+                        }
+                        .padding(.vertical, 16)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: 960, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(red: 0.10, green: 0.10, blue: 0.12).opacity(0.94))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 24, x: 0, y: 12)
+        .padding(.horizontal, 48)
+        .padding(.vertical, 36)
+        .task(id: url) {
+            await loadContent()
+        }
+    }
+
+    private func loadContent() async {
+        isLoading = true
+        let data = (try? Data(contentsOf: url)) ?? Data()
+        let cappedData = data.prefix(2 * 1024 * 1024)
+        let str = String(data: cappedData, encoding: .utf8)
+            ?? String(data: cappedData, encoding: .isoLatin1)
+            ?? String(data: cappedData, encoding: .ascii)
+            ?? ""
+        self.text = str
+        self.lineCount = str.isEmpty ? 0 : str.components(separatedBy: "\n").count
+        self.isMarkdownPreview = isMarkdownFile
+        self.isLoading = false
+    }
+}
+

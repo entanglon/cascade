@@ -20,6 +20,8 @@ final class UploadManager {
         let url: URL
         let resumeObject: ObjectRecord?
         let transferID: String?
+        var parentID: String? = nil
+        var isPrivate: Bool? = nil
     }
 
     weak var appState: AppState?
@@ -60,8 +62,8 @@ final class UploadManager {
         appState.isUploading = true
         appState.uploadStatus = "Preparing…"
         appState.uploadProgress = 0
-        let isPrivate = (appState.selectedDestination == .privateVault || appState.isFolderPrivate(appState.currentFolderID))
-        let parent = (appState.selectedDestination == .allFiles || appState.selectedDestination == .privateVault) ? appState.currentFolderID : nil
+        let isPrivate = pending.isPrivate ?? (appState.selectedDestination == .privateVault || appState.isFolderPrivate(appState.currentFolderID))
+        let parent = pending.parentID ?? ((appState.selectedDestination == .allFiles || appState.selectedDestination == .privateVault) ? appState.currentFolderID : nil)
 
         do {
             let path = url.path(percentEncoded: false)

@@ -1563,8 +1563,15 @@ struct FileBrowserView: View {
         let pb = NSPasteboard.general
 
         // 1. Check for File URLs copied from Finder, Desktop, Downloads, etc.
-        if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty {
-            for url in urls {
+        var targetURLs: [URL] = []
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            targetURLs = urls
+        } else if let paths = pb.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String], !paths.isEmpty {
+            targetURLs = paths.map { URL(fileURLWithPath: $0) }
+        }
+
+        if !targetURLs.isEmpty {
+            for url in targetURLs {
                 appState.startUpload(url: url)
             }
             return

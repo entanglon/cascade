@@ -2,7 +2,32 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (morning) — Dynamic sidebar padding linked to content top bar lower line (Round 241).
+> 2026-09-12 (morning) — AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste (Round 242).
+
+---
+
+## 2026-09-12 (morning) — AppleFolderIcon preview, text/markdown Quick Look, and recursive folder paste (Round 242)
+
+User requested three improvements:
+1. **Folder Preview UI**: Upgrade folder Quick Look / preview in `TheaterView` to use the app's actual vector `AppleFolderIcon` with natural drop shadow instead of the plain gray box and SF Symbol.
+2. **Text / Markdown Quick Look**: Support in-app preview for `.md`, `.markdown`, `.txt`, `.json`, `.swift`, etc. in `TheaterView` with formatted markdown rendering, a raw/rendered toggle, and line-numbered monospaced view for code/text.
+3. **Folder Copy & Paste Support**: Support copying folders directly from Finder and pasting (`⌘V`) or dropping into Cascade, recursively creating matching folder structures and uploading all contained files into their matching folders.
+
+### Analysis & Design
+- **Folder Preview in TheaterView**: Replaced the 116×116 gray container and SF Symbol with `AppleFolderIcon(width: 124, height: 98)` with a 16pt soft drop shadow. Added an "Open Folder" action button so users can directly enter the folder from Quick Look.
+- **Text & Markdown Preview**: Removed `.text` from `isMetadataOnly` so `TheaterView.loadFile()` downloads or resolves cached files. Added `TheaterTextContentView` supporting formatted AttributedString markdown rendering with a Rendered/Raw segmented toggle, line-number gutter for code and plain text, copy-all button with visual feedback, and `.textSelection(.enabled)`.
+- **Recursive Folder Copy-Paste & Drop**: In `AppState.swift`, updated `startUpload` to detect directories via `FileManager.fileExists(isDirectory:)` and call `importDirectoryRecursively`. In `importDirectoryRecursively`, directory hierarchies are created via `createFolder(named:parentID:isPrivate:refresh:registerUndo:)`, collision-protected with `DatabaseManager.uniqueObjectName`, and child files are queued with their designated `parentID`. `UploadManager.PendingUpload` was updated to retain `parentID` and `isPrivate` so uploads land in their target subfolder even as the user navigates in the UI. Enhanced `FileBrowserView.pasteFromClipboard()` to read both `NSURL.self` and `NSFilenamesPboardType`.
+
+### What changed
+- `Features/TheaterView.swift`: Updated `previewKind` to recognize markdown/code/text extensions; removed `.text` from `isMetadataOnly`; updated `detailsView` with `AppleFolderIcon` and "Open Folder" button; added `case .text:` in `contentView`; created `TheaterTextContentView`.
+- `Engine/UploadManager.swift`: Added `parentID: String?` and `isPrivate: Bool?` to `PendingUpload` struct and prioritized them in `performUpload`.
+- `App/AppState.swift`: Extended `startUpload` with `parentID` and `isPrivate`; added directory detection; added `importDirectoryRecursively`; added `refresh` and `registerUndo` options to `createFolder`.
+- `Features/FileBrowserView.swift`: Enhanced `pasteFromClipboard()` to extract file URLs from both `NSURL.self` and `NSFilenamesPboardType`.
+- `CascadeTests/CascadeTests.swift`: Added unit test `pendingUploadRetainsParentIDAndPrivacy()`.
+
+### Verification
+- Builds: macOS (`Cascade` scheme) and iOS (`Cascade iOS` scheme, `sdk iphoneos`) **BUILD SUCCEEDED**.
+- Tests: `CascadeTests` 111 tests passed (107 unit + 2 UI + 2 launch), 0 failures (**TEST SUCCEEDED**).
 
 ---
 
