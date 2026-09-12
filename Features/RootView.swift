@@ -55,6 +55,7 @@ struct RootView: View {
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                     )
+                    .ignoresSafeArea(.all, edges: .top)
                     .padding(.trailing, 10)
                     .padding(.top, 10)
                     .padding(.bottom, 10)

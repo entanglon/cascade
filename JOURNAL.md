@@ -2,9 +2,28 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (morning) — Window-mode main UI top padding and search bar clickability fix (Round 239).
+> 2026-09-12 (morning) — Equal card height in window mode & restored fullscreen sidebar padding (Round 240).
 
 ---
+
+## 2026-09-12 (morning) — Equal card height in window mode & restored fullscreen sidebar padding (Round 240)
+
+User reported two regressions from Round 239:
+1. In window mode, the sidebar and content view cards had mismatched heights.
+2. In full screen mode, the top padding for the sidebar elements was missing (it had nice padding earlier).
+
+### Root cause
+- **Height Mismatch in Window Mode**: `SidebarView` has `.ignoresSafeArea(.all, edges: .top)` inside its root definition, expanding its visual glass card past the 10pt container padding up to `y = 0` (height = `H - 10`). In contrast, the content view's wrapping `ZStack` in `RootView` did not have `.ignoresSafeArea(.all, edges: .top)`, so its visual card started at `y = 10` with height `H - 20`, causing a 10pt height discrepancy where the sidebar stretched to the top but the content view did not.
+- **Missing Fullscreen Sidebar Top Padding**: In Round 239, `SidebarView`'s content padding was conditionally set to `appState.isWindowFullScreen ? 14 : 40`. In full screen mode, 14pt was too small, compressing the sidebar elements against the top display edge.
+
+### What changed
+- `Features/RootView.swift`: Added `.ignoresSafeArea(.all, edges: .top)` to the content view's card `ZStack` right after its `.clipShape` and `.overlay`. Both the sidebar and content view cards now stretch to `y = 0` with identical heights (`H - 10`) and bottom margins.
+- `Features/SidebarView.swift`: Restored unconditional `.padding(.top, 40)` so sidebar elements maintain their comfortable top spacing in both full screen and window modes.
+
+### Verification
+- Builds: macOS (`Cascade` scheme) and iOS (`Cascade iOS` scheme, `sdk iphoneos`) **BUILD SUCCEEDED**.
+- Tests: `CascadeTests` 106 tests passed, 0 failures (**TEST SUCCEEDED**).
+- Debug app relaunched: verified both card frames match exactly at `y = 0` (equal height) and sidebar elements maintain 40pt top padding in full screen mode.
 
 ## 2026-09-12 (morning) — Window-mode main UI top padding and search bar clickability fix (Round 239)
 

@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (morning): Round 239 — Window-mode main UI top padding and search bar clickability fix. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (morning): Round 240 — Equal card height in window mode & restored fullscreen sidebar padding. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4379,4 +4379,11 @@ Open levers (not scheduled):
      - Added `AppState.isWindowFullScreen` synced via `NSWindow` notifications in `WindowChromeView`.
      - In window mode, `topBar` content is padded 36pt down while its `.background(.black.opacity(0.22))` card stretches to the top, matching the sidebar alignment and ensuring full clickability. Fullscreen collapses to 0pt.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
+ 240. **Equal card height in window mode & restored fullscreen sidebar padding (2026-09-12 morning — COMMITTED)**
+     (`Features/RootView.swift`, `Features/SidebarView.swift`)
+     - In window mode, `SidebarView` had `.ignoresSafeArea(.all, edges: .top)` inside it and stretched to `y = 0` (height `H - 10`), while content `ZStack` did not ignore top safe area and sat at `y = 10` (height `H - 20`).
+     - Added `.ignoresSafeArea(.all, edges: .top)` to content `ZStack` in `RootView.swift`, making both card frames start at `y = 0` with identical heights and alignment.
+     - Restored `.padding(.top, 40)` in `SidebarView.swift` so sidebar items retain their clean, spacious padding in full screen mode.
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
+
 
