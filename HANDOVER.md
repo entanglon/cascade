@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (morning): Round 240 — Equal card height in window mode & restored fullscreen sidebar padding. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (morning): Round 241 — Dynamic sidebar padding linked to content top bar lower line. Read this first in any new chat before touching the code.
 
 ---
 
@@ -4385,5 +4385,12 @@ Open levers (not scheduled):
      - Added `.ignoresSafeArea(.all, edges: .top)` to content `ZStack` in `RootView.swift`, making both card frames start at `y = 0` with identical heights and alignment.
      - Restored `.padding(.top, 40)` in `SidebarView.swift` so sidebar items retain their clean, spacious padding in full screen mode.
      - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
+ 241. **Dynamic sidebar padding linked to content top bar lower line (2026-09-12 morning — COMMITTED)**
+     (`Design/XTheme.swift`, `Features/FileBrowserView.swift`, `Features/SidebarView.swift`)
+     - Sidebar options previously started at fixed `y = 40`, overlapping the vertical span of the content view's top bar and cutting across its bottom divider line (`y = 88` in window mode).
+     - Defined unified top bar layout metrics in `XTheme`: `topBarBaseHeight = 52`, `topBarTopPadding(isFullScreen:)`, and `topBarTotalHeight(isFullScreen:)`.
+     - In `SidebarView.swift`, dynamically set top padding to `XTheme.topBarTotalHeight(...) + 10`. Sidebar options now always start strictly below the content top bar's lower divider line (`y = 98` windowed, `y = 62` fullscreen).
+     - Build + suite green: **BUILD SUCCEEDED**, CascadeTests **TEST SUCCEEDED** (106 tests passed). Debug app relaunched.
+
 
 

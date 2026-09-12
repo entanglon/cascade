@@ -39,7 +39,7 @@ struct SidebarView: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.top, 40)
+                .padding(.top, XTheme.topBarTotalHeight(isFullScreen: appState.isWindowFullScreen) + 10)
             }
             .safeAreaInset(edge: .bottom) {
                 SidebarProfileCard()

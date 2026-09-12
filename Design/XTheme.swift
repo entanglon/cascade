@@ -13,6 +13,19 @@ enum XTheme {
     /// lines up directly beneath those controls.
     static let topBarControlsWidth: CGFloat = 130
 
+    /// Base height of the main content view's top navigation bar (search, title, view buttons).
+    static let topBarBaseHeight: CGFloat = 52
+
+    /// Top padding applied to the main content top bar to clear the window titlebar in window mode.
+    static func topBarTopPadding(isFullScreen: Bool) -> CGFloat {
+        isFullScreen ? 0 : 36
+    }
+
+    /// Total distance from card top to the lower divider line of the content view's top bar.
+    static func topBarTotalHeight(isFullScreen: Bool) -> CGFloat {
+        topBarTopPadding(isFullScreen: isFullScreen) + topBarBaseHeight
+    }
+
     // MARK: - Spacing Scale
     static let spaceXS: CGFloat = 4
     static let spaceS: CGFloat = 8

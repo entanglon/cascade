@@ -787,7 +787,7 @@ struct FileBrowserView: View {
     }
 
     private var topBarTopPadding: CGFloat {
-        appState.isWindowFullScreen ? 0 : 36
+        XTheme.topBarTopPadding(isFullScreen: appState.isWindowFullScreen)
     }
 
     private var topBar: some View {
@@ -934,7 +934,7 @@ struct FileBrowserView: View {
             .frame(width: 210, alignment: .trailing)
         }
         .padding(.horizontal, 20)
-        .frame(height: 52)
+        .frame(height: XTheme.topBarBaseHeight)
         .padding(.top, topBarTopPadding)
         .background(.black.opacity(0.22), ignoresSafeAreaEdges: .top)
         .overlay(alignment: .bottom) {

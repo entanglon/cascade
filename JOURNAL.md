@@ -2,9 +2,32 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (morning) — Equal card height in window mode & restored fullscreen sidebar padding (Round 240).
+> 2026-09-12 (morning) — Dynamic sidebar padding linked to content top bar lower line (Round 241).
 
 ---
+
+## 2026-09-12 (morning) — Dynamic sidebar padding linked to content top bar lower line (Round 241)
+
+User requested that the sidebar's top padding be dependent on the content view's top bar so that the options in the sidebar always begin strictly below the lower divider line of the content view's top bar, and asked about macOS industry standards for sidebar layout.
+
+### Analysis & Design
+- **Industry Standards**:
+  - *Standard Apple HIG (SplitView)*: Finder, Music, and Photos start sidebar items directly below traffic lights (`y ≈ 48-52pt`), level with toolbar controls, without a divider line cutting across into the sidebar.
+  - *Modern Dual-Card / Floating Panel (Linear, Craft)*: In dual-card interfaces where the main panel has a dedicated top bar and a crisp horizontal divider, aligning the sidebar items below that divider baseline provides an unbroken horizontal rhythm across both panels, leaving the top region clean for window controls and headers.
+- **Implementation**:
+  - Bound sidebar top padding directly to the content top bar's total height (`XTheme.topBarTotalHeight = topBarTopPadding + topBarBaseHeight`) plus a 10pt inset (`+ 10`).
+  - In window mode: divider sits at `y = 88`, sidebar options start at `y = 98` (strictly below the line).
+  - In fullscreen mode: divider sits at `y = 52`, sidebar options start at `y = 62` (strictly below the line, maintaining clean spacing).
+
+### What changed
+- `Design/XTheme.swift`: Added `topBarBaseHeight = 52`, `topBarTopPadding(isFullScreen:)`, and `topBarTotalHeight(isFullScreen:)` metrics.
+- `Features/FileBrowserView.swift`: Used `XTheme.topBarTopPadding` and `XTheme.topBarBaseHeight`.
+- `Features/SidebarView.swift`: Updated content top padding to `XTheme.topBarTotalHeight(isFullScreen: appState.isWindowFullScreen) + 10`.
+
+### Verification
+- Builds: macOS (`Cascade` scheme) and iOS (`Cascade iOS` scheme, `sdk iphoneos`) **BUILD SUCCEEDED**.
+- Tests: `CascadeTests` 106 tests passed, 0 failures (**TEST SUCCEEDED**).
+- Debug app relaunched: verified sidebar options sit strictly below the lower divider line in both window and fullscreen modes.
 
 ## 2026-09-12 (morning) — Equal card height in window mode & restored fullscreen sidebar padding (Round 240)
 
