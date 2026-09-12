@@ -4423,7 +4423,7 @@ Open levers (not scheduled):
      - File operations (Delete/Move) fix: Fixed `FileItem.==` to compare `trashed`, `parentID`, and `isArchived`; added immediate optimistic UI updates on `@MainActor` in `trashFile`, `trashFiles`, `restoreFiles`, `deletePermanently`, and `moveFiles`; removed blocking cloud sync from local DB load; normalized root `parentID` comparison in `MoveDestinationPickerSheet`.
      - Full-screen photo viewer: Switched `FilePreviewView` from card sheet to `.fullScreenCover`; built `ZoomableImageView: UIViewRepresentable` with pinch-to-zoom (up to 5x), double-tap zoom, and smooth panning; instant placeholder thumbnail display while high-res download finishes; leading "Done" dismiss button.
      - Build + suite green: **BUILD SUCCEEDED** (macOS and iOS), installed and launched on iPhone XS Max, CascadeTests **TEST SUCCEEDED** (107 tests passed).
- 246. **iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch (2026-09-12 afternoon — COMMITTED)**
+ 246. **iOS Browse Dashboard macOS Sidebar Parity, Search Bar Revert, Empty Bin, Library Page, Settings Redesign & Avatar Fetch (2026-09-12 afternoon — COMMITTED `8a21ef1`)**
      (`Cascade iOS/RootView.swift`, `Cascade iOS/AppState.swift`, `Cascade iOS/Features/SettingsView.swift`, `Cascade iOS/Features/FileBrowserView.swift`, `Cascade iOS/XTheme.swift`)
      - Search bar reverted: Reverted from custom view back to native SwiftUI `.searchable(text:placement:prompt:)` across all 11 views and FileBrowserView.
      - Empty Bin: Added `appState.emptyTrash()` with destructive role and confirmation dialog in `TrashView` ellipsis menu.
