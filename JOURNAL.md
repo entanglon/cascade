@@ -2,7 +2,18 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (night) — Item Count Footers Clean-Up (No "Synced with Cascade"), Restored All Files Footer, Removed Browse Badge Counts, Settings About Branding & App Icon, iOS Shared Cancel All & Archived, Uncropped Import Thumbnails, Post-Import Reveal/Pulse to All Files, iOS Download (Save to Files) Action (Round 250).
+> 2026-09-12 (night) — Antigravity Android Port Blueprint & Execution Plan (`docs/ANTIGRAVITY_ANDROID_PLAN.md`).
+
+---
+
+## 2026-09-12 (night) — Antigravity Android Port Blueprint & Execution Plan
+
+User requested a self-contained Antigravity command and execution plan in a markdown file to instruct Antigravity to build the Android app (`CascadeAndroid`).
+
+### Changes
+- Created `docs/ANTIGRAVITY_ANDROID_PLAN.md`:
+  - Copy-paste ready prompt for Antigravity with full tech stack specification (Kotlin, Jetpack Compose Material 3, Room DB, TDLib JNI, Ktor local byte-range streaming server, libmpv Android).
+  - Detailed 8-step execution breakdown for Android app scaffolding, database, crypto, transfers, media playback, and UI.
 
 ---
 

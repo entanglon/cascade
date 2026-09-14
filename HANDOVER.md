@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated 2026-09-12 (night): Round 250 — Item Count Footers Clean-Up (No "Synced with Cascade"), Restored All Files Footer, Removed Browse Badge Counts, Settings About Branding & App Icon, iOS Shared Cancel All & Archived, Uncropped Import Thumbnails, Post-Import Reveal/Pulse to All Files, iOS Download (Save to Files) Action. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated 2026-09-12 (night): Antigravity Android Port Blueprint & Execution Plan (`docs/ANTIGRAVITY_ANDROID_PLAN.md`). Read this first in any new chat before touching the code.
 
 ---
 
