@@ -1,7 +1,11 @@
-# iOS Port — Current State Handover (2026-08-27)
+# iOS Port — Current State Handover (2026-08-27; testing policy note 2026-09-15)
 
 > **Read this file FIRST** when starting a new agent session on the Cascade iOS port.
 > It captures the exact state of the iOS app as of the last working session.
+> **Status 2026-09-15:** iOS is verified working on the physical iPhone XS Max — the
+> user does NOT use an iOS simulator and never will. The ACTIVE workstream is the
+> **Android port** (see HANDOVER.md §5, "ACTIVE WORKSTREAM: Android port"); Windows and
+> Linux ports come after. Do only maintenance/bugfix work here unless the user asks.
 
 ## Critical Rules
 

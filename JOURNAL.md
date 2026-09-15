@@ -2,7 +2,48 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> 2026-09-12 (night) — Antigravity Android Port Blueprint & Execution Plan (`docs/ANTIGRAVITY_ANDROID_PLAN.md`).
+> **2026-09-15 — Android Port M1: wire contract, core engine ports, golden-vector fixtures & tests (Android repo `63a838e`); Xcode license cleared; Apple platforms verified.**
+
+---
+
+## 2026-09-15 — Android Port M1: Wire Contract, Core Engine Ports, Golden Vectors (Android repo `63a838e`); Xcode License Cleared
+
+User cleared the Xcode license blocker and confirmed direction: **Android is the active
+workstream** (Windows/Linux after), iOS testing stays on the physical iPhone XS Max (no
+simulator), and an Android emulator is wanted for Android testing (API 36.1 system image
+installed, AVD not yet created).
+
+### Changes
+- macOS repo: added `scripts/gen_golden_fixtures.swift` — deterministic golden-fixture
+  generator compiled together with the REAL production Swift sources (`CryptoEngine`,
+  `ChunkPlanner`, `ChunkCaption`) using the Command Line Tools toolchain (no Xcode
+  license gate); runs round-trip self-checks; writes
+  `app/src/test/resources/golden_fixtures.json` in the Android repo. Procedure in the
+  Android repo's WIRE_CONTRACT.md §9.
+- Android repo (`~/AndroidStudioProjects/cascade`, new git repo, root commit `63a838e`):
+  - `WIRE_CONTRACT.md` — authoritative cross-platform wire spec (chunking, slice
+    crypto, caption codec, vault key v2 record, snapshot/delta sync, share links,
+    channel conventions, golden-vector procedure).
+  - Core ports: `ChunkPlanner.kt`, `ChunkCaption.kt`, `CryptoEngine.kt` (HKDF slice
+    keys, CryptoKit combined-box AES-GCM layout, PBKDF2 600k/100k/150k), `JsonCodec.kt`.
+  - `GoldenVectorsTest` (19) + `CorePortsTest` (25) — **44 unit tests green**;
+    debug APK assembles. Compose `MainActivity` skeleton.
+  - Toolchain: AGP 9.4 built-in Kotlin (no KGP — forbidden under AGP 9), Compose BOM
+    2026.08, Room 2.8.5 + KSP with `android.disallowKotlinSourceSets=false`, Ktor 3.2.2,
+    minSdk 24 / targetSdk 37.
+- HANDOVER.md / iOS_HANDOVER.md updated with the Android workstream state and the
+  platform-testing policy.
+
+### Golden-vector discoveries (real wire bugs the fixtures caught)
+1. Swift's JSON encoders escape `/` as `\/` — Kotlin `JsonCodec` now matches byte-for-byte.
+2. Apple `NSData.compressed(using: .zlib)` emits RAW DEFLATE (no 0x78 wrapper) —
+   Android consumers must `Inflater(nowrap = true)`.
+3. Swift `JSONEncoder` key order is random per encode — key order is NOT a wire
+   contract; key sets / nil-omission / value types are.
+
+### Verification
+- macOS: `Cascade` Debug **BUILD SUCCEEDED**; CascadeTests **TEST SUCCEEDED** (full suite).
+- Android: `./gradlew :app:testDebugUnitTest` — **44/44 passed**; `assembleDebug` OK.
 
 ---
 
