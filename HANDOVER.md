@@ -2791,14 +2791,23 @@ immediately against a real session. Android repo history: `63a838e` M1 → `1090
 M2 → `248ef18` M2.1 (bundled creds + icon) → `0766d89` M2.2 (Map.toString JSON bug)
 → `6d12b4f` M2.3 (late-ack race + cloud icon). 59/59 unit tests green.
 
-**M3 (NEXT) — transfer engines**, port from `Engine/UploadEngine.swift` +
-`Engine/DownloadEngine.swift` + `Engine/ChunkEngine.swift` (chunk pipeline already
-ported & fixture-tested in `core/`): upload = plan → per-chunk encrypt+seal →
-`sendMessage` with caption to the vault channel (chunk records in Room); download =
-fetch chunk messages → download files via TDLib → decrypt → reassemble; resume
-state per object (completed chunks + bytes); Ktor byte-range HTTP server for
-streaming playback later. The Mac app's vault ensure/create flow
-(`VaultManager.ensureVault`) is the first thing a fresh Android account needs.
+**M3 — transfer engines: CORE DONE AND PROVEN** (2026-09-16, commits `af9d157` →
+`1e93d98`, Android repo): vault bootstrap creates/adopts the real "Cascade Vault"
+channel (archived+muted, key wrapped in Room); UploadEngine does plan → encrypt →
+staging → sendMessage+caption → `updateMessageSendSucceeded` await; DownloadEngine
+(full Swift port) does getMessage → synchronous downloadFile → streaming decrypt →
+cipher/plain/root hash verification → reassembly with resume helpers. **Round trip
+proven live**: m3test.txt uploaded from the emulator, tapped, downloaded, decrypted,
+SHA-256 of the materialized file == object rootHash (`997bc232...`, 89/89 bytes),
+opened via FileProvider viewer intent. Material You home (nav bar, vault banner,
+upload FAB → SAF picker). Tests 67/67. Key gotchas fixed en route: object keys are
+wrapped with the VAULT key (not master — Mac parity); `MessageDigest.digest()`
+resets, so hash hex is computed once and reused; this TDLib has NO standalone
+`uploadFile` — files ride on `sendMessage` with `inputFileLocal`;
+`downloadFile synchronous=true` blocks until complete; message content is at
+`message.content.document.document`. M3 REMAINING: transfers UI cards (TransferEntity
+exists in Room, Transfers tab is a stub), Ktor byte-range streaming server (M4
+prerequisite), share-import deep link wiring, delete/object lifecycle, thumbnails.
 
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
