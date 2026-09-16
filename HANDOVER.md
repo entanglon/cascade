@@ -2776,7 +2776,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `1090002`)
+### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `248ef18`)
 
 User direction (2026-09-15): **the Android port is the current workstream.** Windows and
 Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone XS Max
@@ -2860,6 +2860,27 @@ TDLib integrated and verified END-TO-END on the emulator:
   then `adb shell am start -n com.entanglon.cascade/.MainActivity`; drive UI via
   `adb shell input tap/text` + `adb shell uiautomator dump` (keyboard shifts
   layout — re-dump between taps).
+
+**M2.1 (same day, Android repo `248ef18`): bundled credentials + real icon + emulator fix:**
+- **Telegram credentials are bundled**: the macOS app's api_id/api_hash are read
+  from the Mac Keychain (`security find-generic-password -s com.cascade.app -a
+  telegram-credentials -w`) into `local.properties` as `TD_API_ID`/`TD_API_HASH`
+  (gitignored), injected as BuildConfig constants, and auto-seed
+  `CredentialsStore` on first launch → the credentials step is skipped entirely
+  (manual entry remains as fallback). Gotcha: Android Studio's generated
+  `local.properties` may LACK a trailing newline — appending blindly glues the
+  first key onto `sdk.dir=` and breaks the SDK path (fixed once already).
+- **Launcher icon ported** from the iOS 1024px master
+  (`Cascade iOS/Assets.xcassets/AppIcon.appiconset/icon_1024x1024.png`): adaptive
+  icon (bg sampled `rgb(35,36,40)` + full-bleed foreground in
+  `drawable-xxxhdpi/`), legacy mipmap PNGs at all densities (template
+  webp/vector defaults deleted; `monochrome` layer dropped — full-bleed art has
+  no silhouette). Verified in the built APK.
+- **Emulator hanging diagnosed & fixed**: host has only 8 GB RAM; at first boot
+  the TDLib build left ~2.4 GB free → emulator fell back to **software GL**
+  (swangle). Now launched with `-gpu host -memory 2048 -cores 4` (launchd agent
+  updated) → **hardware GPU (gfxstream) confirmed** in emulator.log. Keep heavy
+  builds running while testing = expect another software-GL fallback.
 
 **Next Android milestones:** **M3 transfer engines (upload/download,
 pause/resume) + Ktor byte-range stream server → M4 libmpv playback → M5 Compose
