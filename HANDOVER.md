@@ -2805,9 +2805,14 @@ wrapped with the VAULT key (not master — Mac parity); `MessageDigest.digest()`
 resets, so hash hex is computed once and reused; this TDLib has NO standalone
 `uploadFile` — files ride on `sendMessage` with `inputFileLocal`;
 `downloadFile synchronous=true` blocks until complete; message content is at
-`message.content.document.document`. M3 REMAINING: transfers UI cards (TransferEntity
-exists in Room, Transfers tab is a stub), Ktor byte-range streaming server (M4
+`message.content.document.document`. M3 REMAINING: Ktor byte-range streaming server (M4
 prerequisite), share-import deep link wiring, delete/object lifecycle, thumbnails.
+DONE SINCE: live Transfers tab (TransferCenter port — Room-backed progress cards
+wired into both engines, verified live: upload|complete + download|complete rows,
+cancel + clear-finished) and full Material You icon support (launcher set from
+`Public/android.png` with 60dp artwork in the 66dp safe zone, #FDFDFC color
+background, 3-tone monochrome layer verified with Themed icons enabled on the
+emulator — commit `8455954` + `5511758`).
 
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
