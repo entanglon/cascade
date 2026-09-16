@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-16**: the **Android port is the active workstream** — milestone M2 (TDLib + Telegram login) is done and committed (see "ACTIVE WORKSTREAM: Android port" in section 5). macOS + iOS verified healthy (builds + full test suite green, 2026-09-15). Windows/Linux ports are planned AFTER Android. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-16**: the **Android port is the active workstream** — milestone M2 is COMPLETE (user signed in with a real Telegram account on the emulator; `authorizationStateReady` confirmed). **M3 (transfer engines) is next.** macOS + iOS verified healthy (builds + full test suite green, 2026-09-15). Windows/Linux ports are planned AFTER Android. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2783,7 +2783,24 @@ Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone X
 only — the user does NOT use an iOS simulator, and confirms iOS on-device "works fine
 for now". The user DOES want an emulator for Android testing (see below).
 
-**Milestone M1 is DONE and committed** (Android repo root commit `63a838e`, 2026-09-15):
+**Milestone M2 is DONE — REAL LOGIN CONFIRMED** (2026-09-16 15:02, emulator): the user
+completed phone → code → (2FA) with their actual Telegram account; logcat shows
+`authorizationStateReady` and a live connection to DcId{1}. The authorized session
+persists in TDLib's database (`app_tdlib-db`), so relaunches skip auth. M3 can start
+immediately against a real session. Android repo history: `63a838e` M1 → `1090002`
+M2 → `248ef18` M2.1 (bundled creds + icon) → `0766d89` M2.2 (Map.toString JSON bug)
+→ `6d12b4f` M2.3 (late-ack race + cloud icon). 59/59 unit tests green.
+
+**M3 (NEXT) — transfer engines**, port from `Engine/UploadEngine.swift` +
+`Engine/DownloadEngine.swift` + `Engine/ChunkEngine.swift` (chunk pipeline already
+ported & fixture-tested in `core/`): upload = plan → per-chunk encrypt+seal →
+`sendMessage` with caption to the vault channel (chunk records in Room); download =
+fetch chunk messages → download files via TDLib → decrypt → reassemble; resume
+state per object (completed chunks + bytes); Ktor byte-range HTTP server for
+streaming playback later. The Mac app's vault ensure/create flow
+(`VaultManager.ensureVault`) is the first thing a fresh Android account needs.
+
+**Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
   minSdk 24 / targetSdk 37, AGP 9.4.0 with **built-in Kotlin** (the separate

@@ -2,7 +2,27 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-16 — Android Port M2: TDLib integrated + Telegram login flow, verified live on the new emulator (Android repo `1090002`).**
+> **2026-09-16 — Android M2 COMPLETE: real Telegram sign-in on the emulator; M3 (transfers) begins.**
+
+---
+
+## 2026-09-16 — Android M2 Complete: Real Telegram Sign-In (authorizationStateReady); M3 Next
+
+After the M2.2 (Map.toString → JSON) and M2.3 (late-ack race) fixes, the user performed
+a REAL login on the Cascade_Test emulator: phone → SMS/Telegram code → (2FA) →
+**`authorizationStateReady` at 15:02** — a live connection to Telegram's DC1 from the
+app, on the user's actual account. The session persists in TDLib's local database, so
+relaunches skip auth (the app currently shows the M3 placeholder).
+
+Three hard-won lessons are recorded in the code as regression tests: the Map.toString
+serialization trap, the encryption-key handshake, and the late-ack/spinner race.
+Icon is the real Cascade cloud (Public/light.png) on the launcher and login screen.
+
+**Next: M3 — transfer engines.** Upload: ChunkPlanner → per-chunk encrypt/seal →
+send to the vault channel with the caption codec (all already ported + fixture-tested
+in `core/`); Download: TDLib file download → decrypt → reassemble, with per-object
+resume state. Then VaultManager.ensureVault (fresh-account flow), TransferCenter
+UI, and the Ktor byte-range server for playback. Windows/Linux after M4/M5.
 
 ---
 
