@@ -2,7 +2,70 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-15 — Android Port M1: wire contract, core engine ports, golden-vector fixtures & tests (Android repo `63a838e`); Xcode license cleared; Apple platforms verified.**
+> **2026-09-16 — Android Port M2: TDLib integrated + Telegram login flow, verified live on the new emulator (Android repo `1090002`).**
+
+---
+
+## 2026-09-16 — Android Port M2: TDLib Integrated, Telegram Login Flow, Verified on Emulator (Android repo `1090002`)
+
+Goal: get a real Telegram client running inside the Android app. Chose the hard-but-
+correct path — building TDLib from source — after checking prebuilt artifacts (the
+TGX-Android bundle explicitly discourages external use; no maintained Maven artifact).
+
+### Toolchain
+- Installed: NDK 26.3.11579264 + CMake 3.22.1 + platform android-34 via sdkmanager
+  (brew `android-commandlinetools` cask), `cmake` + `php` via brew.
+- Cloned tdlib/td into `~/AndroidStudioProjects/td-build/td`; used the official
+  `example/android` scripts (`build-openssl.sh`, `build-tdlib.sh ... JSONJava`) with
+  the ABI loop trimmed to **arm64-v8a + x86_64**.
+- Long builds must run detached from the agent's process tree (tool timeouts kill
+  them): used a temporary launchd agent (`com.cascade.tdlib-android-build`), later
+  removed. Build ~45 min for both ABIs.
+- Product: `libtdjsonjava.so` — TDLib's own JNI binding (the one Telegram X ships),
+  ~21 MB arm64 / ~24 MB x86_64, installed into `app/src/main/jniLibs/`. Exact build
+  scripts preserved in the Android repo at `docs/tdlib/` (checkout tree is untracked
+  and deletable).
+
+### Kotlin integration (Android repo)
+- `telegram/TdClient.kt` — `org.drinkless.tdlib.JsonClient` wrapper: `@extra`
+  request/response correlation via a pending-request table, receive loop on a
+  dedicated thread, TDLib error mapping (FLOOD_WAIT_X, PHONE_CODE_INVALID,
+  PASSWORD_HASH_INVALID → user-facing messages).
+- `telegram/LoginViewModel.kt` — auth state machine CREDENTIALS → PHONE → CODE →
+  PASSWORD → READY behind a JVM-testable `AuthGateway` interface (unit tests run
+  without the native lib).
+- `telegram/CredentialsStore.kt` — API id/hash in AndroidKeyStore AES-GCM (Keychain
+  analogue of the Mac app's Keychain-stored credentials).
+- `ui/login/LoginScreen.kt` — Compose login flow; user enters their own
+  my.telegram.org API credentials, mirroring the Mac app.
+- `TelegramLoginTest.kt` (11 tests): request shapes, phone normalization, error
+  mapping, full state-machine walk with a fake gateway. Suite now **55/55 green**.
+
+### Emulator created (user requirement for Android testing)
+- AVD **`Cascade_Test`** from the API 36.1 google_apis_playstore **arm64-v8a**
+  image (3 GB RAM, Play Store, 8 GB data).
+- Gotchas: brew `avdmanager` NPEs on this image ("Package path is not valid …
+  null") → AVD created by hand-writing `~/.android/avd/Cascade_Test.avd/config.ini`
+  + `Cascade_Test.ini`; `skin.*` keys cause "unknown skin name" fatal (no skins
+  installed) → removed. Boots ~45 s.
+- Emulator launched via persistent launchd agent `com.cascade.emulator` (logs to
+  Android repo `emulator.log`, gitignored). Host RAM pressure (~2.4 GB free < 5 GB
+  desired) forces **software GL (swangle)** — fine for verification, slow under
+  animation load.
+
+### End-to-end verification (2026-09-16)
+- `adb install` + launch: no crashes; Compose login screen renders.
+- Entered dummy API credentials via adb input; tapped Continue:
+  `nativeloader: Load libtdjsonjava.so … ok` and `DLTD: authorization_state =
+  authorizationStateWaitTdlibParameters` in logcat — **real TDLib running in-process**
+  and the UI advancing to phone-number entry. Full pipeline proven: Compose → VM →
+  JNI → native TDLib → response → UI.
+- Real end-to-end auth still needs the user's REAL Telegram API credentials + login
+  code (dummy ones correctly surface TDLib's rejection).
+
+### Commits
+- Android repo `~/AndroidStudioProjects/cascade` → **`1090002`** (13 files, +1214).
+- HANDOVER.md updated: Android section now covers M2 + emulator + next milestone M3.
 
 ---
 

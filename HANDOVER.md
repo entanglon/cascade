@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-15**: the **Android port is the active workstream** — milestone M1 is done and committed (see "ACTIVE WORKSTREAM: Android port" in section 5). macOS + iOS verified healthy (builds + full test suite green, 2026-09-15). Windows/Linux ports are planned AFTER Android. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-16**: the **Android port is the active workstream** — milestone M2 (TDLib + Telegram login) is done and committed (see "ACTIVE WORKSTREAM: Android port" in section 5). macOS + iOS verified healthy (builds + full test suite green, 2026-09-15). Windows/Linux ports are planned AFTER Android. Read this first in any new chat before touching the code.
 
 ---
 
@@ -2776,7 +2776,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `63a838e`)
+### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `1090002`)
 
 User direction (2026-09-15): **the Android port is the current workstream.** Windows and
 Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone XS Max
@@ -2812,16 +2812,64 @@ for now". The user DOES want an emulator for Android testing (see below).
   toolchain (no Xcode license gate).
 - Compose `MainActivity` skeleton builds; no real UI yet.
 
-**Android emulator (user request):** SDK has an API **36.1** system image installed
-(`~/Library/Android/sdk/system-images/android-36.1`) but NO AVD created yet
-(`emulator -list-avds` is empty). Create one via Android Studio Device Manager or
-`avdmanager create avd` when UI testing starts (M2/M3 onward).
+**Milestone M2 is DONE and committed** (Android repo `main` @ `1090002`, 2026-09-16) —
+TDLib integrated and verified END-TO-END on the emulator:
 
-**Next Android milestones:** M2 TDLib JNI integration + Telegram auth → M3 transfer
-engines (upload/download, pause/resume) + Ktor byte-range stream server → M4 libmpv
-playback → M5 Compose UI parity (drive, categories, vault, transfers, shares,
-settings). The vault key record + PIN seal path (already fixture-tested) is the
-prerequisite for any vault work on device.
+- **TDLib built from source** for Android: official tdlib/td example scripts
+  (`build-openssl.sh` + `build-tdlib.sh ... JSONJava`) against NDK 26.3.11579264 /
+  CMake 3.22.1 / OpenSSL (all installed via brew + sdkmanager). Trimmed to
+  **arm64-v8a + x86_64** (edited the script's ABI loop). Produces
+  `libtdjsonjava.so` (~21 MB arm64 / ~24 MB x86_64) — TDLib's OWN JNI bridge
+  (the binding Telegram X uses), NOT a hand-rolled bridge. The exact scripts used
+  are preserved in the Android repo at `docs/tdlib/`. TDLib checkout + build tree:
+  `~/AndroidStudioProjects/td-build/td` (untracked, ~10 GB — can be deleted and
+  rebuilt from `docs/tdlib/` scripts if disk is needed). Full build took ~45 min
+  for both ABIs; ran under a temporary launchd agent (tool timeouts kill long
+  builds otherwise).
+- **Kotlin layer** (`app/src/main/java/com/entanglon/cascade/telegram/`):
+  `TdClient.kt` — singleton wrapper over `org.drinkless.tdlib.JsonClient` with
+  `@extra` request/response correlation, `@ExtraPayload`-tagged pending-request
+  table, receive-loop on a dedicated thread, error mapping
+  (`FLOOD_WAIT_X`/`PHONE_CODE_INVALID`/`PASSWORD_HASH_INVALID` → user messages);
+  `LoginViewModel.kt` — auth state machine (CREDENTIALS → PHONE → CODE →
+  PASSWORD → READY) behind a JVM-testable `AuthGateway` interface, handles
+  `authorizationStateWaitCode` `type.phone_number_pattern`, flood-wait display;
+  `CredentialsStore.kt` — API id/hash in an AndroidKeyStore AES-GCM file
+  (Keychain analogue); `ui/login/LoginScreen.kt` — Compose flow mirroring the
+  Mac app's configure(apiID:apiHash:) pattern (user enters their own
+  my.telegram.org credentials).
+- **Verified on emulator** (2026-09-16): `libtdjsonjava.so` loads
+  (`nativeloader ... ok`), TDLib responds (`DLTD: authorization_state =
+  authorizationStateWaitTdlibParameters` in logcat), and the UI advances from
+  API credentials to phone-number entry. No crashes. 55/55 unit tests green
+  (44 M1 + 11 new login tests in `TelegramLoginTest.kt`).
+- **Android emulator is LIVE**: AVD **`Cascade_Test`** (API 36.1
+  `google_apis_playstore` **arm64-v8a**, 3 GB RAM, Play Store enabled, 8 GB data).
+  ⚠️ `avdmanager` from the brew cmdline-tools NPEs on the 36.1 image ("Package
+  path is not valid ... null") — the AVD was created by hand-writing
+  `~/.android/avd/Cascade_Test.avd/config.ini` + `~/.android/avd/Cascade_Test.ini`.
+  Also removed `skin.*`/`showDeviceFrame` keys (no skins installed — "unknown
+  skin name" fatal). Boots in ~45 s. Launch: launchd agent
+  `~/Library/LaunchAgents/com.cascade.emulator.plist` (label `com.cascade.emulator`,
+  logs to the Android project's `emulator.log`, gitignored) — plain `nohup`/tool
+  launches die with the tool timeout. NOTE: host free RAM (~2.4 GB) is below the
+  emulator's 5 GB comfort threshold → it falls back to **software GL
+  (swangle/lavapipe)**; usable for UI verification, slow for animation-heavy
+  testing. Close memory-hungry apps (or reboot) before long sessions.
+- Install/verify recipe: `adb install -r app/build/outputs/apk/debug/app-debug.apk`
+  then `adb shell am start -n com.entanglon.cascade/.MainActivity`; drive UI via
+  `adb shell input tap/text` + `adb shell uiautomator dump` (keyboard shifts
+  layout — re-dump between taps).
+
+**Next Android milestones:** **M3 transfer engines (upload/download,
+pause/resume) + Ktor byte-range stream server → M4 libmpv playback → M5 Compose
+UI parity** (drive, categories, vault, transfers, shares, settings). The vault
+key record + PIN seal path (already fixture-tested) is the prerequisite for any
+vault work on device. M2 prerequisite is DONE: with real Telegram auth, M3 can
+start immediately — the user must supply REAL Telegram API credentials + a login
+code (from their Telegram app) for true end-to-end auth testing on the emulator;
+dummy credentials correctly get a TDLib API_ID_INVALID-style rejection and the
+flow surfaces TDLib errors properly.
 
 ### ⚠️ OPEN, HANDED OFF TO ANTIGRAVITY: iOS pull-to-refresh still stuck (2026-08-28)
 User-confirmed STILL BROKEN after two fix attempts (items 123, 124) — the
