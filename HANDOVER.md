@@ -2776,7 +2776,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `0766d89`)
+### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `6d12b4f`)
 
 User direction (2026-09-15): **the Android port is the current workstream.** Windows and
 Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone XS Max
@@ -2860,6 +2860,20 @@ TDLib integrated and verified END-TO-END on the emulator:
   then `adb shell am start -n com.entanglon.cascade/.MainActivity`; drive UI via
   `adb shell input tap/text` + `adb shell uiautomator dump` (keyboard shifts
   layout — re-dump between taps).
+
+**M2.3 (2026-09-16, Android repo `6d12b4f`): code-step freeze fixed + real icon.** The
+user could submit the phone number but tapping Verify did nothing. Root cause: a
+late-ack race — TDLib's `WaitCode` update arrived BEFORE the phone request's success
+response, and the response handler re-pinned `busy=true`; `submit()` early-returns
+while busy, so the code submission was silently dropped forever. Fix: a success ack
+only clears the spinner if `step` hasn't changed (the authState collector owns the UI
+once TDLib advances); `AuthState.Closed` also stops the spinner with an error instead
+of spinning forever. Two regression tests added (`lateSuccessResponseDoesNotRePin…`,
+`closedAuthStateStopsSpinner…`). **Icon**: replaced the dark iOS master with
+`Public/light.png` (the blue/pink cloud) — adaptive foreground scaled into the 66dp
+safe zone on white, legacy mipmaps regenerated, transparent-trimmed cloud
+(`drawable-nodpi/ic_cloud_login.png`) added to the login header. Verified visually on
+the emulator (app drawer + login screen). 59/59 unit tests green.
 
 **M2.2 (2026-09-16, Android repo `0766d89`): login-hang root-caused & fixed.** The user
 hit a permanent spinner + disabled Next at the phone step. TWO real bugs:
