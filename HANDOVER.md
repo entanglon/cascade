@@ -2776,7 +2776,7 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `248ef18`)
+### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `0766d89`)
 
 User direction (2026-09-15): **the Android port is the current workstream.** Windows and
 Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone XS Max
@@ -2860,6 +2860,25 @@ TDLib integrated and verified END-TO-END on the emulator:
   then `adb shell am start -n com.entanglon.cascade/.MainActivity`; drive UI via
   `adb shell input tap/text` + `adb shell uiautomator dump` (keyboard shifts
   layout — re-dump between taps).
+
+**M2.2 (2026-09-16, Android repo `0766d89`): login-hang root-caused & fixed.** The user
+hit a permanent spinner + disabled Next at the phone step. TWO real bugs:
+1. **Requests were serialized as Kotlin `Map.toString()`, not JSON** —
+   `request + mapOf("@extra" to …)` resolved to the stdlib `Map.plus` operator
+   (`JsonObject` implements `Map`!), producing a `LinkedHashMap` whose `toString()`
+   renders `{@type=...}` with unquoted keys. TDLib rejected EVERY request with
+   "Failed to parse request as JSON object" — and the fire-and-forget `send()`
+   swallowed the error responses, so nothing ever surfaced. Fix: `TdRequests.withExtra()`
+   builds a real `JsonObject`; regression test pins that the wire form reparses.
+   **Lesson: never use `+` on a `JsonObject` — it is a `Map` and silently returns one.**
+2. **`authorizationStateWaitEncryptionKey` was never answered** — on the raw JSON
+   interface TDLib pauses there until `checkDatabaseEncryptionKey` (empty key);
+   TDLibKit does this internally for the Mac app. `TdClient.handleUpdate` now
+   auto-answers it.
+Also added `CascadeTd` logcat logging of every outgoing request and every unclaimed
+error response, so silent TDLib rejections cannot hide again. Verified on emulator:
+`WaitTdlibParameters → WaitPhoneNumber`, zero parse errors, Next enables on input;
+57/57 unit tests green.
 
 **M2.1 (same day, Android repo `248ef18`): bundled credentials + real icon + emulator fix:**
 - **Telegram credentials are bundled**: the macOS app's api_id/api_hash are read
