@@ -2883,6 +2883,19 @@ Settings recovery handler) clears the gate and the grid populates on the
 next composition. Thumb pipeline proven working end-to-end except the
 final decrypt, which is PIN-gated by design.
 
+**FILES-BY-GOOGLE CARD PARITY** (2026-09-17, commit `91012b4`): the user
+shared real Files-app screenshots and rejected the previous Material card
+treatment. HomeScreen now matches them: 2-col OUTLINED cards (aspect 0.82)
+with tall preview areas holding big colored type icons (red images /
+green video / purple audio / blue docs / gray code — Files colors these,
+unlike our earlier monochrome assumption) or edge-to-edge cropped thumbs;
+footer row with small type icon + name + meta; folder cards with outlined
+glyph + "N items"; section header with list/grid toggle; folders sort
+before files; drawer restructured with "Files" brand title and COLORED
+category icons (an explicit user-approved exception to monochrome — Files
+colors its category icons). Design rule going forward: match the real
+Files app screenshots the user provided, not generic M3 defaults.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
