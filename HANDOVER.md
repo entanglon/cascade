@@ -2920,6 +2920,20 @@ Schedule. (5) Header-verified live: brand header, sectioned grid,
 circular hump, correct glyphs. The app icon (material-you.png adaptive)
 was already correct — user meant in-app icons.
 
+**UI POLISH ROUND 3** (2026-09-17, Android commit `dfef8c9`): user reported
+the hump rendered half-cut, menus did nothing, and asked for no icon in
+the drawer header. Fixes, all verified live: (1) UploadHump's Surface
+wrapper was clipping the FAB — removed; the circular + now rises from a
+44dp bar as a full hump. (2) Top-bar overflow menu: Sync now (re-runs
+snapshot restore + toast) and Settings. (3) Long-press menu on every
+item (grid card, folder bar, list row): Favorite / Remove favorite,
+Rename (prefilled AlertDialog, same object id), Move to Trash — saved
+via ObjectsDao.save. (4) Trash pane now uses new ObjectsDao.observeEvery
+(observeAll filters trashed rows, so the pane could never list items).
+Rename/favorite/trash are LOCAL ONLY for now — they don't publish delta
+messages yet, so the Mac won't see them until delta publishing lands
+(natural M4 companion). (5) Drawer header: plain "Cascade" text.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
