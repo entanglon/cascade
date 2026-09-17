@@ -2814,6 +2814,31 @@ cancel + clear-finished) and full Material You icon support (launcher set from
 background, 3-tone monochrome layer verified with Themed icons enabled on the
 emulator — commit `8455954` + `5511758`).
 
+**M3 — CROSS-DEVICE SYNC WORKS** (2026-09-17, commit `909726b`, Android repo):
+logging into the existing account now restores the Mac's real catalog. The
+Android app restores the Mac's published CatalogSnapshot (checkpoint
+`cascade:dbsnapshot:v1:` + append-only `cascade:dbdelta:v1:` messages, zlib
+JSON) and merge-adopts it into Room — live-verified **58 objects / 90 chunks**
+from the user's real vault (files back to Aug 21 visible on the emulator).
+The ONE root cause of the earlier total sync failure: Apple's
+`NSData.compressed(using: .zlib)` emits **RAW DEFLATE (RFC 1951, no zlib
+header)** — Android must `Inflater(nowrap = true)` FIRST (then RFC 1950
+wrapper, then raw-JSON fallback). This is now also documented in the Android
+repo's `WIRE_CONTRACT.md` mindset: never trust the "zlib" name across
+Swift↔Kotlin. Additional fixes en route: restore() merges into a POPULATED
+catalog too (LWW on modifiedAt, local-only rows kept, phantom `Untitled`/
+`File-*` rows always yield) instead of only fresh devices; snapshot scan
+pages up to 40 pages of channel history (checkpoint deep in thousands of
+chunk messages); `findRecoveryBlob` likewise pages deep for the
+`cascade:vaultkey:v2:` record (verified reachable). PIN recovery UI exists in
+Android Settings (VaultKeyRecovery.attemptRecovery — PBKDF2 → unwrap →
+re-wrap with device master key). iOS-style UI (Recents/Shared/Browse tabs,
+dark #0D0F14, accent #4085FF, grid cards, search/sort) landed earlier this
+session. NEXT: PIN recovery entry point should surface proactively when the
+catalog contains sealed objects but the key is fresh-minted (today the user
+must find Settings manually); Ktor byte-range streaming (M4 prerequisite),
+share-import, delete/lifecycle, thumbnails.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
