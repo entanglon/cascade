@@ -2868,6 +2868,21 @@ secondaryContainer selection pill; file-type icons in secondaryContainer
 tonal tiles; FAB primaryContainer). Theme roles everywhere — no hardcoded
 component colors remain in HomeScreen. Verified live in light mode.
 
+**THUMBNAILS + FILES LAYOUT** (2026-09-17, commit `2b45738`): 2-column
+Files-app grid with 110dp tiles; folder tiles show "N items" live counts;
+list rows show thumbs in tonal tiles. ThumbnailService (new,
+core/ThumbnailService.kt): the Mac's thumb sidecars are ENCRYPTED documents
+(encryptChunk with the object key, slice 0, caption kind:"thumb") — fetch
+getMessage → synchronous downloadFile → decryptChunk(objectKey) → cache
+plaintext jpeg under cacheDir/thumbs; undecodable cache entries are
+invalidated+refetched; plaintext uploads instead use Telegram's attached
+document.thumbnail. CRITICAL GATE: before PIN recovery every sealed thumb
+unwrap fails (BAD_DECRYPT) — load() short-circuits via keyIsOperational()
+so no doomed downloads; ThumbnailService.onKeyRecovered() (called from the
+Settings recovery handler) clears the gate and the grid populates on the
+next composition. Thumb pipeline proven working end-to-end except the
+final decrypt, which is PIN-gated by design.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
