@@ -2858,6 +2858,16 @@ emulator with screenshots. NOTE for future UI work: the user wants the
 Android Files app as the design language for phone layouts (iOS-parity
 layouts are for the iOS app, not Android).
 
+**MATERIAL YOU PASS** (2026-09-17, commit `d4d4928`): the user then rejected
+the hardcoded dark theme and multicolored icons — "should properly follow
+google's material you design". CascadeTheme now follows the system light/
+dark setting and applies dynamicLight/DarkColorScheme (wallpaper-derived
+palette) on Android 12+; brand blue is only the pre-12 fallback. All
+iconography is monochrome (drawer icons onSurfaceVariant +
+secondaryContainer selection pill; file-type icons in secondaryContainer
+tonal tiles; FAB primaryContainer). Theme roles everywhere — no hardcoded
+component colors remain in HomeScreen. Verified live in light mode.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
