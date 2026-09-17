@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-16**: the **Android port is the active workstream** — milestone M2 is COMPLETE (user signed in with a real Telegram account on the emulator; `authorizationStateReady` confirmed). **M3 (transfer engines) is next.** macOS + iOS verified healthy (builds + full test suite green, 2026-09-15). Windows/Linux ports are planned AFTER Android. Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) folder drill-down (folder bars don't open yet); 2) publish favorite/rename/trash as delta messages so the Mac sees them; 3) PIN recovery verification on device (user enters PIN — unseals thumbnails/downloads); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
 
 ---
 
@@ -3070,15 +3070,17 @@ error response, so silent TDLib rejections cannot hide again. Verified on emulat
   updated) → **hardware GPU (gfxstream) confirmed** in emulator.log. Keep heavy
   builds running while testing = expect another software-GL fallback.
 
-**Next Android milestones:** **M3 transfer engines (upload/download,
-pause/resume) + Ktor byte-range stream server → M4 libmpv playback → M5 Compose
-UI parity** (drive, categories, vault, transfers, shares, settings). The vault
-key record + PIN seal path (already fixture-tested) is the prerequisite for any
-vault work on device. M2 prerequisite is DONE: with real Telegram auth, M3 can
-start immediately — the user must supply REAL Telegram API credentials + a login
-code (from their Telegram app) for true end-to-end auth testing on the emulator;
-dummy credentials correctly get a TDLib API_ID_INVALID-style rejection and the
-flow surfaces TDLib errors properly.
+**Next Android milestones (2026-09-17 update):** M3 transfer engines are DONE
+(upload/download verified live on the emulator; pause/resume polish remains).
+The remaining ladder, in the agreed order: **folder drill-down → delta publish
+for favorite/rename/trash → PIN recovery verification on device → M4 libmpv
+playback (Ktor byte-range stream server) → Transfers polish → M6 share links**.
+The vault key record + PIN seal path is fixture-tested and the recovery UI is
+live (Settings card + deep-history scan); it awaits the user entering the PIN
+on the emulator to verify end-to-end. The M5 "Compose UI parity" goal is
+largely overtaken by the Files-by-Google UI already shipped (drawer with all 13
+Mac destinations, cards, menus) — remaining parity items are folder drill-down
+and per-file detail views.
 
 ### ⚠️ OPEN, HANDED OFF TO ANTIGRAVITY: iOS pull-to-refresh still stuck (2026-08-28)
 User-confirmed STILL BROKEN after two fix attempts (items 123, 124) — the
