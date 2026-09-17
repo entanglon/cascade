@@ -2832,7 +2832,10 @@ pages up to 40 pages of channel history (checkpoint deep in thousands of
 chunk messages); `findRecoveryBlob` likewise pages deep for the
 `cascade:vaultkey:v2:` record (verified reachable). PIN recovery UI exists in
 Android Settings (VaultKeyRecovery.attemptRecovery — PBKDF2 → unwrap →
-re-wrap with device master key). iOS-style UI (Recents/Shared/Browse tabs,
+re-wrap with device master key), and it now surfaces PROACTIVELY:
+`keyIsOperational()` sample-unwraps one remote object key at runtime — when it
+fails (fresh-minted key), Settings shows a red "Files need unlocking" card
+above the PIN field, which disappears the moment recovery succeeds. iOS-style UI (Recents/Shared/Browse tabs,
 dark #0D0F14, accent #4085FF, grid cards, search/sort) landed earlier this
 session. NEXT: PIN recovery entry point should surface proactively when the
 catalog contains sealed objects but the key is fresh-minted (today the user
