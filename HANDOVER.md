@@ -2905,6 +2905,21 @@ surfaceContainer bar) — drawer remains the sole navigation surface.
 UI polish phase continues; mechanics (folder drill-down, M4 playback)
 come after the user signs off on the look.
 
+**UI POLISH ROUND 2** (2026-09-17, Android commit `ea0f197`): user's five
+refinements, all verified on the emulator. (1) Upload hump is a bare
+CIRCULAR FAB (+ only, secondaryContainer) rising from the bottom bar —
+no text; content column gets +22dp bottom clearance so the last row
+scrolls fully clear. (2) Grid splits into "Folders" / "Files" sections
+with full-span headers (macOS separation; folders no longer adjacent to
+files). (3) Drawer header is the Cascade brand — ic_cascade_brand.xml,
+a vector trace of Public/material-u.png (three overlapping grays clouds
+with white separation strokes) + "Cascade" wordmark; profile-card
+avatar reuses it. (4) Sidebar icons now mirror AppState.swift exactly:
+Transfers = SwapVert (arrow.up.arrow.down), Shared = Share, Recent =
+Schedule. (5) Header-verified live: brand header, sectioned grid,
+circular hump, correct glyphs. The app icon (material-you.png adaptive)
+was already correct — user meant in-app icons.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
