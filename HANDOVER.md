@@ -2896,6 +2896,15 @@ category icons (an explicit user-approved exception to monochrome — Files
 colors its category icons). Design rule going forward: match the real
 Files app screenshots the user provided, not generic M3 defaults.
 
+**FILES FOLDER BARS + UPLOAD HUMP** (2026-09-17, Android commit `e11ec05`):
+user refined two details. (1) Folder cards are now short HORIZONTAL BARS
+(glyph left, name + "N items" right) in the 2-col grid — the Files app's
+folder treatment, not square tiles. (2) Upload moved off the FAB into a
+bottom bar with a single centered hump (Extended FAB pill on a
+surfaceContainer bar) — drawer remains the sole navigation surface.
+UI polish phase continues; mechanics (folder drill-down, M4 playback)
+come after the user signs off on the look.
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
