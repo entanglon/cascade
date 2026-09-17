@@ -2934,6 +2934,10 @@ Rename/favorite/trash are LOCAL ONLY for now — they don't publish delta
 messages yet, so the Mac won't see them until delta publishing lands
 (natural M4 companion). (5) Drawer header: plain "Cascade" text.
 
+Follow-up (`222fe97`): dropped the "Folders"/"Files" grid headings — the
+Mac app separates the groups with whitespace only, so Android does too
+(8dp quiet gap between the folder bars and file cards).
+
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
 - Project: `~/AndroidStudioProjects/cascade`, applicationId `com.entanglon.cascade`,
