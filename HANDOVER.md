@@ -2838,9 +2838,25 @@ fails (fresh-minted key), Settings shows a red "Files need unlocking" card
 above the PIN field, which disappears the moment recovery succeeds. iOS-style UI (Recents/Shared/Browse tabs,
 dark #0D0F14, accent #4085FF, grid cards, search/sort) landed earlier this
 session. NEXT: PIN recovery entry point should surface proactively when the
-catalog contains sealed objects but the key is fresh-minted (today the user
-must find Settings manually); Ktor byte-range streaming (M4 prerequisite),
-share-import, delete/lifecycle, thumbnails.
+catalog contains sealed objects but the key is fresh-minted (today the usermust find Settings manually); Ktor byte-range streaming (M4
+prerequisite), share-import, delete/lifecycle, thumbnails.
+
+**UI SHELL REBUILT — Files-style drawer with the FULL Mac sidebar**
+(2026-09-17, commit `08e36b5`, Android repo): the user rejected the bottom-
+nav Recents/Shared/Browse shell as "way out of design" and asked for the
+Android Files app pattern with ALL macOS sidebar options. HomeScreen.kt is
+now a ModalNavigationDrawer whose `SidebarDest` enum mirrors the Mac's
+`SidebarDestination` (App/AppState.swift) 1:1 — 13 destinations in the same
+groups: top-level (All Files/Recent/Favorites), Collections
+(Photos/Video/Audio/Documents/Library), Utilities (Private Vault/Shared/
+Transfers/Archive/Recently Deleted) — with live Mac-parity badge counts
+(mime+extension category matching), per-destination filter panes, and a
+profile card (SidebarProfileCard port) that shows key-operational status
+and opens Settings. Root All Files shows top-level items only (folders
+cross-synced from the Mac render as folders). All verified live on the
+emulator with screenshots. NOTE for future UI work: the user wants the
+Android Files app as the design language for phone layouts (iOS-parity
+layouts are for the iOS app, not Android).
 
 **Milestone M1 (context)** (Android repo root commit `63a838e`, 2026-09-15):
 
