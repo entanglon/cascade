@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) ~~delta publish favorite/rename/trash~~ DONE (`725ee8b`, 2026-09-18 — also fixed Android uploads never reaching the Mac; Swift-decode verified); 3) PIN recovery verification on device (user enters PIN — unseals thumbnails/downloads); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) ~~delta publish favorite/rename/trash~~ DONE (`725ee8b`, 2026-09-18 — also fixed Android uploads never reaching the Mac; Swift-decode verified); 3) PIN unlock verification on device — STILL PENDING, user action (enter the Cascade PIN once: drawer → Telegram Vault card → Unlock; the thumbnail sweep then unseals everything). **AG-VERIFIED ARCHITECTURE (2026-09-18): the one-time PIN per new device is by design** — every object key is wrapped under the vault key (UploadEngine.swift:162), the vault key travels only as the v2 record's passwordSeal/deviceSeal, and iOS did the identical flow (JOURNAL.md ~2580). User DECISION: keep E2EE exactly as-is; revisit minimizing the PIN requirement later (candidate: device-pairing handshake — new device requests, existing device approves); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
 
 ---
 
@@ -3087,9 +3087,25 @@ Mac's real Codable structs ("SWIFT DECODE OK"); live-verified msg=440401920.
 The Mac adopts these automatically on its next sync (LWW by modifiedAt) — no
 Mac-side changes needed. The remaining ladder: **PIN recovery verification on
 device → M4 libmpv playback (Ktor byte-range stream server) → Transfers polish
-→ M6 share links**. The vault key record + PIN seal path is fixture-tested and
-the recovery UI is live (Settings card + deep-history scan); it awaits the user
-entering the PIN on the emulator to verify end-to-end. The M5 "Compose UI
+→ M6 share links**. The vault key record + PIN seal path is fixture-tested and the
+recovery UI is live. **AG architecture review (2026-09-18, user-requested):**
+confirmed object.wrappedKey is always wrapped under the vault key (no plaintext
+path), the Mac/iOS avoid the PIN only because their Keychains hold the vault
+key, iOS performed the same one-time PIN flow at port time, and the 2026-08-16
+"per-file encryption removed" intent was never actually implemented in the
+uploader. User accepted the one-time-PIN design; E2EE unchanged. The Android
+unlock card was reframed from error-style ("Files need unlocking / Vault
+recovery") to onboarding ("Unlock this device", secondaryContainer, says
+"once"); attemptRecovery now logs every failure path (tag VaultRecovery).
+**Thumbnail sweep rewrite (Android `53300ad`, 2026-09-18):** root cause of
+"thumbs appeared, then vanished" was per-card composition-scoped downloads —
+scrolling cancelled them and marked them failed-for-session. Now: load() is
+cache-only; one app-level sweep (SupervisorJob, parallelism 3) downloads +
+decrypts all sidecars, starts at bootstrap, re-runs on unlock (latch prevents
+re-sweep spam while locked); verified live (8 plaintext thumbs served from
+cache; sealed ones wait for unlock). **FIRST TASK NEXT SESSION: user enters
+the PIN once on the emulator, then verify thumbnails fill the grid and
+persist across scroll/restart.** The M5 "Compose UI
 parity" goal is largely complete (drawer with all 13 Mac destinations, cards,
 menus, drill-down) — remaining parity item: per-file detail views.
 
