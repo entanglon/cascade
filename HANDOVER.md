@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) publish favorite/rename/trash as delta messages so the Mac sees them; 3) PIN recovery verification on device (user enters PIN — unseals thumbnails/downloads); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) ~~delta publish favorite/rename/trash~~ DONE (`725ee8b`, 2026-09-18 — also fixed Android uploads never reaching the Mac; Swift-decode verified); 3) PIN recovery verification on device (user enters PIN — unseals thumbnails/downloads); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
 
 ---
 
@@ -3077,14 +3077,21 @@ in HomeScreen, folder bars/list rows open children, tappable breadcrumb trail in
 the title ("All Files › Movies"), system back pops to root, and filter semantics
 mirror FileBrowserView.swift exactly (All Files/Private parent-based; Photos/
 Video/Audio cloud-wide at root, children inside a folder) — verified live on the
-emulator. The remaining ladder, in the agreed order: **delta publish for
-favorite/rename/trash → PIN recovery verification on device → M4 libmpv
-playback (Ktor byte-range stream server) → Transfers polish → M6 share links**.
-The vault key record + PIN seal path is fixture-tested and the recovery UI is
-live (Settings card + deep-history scan); it awaits the user entering the PIN
-on the emulator to verify end-to-end. The M5 "Compose UI parity" goal is
-largely complete (drawer with all 13 Mac destinations, cards, menus,
-drill-down) — remaining parity item: per-file detail views.
+emulator. **Delta publishing is DONE (Android `725ee8b`, 2026-09-18):**
+`data/DeltaPublisher.kt` posts changed records as `CatalogSnapshot.Payload` JSON
+(Swift-Codable key parity, Swift date convention, raw-DEFLATE) with the
+`cascade:dbdelta:v1:` caption; favorite/rename/trash in ObjectMenu and
+UploadEngine completion publish deltas (uploads previously never reached the
+Mac — Android was restore-only). Schema proof: dumped payload decodes with the
+Mac's real Codable structs ("SWIFT DECODE OK"); live-verified msg=440401920.
+The Mac adopts these automatically on its next sync (LWW by modifiedAt) — no
+Mac-side changes needed. The remaining ladder: **PIN recovery verification on
+device → M4 libmpv playback (Ktor byte-range stream server) → Transfers polish
+→ M6 share links**. The vault key record + PIN seal path is fixture-tested and
+the recovery UI is live (Settings card + deep-history scan); it awaits the user
+entering the PIN on the emulator to verify end-to-end. The M5 "Compose UI
+parity" goal is largely complete (drawer with all 13 Mac destinations, cards,
+menus, drill-down) — remaining parity item: per-file detail views.
 
 ### ⚠️ OPEN, HANDED OFF TO ANTIGRAVITY: iOS pull-to-refresh still stuck (2026-08-28)
 User-confirmed STILL BROKEN after two fix attempts (items 123, 124) — the
