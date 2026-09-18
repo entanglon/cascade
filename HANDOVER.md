@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) folder drill-down (folder bars don't open yet); 2) publish favorite/rename/trash as delta messages so the Mac sees them; 3) PIN recovery verification on device (user enters PIN — unseals thumbnails/downloads); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) publish favorite/rename/trash as delta messages so the Mac sees them; 3) PIN recovery verification on device (user enters PIN — unseals thumbnails/downloads); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
 
 ---
 
@@ -3070,17 +3070,21 @@ error response, so silent TDLib rejections cannot hide again. Verified on emulat
   updated) → **hardware GPU (gfxstream) confirmed** in emulator.log. Keep heavy
   builds running while testing = expect another software-GL fallback.
 
-**Next Android milestones (2026-09-17 update):** M3 transfer engines are DONE
+**Next Android milestones (2026-09-18 update):** M3 transfer engines are DONE
 (upload/download verified live on the emulator; pause/resume polish remains).
-The remaining ladder, in the agreed order: **folder drill-down → delta publish
-for favorite/rename/trash → PIN recovery verification on device → M4 libmpv
+**Folder drill-down is DONE (Android `ee09b15`, 2026-09-18):** `currentFolderID`
+in HomeScreen, folder bars/list rows open children, tappable breadcrumb trail in
+the title ("All Files › Movies"), system back pops to root, and filter semantics
+mirror FileBrowserView.swift exactly (All Files/Private parent-based; Photos/
+Video/Audio cloud-wide at root, children inside a folder) — verified live on the
+emulator. The remaining ladder, in the agreed order: **delta publish for
+favorite/rename/trash → PIN recovery verification on device → M4 libmpv
 playback (Ktor byte-range stream server) → Transfers polish → M6 share links**.
 The vault key record + PIN seal path is fixture-tested and the recovery UI is
 live (Settings card + deep-history scan); it awaits the user entering the PIN
 on the emulator to verify end-to-end. The M5 "Compose UI parity" goal is
-largely overtaken by the Files-by-Google UI already shipped (drawer with all 13
-Mac destinations, cards, menus) — remaining parity items are folder drill-down
-and per-file detail views.
+largely complete (drawer with all 13 Mac destinations, cards, menus,
+drill-down) — remaining parity item: per-file detail views.
 
 ### ⚠️ OPEN, HANDED OFF TO ANTIGRAVITY: iOS pull-to-refresh still stuck (2026-08-28)
 User-confirmed STILL BROKEN after two fix attempts (items 123, 124) — the
