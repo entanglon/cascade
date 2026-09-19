@@ -2776,12 +2776,55 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `6d12b4f`)
+### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `0f13aec`)
 
 User direction (2026-09-15): **the Android port is the current workstream.** Windows and
 Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone XS Max
 only — the user does NOT use an iOS simulator, and confirms iOS on-device "works fine
 for now". The user DOES want an emulator for Android testing (see below).
+
+**UNLOCK VERIFIED END-TO-END + PIN GATE + ACCOUNT CARD** (2026-09-19, Android commits
+`e29031f` → `e35bd69` → `0f13aec`):
+- **The PIN recovery mystery closed.** The user's 2026-09-18 PIN entry had actually
+  SUCCEEDED — but `keyIsOperational()` sampled the first 5 catalog rows, which were all
+  orphaned pre-recovery Android test uploads (wrapped under the dead placeholder key),
+  so the gate condemned the good key forever and the UI stayed locked. Fix: the canary
+  now walks the WHOLE catalog (cap 50) and passes if the key opens ANY sealed object.
+  `attemptRecovery` was also hardened (defense-in-depth): it enumerates EVERY key record
+  in the channel and adopts only a candidate that canary-opens real sealed data, so a
+  stale re-posted record can never poison recovery. Verified live: key operational on
+  launch, all 19 Mac thumbnails decrypt (27 cached = 8 Android plaintext + 19 Mac),
+  persists across force-stop/relaunch. The 2 orphaned "Untitled" Android uploads are
+  undecryptable by design (their wrapping key no longer exists) — cleanup optional.
+- **Drawer account card = real identity** (`e35bd69`): new `TelegramIdentity` provider
+  (getMe → name/@username, downloads profile_photo.big via synchronous downloadFile,
+  prefs-cached for instant render). Card shows avatar-or-initials + full name +
+  @username/"Connected" — Mac `SidebarProfileCard` parity (user's account: "Heisenbug",
+  no @username). Tap opens the Mac's menu: Settings + Log Out (same confirmation copy);
+  TDLib `logOut` fires and MainActivity now routes on auth state (LoggingOut/Closed →
+  login screen; `TdClient.reset()` added so the client can re-start for re-login).
+  Logout confirmed working through the dialog; full logout→login cycle not exercised
+  (would require a fresh Telegram code from the user).
+- **PIN gate** (`0f13aec`): the user decided to KEEP the current architecture (PIN =
+  cross-device recovery secret; userID-sealing was REJECTED after analysis — Telegram
+  user IDs are public channel data, sealing under them would void E2EE; Kerckhoffs —
+  algorithm secrecy is not security). New `PinGateScreen`: full-screen Material 3 gate
+  (circular keypad, dots, haptics, shake-on-mismatch, choose→confirm). `PinStore`:
+  salted PBKDF2 PIN hash + `vaultOriginatedHere` flag (set when VaultManager MINTS a
+  vault). Flow: fresh vault → mandatory CREATE at launch (then `ensureRecoveryBlob`
+  seals the PIN for other devices); joined-but-locked device → mandatory UNLOCK (one
+  time); already-unlocked → Settings "Vault PIN" row (change flow, re-seals record,
+  back-dismissable only when the device holds its key). Gate survives activity
+  recreation (rememberSaveable). Verified live: create→confirm→re-seal→dismiss +
+  mismatch-reset path, with the SAME PIN re-sealed (3141, no functional change).
+- **FUTURE PLAN (user-approved direction, not built)**: a Cascade account backend is
+  planned "in future" — at that point the cross-device recovery secret becomes a long
+  random Recovery Code (XXXX-XXXX-XXXX class) sealed in-channel and hash-registered
+  server-side at account creation; the PIN remains for Private Vault. Until then:
+  PIN stays, users are warned to remember it (create flow copy already says "it's the
+  key to your files on every device").
+- **Next up: M4** — file viewer/playback (Ktor byte-range streaming server is the
+  prerequisite; tap-to-open exists for documents via FileProvider already).
 
 **Milestone M2 is DONE — REAL LOGIN CONFIRMED** (2026-09-16 15:02, emulator): the user
 completed phone → code → (2FA) with their actual Telegram account; logcat shows
