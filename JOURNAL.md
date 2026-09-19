@@ -6281,3 +6281,53 @@ Prompt for Claude/Qwen at `.freebuff/streaming-prompt-v2.md`.
 `Features/VideoPlaybackView.swift`, `Engine/UploadEngine.swift`.
 All changes UNCOMMITTED.
 
+
+## 2026-09-19 — Android M3 closed: unlock verified end-to-end, PIN gate, account card
+
+Two long-running Android mysteries closed and a UI milestone shipped
+(Android repo `main` @ `0f13aec`; three commits: `e29031f`, `e35bd69`, `0f13aec`).
+
+**1. The "thumbnails appeared then vanished" saga, root-caused.** The user's
+2026-09-18 PIN entry had actually SUCCEEDED all along. `keyIsOperational()`
+sampled the first 5 catalog rows to test the recovered vault key — but those
+rows were all orphaned pre-recovery Android test uploads ("Untitled" ×3,
+"File-B6885B8E"), wrapped under the since-replaced placeholder key. The gate
+condemned the perfectly good recovered key forever. Fix: canary over the
+WHOLE catalog (cap 50), pass if ANY sealed object opens. Also hardened
+`attemptRecovery` (defense-in-depth): enumerate EVERY `cascade:vaultkey:v2:`
+record in the channel, unwrap each with the PIN, adopt only a candidate that
+canary-opens real sealed data (a stale re-posted record can no longer poison
+recovery). Verified: key operational on launch, 27 thumbs cached (8 Android
+plaintext + 19 Mac decrypted), survives force-stop/relaunch. Lesson:
+never trust a single arbitrary sample to judge a key; orphaned rows exist
+by design and must not condemn the real key.
+
+**2. Drawer account card = real Telegram identity** (`e35bd69`). New
+`TelegramIdentity` provider (getMe + profile_photo.big download, prefs-
+cached). Avatar-or-initials + full name + @username/"Connected", tap menu
+with Settings + Log Out (Mac SidebarProfileCard parity, same confirmation
+copy). TDLib `logOut` + auth-state routing in MainActivity (LoggingOut/
+Closed → login screen); `TdClient.reset()` added so the client can re-start.
+Full logout→login cycle intentionally not exercised (needs a fresh code).
+
+**3. PIN gate** (`0f13aec`). User decision after discussing architecture:
+KEEP the PIN-based cross-device recovery (userID-sealing rejected — user
+IDs are public channel data, would void E2EE; algorithm secrecy is not
+security). What changed is the FLOW: full-screen Material 3 PinGateScreen
+(keypad, dots, haptics, shake, choose→confirm). Fresh vault → mandatory
+CREATE at launch (seals the PIN via ensureRecoveryBlob for other devices);
+joined-but-locked device → mandatory UNLOCK (one-time); unlocked device →
+Settings "Vault PIN" row = change flow (re-seals record). PinStore: salted
+PBKDF2 PIN hash + vaultOriginatedHere flag. Gate survives activity
+recreation; back-dismissable only when the device already holds its key.
+Verified live incl. mismatch-reset and re-seal with the same PIN (3141).
+
+**Future plan (user-approved, not built)**: Cascade account backend "in
+future" — cross-device recovery secret becomes a long random Recovery Code
+(XXXX-XXXX-XXXX class), hash-registered server-side at account creation;
+PIN remains for Private Vault. Recorded in HANDOVER.md workstream section.
+
+**Next up: M4** — Ktor byte-range streaming server + video playback +
+tap-to-open viewer. Note the OPEN 2026-08-21 streaming investigation above
+(TDLib downloadFile limit auto-cancel) — its findings apply directly to the
+Android M4 design; consider larger slice sizes and read-ahead from the start.
