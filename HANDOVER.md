@@ -2906,6 +2906,37 @@ delta-publish created ones). Files already imported flat stay flat
 - **User action needed:** delete the 9 flat/broken imports on Android and
   re-import the Mac link (their chunk IDs are unresolvable locals).
 
+### 146. Android P0 file-manager parity (2026-09-26, Android `6677581`)
+
+User asked for a full Mac→Android feature audit + the missing basics, in
+strict Material 3 (no more ad-hoc design). Audit result: all 13 panes
+existed, but no multi-select, no Move, no archive actions, no
+restore/delete-forever/empty-trash, no explicit Download, Library pane
+rendered nothing, Locked had no gate. Built (M3: contextual action bar,
+check badges, bottom-sheet move picker, standard dialogs):
+
+- **Multi-select** (long-press enters, tap toggles, ✕ exits, resets on
+  navigation) + **contextual action bar**: Download / Share / Favorite /
+  Trash direct, Rename (single) / Move to… / Archive-Unarchive in overflow;
+  Trash pane shows Restore / Delete-forever instead.
+- **Move picker** (ModalBottomSheet, full folder paths, self-descendant
+  blocked, inherits Locked flag) — verified live via DB.
+- **Trash lifecycle**: restore, delete-forever (tombstone delta + vault
+  message deletes + row cleanup — verified: 0 rows, 0 orphans), Empty trash
+  with confirm. **Archive/Unarchive** both directions + panes.
+- **Locked gate**: PIN prompt on entering Locked (once per session),
+  Forgot-PIN reset with confirm (verified: prefs cleared, unlocked, account
+  left clean). CREATE-from-Settings trap fixed (Cancel button — setup is
+  optional, Mac parity).
+- **Library** shows book formats (no reader — opens externally).
+- Bulk ops publish ONE delta per action; explicit Download action added.
+- Verified live: select, bulk trash/restore/move/archive/unarchive/delete-
+  forever (deltas each), gate, forgot-reset, FAB menu, folder create, upload,
+  share-create, import. Zero crashes across the session.
+- Still open: streaming/playback (M4), playlists/albums, book reader,
+  subtitles, people, version history, export, keep-downloaded pins, pause/
+  resume transfers, storage management, expiry sweeps.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively

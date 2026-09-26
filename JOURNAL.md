@@ -2,9 +2,24 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-26 — Android plaintext cleanup (recovery/gate removal, `b438510`).**
+> **2026-09-26 — Android P0 file-manager parity (multi-select, move, trash lifecycle, Locked gate).**
 
 ---
+
+## 2026-09-26 — Android P0 File-Manager Parity
+
+User-requested Mac→Android audit + missing basics in strict Material 3.
+Android commit `6677581` (+670/−136, 62/62 tests green): multi-select with
+contextual action bar (Download/Share/Favorite/Trash + Rename/Move/Archive
+overflow; Restore/Delete-forever in Trash), Drive-style move picker bottom
+sheet, full trash lifecycle (restore, delete-forever with tombstone
+propagation, empty-trash confirm), archive/unarchive, Locked gate with
+Forgot-PIN reset, Library book filter, explicit Download. Every flow verified
+live on the emulator with delta checks (trash/restore/move/archive/
+unarchive/delete-forever) and screenshots (selection, move sheet, gate,
+forgot-reset); account left clean (no test PIN, m3test deleted forever).
+Still open: M4 streaming/playback, playlists, reader, subtitles, people,
+versions, export, pins, pause/resume, storage mgmt, expiry sweeps.
 
 ## 2026-09-26 — Android Plaintext Cleanup (Recovery/Gate Removal)
 
