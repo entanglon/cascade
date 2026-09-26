@@ -2833,6 +2833,41 @@ showed `setTdlibParameters` + `WaitPhoneNumber` while the screen sat on the
 prompt). Fix: `remember` one VM per activity. Verified live: clean install
 goes straight to the phone step.
 
+### 144. Android M6 sharing + add-button rework (2026-09-26, Android `9f078e6`)
+
+User tests Mac→Android sharing across TWO INTENTIONAL accounts (sync can't
+work cross-account by design — the vault is the account). Built the full
+forward-based link system, Mac-interoperable:
+
+- `core/ShareLink.kt`: v2 parse (single + group manifest), AES-GCM
+  obfuscate/deobfuscate (CryptoKit-combined layout), expiry, legacy/password
+  rejection. Pure JVM + 9 unit tests incl. a Mac-format blob sealed by an
+  INDEPENDENT implementation (caught a real bug: `+`→space URL decoding ate
+  telegram invites — custom decoder matching URLComponents now).
+- `data/ShareEngine.kt`: import (join→read captions→forward into Saved
+  Messages→catalog+delta+thumb→leave; self-open + rootHash dedup + unique
+  names; server-confirmed forward IDs) and outgoing (ONE reusable "Cascade
+  Shares" channel, per-share one-use private invites / permanent public
+  invite, identical-link reuse, revoke). No pool/branding/TTL (Mac-only).
+- DB `shares` table + Room Migration(1,2); deep-link capture
+  (onCreate/onNewIntent → import dialog); `cascade://` manifest filter already
+  existed.
+- Add button: hump bar replaced by a round bottom-end FAB (the old one
+  rendered half-cut) with Upload files / New folder / Add from share link —
+  macOS FAB parity. New folder creation (private-aware, unique names, delta
+  publish) — verified live (TestFolder + delta msg). Uploads take parentID +
+  isPrivate. Long-press → Share… sheet (Private 7d / Public + copy).
+  Shared pane lists outgoing links (copy/revoke/expiry) + add-from-link.
+- Thumbnail sweep falls back to first-chunk attached thumbs (Mac-synced +
+  imported files materialize previews; Android uploads never set
+  thumbMessageID — still an open gap).
+- Bonus fix: raw `Toast.makeText` from IO threads crashed the app on Sync tap
+  (seen live in logcat) — all call sites now use main-safe `toastOnMain`.
+
+62/62 unit tests green, APK on emulator verified (FAB menu, folder create).
+NOT yet live-tested: actual Mac→Android import (needs a real Mac-minted
+link — user test step), Android→Mac share, revoke propagation.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
