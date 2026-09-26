@@ -2793,6 +2793,37 @@ pre-fix binary — relaunch to pick up the fix; then player work is next.
          token-bucket actor) but worth a quick look since it's on every call
          path.
 
+### 143. Android plaintext cleanup — recovery/gate machinery removed (2026-09-26, Android `b438510`)
+
+User approved moving to Android: first clean the obsolete encryption-era
+features (UI work next, then user tests functionality). Removed, all dead
+under plaintext + app-local PIN (net −114 lines):
+
+- `VaultKeyRecovery` object deleted from `Sync.kt` (zero callers; stubs since
+  the migration) + stale v2-seal header doc; backfill doc corrected.
+- `PinStore`: `originatedHere`/`markOriginatedHere`/KEY_ORIGIN removed (nobody
+  ever set the flag — the launch CREATE gate was already dead); doc corrected;
+  added `clear()` for the upcoming Forgot-PIN reset flow.
+- `HomeScreen`: dead launch-gate computation removed (bootstrap = ensureVault
+  + snapshot restore + thumb sweep); dead `keyOk` states removed from account
+  card + Settings; status icon is now static "Synced with Telegram" (the old
+  "Encrypted & synced" label was false); Settings Vault-PIN row copy fixed
+  ("seals your key for new devices" / "Unlock this device" / "secures your
+  files across devices" all gone) + the false "Telegram stores ciphertext
+  only" note replaced with the plaintext truth; gate dialog copy fixed
+  (mode-aware titles, "Locks the Locked folder on this device only").
+- `ThumbnailService`: `waitingForUnlock`/`awaitingKey`/`keyOperational`/
+  `keyStateChanged`/`onKeyRecovered`/dead `fileIdOfMessage` removed.
+- `WIRE_CONTRACT.md`: plaintext-era notice at the top (encryption sections
+  marked historical; full rewrite deferred).
+- Kept deliberately: `wrappedKey` DB/caption fields (schema stability, always
+  empty), `LegacyEncrypted` download error, UNLOCK gate mode (the Locked
+  destination gate needs it in the UI phase).
+
+53/53 unit tests green, debug APK rebuilt. NEXT: Android UI phase (Locked
+destination gate + Forgot-PIN reset), emulator fresh start (old vault channel
+is deleted cloud-side), then M4 playback.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively

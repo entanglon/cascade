@@ -2,9 +2,27 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-26 — Fresh-vault verification (thumbnails/streaming/chunks/snapshots) + streaming fetch-timeout fix + Flux player ports.**
+> **2026-09-26 — Android plaintext cleanup (recovery/gate removal, `b438510`).**
 
 ---
+
+## 2026-09-26 — Android Plaintext Cleanup (Recovery/Gate Removal)
+
+User moved to Android: clean obsolete encryption-era features first (UI phase
+next, then user functionality tests). Android commit `b438510` (net −114):
+
+- Deleted `VaultKeyRecovery` (zero callers), `PinStore` origin trio (+ new
+  `clear()` for the Forgot-PIN flow), dead launch-gate + `keyOk` states,
+  thumbnail key-gate remnants + dead `fileIdOfMessage`.
+- Fixed false copy everywhere: "Encrypted & synced", "seals your key for new
+  devices", "Unlock this device", "Telegram stores ciphertext only" → local
+  screen-lock wording + plaintext truth.
+- Kept: `wrappedKey` fields (schema stability), `LegacyEncrypted` error,
+  UNLOCK mode (Locked gate needs it next phase), WIRE_CONTRACT got a
+  plaintext-era notice (full rewrite deferred).
+
+53/53 Android unit tests green, APK rebuilt. Next: Android UI phase (Locked
+gate + Forgot-PIN), emulator fresh start, M4 playback.
 
 ## 2026-09-26 — Flux Player Ports (hwdec auto-safe, Reconnect, Buffer Profile)
 
