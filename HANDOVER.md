@@ -2937,6 +2937,32 @@ check badges, bottom-sheet move picker, standard dialogs):
   subtitles, people, version history, export, keep-downloaded pins, pause/
   resume transfers, storage management, expiry sweeps.
 
+### 147. Android UI rebuilt as a Mac port (2026-09-26, Android `acea8ed`)
+
+User rejected the bespoke Android styling outright — direction: copy the Mac
+app pixel-faithfully, phone-optimized, on M3 components. Studied XTheme,
+SidebarView, FileBrowserView top bar/cards/rows + live Mac screenshots:
+
+- **Theme**: Mac dark-only (bg #0D0F14, white 1/.55/.35 text, white-overlay
+  surfaces, accent #4085FF, category colors, radii 10/14/22) on M3 roles;
+  dynamic color OFF by default; light scheme kept for previews only.
+- **Drawer**: Mac order/groups (headerless All/Recent/Favorites,
+  COLLECTIONS, UTILITIES), 13sp rows with accent glyphs + live badges
+  (incl. fixed Library/books, active transfers, live shares), accent
+  wash+border selection, glass profile card (gradient avatar, sync check).
+- **Top bar**: back chevron, 16sp bold title + count capsule, search BUTTON
+  (expanding field, per user), view-toggle capsule with accent pill, sort
+  capsule (Mac honor-list + Name/Created/Modified/Size/Kind), overflow,
+  divider. View/sort/count hoisted to the bar.
+- **Grid**: bare tiles — blue folder glyph + centered name/count, aspect-fit
+  thumbs + name/meta, accent ring+wash selection. Dropped the outlined
+  Files-style cards entirely. **List**: Mac rows (icon, 14sp name, count,
+  mono size, relative date, wash selection).
+- Verified live via screenshots: dark grid, drawer, list mode, selection —
+  recognizably Cascade. FAB already accent.
+- Incidents fixed en route: light-mode whiteout (forced dark), a lost
+  foundation.Image import, orphan annotations.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
