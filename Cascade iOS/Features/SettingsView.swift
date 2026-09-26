@@ -251,7 +251,7 @@ struct SettingsView: View {
 
     private var securityCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("PRIVATE VAULT & SECURITY")
+            sectionHeader("LOCKED FOLDER & SECURITY")
             VStack(spacing: 0) {
                 HStack {
                     Label("Vault Status", systemImage: "lock.shield")
@@ -293,7 +293,7 @@ struct SettingsView: View {
                     .padding(.leading, 16)
 
                 HStack {
-                    Label("Vault Key", systemImage: "key.fill")
+                    Label("Locked Folder", systemImage: "lock.fill")
                         .foregroundStyle(.white)
                     Spacer()
                     if appState.isVaultLocked {

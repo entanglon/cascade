@@ -2,10 +2,67 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-16 — Android M2 COMPLETE: real Telegram sign-in on the emulator; M3 (transfers) begins.**
+> **2026-09-26 — "Locked" folder with app-level PIN; Android migrated; local data wiped.**
 
 ---
 
+## 2026-09-26 — Locked Folder, App-Level PIN, Android Migration, Fresh Start
+
+Round 2 of the plaintext era:
+
+- **"Private Vault" → "Locked"** in all user-facing copy on macOS, iOS, and
+  Android (sidebar, FAB, breadcrumbs, settings, lock screens).
+- **The PIN is now purely an app-level screen lock with recovery**: macOS got a
+  "Forgot PIN?" flow that replaces the PIN in place (it guards files, not
+  keys); iOS dropped recovery mode; Android's VaultKeyRecovery is a stub.
+- **Android** (`AndroidStudioProjects/cascade`) fully migrated: CryptoEngine.kt
+  deleted, VaultManager → Saved Messages (`createPrivateChat` with own user ID;
+  the chat ID EQUALS the user ID in TDLib's JSON API), plain-byte engines, 53
+  unit tests green.
+- **Local data wiped** (DB, thumbs, scratch, logs, keychain items) while
+  keeping the TDLib session — the app relaunched on a fresh catalog with no
+  re-login. Fresh DB will re-adopt Saved Messages as the vault.
+
+macOS build + tests, iOS build, Android build + tests: all green.
+
+---
+
+## 2026-09-26 — Plaintext Migration: Encryption Removed, Vault → Saved Messages
+## 2026-09-26 — Plaintext Migration: Encryption Removed, Vault → Saved Messages
+
+User-driven architecture decision with two parts, executed end-to-end in one session.
+
+**Why:** the month-long streaming saga traced back to the encrypted path (sealed
+slices, per-slice TDLib renegotiation, boundary bugs, GCM retries). The plaintext
+path was always the stable one — it became the only one. Bonus: plain files are
+real MKV/MP4 documents, so they preview INSIDE Telegram (the Unlim trick), upload
+skips the encrypt pass, and the ~700-line sealed-slice machinery is gone.
+
+**What changed:**
+- Deleted `CryptoEngine.swift` and the golden-fixture generator; added
+  `Engine/SliceMath.swift` (the 1 MiB slice constant, same layout arithmetic).
+- Upload: byte-identical chunk copies, thumbnails attached to every chunk
+  message (no encrypted sidecar), no per-object key minted.
+- Streaming: plaintext-only engine — deleted ReadAheadRun/
+  fetchEncryptedBatchIntoCache/planEncryptedBatch; 16-slice sequential batching
+  on the serve path, single-slice on jumps.
+- Download: plain copy + SHA256 verify; share links carry no key material;
+  password-protected links retired (old links fail import with a clear error).
+- Vault PIN: now a device-local screen lock only (PBKDF2 inlined in
+  KeychainStore — same parameters, old PIN hashes still verify).
+- Vault destination: the account's Saved Messages (via `createPrivateChat`
+  with own user ID — do NOT compute the chat ID arithmetically, it overflows).
+  Channels remain for Cascade Backup mirror + sharing.
+- Per-chunk `channelID` resolution everywhere, so legacy chunks in the old
+  vault channel keep streaming.
+- DB migration `v34` tombstones + purges legacy encrypted object rows.
+
+**Verified:** macOS + iOS targets build clean, full test suite green, app
+relaunched from DerivedData.
+
+---
+
+## 2026-09-16 — Android M2 Complete: Real Telegram Sign-In (authorizationStateReady); M3 Next
 ## 2026-09-16 — Android M2 Complete: Real Telegram Sign-In (authorizationStateReady); M3 Next
 
 After the M2.2 (Map.toString → JSON) and M2.3 (late-ack race) fixes, the user performed

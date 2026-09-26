@@ -1017,7 +1017,7 @@ struct FileBrowserView: View {
     private var fabButton: some View {
         Menu {
             Button { showImporter = true } label: {
-                Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
+                Label(appState.selectedDestination == .privateVault ? "Upload to Locked" : "Upload File", systemImage: "arrow.up.doc.fill")
             }
             Divider()
             if appState.selectedDestination == .privateVault {
@@ -3472,7 +3472,22 @@ struct PrivateVaultLockView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("Unlock the Private Vault using \(BiometricUnlock.biometryName)")
+                    .help("Unlock the Locked folder using \(BiometricUnlock.biometryName)")
+                }
+
+                // App-level PIN reset: the PIN guards a local UI gate, not key
+                // material, so it can always be replaced by its owner.
+                if phase == .enter {
+                    Button("Forgot PIN?") {
+                        phase = .recover
+                        buffer = ""
+                        pinLockMessage = nil
+                        focused = true
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .help("Replace the PIN — the files in this folder are not affected")
                 }
 
                 // Invisible capture field
@@ -3529,11 +3544,6 @@ struct PrivateVaultLockView: View {
     private func chooseInitialPhase() async {
         if KeychainStore.loadVaultPINHash() != nil {
             phase = .enter
-        } else if await VaultManager.hasRecoveryBlob() {
-            // A recovery blob exists in the channel (vault key sealed with the PIN):
-            // this device must use the PIN set on another device to unlock private
-            // files — the cross-device recovery path.
-            phase = .recover
         } else {
             phase = .create
         }
@@ -3542,19 +3552,29 @@ struct PrivateVaultLockView: View {
 
     private var title: String {
         switch phase {
-        case .enter: "Private Vault Locked"
+        case .enter: "Locked"
         case .create: "Create a PIN"
         case .confirm: "Confirm PIN"
-        case .recover: "Recover Private Vault"
+        case .recover: "Reset PIN"
         }
     }
     private var subtitle: String {
         switch phase {
-        case .enter: "Enter your 4-digit PIN to unlock your Private Vault."
-        case .create: "Choose a 4-digit PIN for your Private Vault. It also becomes the recovery key for your other devices."
+        case .enter: "Enter your 4-digit PIN to unlock."
+        case .create: "Choose a 4-digit PIN. It locks this folder behind an app-level screen — files inside are regular vault files."
         case .confirm: "Enter the same PIN again."
-        case .recover: "Enter the vault PIN you set on your other device to unlock your Private Vault here."
+        case .recover: "Enter a new 4-digit PIN. The old PIN is discarded — this folder keeps its files."
         }
+    }
+
+    /// App-level PIN reset: the PIN guards a local UI gate, not any key material,
+    /// so a forgotten PIN can simply be replaced. Throttling is reset too — the
+    /// backoff ladder exists to slow PIN guessing, and a reset makes the old
+    /// attempts irrelevant.
+    private func resetPIN() {
+        KeychainStore.resetVaultPIN()
+        buffer = ""; revealedIndex = nil; pinLockMessage = nil; phase = .create
+        focused = true
     }
 
     private func submit(_ pin: String) {
@@ -3568,9 +3588,6 @@ struct PrivateVaultLockView: View {
             KeychainStore.registerPINResult(success: ok)
             if ok {
                 pinLockMessage = nil
-                // Backfill: make sure the PIN-protected recovery blob exists in the
-                // channel so other devices can recover private files too.
-                Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
                 appState.isPrivateVaultUnlocked = true
             } else {
                 if !KeychainStore.pinAttemptAllowed() {
@@ -3583,21 +3600,17 @@ struct PrivateVaultLockView: View {
         case .confirm:
             if pin == firstEntry {
                 KeychainStore.saveVaultPIN(pin)
-                // Post the recovery blob so private files survive a device change.
-                Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
                 appState.isPrivateVaultUnlocked = true
             } else {
                 buffer = ""; revealedIndex = nil; phase = .create   // mismatch -> start over
             }
         case .recover:
-            Task {
-                if await VaultManager.attemptRecovery(pin: pin) {
-                    KeychainStore.saveVaultPIN(pin)
-                    appState.isPrivateVaultUnlocked = true
-                } else {
-                    failEntry()
-                }
-            }
+            // Reached only through the Forgot-PIN button: save the new PIN and
+            // unlock (the gate exists to hide files, not to protect keys).
+            KeychainStore.saveVaultPIN(pin)
+            KeychainStore.registerPINResult(success: true)
+            pinLockMessage = nil
+            appState.isPrivateVaultUnlocked = true
         }
     }
 
@@ -3618,7 +3631,7 @@ struct PrivateVaultLockView: View {
             pinLockMessage = "Too many attempts — wait \(KeychainStore.pinLockRemainingSeconds())s"
             return
         }
-        let ok = await BiometricUnlock.authenticate(reason: "Unlock your Private Vault")
+        let ok = await BiometricUnlock.authenticate(reason: "Unlock the Locked folder")
         if ok {
             // Mirror a PIN success: clear the failure backoff, then unlock.
             KeychainStore.registerPINResult(success: true)

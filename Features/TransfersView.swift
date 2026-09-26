@@ -855,7 +855,7 @@ struct TransferInfoPanel: View {
             names.insert(parent.name, at: 0)
             parentID = parent.parentID
         }
-        let root = object.isPrivate ? "Private Vault" : "All Files"
+        let root = object.isPrivate ? "Locked" : "All Files"
         return ([root] + names).joined(separator: " / ")
     }
 }

@@ -210,11 +210,11 @@ struct SettingsView: View {
     /// Only rendered when a biometric sensor exists on this Mac.
     private var securitySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Private Vault")
+            sectionHeader("Locked")
             settingsCard {
                 settingsRow(
                     title: "\(BiometricUnlock.biometryName) Unlock",
-                    subtitle: "Unlock the Private Vault with \(BiometricUnlock.biometryName) instead of typing the PIN. The PIN stays the fallback and still protects recovery."
+                    subtitle: "Unlock the Locked folder with \(BiometricUnlock.biometryName) instead of typing the PIN. The PIN stays the fallback."
                 ) {
                     Toggle("", isOn: $biometricUnlockEnabled)
                         .labelsHidden()

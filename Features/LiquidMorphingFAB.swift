@@ -140,7 +140,7 @@ struct LiquidMorphingFAB: View {
             // MARK: - BOTTOM: Standard (+) Add Button
             Menu {
                 Button { showImporter = true } label: {
-                    Label(appState.selectedDestination == .privateVault ? "Upload Encrypted File" : "Upload File", systemImage: "arrow.up.doc.fill")
+                    Label(appState.selectedDestination == .privateVault ? "Upload to Locked" : "Upload File", systemImage: "arrow.up.doc.fill")
                 }
                 Divider()
                 // Paste a share link directly — no need to open it in a browser

@@ -394,14 +394,12 @@ final class AppState {
         _ = await TelegramClient.shared.prewarmChannelScan(chatId: vault.channelID)
         await CatalogSnapshot.pruneOldSnapshots(chatId: vault.channelID)
 
-        // Check if vault recovery is needed on this device
-        hasRecoveryBlob = await VaultManager.hasRecoveryBlob()
+        // Vault PIN is a device-local screen lock for the Private Vault view.
+        // Cross-device key recovery is gone with the encryption era.
+        hasRecoveryBlob = false
         let hasLocalPIN = KeychainStore.loadVaultPINHash() != nil
-        if !hasLocalPIN && hasRecoveryBlob {
+        if hasLocalPIN {
             isVaultLocked = true
-            // Note: Vault PIN is ONLY for Private Vault files. Open files do not require any PIN.
-        } else if hasLocalPIN {
-            await VaultManager.autoRecoverWithDeviceSeal()
         }
 
         // iCloud-style instant restore: if this device has no catalog yet, fetch
@@ -453,20 +451,6 @@ final class AppState {
             let ok = KeychainStore.verifyVaultPIN(pin)
             KeychainStore.registerPINResult(success: ok)
             if ok {
-                Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
-                isVaultLocked = false
-                showVaultUnlockSheet = false
-                await loadAllFiles()
-                Task { await loadThumbnails() }
-                return true
-            } else {
-                return false
-            }
-        } else if hasRecoveryBlob {
-            let recovered = await VaultManager.attemptRecovery(pin: pin)
-            if recovered {
-                KeychainStore.saveVaultPIN(pin)
-                KeychainStore.registerPINResult(success: true)
                 isVaultLocked = false
                 showVaultUnlockSheet = false
                 await loadAllFiles()
@@ -476,9 +460,8 @@ final class AppState {
                 return false
             }
         } else {
-            // Setting a new PIN
+            // Setting a new PIN (device-local screen lock only)
             KeychainStore.saveVaultPIN(pin)
-            Task { await VaultManager.ensureRecoveryBlob(pin: pin) }
             isVaultLocked = false
             showVaultUnlockSheet = false
             return true
@@ -635,45 +618,17 @@ final class AppState {
             return nil
         }
 
-        let sidecarID = object.thumbMessageID
-
-        // Path 1: Encrypted sidecar document (thumbMessageID)
-        if let sidecarID,
-           let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty,
-           let vaultKey = try? VaultManager.vaultKey(for: vault),
-           let objectKey = try? CryptoEngine.unwrap(wrappedKey, with: vaultKey) {
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("thumb-\(file.id).bin")
-            defer { try? FileManager.default.removeItem(at: tmp) }
-            do {
-                try await TelegramClient.shared.downloadMessageFile(messageId: sidecarID, chatId: vault.channelID, to: tmp)
-                let encrypted = try Data(contentsOf: tmp)
-                let plain = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: 0)
-                if !plain.isEmpty {
-                    if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
-                        // The sidecar isn't format-constrained (unlike the attached
-                        // inputThumbnail below, which TDLib requires to be JPEG) —
-                        // alpha-bearing sources are uploaded as PNG, so cache under
-                        // the extension matching the real bytes (sniffed via the PNG
-                        // signature) instead of always assuming JPEG.
-                        let isPNG = plain.count >= 4 && plain.prefix(4).elementsEqual([0x89, 0x50, 0x4E, 0x47])
-                        let dest = thumbDir.appendingPathComponent(isPNG ? "\(file.id)-tg.png" : "\(file.id)-tg.jpg")
-                        try? FileManager.default.removeItem(at: thumbDir.appendingPathComponent(isPNG ? "\(file.id)-tg.jpg" : "\(file.id)-tg.png"))
-                        try? plain.write(to: dest)
-                    }
-                    return plain
-                }
-            } catch {
-                print("[iOS] sidecar fetch failed for \(file.name): \(error.localizedDescription)")
-            }
-        }
-
-        // Path 2: Attached thumbnail from chunk messages
+        // Attached thumbnail from chunk messages (files are plain bytes; the
+        // encrypted sidecar path is gone with the encryption era). Chunks resolve
+        // through their own channel — Saved Messages now, the legacy vault
+        // channel before the migration.
         let chunks = (try? await DatabaseManager.shared.chunks(for: file.id)) ?? []
         for chunk in chunks {
+            let chatID = chunk.channelID ?? vault.channelID
             guard let messageId = chunk.messageID else { continue }
             if let thumbData = try? await TelegramClient.shared.thumbnailData(
                 forMessage: messageId,
-                chatId: vault.channelID
+                chatId: chatID
             ), !thumbData.isEmpty {
                 if let thumbDir = try? UploadEngine.thumbnailsDirectory() {
                     let dest = thumbDir.appendingPathComponent("\(file.id)-tg.jpg")

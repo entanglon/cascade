@@ -172,14 +172,6 @@ enum DownloadEngine {
                 let chunks = try DatabaseManager.shared.chunks(for: object.id)
                 guard !chunks.isEmpty else { throw DownloadError.noChunks }
 
-                let objectKey: SymmetricKey?
-                if let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty {
-                    let vaultKey = try VaultManager.vaultKey(for: vault)
-                    objectKey = try CryptoEngine.unwrap(wrappedKey, with: vaultKey)
-                } else {
-                    objectKey = nil
-                }
-
                 // Pre-fetch messages so TDLib has them in its local cache
                 await TelegramClient.shared.fetchRecentMessages(chatId: vault.channelID, limit: 200)
 
@@ -252,30 +244,23 @@ enum DownloadEngine {
                     )
                     let tmpSize = (tmpAttrs?[.size] as? NSNumber)?.int64Value ?? 0
 
-                    var cipherHasher: SHA256? = chunk.cipherHash != nil ? SHA256() : nil
-                    var plainHasher: SHA256? = chunk.plainHash != nil ? SHA256() : nil
+                    var hasher: SHA256? = chunk.plainHash != nil ? SHA256() : nil
 
-                    let startSliceIndex = Int(writtenBytes / Int64(CryptoEngine.sliceSize))
-                    let plainCount = try CryptoEngine.decryptStream(
-                        from: inHandle, to: handle,
-                        cipherByteLimit: tmpSize,
-                        objectKey: objectKey,
-                        startSliceIndex: startSliceIndex,
-                        cipherHasher: &cipherHasher,
-                        plainHasher: &plainHasher
-                    )
-                    guard plainCount > 0 || tmpSize == 0 else {
-                        throw DownloadError.fileNotFound
-                    }
-
-                    if let expectedCipher = chunk.cipherHash {
-                        var h = cipherHasher!
-                        if h.finalize().hexString != expectedCipher {
-                            throw DownloadError.hashMismatch
+                    // Files are stored as plain bytes: copy the downloaded document
+                    // straight into the destination while hashing it for verification.
+                    var copied: Int64 = 0
+                    while copied < tmpSize {
+                        let want = Int(min(4 * 1024 * 1024, tmpSize - copied))
+                        guard let piece = try inHandle.read(upToCount: want), !piece.isEmpty else {
+                            throw DownloadError.fileNotFound
                         }
+                        hasher?.update(data: piece)
+                        try handle.write(contentsOf: piece)
+                        copied += Int64(piece.count)
                     }
+
                     if let expectedPlain = chunk.plainHash {
-                        var h = plainHasher!
+                        var h = hasher!
                         if h.finalize().hexString != expectedPlain {
                             // Legacy fallback: images uploaded before per-chunk
                             // hashing may mismatch — accept a decodable image.
@@ -297,7 +282,7 @@ enum DownloadEngine {
                         }
                     }
 
-                    writtenBytes += plainCount
+                    writtenBytes += copied
                     completedChunks = i + 1
                     writtenTotal = writtenBytes
 

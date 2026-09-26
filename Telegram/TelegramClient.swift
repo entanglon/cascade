@@ -680,6 +680,34 @@ final class TelegramClient {
         return user.id
     }
 
+    // MARK: - Saved Messages vault destination
+
+    /// The user's own "Saved Messages" chat ID. TDLib materializes it as a
+    /// private chat with the account's own user — `createPrivateChat` with our
+    /// own ID returns (creating if necessary) exactly that chat. The vault lives
+    /// here: files are tied to the account itself, so nothing short of the whole
+    /// account being deleted can take them away.
+    func savedMessagesChatID() async throws -> Int64 {
+        guard let client else { throw TelegramError.notInitialized }
+        let userID = try await myUserID()
+        let chat = try await withFloodWait {
+            try await client.createPrivateChat(force: true, userId: userID)
+        }
+        return chat.id
+    }
+
+    /// Sanity check before adopting Saved Messages as the vault destination:
+    /// the chat must resolve. Every Telegram account has it, so failure here
+    /// means a broken authorization state.
+    func canSendSavedMessages() async -> Bool {
+        guard let chatID = try? await savedMessagesChatID() else { return false }
+        guard let client, let chat = try? await client.getChat(chatId: chatID) else { return false }
+        // Self-chats are always writable in practice; only reject when TDLib
+        // reports the chat but with sending explicitly disabled.
+        if case .chatTypePrivate = chat.type { return true }
+        return false
+    }
+
     // MARK: - Message file helpers
 
     enum MediaKind: Sendable {
@@ -1238,25 +1266,11 @@ final class TelegramClient {
         return nil
     }
 
-    /// Finds the latest `cascade:vaultkey:` recovery message in the channel. Its
-    /// caption carries the vault key sealed with the PIN-derived key, enabling
-    /// cross-device recovery of private files.
+    /// Cross-device key recovery is gone with the encryption era — no key
+    /// records exist in the vault anymore. Kept as a stub for launch-flow
+    /// compatibility.
     func findRecoveryBlob(chatId: Int64) async -> Message? {
-        guard let client else { return nil }
-        let messages = await allChannelMessages(chatId: chatId)
-        var latest: Message?
-        for message in messages {
-            let text: String?
-            switch message.content {
-            case .messageText(let mt): text = mt.text.text
-            case .messageDocument(let doc): text = doc.caption.text
-            default: text = nil
-            }
-            if let text, text.hasPrefix(VaultManager.v2Prefix) {
-                latest = message
-            }
-        }
-        return latest
+        return nil
     }
 
     private func isChannelNamed(id: Int64, title: String) async -> Bool {
@@ -1697,6 +1711,27 @@ final class TelegramClient {
             try await client.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: true)
         }
         invalidateChannelScanCache(chatId: chatId)
+    }
+
+    /// One-time clean-slate helper (`--purge-cloud`): pages a chat's history and
+    /// deletes EVERY message it can see, batch by batch, until the chat is
+    /// empty. Returns the approximate number of messages deleted.
+    func purgeAllMessages(chatId: Int64) async -> Int {
+        var purged = 0
+        for _ in 0..<40 { // bounded: ~40 pages is plenty for even a huge chat
+            let msgs = await allChannelMessages(chatId: chatId, usingCache: false)
+            if msgs.isEmpty { break }
+            let ids = msgs.map { $0.id }
+            let batches = stride(from: 0, to: ids.count, by: 100).map {
+                Array(ids[$0..<min($0 + 100, ids.count)])
+            }
+            for batch in batches {
+                try? await deleteMessages(chatId: chatId, messageIds: batch)
+                purged += batch.count
+            }
+            if ids.count < 100 { break }
+        }
+        return purged
     }
 
     func editMessageCaption(chatId: Int64, messageId: Int64, caption: String) async throws {

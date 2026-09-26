@@ -148,24 +148,10 @@ enum UploadEngine {
             throw UploadError.fileChanged
         }
 
-        let objectKey: SymmetricKey?
-        let wrappedKeyData: Data?
-        if let resumeObject {
-            if let existingWrapped = resumeObject.wrappedKey, !existingWrapped.isEmpty {
-                let vaultKey = try VaultManager.vaultKey(for: vault)
-                objectKey = try? CryptoEngine.unwrap(existingWrapped, with: vaultKey)
-                wrappedKeyData = existingWrapped
-            } else {
-                objectKey = nil
-                wrappedKeyData = nil
-            }
-        } else {
-            let key = SymmetricKey(size: .bits256)
-            let vaultKey = try VaultManager.vaultKey(for: vault)
-            let wrapped = try CryptoEngine.wrap(key, with: vaultKey)
-            objectKey = key
-            wrappedKeyData = wrapped
-        }
+        // Files are stored as plain bytes — no per-object key is minted anymore.
+        // (Legacy encrypted objects existed before the plaintext migration; they
+        // were purged and must be re-uploaded.)
+        let wrappedKeyData: Data? = nil
 
         var isParentPrivate = resumeObject?.isPrivate ?? isPrivate
         if resumeObject == nil, let parentID {
@@ -253,12 +239,10 @@ enum UploadEngine {
             if ["epub", "pdf", "txt", "md", "markdown", "cbz", "cbr"].contains(ext) {
                 await generateBookCover(for: fileURL, objectID: objectID)
             }
-        }
-
-        // Single-chunk media goes in as real Telegram photo/video (if not private and unencrypted)
-        let kind: TelegramClient.MediaKind
-        let isSingleChunkVideo = mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm"].contains(fileURL.pathExtension.lowercased())
-        if objectKey == nil && !isParentPrivate && plan.items.count == 1 && isSingleChunkVideo {
+        }                // Single-chunk media goes in as real Telegram photo/video (if not private)
+                let kind: TelegramClient.MediaKind
+                let isSingleChunkVideo = mime.hasPrefix("video/") || ["mp4", "mov", "m4v", "mkv", "avi", "webm"].contains(fileURL.pathExtension.lowercased())
+                if !isParentPrivate && plan.items.count == 1 && isSingleChunkVideo {
             kind = .video
         } else {
             kind = .document
@@ -292,7 +276,7 @@ enum UploadEngine {
                     try handle.seek(toOffset: UInt64(item.offset))
 
                     let chunkFileName: String
-                    if objectKey != nil || isParentPrivate || plan.items.count > 1 {
+                    if isParentPrivate || plan.items.count > 1 {
                         chunkFileName = "\(objectID)-\(item.index).bin"
                     } else {
                         chunkFileName = displayName
@@ -305,10 +289,7 @@ enum UploadEngine {
                     // upload progress instead of restarting, and we skip re-encrypting
                     // up to ~1.9 GiB. Size equality is the guard: a crash mid-write
                     // leaves a short file, which falls through to regeneration.
-                    let expectedSliceCount = (Int64(item.size) + Int64(CryptoEngine.sliceSize) - 1) / Int64(CryptoEngine.sliceSize)
-                    let expectedStagedSize: Int64 = objectKey != nil
-                        ? Int64(item.size) + expectedSliceCount * 28
-                        : Int64(item.size)
+                    let expectedStagedSize: Int64 = item.size
                     var reuseStaging = false
                     if let attrs = try? FileManager.default.attributesOfItem(
                         atPath: tmpURL.path(percentEncoded: false)
@@ -328,61 +309,39 @@ enum UploadEngine {
                         try outHandle.seekToEndOfFile()
                     }
 
-                    var plainHasher: SHA256? = SHA256()
-                    var cipherHasher: SHA256? = objectKey != nil ? SHA256() : nil
+                    var plainHasher = SHA256()
 
                     let uploadedByteCount: Int64
                     if reuseStaging {
-                        // Staged file already holds the sealed bytes: hash source
-                        // (plain) and staging (cipher) without re-encrypting.
-                        plainHasher?.update(data: try readExactly(handle, count: Int(item.size)))
+                        // Staged file already holds the exact bytes: hash the source
+                        // range without re-copying.
+                        plainHasher.update(data: try readExactly(handle, count: Int(item.size)))
                         uploadedByteCount = item.size
-                        if cipherHasher != nil {
-                            let staged = try FileHandle(forReadingFrom: tmpURL)
-                            defer { try? staged.close() }
-                            var remaining = expectedStagedSize
-                            while remaining > 0 {
-                                let want = Int(min(4 * 1024 * 1024, remaining))
-                                guard let chunkData = try staged.read(upToCount: want),
-                                      !chunkData.isEmpty else { break }
-                                cipherHasher?.update(data: chunkData)
-                                remaining -= Int64(chunkData.count)
-                            }
-                        }
-                    } else if let objectKey {
-                        let startSliceIndex = Int(item.offset / Int64(CryptoEngine.sliceSize))
-                        uploadedByteCount = try CryptoEngine.encryptStream(
-                            from: handle, to: outHandle,
-                            plainByteLimit: item.size,
-                            objectKey: objectKey, startSliceIndex: startSliceIndex,
-                            plainHasher: &plainHasher, cipherHasher: &cipherHasher
-                        )
                     } else {
                         // Plaintext upload: byte-identical copy of the source range.
-                        uploadedByteCount = try CryptoEngine.decryptStream(
-                            from: handle, to: outHandle,
-                            cipherByteLimit: item.size,
-                            objectKey: nil, startSliceIndex: 0,
-                            cipherHasher: &cipherHasher, plainHasher: &plainHasher
-                        )
+                        var copied: Int64 = 0
+                        while copied < item.size {
+                            let want = Int(min(4 * 1024 * 1024, item.size - copied))
+                            guard let piece = try handle.read(upToCount: want), piece.count == want else {
+                                throw UploadError.readFailed
+                            }
+                            plainHasher.update(data: piece)
+                            try outHandle.write(contentsOf: piece)
+                            copied += Int64(piece.count)
+                        }
+                        uploadedByteCount = copied
                     }
                     guard uploadedByteCount > 0 else { throw UploadError.readFailed }
 
-                    let plainHash = plainHasher!.finalize().hexString
-                    let cipherHash: String?
-                    if var ch = cipherHasher {
-                        cipherHash = ch.finalize().hexString
-                    } else {
-                        cipherHash = nil
-                    }
+                    let plainHash = plainHasher.finalize().hexString
 
                     var captionString: String? = nil
                     let meta = ChunkCaption.Meta(
                         kind: ChunkCaption.kindChunk,
                         id: objectID,
-                        name: objectKey != nil ? "" : displayName,
+                        name: displayName,
                         size: fileSize,
-                        mime: objectKey != nil ? "application/octet-stream" : mime,
+                        mime: mime,
                         parentID: parentID,
                         isPrivate: isParentPrivate,
                         isFolder: false,
@@ -390,10 +349,10 @@ enum UploadEngine {
                         isFavorite: false,
                         index: item.index,
                         totalChunks: plan.items.count,
-                        wrappedKey: wrappedKeyData?.base64EncodedString() ?? "",
+                        wrappedKey: "",
                         chunkSize: plan.chunkSize,
                         plainHash: plainHash,
-                        cipherHash: cipherHash,
+                        cipherHash: nil,
                         rootHash: rootHash
                     )
                     captionString = ChunkCaption.encode(meta, kind: ChunkCaption.kindChunk)
@@ -405,15 +364,11 @@ enum UploadEngine {
                     let messageId = try await TelegramClient.shared.sendFile(
                         chatId: vault.channelID,
                         path: tmpURL.path(percentEncoded: false),
-                        kind: objectKey != nil ? .document : kind,
+                        kind: kind,
                         caption: captionString,
-                        // Encrypted uploads NEVER attach the thumbnail: an attached
-                        // JPEG is a plaintext preview sitting in the channel. The
-                        // preview for these files is the encrypted sidecar document
-                        // uploaded once after the chunks (see uploadThumbnailSidecar).
-                        // Private (plaintext) files keep the attachment — their
-                        // channel is private, so a visible preview is intended.
-                        thumbnailPath: objectKey != nil ? nil : uploadThumbnailPath,
+                        // The JPEG rides on the chunk message: Telegram permanently
+                        // stores the preview, so it survives local cache clears.
+                        thumbnailPath: uploadThumbnailPath,
                         onProgress: { p in
                             progressState.setFraction(item.index, min(max(0.0, p), 1.0))
                             report("Uploading", min(progressState.overall, 0.99))
@@ -429,7 +384,7 @@ enum UploadEngine {
                         index: item.index,
                         size: uploadedByteCount,
                         plainHash: plainHash,
-                        cipherHash: cipherHash,
+                        cipherHash: nil,
                         state: "uploaded",
                         messageID: messageId,
                         fileUniqueID: nil,
@@ -504,28 +459,6 @@ enum UploadEngine {
                 }
 
                 try await DatabaseManager.shared.updateObject(objectID) { $0.state = "ready" }
-
-                // Encrypted uploads have no attached thumbnail (plaintext previews
-                // in the channel are gone) — the preview is this sidecar: the same
-                // ≤320px JPEG, AES-GCM sealed with the object key, posted as an
-                // opaque document and linked via the object row. Skipped when a
-                // sidecar already exists (resume) or the thumbnail could not be
-                // generated. A sidecar failure logs and continues — the file is
-                // complete; only its Telegram-backed preview is missing (the
-                // local `<id>.png` still serves the current session).
-                if let objectKey, let uploadThumbnailPath,
-                   ((try? await DatabaseManager.shared.object(objectID))?.thumbMessageID) == nil {
-                    do {
-                        try await uploadThumbnailSidecar(
-                            uploadPath: uploadThumbnailPath,
-                            objectID: objectID,
-                            objectKey: objectKey,
-                            vault: vault
-                        )
-                    } catch {
-                        logger.error("thumb sidecar upload failed: \(error.localizedDescription, privacy: .public)")
-                    }
-                }
 
                 // Populate local cache for instant (0ms) double-click previews
                 if let cacheDir = try? DownloadEngine.cacheDirectory() {
@@ -806,50 +739,6 @@ enum UploadEngine {
 #endif
     }
 
-    // MARK: - Thumbnail sidecar
-
-    /// Uploads the object's preview as its OWN tiny encrypted document: the
-    /// ≤320px JPEG sealed with the object key (AES-GCM, same codec as chunks —
-    /// a single 1 MB slice) and posted to the vault channel as an opaque
-    /// `file.bin` with a `thumb` caption and NO thumbnail attachment, so the
-    /// channel shows nothing but a name-less file. The messageID is recorded on
-    /// the object row; ThumbnailService downloads + decrypts it after a local
-    /// cache clear. Mirrored to the backup channel like every vault message.
-    static func uploadThumbnailSidecar(
-        uploadPath: String,
-        objectID: String,
-        objectKey: SymmetricKey,
-        vault: VaultRecord
-    ) async throws {
-        // Prefer the alpha-preserving PNG sibling generateThumbnails writes
-        // alongside the JPEG when the source has transparency — the sidecar is
-        // an opaque encrypted document, never a TDLib inputThumbnail, so it
-        // carries no JPEG-only format constraint.
-        let pngSibling = URL(fileURLWithPath: uploadPath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("\(objectID)-up.png")
-        let sourceURL = FileManager.default.fileExists(atPath: pngSibling.path(percentEncoded: false))
-            ? pngSibling
-            : URL(fileURLWithPath: uploadPath)
-        let data = try Data(contentsOf: sourceURL)
-        guard !data.isEmpty else { throw UploadError.readFailed }
-        let encrypted = try CryptoEngine.encryptChunk(data, objectKey: objectKey, startSliceIndex: 0)
-        let tmpURL = try tempDirectory().appendingPathComponent("\(objectID)-thumb.bin")
-        try encrypted.write(to: tmpURL)
-        defer { try? FileManager.default.removeItem(at: tmpURL) }
-
-        let messageId = try await TelegramClient.shared.sendFile(
-            chatId: vault.channelID,
-            path: tmpURL.path(percentEncoded: false),
-            kind: .document,
-            caption: ChunkCaption.thumbCaption(objectID: objectID),
-            thumbnailPath: nil
-        )
-        BackupSync.enqueue(messageID: messageId, objectID: objectID)
-        try await DatabaseManager.shared.updateObject(objectID) { $0.thumbMessageID = messageId }
-        logger.info("thumb sidecar uploaded for \(objectID, privacy: .public) msg=\(messageId, privacy: .public)")
-    }
-
     // MARK: - Subtitle sidecars
 
     /// Uploads a sidecar subtitle (.srt/.ass/…) for `video` as its own vault
@@ -866,14 +755,8 @@ enum UploadEngine {
         vault: VaultRecord
     ) async throws -> Int64 {
         guard !data.isEmpty else { throw UploadError.readFailed }
-        let payload: Data
-        if let wrappedKey = video.wrappedKey, !wrappedKey.isEmpty {
-            let vaultKey = try VaultManager.vaultKey(for: vault)
-            let objectKey = try CryptoEngine.unwrap(wrappedKey, with: vaultKey)
-            payload = try CryptoEngine.encryptChunk(data, objectKey: objectKey, startSliceIndex: 0)
-        } else {
-            payload = data
-        }
+        // Subtitles are stored as plain bytes like every other file.
+        let payload = data
         let safeName = (name as NSString).lastPathComponent
         let tmpURL = try tempDirectory().appendingPathComponent("\(video.id)-sub-\(UUID().uuidString).bin")
         try payload.write(to: tmpURL)
@@ -921,12 +804,7 @@ enum UploadEngine {
         try await TelegramClient.shared.downloadMessageFile(
             messageId: sidecar.messageID, chatId: vault.channelID, to: tmp
         )
-        var plain = try Data(contentsOf: tmp)
-        if let wrappedKey = video.wrappedKey, !wrappedKey.isEmpty {
-            let vaultKey = try VaultManager.vaultKey(for: vault)
-            let objectKey = try CryptoEngine.unwrap(wrappedKey, with: vaultKey)
-            plain = try CryptoEngine.decryptChunk(plain, objectKey: objectKey, startSliceIndex: 0)
-        }
+        let plain = try Data(contentsOf: tmp)
         try plain.write(to: dest)
         return dest
     }

@@ -518,10 +518,10 @@ enum VaultRepair {
 
         let orphanedIDs = allMessages.filter { msg in
             let text = caption(of: msg) ?? ""
-            // Cascade's own metadata (key records, the delta log,
-            // checkpoints) — protected regardless of what the local DB contains.
+            // Cascade's own metadata (the delta log, checkpoints) — protected
+            // regardless of what the local DB contains. (Vault key records are
+            // gone with the encryption era.)
             let isProtectedMeta = [
-                VaultManager.v2Prefix,
                 CatalogSnapshot.deltaCaptionPrefix,
                 CatalogSnapshot.captionPrefix
             ].contains { text.hasPrefix($0) }

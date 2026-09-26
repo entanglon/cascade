@@ -330,76 +330,6 @@ struct CascadeTests {
         #expect(huge.items.allSatisfy { $0.size <= ChunkPlanner.maxSafeChunkSize })
     }
 
-    @Test func streamingCryptoRoundTripMatchesWholeBuffer() throws {
-        // Deterministic payload spanning whole slices + a partial tail.
-        let mb = CryptoEngine.sliceSize
-        let totalPlain = 3 * mb + 777
-        var source = Data(count: totalPlain)
-        for i in 0..<source.count { source[i] = UInt8((i * 31) % 251) }
-        let objectKey = SymmetricKey(size: .bits256)
-
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let srcURL = dir.appendingPathComponent("src.bin")
-        let encURL = dir.appendingPathComponent("enc.bin")
-        let outURL = dir.appendingPathComponent("out.bin")
-        try source.write(to: srcURL)
-
-        // Encrypt via the streaming path
-        try FileManager.default.createFile(atPath: encURL.path, contents: nil)
-        let inHandle = try FileHandle(forReadingFrom: srcURL)
-        let encHandle = try FileHandle(forWritingTo: encURL)
-        var pH: SHA256? = SHA256()
-        var cH: SHA256? = SHA256()
-        let sealedLen = try CryptoEngine.encryptStream(
-            from: inHandle, to: encHandle,
-            plainByteLimit: Int64(totalPlain),
-            objectKey: objectKey, startSliceIndex: 0,
-            plainHasher: &pH, cipherHasher: &cH
-        )
-        try? inHandle.close()
-        try? encHandle.close()
-
-        // Sealed size must be exactly slices × (MiB + tag)
-        let expectedSealed = 3 * Int64(CryptoEngine.sealedSliceSize) + 777 + 28
-        #expect(sealedLen == expectedSealed)
-
-        // Decrypt via the streaming path
-        try FileManager.default.createFile(atPath: outURL.path, contents: nil)
-        let decIn = try FileHandle(forReadingFrom: encURL)
-        let outHandle = try FileHandle(forWritingTo: outURL)
-        var dH: SHA256? = SHA256()
-        var pH2: SHA256? = SHA256()
-        let plainLen = try CryptoEngine.decryptStream(
-            from: decIn, to: outHandle,
-            cipherByteLimit: sealedLen,
-            objectKey: objectKey, startSliceIndex: 0,
-            cipherHasher: &dH, plainHasher: &pH2
-        )
-        try? decIn.close()
-        try? outHandle.close()
-
-        #expect(plainLen == Int64(totalPlain))
-        let srcSha = try FileHasher.sha256(of: srcURL)
-        let outSha = try FileHasher.sha256(of: outURL)
-        #expect(outSha == srcSha)
-
-        // Hash bookkeeping must match whole-buffer hashing exactly
-        #expect(pH!.finalize().hexString == FileHasher.sha256(of: source))
-
-        // And the classic (whole-buffer) decryptor must read the streamed
-        // ciphertext perfectly — cross-implementation compatibility. (Byte-equality
-        // of two encryptions is impossible: AES-GCM seals with a random nonce.)
-        let streamedCiphertext = try Data(contentsOf: encURL)
-        let classicDecrypted = try CryptoEngine.decryptChunk(
-            streamedCiphertext, objectKey: objectKey, startSliceIndex: 0
-        )
-        #expect(classicDecrypted == source)
-    }
-
     @Test func streamingSliceMappingAcrossChunks() {
         let mb: Int64 = 1024 * 1024
         // A 292 MB file in 3 chunks: 128 MB, 128 MB, 36 MB. Slice indices restart at 0
@@ -409,9 +339,9 @@ struct CascadeTests {
             fileSize: 292 * mb,
             channelID: 1,
             chunks: [
-                ChunkLayout(messageID: 1, plainSize: 128 * mb),
-                ChunkLayout(messageID: 2, plainSize: 128 * mb),
-                ChunkLayout(messageID: 3, plainSize: 36 * mb)
+                ChunkLayout(messageID: 1, plainSize: 128 * mb, channelID: 1),
+                ChunkLayout(messageID: 2, plainSize: 128 * mb, channelID: 1),
+                ChunkLayout(messageID: 3, plainSize: 36 * mb, channelID: 1)
             ],
             chunkStarts: [0, 128 * mb, 256 * mb],
             contentType: "public.mpeg-4",
@@ -433,42 +363,6 @@ struct CascadeTests {
         #expect(r.chunk == 2 && r.local == 0)
         r = layout.chunkAndLocalIndex(for: 291)
         #expect(r.chunk == 2 && r.local == 35)
-    }
-
-    @Test func encryptedBatchPlanClampsToChunkBoundary() {
-        let mb: Int64 = 1024 * 1024
-        let sealedFull: Int64 = mb + 28
-
-        // Room for many slices, ask for a batch → exactly the batch size, one
-        // chunk's worth of bytes (never past the chunk document).
-        let fullChunk = VideoStreamingEngine.planEncryptedBatch(
-            plainRemainingInChunk: 128 * mb, maxCount: 8)
-        #expect(fullChunk.count == 8)
-        #expect(fullChunk.batchBytes == 8 * sealedFull)
-
-        // Near the END of a chunk (2 full slices + 100-byte partial tail): an
-        // 8-slice request must clamp to 3 pieces and never cross into the next
-        // chunk — this is the round-1 bug class re-checked on the round-4 path.
-        let nearTail = VideoStreamingEngine.planEncryptedBatch(
-            plainRemainingInChunk: 2 * mb + 100, maxCount: 8)
-        #expect(nearTail.count == 3)
-        #expect(nearTail.batchBytes == 2 * sealedFull + 128)
-
-        // Tiny remainder → exactly one short piece.
-        let tinyTail = VideoStreamingEngine.planEncryptedBatch(
-            plainRemainingInChunk: 500, maxCount: 8)
-        #expect(tinyTail.count == 1)
-        #expect(tinyTail.batchBytes == 528)
-
-        // Remaining smaller than the batch → all of it.
-        let threeLeft = VideoStreamingEngine.planEncryptedBatch(
-            plainRemainingInChunk: 3 * mb, maxCount: 8)
-        #expect(threeLeft.count == 3)
-        #expect(threeLeft.batchBytes == 3 * sealedFull)
-
-        // Nothing remaining → nothing requested.
-        let empty = VideoStreamingEngine.planEncryptedBatch(plainRemainingInChunk: 0, maxCount: 8)
-        #expect(empty.count == 0 && empty.batchBytes == 0)
     }
 
     @Test func duplicateObjectsClonesRecordAndChunks() async throws {
@@ -564,7 +458,7 @@ struct CascadeTests {
         let privPath = await TransferInfoPanel.cloudPath(for: priv)
         #expect(filePath == "All Files / Movies / Sci-Fi", "got: \(filePath)")
         #expect(folderPath == "All Files", "got: \(folderPath)")
-        #expect(privPath == "Private Vault", "got: \(privPath)")
+        #expect(privPath == "Locked", "got: \(privPath)")
         try await DatabaseManager.shared.deleteVaultAndData(id: vault.id)
     }
 
@@ -613,133 +507,6 @@ struct CascadeTests {
         #expect(MPVController.prebufferTarget(durationSecs: -1) == 4.0)
         // Degenerate sub-second clip → floored at 0.5 s, never zero/negative.
         #expect(MPVController.prebufferTarget(durationSecs: 0.6) == 0.5)
-    }
-
-    @Test func encryptedStreamingLayoutAndSliceDecryption() throws {
-        let mb: Int64 = 1024 * 1024
-        let objectKey = SymmetricKey(size: .bits256)
-        
-        // 5.5 MB payload across 3 chunks: [2 MB, 2 MB, 1.5 MB]
-        let totalSize = Int(5.5 * Double(mb))
-        var filePlaintext = Data(count: totalSize)
-        _ = filePlaintext.withUnsafeMutableBytes {
-            SecRandomCopyBytes(kSecRandomDefault, totalSize, $0.baseAddress!)
-        }
-        
-        let chunk0Plain = filePlaintext.subdata(in: 0 ..< Int(2 * mb))
-        let chunk1Plain = filePlaintext.subdata(in: Int(2 * mb) ..< Int(4 * mb))
-        let chunk2Plain = filePlaintext.subdata(in: Int(4 * mb) ..< totalSize)
-        
-        // Encrypt each chunk independently with sequential slice indices
-        let chunk0Encrypted = try CryptoEngine.encryptChunk(chunk0Plain, objectKey: objectKey, startSliceIndex: 0)
-        let chunk1Encrypted = try CryptoEngine.encryptChunk(chunk1Plain, objectKey: objectKey, startSliceIndex: 2)
-        let chunk2Encrypted = try CryptoEngine.encryptChunk(chunk2Plain, objectKey: objectKey, startSliceIndex: 4)
-        
-        let layout = ObjectLayout(
-            fileSize: Int64(totalSize),
-            channelID: 100,
-            chunks: [
-                ChunkLayout(messageID: 101, plainSize: 2 * mb),
-                ChunkLayout(messageID: 102, plainSize: 2 * mb),
-                ChunkLayout(messageID: 103, plainSize: Int64(chunk2Plain.count))
-            ],
-            chunkStarts: [0, 2 * mb, 4 * mb],
-            contentType: "video/mp4",
-            canStream: true,
-            objectKey: objectKey
-        )
-        
-        // Verify seek to slice #3 (offset 3MB..4MB, inside chunk 1, local slice 1):
-        let targetSliceIndex = 3
-        let mapping = layout.chunkAndLocalIndex(for: targetSliceIndex)
-        #expect(mapping.chunk == 1)
-        #expect(mapping.local == 1)
-        
-        let sliceCipherOffset = mapping.local * CryptoEngine.sealedSliceSize
-        let sealedSliceData = chunk1Encrypted.subdata(in: sliceCipherOffset ..< sliceCipherOffset + CryptoEngine.sealedSliceSize)
-        
-        let decryptedSlice = try CryptoEngine.decryptSlice(sealedSliceData, objectKey: objectKey, index: targetSliceIndex)
-        let expectedSlicePlain = filePlaintext.subdata(in: Int(3 * mb) ..< Int(4 * mb))
-        #expect(decryptedSlice == expectedSlicePlain)
-    }
-
-    @Test func pinRecoveryKeyRoundTripsVaultKey() throws {
-        // The cross-device recovery path: the vault key sealed with the PIN-derived
-        // key must unwrap back to the identical key, and a wrong PIN must fail.
-        let vaultKey = SymmetricKey(size: .bits256)
-        let wrapped = try CryptoEngine.wrap(vaultKey, with: CryptoEngine.recoveryKey(from: "2468"))
-
-        let recovered = try CryptoEngine.unwrap(wrapped, with: CryptoEngine.recoveryKey(from: "2468"))
-        let a = vaultKey.withUnsafeBytes { Data($0) }
-        let b = recovered.withUnsafeBytes { Data($0) }
-        #expect(a == b)
-
-        // Wrong PIN (different derived key) must not unwrap.
-        var wrongRejected = false
-        do {
-            _ = try CryptoEngine.unwrap(wrapped, with: CryptoEngine.recoveryKey(from: "1357"))
-        } catch {
-            wrongRejected = true
-        }
-        #expect(wrongRejected)
-    }
-
-    @Test func passwordDerivedKeyRoundTripsVaultKey() throws {
-        // v2: the master key is PBKDF2(password, per-vault salt) — derived identically
-        // on any device. Same PIN + same salt must reproduce the key; wrong PIN or
-        // wrong salt must fail.
-        let salt = Data("0123456789abcdef".utf8)
-        let vaultKey = SymmetricKey(size: .bits256)
-        let derived = CryptoEngine.passwordKey(from: "2468", salt: salt)
-        let wrapped = try CryptoEngine.wrap(vaultKey, with: derived)
-
-        let recovered = try CryptoEngine.unwrap(wrapped, with: CryptoEngine.passwordKey(from: "2468", salt: salt))
-        #expect(vaultKey.withUnsafeBytes { Data($0) } == recovered.withUnsafeBytes { Data($0) })
-
-        var wrongPinRejected = false
-        do {
-            _ = try CryptoEngine.unwrap(wrapped, with: CryptoEngine.passwordKey(from: "1357", salt: salt))
-        } catch {
-            wrongPinRejected = true
-        }
-        #expect(wrongPinRejected)
-
-        var wrongSaltRejected = false
-        do {
-            _ = try CryptoEngine.unwrap(wrapped, with: CryptoEngine.passwordKey(from: "2468", salt: Data("fedcba9876543210".utf8)))
-        } catch {
-            wrongSaltRejected = true
-        }
-        #expect(wrongSaltRejected)
-    }
-
-    @Test func vaultKeyRecordV2CaptionRoundTrip() throws {
-        // The canonical v2 key record (salt + password seal + device seal) must
-        // survive caption encode/decode and unlock via BOTH the password path (any
-        // device + PIN) and the device-seal path (same device, Keychain master).
-        let vaultKey = SymmetricKey(size: .bits256)
-        let salt = Data("0123456789abcdef".utf8)
-        let master = SymmetricKey(data: Data(repeating: 7, count: 32))
-        let record = VaultManager.VaultKeyRecordV2(
-            salt: salt,
-            passwordSeal: try CryptoEngine.wrap(vaultKey, with: CryptoEngine.passwordKey(from: "2468", salt: salt)),
-            deviceSeal: try CryptoEngine.wrap(vaultKey, with: master),
-            deviceID: "test-device"
-        )
-
-        let caption = VaultManager.v2Caption(record)
-        #expect(caption.hasPrefix(VaultManager.v2Prefix))
-        let parsed = try VaultManager.parseV2Record(caption: caption)
-        #expect(parsed.salt == salt)
-        #expect(parsed.deviceID == "test-device")
-
-        // Password path: any device with the PIN.
-        let viaPIN = try CryptoEngine.unwrap(parsed.passwordSeal, with: CryptoEngine.passwordKey(from: "2468", salt: parsed.salt))
-        #expect(vaultKey.withUnsafeBytes { Data($0) } == viaPIN.withUnsafeBytes { Data($0) })
-
-        // Device-seal path: the original device without re-entering the PIN.
-        let viaDevice = try CryptoEngine.unwrap(parsed.deviceSeal, with: master)
-        #expect(vaultKey.withUnsafeBytes { Data($0) } == viaDevice.withUnsafeBytes { Data($0) })
     }
 
     @Test func parallelProgressResumeSeedsCompletedChunks() {
@@ -1819,81 +1586,6 @@ struct CascadeTests {
         #expect(parsedSingle?.messageIDs == [1048610, 1048611])
     }
 
-    @Test func passwordProtectedShareLinkRoundTripsAndUnlocks() throws {
-        let objectKey = SymmetricKey(size: .bits256)
-        let password = "SecretPassword123!"
-        var saltBytes = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, 16, &saltBytes)
-        let salt = Data(saltBytes)
-        let linkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
-        let wrappedKey = try CryptoEngine.wrap(objectKey, with: linkKey)
-        
-        let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
-        let link = ShareEngine.ShareLink(
-            id: "pw-share-1",
-            channelID: -100987654321,
-            inviteLink: "https://t.me/+SecretLink123456",
-            shareKey: "",
-            fileName: "classified.pdf",
-            expiry: expiry,
-            messageIDs: [2001, 2002],
-            wrappedKeyB64: wrappedKey.base64EncodedString(),
-            saltB64: salt.base64EncodedString()
-        )
-        
-        #expect(link.isPasswordProtected)
-        let obfuscated = try ShareEngine.obfuscate(link.urlString)
-        let parsed = try #require(ShareEngine.ShareLink.parse(obfuscated))
-        
-        #expect(parsed.isPasswordProtected)
-        #expect(parsed.shareKey.isEmpty)
-        #expect(parsed.saltB64 == salt.base64EncodedString())
-        #expect(parsed.wrappedKeyB64 == wrappedKey.base64EncodedString())
-        
-        // Correct password unwraps original objectKey
-        let recipientDerivedKey = CryptoEngine.deriveLinkKey(from: password, salt: Data(base64Encoded: parsed.saltB64)!)
-        let unwrappedKey = try CryptoEngine.unwrap(Data(base64Encoded: parsed.wrappedKeyB64)!, with: recipientDerivedKey)
-        #expect(unwrappedKey == objectKey)
-        
-        // Wrong password fails to unwrap
-        let wrongDerivedKey = CryptoEngine.deriveLinkKey(from: "WrongPassword!", salt: Data(base64Encoded: parsed.saltB64)!)
-        #expect(throws: Error.self) {
-            try CryptoEngine.unwrap(Data(base64Encoded: parsed.wrappedKeyB64)!, with: wrongDerivedKey)
-        }
-    }
-
-    @Test func unprotectedSimpleShareLinkRoundTripsAndUnwraps() throws {
-        let objectKey = SymmetricKey(size: .bits256)
-        let shareKey = SymmetricKey(size: .bits256)
-        let wrappedKey = try CryptoEngine.wrap(objectKey, with: shareKey)
-        let shareKeyB64 = shareKey.withUnsafeBytes { Data($0).base64EncodedString() }
-        
-        let expiry = Date(timeIntervalSinceNow: 7 * 24 * 3600)
-        let link = ShareEngine.ShareLink(
-            id: "simple-share-1",
-            channelID: -100987654321,
-            inviteLink: "https://t.me/+SimpleLink123456",
-            shareKey: shareKeyB64,
-            fileName: "vacation.mp4",
-            expiry: expiry,
-            messageIDs: [3001, 3002, 3003],
-            wrappedKeyB64: wrappedKey.base64EncodedString(),
-            saltB64: ""
-        )
-        
-        #expect(!link.isPasswordProtected)
-        let obfuscated = try ShareEngine.obfuscate(link.urlString)
-        let parsed = try #require(ShareEngine.ShareLink.parse(obfuscated))
-        
-        #expect(!parsed.isPasswordProtected)
-        #expect(parsed.shareKey == shareKeyB64)
-        
-        // Recipient directly un-fragments shareKey and unwraps objectKey with zero password
-        let recipientShareKey = SymmetricKey(data: Data(base64Encoded: parsed.shareKey)!)
-        let unwrappedKey = try CryptoEngine.unwrap(Data(base64Encoded: parsed.wrappedKeyB64)!, with: recipientShareKey)
-        #expect(unwrappedKey == objectKey)
-    }
-
     @Test func groupShareManifestRejectsMalformedPayloads() {
         // A group manifest with a file that resolves to zero chunks must be
         // rejected outright — a partial group would silently drop a file.
@@ -1976,95 +1668,6 @@ struct CascadeTests {
             #expect(error == .notShareablePrivate)
         } catch {
             Issue.record("unexpected error: \(error)")
-        }
-    }
-
-    @Test func shareKeyWrapUnwrapRoundTrips() throws {
-        // The share flow wraps the object key with a fresh share key (which rides
-        // inside the link); the recipient unwraps it, then re-wraps it under their
-        // own vault master key. Round-trip must reproduce the exact same key.
-        let shareKey = SymmetricKey(size: .bits256)
-        let objectKey = SymmetricKey(size: .bits256)
-        let wrapped = try CryptoEngine.wrap(objectKey, with: shareKey)
-        let unwrapped = try CryptoEngine.unwrap(wrapped, with: shareKey)
-
-        // AES-GCM seals use a fresh random nonce per call, so two ciphertexts for
-        // the same plaintext never compare equal byte-for-byte. Proving the keys
-        // are the same key material: each key must decrypt the OTHER's ciphertext.
-        let plain = Data("hello share".utf8)
-        let withOriginal = try CryptoEngine.encryptSlice(plain, objectKey: objectKey, index: 0)
-        let withUnwrapped = try CryptoEngine.encryptSlice(plain, objectKey: unwrapped, index: 0)
-        let decOriginal = try CryptoEngine.decryptSlice(withUnwrapped, objectKey: objectKey, index: 0)
-        #expect(decOriginal == plain)
-        let decUnwrapped = try CryptoEngine.decryptSlice(withOriginal, objectKey: unwrapped, index: 0)
-        #expect(decUnwrapped == plain)
-    }
-
-    @Test func chunkEncryptionDecryptionMultiSliceRoundTrip() throws {
-        let objectKey = SymmetricKey(size: .bits256)
-        // 2.5 MB payload spans 3 slices: [1 MB, 1 MB, 512 KB]
-        let size = 2 * 1024 * 1024 + 512 * 1024
-        var plaintext = Data(count: size)
-        _ = plaintext.withUnsafeMutableBytes {
-            SecRandomCopyBytes(kSecRandomDefault, size, $0.baseAddress!)
-        }
-        
-        let startSlice = 12
-        let encrypted = try CryptoEngine.encryptChunk(plaintext, objectKey: objectKey, startSliceIndex: startSlice)
-        // Overhead should be 3 * 28 = 84 bytes
-        #expect(encrypted.count == plaintext.count + 3 * 28)
-        
-        let decrypted = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: startSlice)
-        #expect(decrypted == plaintext)
-    }
-
-    @Test func randomAccessSliceDecryptionMatchesSubrange() throws {
-        let objectKey = SymmetricKey(size: .bits256)
-        let size = 2 * 1024 * 1024 + 512 * 1024
-        var plaintext = Data(count: size)
-        _ = plaintext.withUnsafeMutableBytes {
-            SecRandomCopyBytes(kSecRandomDefault, size, $0.baseAddress!)
-        }
-        
-        let startSlice = 4
-        let encrypted = try CryptoEngine.encryptChunk(plaintext, objectKey: objectKey, startSliceIndex: startSlice)
-        
-        // Random access to slice 1 within the chunk (global slice index 5):
-        // Slice 0 in chunk: offset 0 ..< sealedSliceSize (1 MB + 28)
-        // Slice 1 in chunk: offset sealedSliceSize ..< 2 * sealedSliceSize
-        let s0 = 0
-        let s1 = CryptoEngine.sealedSliceSize
-        let s2 = 2 * CryptoEngine.sealedSliceSize
-        
-        let slice1Cipher = encrypted.subdata(in: s1 ..< s2)
-        let slice1Plain = try CryptoEngine.decryptSlice(slice1Cipher, objectKey: objectKey, index: startSlice + 1)
-        let expectedSlice1 = plaintext.subdata(in: 1024 * 1024 ..< 2 * 1024 * 1024)
-        #expect(slice1Plain == expectedSlice1)
-        
-        // Random access to slice 2 (remainder 512 KB):
-        let slice2Cipher = encrypted.subdata(in: s2 ..< encrypted.count)
-        let slice2Plain = try CryptoEngine.decryptSlice(slice2Cipher, objectKey: objectKey, index: startSlice + 2)
-        let expectedSlice2 = plaintext.subdata(in: 2 * 1024 * 1024 ..< size)
-        #expect(slice2Plain == expectedSlice2)
-    }
-
-    @Test func passwordDerivedLinkKeySealsAndUnlocks() throws {
-        let objectKey = SymmetricKey(size: .bits256)
-        let salt = Data("cascade-link-salt-42".utf8)
-        let password = "SecretPassphrase2026!"
-        
-        let linkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
-        let wrapped = try CryptoEngine.wrap(objectKey, with: linkKey)
-        
-        // Unlock with correct password
-        let correctLinkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
-        let unlocked = try CryptoEngine.unwrap(wrapped, with: correctLinkKey)
-        #expect(unlocked.withUnsafeBytes { Data($0) } == objectKey.withUnsafeBytes { Data($0) })
-        
-        // Attempt unlock with wrong password throws
-        let wrongLinkKey = CryptoEngine.deriveLinkKey(from: "WrongPassword123", salt: salt)
-        #expect(throws: Error.self) {
-            _ = try CryptoEngine.unwrap(wrapped, with: wrongLinkKey)
         }
     }
 
@@ -2541,46 +2144,6 @@ struct CascadeTests {
                 #expect(max(src.size.width, src.size.height) <= 320, "attached JPEG must be ≤320px for TDLib")
             }
         }
-    }
-
-    @Test func thumbnailSidecarEncryptDecryptRoundTrips() async throws {
-        // Encrypted uploads attach no thumbnail — the preview is an encrypted
-        // sidecar document. The sidecar must round-trip through the SAME chunk
-        // codec used for files: encryptChunk/decryptChunk with startSliceIndex 0
-        // (the ≤320px JPEG is one slice). Guards the upload+fetch pipeline.
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("thumb-sidecar-\(UUID().uuidString).png")
-        let size = NSSize(width: 640, height: 480)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        NSColor.systemRed.setFill()
-        NSRect(origin: .zero, size: size).fill()
-        image.unlockFocus()
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else {
-            Issue.record("failed to synthesize test PNG")
-            return
-        }
-        try png.write(to: tmp)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-
-        let objectID = "thumb-sidecar-obj-\(UUID().uuidString)"
-        guard let uploadPath = await UploadEngine.generateThumbnails(for: tmp, objectID: objectID) else {
-            Issue.record("upload pipeline must produce the -up.jpg path")
-            return
-        }
-        defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: uploadPath)) }
-        let plain = try Data(contentsOf: URL(fileURLWithPath: uploadPath))
-        #expect(!plain.isEmpty)
-
-        let key = SymmetricKey(size: .bits256)
-        let encrypted = try CryptoEngine.encryptChunk(plain, objectKey: key, startSliceIndex: 0)
-        #expect(encrypted != plain, "sidecar bytes must be encrypted (opaque in the channel)")
-        let decrypted = try CryptoEngine.decryptChunk(encrypted, objectKey: key, startSliceIndex: 0)
-        #expect(decrypted == plain, "sidecar decrypt must restore the exact JPEG")
-        // One sealed slice for a <1 MB thumbnail.
-        #expect(encrypted.count == plain.count + 28)
     }
 
     @Test func thumbCaptionCodecMarksSidecarDocuments() {
@@ -3123,57 +2686,6 @@ struct CascadeTests {
         let joins = forA.filter { $0.kind == "join" }
         #expect(joins.count == 2)
         #expect(joins.compactMap(\.userID) == [4242, 4242])
-    }
-
-    @Test func addPasswordToShareRotatesLinkAndInvalidatesOld() throws {
-        let objectKey = SymmetricKey(size: .bits256)
-        let linkKey = SymmetricKey(size: .bits256)
-        let wrapped = try CryptoEngine.wrap(objectKey, with: linkKey).base64EncodedString()
-        let oldLinkKeyB64 = linkKey.withUnsafeBytes { Data($0).base64EncodedString() }
-
-        let plain = ShareEngine.ShareLink(
-            id: UUID().uuidString, channelID: -700, inviteLink: "https://t.me/+abc",
-            shareKey: oldLinkKeyB64, fileName: "Movie.mkv", expiry: Date().addingTimeInterval(3600),
-            messageIDs: [11, 22], wrappedKeyB64: wrapped
-        ).urlString
-        let blob = try ShareEngine.obfuscate(plain)
-
-        var record = ShareRecord(
-            id: UUID().uuidString, objectID: "obj-x", channelID: -700,
-            inviteLink: "https://t.me/+abc", shareKey: oldLinkKeyB64,
-            expiry: Date().addingTimeInterval(3600), role: "outgoing",
-            state: "active", fileName: "Movie.mkv", createdAt: Date()
-        )
-        record.linkBlob = blob
-        record.messageIDs = "11,22"
-        record.wrappedKeyB64 = wrapped
-
-        let newBlob = try ShareEngine.remintLinkWithPassword(record, password: "hunter2").blob
-        #expect(newBlob != blob, "the link is re-minted")
-
-        guard let newPlain = try? ShareEngine.deobfuscate(newBlob),
-              let newLink = ShareEngine.ShareLink.parse(newPlain) else {
-            Issue.record("new blob must parse")
-            return
-        }
-        #expect(newLink.shareKey.isEmpty, "protected links carry no naked key")
-        #expect(!newLink.saltB64.isEmpty)
-        #expect(newLink.channelID == -700 && newLink.messageIDs == [11, 22])
-
-        // The new password unwraps the SAME object key.
-        let salt = try #require(Data(base64Encoded: newLink.saltB64))
-        let derived = CryptoEngine.deriveLinkKey(from: "hunter2", salt: salt)
-        let sealed = try #require(Data(base64Encoded: newLink.wrappedKeyB64))
-        let recovered = try CryptoEngine.unwrap(sealed, with: derived)
-        let originalBytes = objectKey.withUnsafeBytes { Data($0) }
-        let recoveredBytes = recovered.withUnsafeBytes { Data($0) }
-        #expect(recoveredBytes == originalBytes)
-
-        // The OLD (unprotected) key no longer opens the new blob.
-        if let sealedOld = Data(base64Encoded: newLink.wrappedKeyB64) {
-            #expect((try? CryptoEngine.unwrap(sealedOld, with: linkKey)) == nil,
-                    "old link material must be invalidated")
-        }
     }
 
     @Test func appNotificationLifecycle() async {

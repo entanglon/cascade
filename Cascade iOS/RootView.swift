@@ -1169,7 +1169,7 @@ struct BrowseView: View {
                 destinationRow(
                     destination: .privateVault,
                     icon: "lock.fill",
-                    title: "Private Vault",
+                    title: "Locked",
                     count: appState.vaultFilesCount
                 )
                 rowDivider
@@ -2403,8 +2403,6 @@ struct ShareFileSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var isPublic: Bool = false
-    @State private var usePassword: Bool = false
-    @State private var passwordText: String = ""
     @State private var isGenerating: Bool = false
     @State private var errorMessage: String? = nil
 
@@ -2454,13 +2452,6 @@ struct ShareFileSheet: View {
                     }
                 }
 
-                Section("Security") {
-                    Toggle("Password Protect Link", isOn: $usePassword)
-                    if usePassword {
-                        SecureField("Enter Password", text: $passwordText)
-                    }
-                }
-
                 if let err = errorMessage {
                     Section {
                         Text(err)
@@ -2485,7 +2476,7 @@ struct ShareFileSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(isGenerating || (usePassword && passwordText.isEmpty))
+                    .disabled(isGenerating)
                 }
             }
             .navigationTitle("Share")
@@ -2509,7 +2500,7 @@ struct ShareFileSheet: View {
                 let link = try await appState.shareFile(
                     file,
                     isPublic: isPublic,
-                    password: usePassword && !passwordText.isEmpty ? passwordText : nil
+                    password: nil
                 )
                 await MainActor.run {
                     self.isGenerating = false
@@ -3794,12 +3785,8 @@ struct VaultPINView: View {
     @State private var shake: Bool = false
     @State private var isProcessing: Bool = false
 
-    var isRecovery: Bool {
-        KeychainStore.loadVaultPINHash() == nil && appState.hasRecoveryBlob
-    }
-
     var isCreate: Bool {
-        KeychainStore.loadVaultPINHash() == nil && !appState.hasRecoveryBlob
+        KeychainStore.loadVaultPINHash() == nil
     }
 
     var body: some View {
@@ -3811,7 +3798,7 @@ struct VaultPINView: View {
                 Circle()
                     .fill(Color.blue.opacity(0.12))
                     .frame(width: 80, height: 80)
-                Image(systemName: isRecovery ? "key.fill" : "lock.fill")
+                Image(systemName: "lock.fill")
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(XTheme.accent)
             }
@@ -3909,19 +3896,15 @@ struct VaultPINView: View {
     }
 
     private var title: String {
-        if isRecovery { return "Enter Vault PIN" }
-        if isCreate { return "Create Vault PIN" }
-        return "Unlock Vault"
+        if isCreate { return "Create PIN" }
+        return "Unlock"
     }
 
     private var subtitle: String {
-        if isRecovery {
-            return "Enter the 4-digit PIN you set on your Mac to unlock and decrypt your files."
-        }
         if isCreate {
-            return "Choose a 4-digit PIN to secure your files and enable recovery on other devices."
+            return "Choose a 4-digit PIN. It locks this folder behind an app-level screen — files inside are regular vault files."
         }
-        return "Enter your 4-digit PIN to decrypt your files."
+        return "Enter your 4-digit PIN to unlock."
     }
 
     private func keypadButton(title: String, action: @escaping () -> Void) -> some View {
@@ -3963,7 +3946,7 @@ struct VaultPINView: View {
     }
 }
 
-// MARK: - Private Vault View
+// MARK: - Locked View (PIN-gated folder)
 
 struct PrivateVaultView: View {
     @Environment(AppState.self) private var appState
@@ -3972,7 +3955,7 @@ struct PrivateVaultView: View {
     var body: some View {
         Group {
             if isUnlocked {
-                FileBrowserView(folderID: "", folderTitle: "Private Vault", filterPrivate: true)
+                FileBrowserView(folderID: "", folderTitle: "Locked", filterPrivate: true)
             } else {
                 VaultPINView {
                     isUnlocked = true
@@ -3980,7 +3963,7 @@ struct PrivateVaultView: View {
                 }
             }
         }
-        .navigationTitle("Private Vault")
+        .navigationTitle("Locked")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             isUnlocked = false
@@ -6641,7 +6624,6 @@ struct ImportShareLinkSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var linkText: String = ""
-    @State private var passwordText: String = ""
     @State private var thumbImage: UIImage? = nil
 
     private var parsedLink: ShareEngine.ShareLink? {
@@ -6652,11 +6634,7 @@ struct ImportShareLinkSheet: View {
 
     private var canImport: Bool {
         let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || appState.isImportingShareLink { return false }
-        if let link = parsedLink, link.isPasswordProtected && passwordText.isEmpty {
-            return false
-        }
-        return true
+        return !trimmed.isEmpty && !appState.isImportingShareLink
     }
 
     var body: some View {
@@ -6722,16 +6700,6 @@ struct ImportShareLinkSheet: View {
                                     .foregroundStyle(.primary)
 
                                 HStack(spacing: 6) {
-                                    if link.isPasswordProtected {
-                                        HStack(spacing: 3) {
-                                            Image(systemName: "lock.fill")
-                                                .font(.system(size: 10))
-                                            Text("Protected")
-                                                .font(.caption2.weight(.semibold))
-                                        }
-                                        .foregroundStyle(.orange)
-                                    }
-
                                     let itemCount = link.files.count
                                     if itemCount > 1 {
                                         Text("\(itemCount) files")
@@ -6751,12 +6719,6 @@ struct ImportShareLinkSheet: View {
                             }
                         }
                         .padding(.vertical, 4)
-                    }
-                }
-
-                if (parsedLink?.isPasswordProtected == true) || appState.pendingPasswordLink != nil || !passwordText.isEmpty {
-                    Section("Password Protected") {
-                        SecureField("Enter Password", text: $passwordText)
                     }
                 }
 
@@ -6856,10 +6818,7 @@ struct ImportShareLinkSheet: View {
         let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         Task {
-            await appState.importShareLink(
-                trimmed,
-                password: passwordText.isEmpty ? nil : passwordText
-            )
+            await appState.importShareLink(trimmed)
         }
     }
 }

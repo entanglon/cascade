@@ -89,6 +89,18 @@ edited files.
 A second commit followed the same day (Library cover polish, transfer-progress
 monotonicity, photos keyboard navigation unification — items 40–42 below).
 
+**CURRENT SESSION STATE (2026-09-26, items 138–140a):** the PLAINTEXT MIGRATION
+is committed — encryption removed (CryptoEngine deleted, `SliceMath` replaces
+`CryptoEngine.sliceSize`), vault moved to Saved Messages, "Private Vault" →
+"Locked" with an app-level recoverable PIN (Forgot-PIN replaces it; no key
+material derives from it), Android port migrated (own repo:
+`/Users/zainulnazir/AndroidStudioProjects/cascade`, commit there), and the
+`--purge-cloud` hook executed — old vault/backup channels DELETED on Telegram,
+local catalog verified 0 objects. The user's existing encrypted library was
+purged by design; anything kept must be re-uploaded. The user will test
+uploads/streams/thumbnails/shares on the fresh vault in the NEXT session —
+hand off there.
+
 ---
 
 ## 4. Work completed in this conversation (items 1–42 committed 2026-08-15; items 43–48 committed 2026-08-16; items 49–53 committed 2026-08-16)
@@ -2773,6 +2785,139 @@ monotonicity, photos keyboard navigation unification — items 40–42 below).
          every `withFloodWait`) could itself block — unlikely (it's a
          token-bucket actor) but worth a quick look since it's on every call
          path.
+
+### 140a. `--purge-cloud` debug hook + full clean-slate (2026-09-26)
+
+After item 140's local wipe the app RE-RESTORED the old catalog from the cloud
+— `CatalogSnapshot.restore()` falls back to the Cascade Backup channel's
+forwarded checkpoints, and VaultRepair rescans channel history, so a local wipe
+alone can never empty the app.
+
+New one-time debug hook (pattern-matches the existing `--repair-catalog`):
+`Cascade --purge-cloud`
+1. Deletes EVERY message from the account's Saved Messages (via new
+   `TelegramClient.purgeAllMessages(chatId:)` — paged, batch-100, bounded).
+2. Deletes the legacy "Cascade Vault" channel and "Cascade Backup" channel
+   outright (`deleteChat`).
+3. `DatabaseManager.purgeEverything()` wipes objects/chunks/backup_msgs/
+   transfers/shares/share_activity/vaults rows.
+4. Writes /tmp/cascade-purge-cloud.txt and quits.
+
+Run it (2026-09-26): ~2 Saved-Messages msgs deleted, backup channel
+-1004381430846 deleted, legacy vault channel -1003774210345 deleted, local
+catalog wiped. Then `xcodebuild clean` + rebuild + fresh DB: verified 0
+objects / 1 vault (Saved Messages) via sqlite3.
+
+### 140. PLAINTEXT ERA ROUND 2 — "Locked" folder, app-level PIN, local wipe (2026-09-26)
+
+Follow-up to item 139, executed the same day:
+
+**A. "Private Vault" → "Locked" everywhere.** The sidebar destination enum
+name stays `.privateVault` (internal), but all user-facing copy now says
+**Locked**: sidebar, FAB ("Upload to Locked"), transfers breadcrumbs,
+Settings, lock screens (macOS + iOS), TransfersView cloud paths, Android
+HomeScreen drawer label.
+
+**B. The PIN is now an APP-LEVEL screen lock with recovery.** No key material
+depends on it, so "Forgot PIN?" simply replaces it:
+- macOS lock screen (FileBrowserView `PrivateVaultLockView`): the `.recover`
+  phase was repurposed — chooseInitialPhase never selects it; a **Forgot
+  PIN?** button enters it, and submitting a new PIN saves + unlocks.
+- `KeychainStore.resetVaultPIN()` deletes the hash + clears throttle.
+- iOS `VaultPINView`: recovery mode removed (title/subtitle simplified);
+  Android: `VaultKeyRecovery` is a stub (keyIsOperational → true,
+  attemptRecovery → false), unlock verifies the local `PinStore` hash only.
+
+**C. Android port migrated to plaintext + Saved Messages**
+(`/Users/zainulnazir/AndroidStudioProjects/cascade`):
+- `CryptoEngine.kt` DELETED; `VaultManager.kt` rewritten — Saved Messages via
+  `createPrivateChat(force:true, userId:me)`, empty wrappedKey, all channel
+  discovery/phantom-migration/key-record code removed.
+- Upload/Download/Thumbnail engines: plain byte copies + SHA256; downloads of
+  legacy encrypted rows fail with a clear `LegacyEncrypted` error.
+- 53 unit tests green (`testDebugUnitTest`); crypto/golden-vector tests
+  removed; caption/URL-codec fixtures kept.
+- **IMPORTANT TDLib FACT (learned by overflow error)**: in the JSON API the
+  Saved Messages chat ID equals the account's own USER ID (~1e9, positive).
+  The vault-adoption sanity threshold is `> 1_000_000` in BOTH apps — negative
+  = legacy channel, small positive = test row.
+
+**D. Local data wiped clean** (user asked for a fresh start):
+- Deleted: cascade.sqlite(+wal/shm), thumbs/, scratch/, tmp/, logs/,
+  launch-state.txt, xcloud.sqlite — under `~/Library/Application Support/Cascade`.
+- Keychain: master-key, xc.vault.pin, xc.device.id removed (both bundle-id
+  service names).
+- KEPT: tdlib/ session → **no Telegram re-login needed**; relaunch recreated a
+  fresh DB and the vault will re-adopt Saved Messages on first upload/launch.
+
+**Verification**: macOS build + full test suite green (breadcrumb test updated
+to "Locked"), iOS target builds, Android compiles + 53 tests pass, app
+relaunched on a fresh catalog.
+
+### 139. PLAINTEXT MIGRATION — encryption removed, vault moved to Saved Messages (2026-09-26)
+
+User decision, executed in full. Two architectural changes landed together:
+
+**A. Encryption is GONE for everything.** Files are stored as plain bytes in
+Telegram. Motivations: real Telegram previews (MKV/MP4 open inside the Telegram
+app), one streaming path (the plaintext one — always the stable one), and a
+~700-line deletion of the sealed-slice machinery that produced every streaming
+bug of the previous month.
+
+- **Deleted**: `Crypto/CryptoEngine.swift` (slice crypto, key wrapping, PBKDF2
+  helpers, self-test), `scripts/gen_golden_fixtures.swift` (Android fixtures —
+  NOTE: the Android port's `CryptoEngine.kt` is now orphaned; WIRE_CONTRACT
+  fixtures reference it), the encrypted-thumbnail sidecar (upload + fetch +
+  iOS variant), the encrypted-subtitle path, the encrypted-path read-ahead
+  subsystem (`ReadAheadRun`, `fetchEncryptedBatchIntoCache`,
+  `planEncryptedBatch`, `ensureReadAhead`), the encrypted branch in
+  `plaintextSlice`, per-object key minting in UploadEngine, and
+  password-protected share links (`addPasswordToShare`,
+  `remintLinkWithPassword`, key-wrapping in link mint/import).
+- **Replaced by**: `Engine/SliceMath.swift` (`SliceMath.sliceSize` = the old
+  `CryptoEngine.sliceSize`; layout arithmetic unchanged), a minimal
+  `CryptoError` in KeychainStore, plain byte-copy upload/download loops with
+  SHA256 verification, and thumbnail attachment on every chunk message.
+- **DB migration `v34-purge-encrypted-objects`**: tombstones + purges rows
+  with a non-empty `wrappedKey` (legacy sealed chunks are unreadable by this
+  build; users must re-upload anything they kept). `VaultRecord.wrappedKey`
+  column stays NOT NULL (always empty) for schema stability.
+- **Share links**: still obfuscated blobs, but carry NO key material and have
+  no password option. Importing an OLD password/wrapped link fails with a
+  clear "created by an older encrypted version" error.
+- **Vault PIN**: kept as a DEVICE-LOCAL screen lock only (KeychainStore now
+  derives its hash with inline PBKDF2 — identical parameters, so existing PIN
+  hashes verify). All cross-device key recovery is deleted.
+
+**B. The vault lives in Saved Messages** (Unlim-style). Channels remain ONLY
+for the backup mirror (`Cascade Backup`, via BackupSync) and sharing.
+- `VaultManager.ensureVault()` now resolves the account's own Saved Messages
+  via `TelegramClient.savedMessagesChatID()` — implemented as
+  `createPrivateChat(force: true, userId: myUserID())` (DO NOT try to compute
+  the chat ID arithmetically; the base-plus-ID constant overflows Int64 and
+  TDLib is the source of truth).
+- Saved Messages is archived + muted like the vault channel was.
+- **Per-chunk channel resolution**: every chunk row records the channel its
+  document lives in. Streaming (`ChunkLayout.channelID`), thumbnails, and
+  sidecar downloads all resolve via `chunk.channelID ?? vault.channelID`, so
+  legacy chunks in the old vault channel keep working.
+- `BackupSync` mirror semantics are unchanged — messages posted to Saved
+  Messages are forwarded into Cascade Backup.
+
+**Verification**: macOS app target + iOS target build clean; full CascadeTests
+suite green (crypto tests removed, plaintext slice-mapping test kept);
+app rebuilt and launched from DerivedData Debug products.
+
+**Leads for the next agent**:
+1. The catalog-sync caption codec still carries `wrappedKey`/`cipherHash`
+   fields (always empty/nil now). Harmless; clean up if touching
+   `ChunkCaption` anyway.
+2. `isPrivate` remains ONLY as a UI destination flag (Private Vault view).
+   It no longer implies encryption. It could be renamed `isHidden` someday.
+3. Android port: `CryptoEngine.kt` + golden fixtures are now dead weight —
+   the wire contract needs a plaintext-era update.
+4. Streaming soak test still recommended: long MKV, cold cache, untouched
+   seek bar — confirm the 16-slice sequential batching holds throughput.
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 

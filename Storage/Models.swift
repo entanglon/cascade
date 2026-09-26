@@ -22,19 +22,14 @@ struct VaultRecord: Codable, FetchableRecord, PersistableRecord, Identifiable, S
     var accountID: String
     var channelID: Int64
     var name: String
+    /// Legacy column from the encryption era. Files are now stored as plain
+    /// bytes, so this is always empty; the column remains NOT NULL for schema
+    /// stability (old databases still open without a migration).
     var wrappedKey: Data
     var createdAt: Date
-    /// Message ID of the `cascade:vaultkey:v2:` key record in the channel — the vault
-    /// key sealed with a password-derived key (and this device's master key), which
-    /// lets any device recover private files by entering the vault PIN.
-    var recoveryMessageID: Int64? = nil
-    /// Per-vault random salt used to derive the password key. Generated once when the
-    /// v2 key record is first posted; stored here as a local cache (the salt also
-    /// rides inside the key record itself, so a fresh device gets it from the channel).
-    var recoverySalt: Data? = nil
     /// Channel ID of the "Cascade Backup" channel: every message the app
-    /// posts to the vault channel is forwarded here (see Engine/BackupSync.swift),
-    /// so a deleted or malfunction-wiped vault channel can still be recovered.
+    /// posts to the vault (Saved Messages) is forwarded here (Engine/BackupSync.swift),
+    /// so the files survive even if the account's chat data is ever lost.
     var backupChannelID: Int64? = nil
 }
 

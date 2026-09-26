@@ -1,18 +1,25 @@
 import Foundation
 import Security
 import CryptoKit
+import CommonCrypto
 
 struct TelegramCredentials: Sendable {
     let apiID: Int
     let apiHash: String
 }
 
+/// Minimal error surface (formerly in CryptoEngine) — Keychain operations can
+/// still fail with an OSStatus and the local PIN hash can be tampered.
+enum CryptoError: Error, Sendable {
+    case keychain(OSStatus)
+    case tampered
+}
+
 enum KeychainStore {
     // Cascade.dev) and the
-    // Cascade) never share Telegram credentials or vault keys.
+    // Cascade) never share Telegram credentials.
     static let service = Bundle.main.bundleIdentifier ?? "com.cascade.app"
 
-    private static let masterKeyAccount = "master-key"
     private static let telegramAccount = "telegram-credentials"
 
     // MARK: - Generic helpers
@@ -24,10 +31,10 @@ enum KeychainStore {
             kSecAttrAccount as String: account
         ]
 
-        // ThisDeviceOnly for every item: long-lived secrets (master key, PIN hash)
-        // must not silently migrate to other devices through Keychain backup
-        // flows. Updating the attribute here also migrates pre-existing items the
-        // next time they are re-saved.
+        // ThisDeviceOnly for every item: long-lived secrets (the PIN hash) must
+        // not silently migrate to other devices through Keychain backup flows.
+        // Updating the attribute here also migrates pre-existing items the next
+        // time they are re-saved.
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
@@ -66,21 +73,20 @@ enum KeychainStore {
         return data
     }
 
-    // MARK: - Master key
-
-    static func saveMasterKey(_ data: Data) throws {
-        try save(data: data, account: masterKeyAccount)
-    }
-
-    static func loadMasterKey() throws -> Data? {
-        try load(account: masterKeyAccount)
-    }
-
     /// Re-adds long-lived secrets with ThisDeviceOnly accessibility (idempotent).
     /// Called at launch — items created by older builds used WhenUnlocked, which
     /// allows silent migration to other devices via Keychain backup flows.
     static func migrateSecretsToThisDeviceOnly() {
-        for account in [masterKeyAccount, vaultPINAccount] {
+        // The master key is gone with the encryption era; only the local PIN hash
+        // remains a long-lived Keychain secret. Clean up the orphaned item.
+        let masterQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "master-key"
+        ]
+        SecItemDelete(masterQuery as CFDictionary)
+
+        for account in [vaultPINAccount] {
             guard let data = try? load(account: account) else { continue }
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
@@ -90,24 +96,6 @@ enum KeychainStore {
             SecItemDelete(query as CFDictionary)
             try? save(data: data, account: account)
         }
-    }
-
-    // MARK: - Device identity
-
-    /// A stable per-device identifier used to label the device seal inside the v2
-    /// vault key record. Stored in the Keychain so it survives app-container wipes
-    /// (and stays stable for as long as the physical device does). Informational
-    /// only — the actual crypto is the master key, not this string.
-    private static let deviceIDAccount = "xc.device.id"
-
-    static func deviceID() -> String {
-        if let data = try? load(account: deviceIDAccount),
-           let id = String(data: data, encoding: .utf8), !id.isEmpty {
-            return id
-        }
-        let id = UUID().uuidString
-        try? save(data: Data(id.utf8), account: deviceIDAccount)
-        return id
     }
 
     // MARK: - Telegram credentials
@@ -122,14 +110,13 @@ enum KeychainStore {
         guard
             let data = try load(account: telegramAccount),
             let json = try JSONSerialization.jsonObject(with: data) as? [String: String],
-            let idString = json["apiID"],
-            let apiID = Int(idString),
+            let idString = json["apiID"], let apiID = Int(idString),
             let apiHash = json["apiHash"]
         else { return nil }
         return TelegramCredentials(apiID: apiID, apiHash: apiHash)
     }
 
-    // MARK: - Vault PIN
+    // MARK: - Vault PIN (device-local screen lock only)
 
     private static let vaultPINAccount = "xc.vault.pin"
 
@@ -147,14 +134,29 @@ enum KeychainStore {
         return diff == 0
     }
 
-    /// PBKDF2-HMAC-SHA256 hash of the PIN under a random salt. Uses the same
-    /// OWASP-2026 cost (600k) as the vault password KDF — the old unsalted
-    /// SHA-256 scheme fell to instant offline brute force if the Keychain item
-    /// was ever exfiltrated.
+    /// PBKDF2-HMAC-SHA256 hash of the PIN under a random salt, 600k iterations —
+    /// identical parameters to the pre-plaintext-era `CryptoEngine.passwordKey`,
+    /// so PIN hashes saved by older builds still verify. (The PIN no longer
+    /// derives any vault key; it is purely a device-local screen lock.)
     private static func pinHash(_ pin: String, salt: Data) -> String {
-        CryptoEngine.passwordKey(from: pin, salt: salt)
+        pinDerivedKey(from: pin, salt: salt)
             .withUnsafeBytes { Data($0) }
             .base64EncodedString()
+    }
+
+    private static func pinDerivedKey(from password: String, salt: Data) -> SymmetricKey {
+        let pw = Array(password.utf8)
+        let sl = [UInt8](salt)
+        var derived = [UInt8](repeating: 0, count: 32)
+        CCKeyDerivationPBKDF(
+            CCPBKDFAlgorithm(kCCPBKDF2),
+            pw, pw.count,
+            sl, sl.count,
+            CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+            600_000,
+            &derived, derived.count
+        )
+        return SymmetricKey(data: Data(derived))
     }
 
     static func saveVaultPIN(_ pin: String) {
@@ -172,6 +174,22 @@ enum KeychainStore {
     static func loadVaultPINHash() -> String? {
         guard let data = try? load(account: vaultPINAccount) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// App-level PIN reset ("Forgot PIN"): the PIN guards a local UI gate only —
+    /// files are plain bytes and no key material derives from it — so a forgotten
+    /// PIN is simply discarded and a new one chosen. Clears the attempt throttle
+    /// as well (the backoff exists to slow guessing of the OLD pin).
+    static func resetVaultPIN() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: vaultPINAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+        let d = UserDefaults.standard
+        d.set(0, forKey: pinFailCountKey)
+        d.set(0, forKey: pinLockUntilKey)
     }
 
     static func verifyVaultPIN(_ pin: String) -> Bool {

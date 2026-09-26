@@ -344,7 +344,7 @@ enum CatalogSnapshot {
     /// that makes the object's chunks sum to exactly its recorded size.
     static func deduplicatedChunks(_ chunks: [ChunkRecord], objects: [ObjectRecord]) -> [ChunkRecord] {
         let sizesByObject = Dictionary(uniqueKeysWithValues: objects.map { ($0.id, $0.size) })
-        let slice = Int64(CryptoEngine.sliceSize)
+        let slice = SliceMath.sliceSize
         var kept: [ChunkRecord] = []
         for objectID in Set(chunks.map(\.objectID)) {
             let objectChunks = chunks

@@ -511,6 +511,43 @@ actor DatabaseManager {
             }
             try db.create(index: "idx_share_activity_share", on: "share_activity", columns: ["shareID"])
         }
+
+        // Plaintext migration: the app no longer stores encrypted objects. Rows
+        // carrying a per-object key describe sealed chunks that this build can
+        // neither stream nor decrypt — keep the catalog honest by tombstoning
+        // and purging them (their Telegram messages stay; the user was told to
+        // re-upload anything they still needs).
+        migrator.registerMigration("v34-purge-encrypted-objects") { db in
+            let encrypted = try String.fetchAll(
+                db,
+                sql: "SELECT id FROM objects WHERE wrappedKey IS NOT NULL AND length(wrappedKey) > 0"
+            )
+            guard !encrypted.isEmpty else { return }
+            let placeholders = encrypted.map { _ in "?" }.joined(separator: ",")
+            try db.execute(
+                sql: "UPDATE objects SET state = 'purgedEncrypted', tombstoneAt = ? WHERE id IN (\(placeholders))",
+                arguments: StatementArguments([Date()] + encrypted)
+            )
+            try db.execute(
+                sql: "DELETE FROM chunks WHERE objectID IN (\(placeholders))",
+                arguments: StatementArguments(encrypted)
+            )
+        }
+    }
+
+    /// One-time clean-slate helper (`--purge-cloud`): wipes every catalog row so
+    /// the next launch starts truly empty (restore() only runs when the DB has no
+    /// catalog). Complements deleting the Telegram-side messages.
+    func purgeEverything() throws {
+        try write { db in
+            try db.execute(sql: "DELETE FROM chunks")
+            try db.execute(sql: "DELETE FROM objects")
+            try db.execute(sql: "DELETE FROM backup_msgs")
+            try db.execute(sql: "DELETE FROM transfers")
+            try db.execute(sql: "DELETE FROM shares")
+            try db.execute(sql: "DELETE FROM share_activity")
+            try db.execute(sql: "DELETE FROM vaults")
+        }
     }
 
     private func ensureStarted() throws -> DatabasePool {
@@ -1028,7 +1065,7 @@ actor DatabaseManager {
         try write { db in
             let objects = try ObjectRecord.fetchAll(db)
             var removed = 0
-            let slice = Int64(CryptoEngine.sliceSize)
+            let slice = SliceMath.sliceSize
             for object in objects where !object.isFolder && object.size > 0 {
                 let chunks = try ChunkRecord
                     .filter(Column("objectID") == object.id)

@@ -23,15 +23,18 @@ enum ChunkProfile: String, Sendable {
 enum ChunkPlanner {
     static let byteMiB: Int64 = 1024 * 1024
 
-    /// Uniform chunk size for ALL content (round 7): ~1.9 GiB, safely under
-    /// Telegram's 2 GB per-document limit including the ~28 B/MiB sealing
-    /// overhead. Rationale: TDLib resumes uploads/downloads at internal part
-    /// granularity from its persistent database (so a failed giant chunk costs
-    /// only its unfinished tail), streaming crypto I/O keeps RAM at one slice,
-    /// and every message-count metric — uploads, backup forwards, share-pool
-    /// forwards, repair scans — scales with chunk COUNT. Streaming boundaries
-    /// are pre-warmed by read-ahead ~30 s before the playhead arrives, so large
-    /// chunks cost nothing at stream time.
+    /// Uniform chunk size for ALL content: ~1.9 GiB, safely under Telegram's
+    /// 2 GB per-document limit. Rationale: TDLib resumes uploads/downloads at
+    /// internal part granularity from its persistent database (so a failed giant
+    /// chunk costs only its unfinished tail), and every message-count metric —
+    /// uploads, backup forwards, share-pool forwards, repair scans — scales with
+    /// chunk COUNT. Chunk size is a storage-layout concern only: streaming is
+    /// byte-range and slices through chunk documents without ever waiting for a
+    /// full one.
+    ///
+    /// Streaming slices are fixed at 1 MiB (SliceMath.sliceSize) and are
+    /// independent of chunk size — but the 1.9 GiB value predates the plaintext
+    /// era and is retained for catalog stability with existing uploads.
     static let maxSafeChunkSize: Int64 = 1_900 * byteMiB
 
     @available(*, deprecated, message: "Uniform chunking supersedes per-profile sizes")

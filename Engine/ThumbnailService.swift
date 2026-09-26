@@ -613,19 +613,17 @@ actor ThumbnailService {
         //    (message missing, key unwrap, tampered bytes) fall through to the
         //    attached-thumbnail path, which still covers older uploads that
         //    predate the sidecar.
-        if let sidecarID = object.thumbMessageID,
-           let url = await fetchSidecarThumbnail(object, sidecarID: sidecarID, vault: vault) {
-            return url
-        }
-        // 2. Attached thumbnail (pre-sidecar uploads and private files): iterate
-        //    every chunk message — uploads attach the same thumbnail to each
-        //    chunk, so the first one with a stored thumbnail wins. This also
-        //    keeps older files fetchable if their first chunk predates thumbnails.
+        // Attached thumbnail: iterate every chunk message — uploads attach the
+        // same thumbnail to each chunk, so the first one with a stored thumbnail
+        // wins. This also keeps older files fetchable if their first chunk
+        // predates thumbnails. (Chunk messages resolve through each chunk's own
+        // channel — Saved Messages now, the legacy vault channel before it.)
         let chunks = (try? await DatabaseManager.shared.chunks(for: object.id)) ?? []
         for chunk in chunks {
+            let chatID = chunk.channelID ?? vault.channelID
             guard let messageId = chunk.messageID,
                   let data = try? await TelegramClient.shared.thumbnailData(
-                      forMessage: messageId, chatId: vault.channelID
+                      forMessage: messageId, chatId: chatID
                   ),
                   !data.isEmpty
             else { continue }
@@ -634,41 +632,6 @@ actor ThumbnailService {
             if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
                 return url
             }
-        }
-        return nil
-    }
-
-    /// Downloads the encrypted thumbnail sidecar document, decrypts it with the
-    /// object key (AES-GCM, startSliceIndex 0 — the thumbnail is a single slice)
-    /// and writes `<id>-tg.jpg` or `<id>-tg.png` (format sniffed from the
-    /// decrypted bytes — alpha-bearing sources are uploaded as PNG). Returns nil
-    /// on any failure so the caller falls back to the legacy attached-thumbnail
-    /// path.
-    private func fetchSidecarThumbnail(_ object: ObjectRecord, sidecarID: Int64, vault: VaultRecord) async -> URL? {
-        guard let wrappedKey = object.wrappedKey, !wrappedKey.isEmpty,
-              let vaultKey = try? VaultManager.vaultKey(for: vault),
-              let objectKey = try? CryptoEngine.unwrap(wrappedKey, with: vaultKey) else { return nil }
-        let tmp = ((try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("thumb-\(object.id).bin")
-        try? FileManager.default.removeItem(at: tmp)
-        do {
-            try await TelegramClient.shared.downloadMessageFile(messageId: sidecarID, chatId: vault.channelID, to: tmp)
-            let encrypted = try Data(contentsOf: tmp)
-            let plain = try CryptoEngine.decryptChunk(encrypted, objectKey: objectKey, startSliceIndex: 0)
-            try? FileManager.default.removeItem(at: tmp)
-            let isPNG = isPNGData(plain)
-            let url = telegramPath(for: object.id, isPNG: isPNG)
-            // Drop a stale sibling from the other format so a re-upload that
-            // switched formats (e.g. JPEG → PNG once alpha is detected) doesn't
-            // leave both on disk with localThumbnailOnDisk picking the old one.
-            try? FileManager.default.removeItem(at: telegramPath(for: object.id, isPNG: !isPNG))
-            try? plain.write(to: url)
-            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-                return url
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: tmp)
-            logger.warning("thumb sidecar fetch failed for \(object.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         return nil
     }

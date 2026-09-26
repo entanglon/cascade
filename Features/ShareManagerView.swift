@@ -20,10 +20,8 @@ struct ShareManagerView: View {
     @State private var columnCount = 2
     @State private var scrollTargetID: String? = nil
     @State private var showArchived = false
-    // Wave 2 item 9 — activity sheet + password protection control.
+    // Wave 2 item 9 — activity sheet.
     @State private var activityTarget: ShareRecord? = nil
-    @State private var passwordTarget: ShareRecord? = nil
-    @State private var newPassword = ""
 
     /// Flat list in visual order (public section first, then private section) —
     /// the order arrow-key navigation walks, matching the grid layout.
@@ -99,9 +97,6 @@ struct ShareManagerView: View {
                                             cancelTarget = share
                                         } onActivity: {
                                             activityTarget = share
-                                        } onAddPassword: {
-                                            newPassword = ""
-                                            passwordTarget = share
                                         }
                                         .id(share.id)
                                     }
@@ -123,9 +118,6 @@ struct ShareManagerView: View {
                                             cancelTarget = share
                                         } onActivity: {
                                             activityTarget = share
-                                        } onAddPassword: {
-                                            newPassword = ""
-                                            passwordTarget = share
                                         }
                                         .id(share.id)
                                     }
@@ -191,33 +183,6 @@ struct ShareManagerView: View {
                 ShareActivitySheet(share: target)
                     .environment(appState)
             }
-        }
-        // Re-share control: protect an unprotected private link with a password.
-        // Re-mints the blob (same channel/messages/expiry); old link dies.
-        .alert("Add Password", isPresented: Binding(
-            get: { passwordTarget != nil },
-            set: { if !$0 { passwordTarget = nil } }
-        ), presenting: passwordTarget) { share in
-            TextField("Password", text: $newPassword)
-            Button("Protect & Copy New Link") {
-                Task { await addPassword(to: share) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("The link is re-minted with this password. The previous link stops working immediately; the new one is copied to your clipboard.")
-        }
-    }
-
-    @MainActor
-    private func addPassword(to share: ShareRecord) async {
-        guard !newPassword.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        do {
-            let newLink = try await ShareEngine.addPasswordToShare(share, password: newPassword)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(newLink, forType: .string)
-            appState.notify(title: "Password set — new link copied", kind: .success, duration: 5.0)
-        } catch {
-            appState.notify(title: "Couldn't add password", message: error.localizedDescription, kind: .error, duration: 6.0)
         }
     }
 
@@ -319,7 +284,6 @@ struct ShareGridCard: View {
     let onSelect: () -> Void
     let onCancel: () -> Void
     var onActivity: () -> Void = {}
-    var onAddPassword: () -> Void = {}
 
     @Environment(AppState.self) private var appState
     @State private var thumbURL: URL? = nil
@@ -443,14 +407,6 @@ struct ShareGridCard: View {
             onActivity()
         } label: {
             Label("Activity…", systemImage: "list.bullet.rectangle")
-        }
-        // Re-share control: password-protect an unprotected private link.
-        if !share.isPublic && share.state == "active" && share.groupObjectIDs.isEmpty && !share.shareKey.isEmpty {
-            Button {
-                onAddPassword()
-            } label: {
-                Label("Add Password…", systemImage: "lock.badge.clock")
-            }
         }
         Divider()
         if share.isArchived {

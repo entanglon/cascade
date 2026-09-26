@@ -11,7 +11,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .allFiles: return "All Files"
-        case .privateVault: return "Private Vault"
+        case .privateVault: return "Locked"
         case .recent: return "Recent"
         case .favorites: return "Favorites"
         case .photos: return "Photos"
@@ -121,6 +121,8 @@ final class AppState {
 
     var isDatabaseReady = false
     var isEngineReady = false
+    /// Retained for splash-state sequencing (was the crypto-engine self-test flag).
+    /// The engine itself is gone; this now flips true once engines come up.
     var isCryptoReady = false
 
     /// True when Telegram API credentials are stored (the API setup step has been
@@ -243,9 +245,9 @@ final class AppState {
             let tg = TelegramClient.shared
             if tg.isAuthorized { return "All engines ready · Telegram connected" }
             if tg.isConnected { return "All engines ready · Telegram awaiting auth" }
-            return "Storage + chunk + crypto ready."
+            return "All engines ready."
         }
-        if isEngineReady { return "Preparing crypto engine…" }
+        if isEngineReady { return "Preparing storage engine…" }
         if isDatabaseReady { return "Verifying chunk engine…" }
         return "Starting storage engine…"
     }
@@ -473,18 +475,10 @@ final class AppState {
                 )
             }
 
-            do {
-                try await CryptoEngine.selfTest()
-                isCryptoReady = true
-                Self.bootLog("crypto engine ok")
-            } catch {
-                Self.bootLog("crypto engine FAILED: \(error.localizedDescription)")
-                notify(
-                    title: "Crypto engine self-test failed",
-                    message: error.localizedDescription,
-                    kind: .warning
-                )
-            }
+            // Crypto engine self-test retired with the encryption era — files are
+            // plain bytes and CryptoEngine no longer exists. The flag remains part
+            // of the splash sequencing and flips once engines come up.
+            isCryptoReady = true
 
             guard !isRunningUnderXCTest else {
                 Self.writeLaunchState("clean")
@@ -577,6 +571,48 @@ final class AppState {
                         log += "checkpoint publish FAILED\n"
                     }
                     try? log.write(toFile: "/tmp/cascade-repair-catalog.txt", atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                    return
+                }
+
+                // One-time clean-slate hook: `--purge-cloud` deletes EVERY Cascade
+                // message from the account's Saved Messages (vault chunks, catalog
+                // snapshots, deltas, folder metadata), deletes the legacy vault and
+                // Cascade Backup channels outright, wipes all local catalog rows,
+                // then quits. Next launch starts truly empty — nothing can be
+                // restored from the cloud because the cloud copies are gone too.
+                // Result goes to /tmp/cascade-purge-cloud.txt.
+                if CommandLine.arguments.contains("--purge-cloud") {
+                    var log = "purge-cloud start\n"
+                    do {
+                        // 1) Saved Messages: page its history and batch-delete every
+                        //    message we can see (cascades into the local TDLib store).
+                        let purged = await TelegramClient.shared.purgeAllMessages(chatId: try await TelegramClient.shared.savedMessagesChatID())
+                        log += "saved-messages: ~\(purged) message(s) deleted\n"
+
+                        // 2) Legacy channels: delete vault + backup outright.
+                        var vaultID: Int64? = nil
+                        if let vault = try? await DatabaseManager.shared.firstVault() {
+                            vaultID = vault.channelID
+                            if let backupID = vault.backupChannelID {
+                                try? await TelegramClient.shared.deleteChat(chatId: backupID)
+                                log += "backup channel \(backupID) deleted\n"
+                            }
+                            if let legacy = await TelegramClient.shared.findVaultChannel() {
+                                try? await TelegramClient.shared.deleteChat(chatId: legacy)
+                                log += "legacy vault channel \(legacy) deleted\n"
+                            }
+                        }
+
+                        // 3) Local catalog rows: so restore() has nothing to adopt and
+                        //    the next launch re-adopts Saved Messages fresh.
+                        try await DatabaseManager.shared.purgeEverything()
+                        log += "local catalog wiped\n"
+                    } catch {
+                        log += "ERROR: \(error.localizedDescription)\n"
+                    }
+                    try? log.write(toFile: "/tmp/cascade-purge-cloud.txt", atomically: true, encoding: .utf8)
+                    print(log)
                     NSApp.terminate(nil)
                     return
                 }

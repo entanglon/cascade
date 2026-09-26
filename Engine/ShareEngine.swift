@@ -543,45 +543,22 @@ enum ShareEngine {
             throw ShareError.uploadFailed(describe(error))
         }
 
-        // Cryptographic keys for the share link:
-        let vaultKey = try? VaultManager.vaultKey(for: vault)
-        let isProtected = (password != nil && !password!.isEmpty)
-        let linkKey: SymmetricKey
-        let saltB64: String
-        let shareKeyB64: String
-
-        if isProtected, let pw = password {
-            var saltBytes = [UInt8](repeating: 0, count: 16)
-            _ = SecRandomCopyBytes(kSecRandomDefault, 16, &saltBytes)
-            let salt = Data(saltBytes)
-            linkKey = CryptoEngine.deriveLinkKey(from: pw, salt: salt)
-            saltB64 = salt.base64EncodedString()
-            shareKeyB64 = ""
-        } else {
-            let key = SymmetricKey(size: .bits256)
-            linkKey = key
-            saltB64 = ""
-            shareKeyB64 = key.withUnsafeBytes { Data($0).base64EncodedString() }
-        }
+        // Cryptographic keys for the share link — RETIRED with the encryption era.
+        // Files are plain bytes, so there is no object key to wrap: links carry no
+        // key material and password protection (which depended on wrapping an
+        // object key with a password-derived key) no longer exists. Links remain
+        // opaque obfuscated blobs — that is transport obscurity, not secrecy.
+        let isProtected = false
+        let linkKey = SymmetricKey(size: .bits256)
+        let saltB64 = ""
+        let shareKeyB64 = linkKey.withUnsafeBytes { Data($0).base64EncodedString() }
 
         var files: [ShareFile] = []
         var singleWrappedKeyB64 = ""
 
         for (object, fileIDs) in forwardedPerFile {
-            let objectKey: SymmetricKey?
-            if let wrapped = object.wrappedKey, !wrapped.isEmpty, let vaultKey {
-                objectKey = try? CryptoEngine.unwrap(wrapped, with: vaultKey)
-            } else {
-                objectKey = nil
-            }
-
-            let wrappedForLink: String?
-            if let objectKey {
-                let wrappedData = try? CryptoEngine.wrap(objectKey, with: linkKey)
-                wrappedForLink = wrappedData?.base64EncodedString()
-            } else {
-                wrappedForLink = nil
-            }
+            // No object key exists anymore — links never wrap keys.
+            let wrappedForLink: String? = nil
 
             if forwardedPerFile.count == 1 {
                 singleWrappedKeyB64 = wrappedForLink ?? ""
@@ -593,13 +570,6 @@ enum ShareEngine {
                 path: pathByObjectID[object.id] ?? nil,
                 thumbMessageID: thumbMIDByObjectID[object.id]
             ))
-        }
-
-        if isProtected && singleWrappedKeyB64.isEmpty {
-            let sentinelKey = SymmetricKey(size: .bits256)
-            if let wrappedSentinel = try? CryptoEngine.wrap(sentinelKey, with: linkKey) {
-                singleWrappedKeyB64 = wrappedSentinel.base64EncodedString()
-            }
         }
 
         // Group links present a combined name; the record also stores every object
@@ -1224,47 +1194,18 @@ enum ShareEngine {
                 : link.files
             guard files.allSatisfy({ !$0.messageIDs.isEmpty }) else { throw ShareError.invalidPayload }
 
-            // Check if link is password protected and resolve link key
-            let linkKey: SymmetricKey?
-            var legacyLinkKey: SymmetricKey? = nil
+            // Link keys are retired with the encryption era. A password-protected
+            // link can only have been minted by an old encrypted build.
             if link.isPasswordProtected {
-                guard let password, !password.isEmpty else {
-                    throw ShareError.passwordRequired
-                }
-                guard let saltData = Data(base64Encoded: link.saltB64), saltData.count == 16 else {
-                    throw ShareError.invalidLink
-                }
-                // New links mint with the 600k KDF; links from older builds used
-                // 100k. Try current first, fall back to legacy for old links.
-                linkKey = CryptoEngine.deriveLinkKey(from: password, salt: saltData)
-                legacyLinkKey = CryptoEngine.deriveLegacyLinkKey(from: password, salt: saltData)
-
-                // If link is password-protected and carries a wrapped key or verification sentinel, verify password now
-                if !link.wrappedKeyB64.isEmpty, let rawWrapped = Data(base64Encoded: link.wrappedKeyB64) {
-                    var verified = false
-                    if let linkKey, (try? CryptoEngine.unwrap(rawWrapped, with: linkKey)) != nil {
-                        verified = true
-                    } else if let legacy = legacyLinkKey, (try? CryptoEngine.unwrap(rawWrapped, with: legacy)) != nil {
-                        verified = true
-                    }
-                    if !verified {
-                        throw ShareError.invalidPassword
-                    }
-                }
-            } else if !link.shareKey.isEmpty {
-                guard let keyData = Data(base64Encoded: link.shareKey) else {
-                    throw ShareError.invalidLink
-                }
-                linkKey = SymmetricKey(data: keyData)
-            } else {
-                linkKey = nil
+                throw ShareError.createFailed(
+                    "This link is password-protected by an older, encrypted version of the app and can no longer be imported."
+                )
             }
 
             var stagedCount = 0
             var alreadyImportedID: String?
             var firstStagedID: String?
             var firstStagedName: String?
-            let recipientVaultKey = try? VaultManager.vaultKey(for: vault)
 
             for file in files {
                 let messages = try await TelegramClient.shared.messagesByIds(chatId: channelID, messageIds: file.messageIDs)
@@ -1293,32 +1234,15 @@ enum ShareEngine {
                     continue
                 }
 
-                // Resolve and re-wrap object key:
+                // Key wrapping is retired: files are plain bytes. A link minted by
+                // an OLD build that carries a wrapped object key describes an
+                // encrypted object — those cannot be imported anymore.
                 let wrappedKeyForFile = file.wrappedKey ?? (files.count == 1 ? link.wrappedKeyB64 : nil)
                 let rewrappedKey: Data?
-                var unwrappedObjectKey: SymmetricKey? = nil
-                if let wrappedKeyForFile, !wrappedKeyForFile.isEmpty, let linkKey, let recipientVaultKey {
-                    guard let rawWrapped = Data(base64Encoded: wrappedKeyForFile) else {
-                        throw ShareError.invalidPayload
-                    }
-                    do {
-                        let objectKey: SymmetricKey
-                        do {
-                            objectKey = try CryptoEngine.unwrap(rawWrapped, with: linkKey)
-                        } catch {
-                            // Link minted by an older build (100k KDF) — retry legacy.
-                            guard let legacy = legacyLinkKey else { throw error }
-                            objectKey = try CryptoEngine.unwrap(rawWrapped, with: legacy)
-                        }
-                        unwrappedObjectKey = objectKey
-                        rewrappedKey = try CryptoEngine.wrap(objectKey, with: recipientVaultKey)
-                    } catch {
-                        if link.isPasswordProtected {
-                            throw ShareError.invalidPassword
-                        } else {
-                            throw ShareError.invalidPayload
-                        }
-                    }
+                if let wrappedKeyForFile, !wrappedKeyForFile.isEmpty {
+                    throw ShareError.createFailed(
+                        "This link was created by an older, encrypted version of the app and can no longer be imported. Ask the sender to re-share from the current version."
+                    )
                 } else {
                     rewrappedKey = nil
                 }
@@ -1338,20 +1262,7 @@ enum ShareEngine {
                 }
 
                 // Cache thumbnail directly from the share channel or vault before leaving
-                if let shareThumbMID, let unwrappedObjectKey {
-                    let tmp = ((try? UploadEngine.tempDirectory()) ?? FileManager.default.temporaryDirectory)
-                        .appendingPathComponent("thumb-\(objectID).bin")
-                    try? FileManager.default.removeItem(at: tmp)
-                    if (try? await TelegramClient.shared.downloadMessageFile(messageId: shareThumbMID, chatId: channelID, to: tmp)) != nil,
-                       let encrypted = try? Data(contentsOf: tmp),
-                       let plain = try? CryptoEngine.decryptChunk(encrypted, objectKey: unwrappedObjectKey, startSliceIndex: 0),
-                       let thumbDir = try? UploadEngine.thumbnailsDirectory() {
-                        let isPNG = plain.prefix(8) == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-                        let dest = thumbDir.appendingPathComponent("\(objectID)-tg.\(isPNG ? "png" : "jpg")")
-                        try? plain.write(to: dest)
-                    }
-                    try? FileManager.default.removeItem(at: tmp)
-                } else if let firstMessageId = messages.first?.messageId {
+                if let shareThumbMID, let firstMessageId = messages.first?.messageId {
                     if let thumbData = try? await TelegramClient.shared.thumbnailData(forMessage: firstMessageId, chatId: channelID),
                        !thumbData.isEmpty,
                        let thumbDir = try? UploadEngine.thumbnailsDirectory() {
@@ -1777,58 +1688,6 @@ enum ShareEngine {
     /// the new link is returned so the caller can copy it to the clipboard.
     /// Protected shares cannot be rotated here — the object key would need the
     /// old password — nor group links (per-file manifest re-wrap).
-    static func addPasswordToShare(_ share: ShareRecord, password: String) async throws -> String {
-        let (newBlob, newWrapped) = try remintLinkWithPassword(share, password: password)
-        var updated = share
-        updated.linkBlob = newBlob
-        updated.shareKey = ""
-        updated.wrappedKeyB64 = newWrapped
-        try await DatabaseManager.shared.saveShare(updated)
-        try? await DatabaseManager.shared.recordShareActivity(ShareActivityRecord(
-            id: UUID().uuidString, shareID: share.id, channelID: share.channelID,
-            kind: "password_added", userID: nil,
-            detail: "Password protection added — previous link invalidated",
-            createdAt: .now
-        ))
-        return newBlob
-    }
-
-    /// Pure crypto/link transformation behind `addPasswordToShare` — no I/O,
-    /// unit-testable. Returns (obfuscated link, new wrapped object key).
-    static func remintLinkWithPassword(_ share: ShareRecord, password: String) throws -> (blob: String, wrappedKeyB64: String) {
-        guard !password.isEmpty else { throw ShareError.invalidPassword }
-        guard !share.isPublic, share.groupObjectIDs.isEmpty else {
-            throw ShareError.createFailed("Only private single-file links can gain a password.")
-        }
-        guard let blob = share.linkBlob,
-              let plain = try? deobfuscate(blob),
-              var link = ShareLink.parse(plain) else {
-            throw ShareError.invalidLink
-        }
-        // Recover the object key with today's unprotected link key.
-        guard let keyData = Data(base64Encoded: share.shareKey) else { throw ShareError.invalidLink }
-        let oldKey = SymmetricKey(data: keyData)
-        guard !link.wrappedKeyB64.isEmpty,
-              let wrapped = Data(base64Encoded: link.wrappedKeyB64),
-              let objectKey = try? CryptoEngine.unwrap(wrapped, with: oldKey) else {
-            throw ShareError.createFailed("This share carries no recoverable key.")
-        }
-
-        var saltBytes = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, 16, &saltBytes)
-        let salt = Data(saltBytes)
-        let newLinkKey = CryptoEngine.deriveLinkKey(from: password, salt: salt)
-        let newWrapped = try CryptoEngine.wrap(objectKey, with: newLinkKey).base64EncodedString()
-
-        link.wrappedKeyB64 = newWrapped
-        link.saltB64 = salt.base64EncodedString()
-        link.shareKey = ""
-
-        let plainNew = link.urlString
-        let finalLink = (try? obfuscate(plainNew)) ?? plainNew
-        return (finalLink, newWrapped)
-    }
-
     // MARK: - Link obfuscation
 
     /// Wraps a plaintext share link so it travels as an opaque blob:
