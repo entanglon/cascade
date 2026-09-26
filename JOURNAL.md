@@ -2,9 +2,35 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-26 — Fresh-vault verification (thumbnails/streaming/chunks/snapshots) + streaming fetch-timeout fix.**
+> **2026-09-26 — Fresh-vault verification (thumbnails/streaming/chunks/snapshots) + streaming fetch-timeout fix + Flux player ports.**
 
 ---
+
+## 2026-09-26 — Flux Player Ports (hwdec auto-safe, Reconnect, Buffer Profile)
+
+User asked why Cascade needs VaultStreamServer when mpv does HTTP natively,
+then approved porting the Flux player learnings. Reviewed Flux's handover +
+`MPVVideoView.swift` against Cascade's `Features/MPVVideoView.swift`.
+
+**Why the server must exist:** mpv speaks HTTP, but no single HTTP resource
+exists — the file is N Telegram chunk messages reachable only via TDLib, and
+Telegram exposes no HTTPS byte-range endpoint for user-account files. The
+loopback server is the adapter (same pattern as Stremio's server.js); the
+engines are throughput (16-slice batching amortizes TDLib latency), not
+protocol overhead.
+
+**Ported (one file):** `hwdec auto` → `auto-safe` (Flux proved `auto` silently
+CPU-falls-back on 10-bit HEVC over the OpenGL layer — Cascade's Dolby/HDR
+files were software-decoding); `stream-lavf-o`/`demuxer-lavf-o` reconnect
+insurance; buffer aligned to Flux's proven profile (300 MiB / 100 MiB back /
+60 s readahead + cache-pause trio, `cache-secs` dropped). Buffer deliberately
+NOT handed to mpv defaults — they assume internet streams; our source is
+infinite-bandwidth + lumpy latency. Already covered in Cascade: async
+teardown, `mpv_command_async`, keep-alive, telemetry. Deferred: startup
+watchdog / storm detection (single source — can only report, not fall back).
+
+Build + full suite green. Live playback verification pending (user relaunch +
+Dolby sample, check `hwdec-current` in telemetry).
 
 ## 2026-09-26 — Fresh-Vault Verification + Streaming Fetch-Timeout Fix
 

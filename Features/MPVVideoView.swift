@@ -1306,7 +1306,13 @@ final class MPVLayerView: NSView {
         mpv_set_property_string(mpv, "volume-max", "200")
         mpv_set_property_string(mpv, "profile", "fast")
         mpv_set_property_string(mpv, "scale", "bilinear")
-        mpv_set_property_string(mpv, "hwdec", "auto")
+        // Flux-proven: "auto" attempts zero-copy VideoToolbox mapping on the
+        // OpenGL layer, which libmpv rejects on 10-bit HEVC (Main 10) and
+        // silently falls back to CPU software decoding. "auto-safe" uses
+        // copy-back (videotoolbox-copy) — real Apple Silicon hardware
+        // acceleration for HEVC/HDR. (AV1 stays software: M2 has no AV1
+        // hardware decoder.)
+        mpv_set_property_string(mpv, "hwdec", "auto-safe")
         mpv_set_property_string(mpv, "gpu-hwdec-interop", "auto")
         mpv_set_property_string(mpv, "video-sync", "audio")
         // After natural EOF keep the file loaded (paused at the last frame)
@@ -1319,13 +1325,25 @@ final class MPVLayerView: NSView {
         mpv_set_property_string(mpv, "sub-ass-override", "no")
 
         mpv_set_property_string(mpv, "cache", "yes")
-        mpv_set_property_string(mpv, "cache-secs", "30")
-        // Network-profile insurance (mpv big-cache recommendation): with the
-        // deep-range fetcher feeding the loopback server, this buffer absorbs
-        // any transient stall before it can reach playback.
-        mpv_set_property_string(mpv, "demuxer-max-bytes", "268435456")
-        mpv_set_property_string(mpv, "demuxer-max-back-bytes", "33554432")
-        mpv_set_property_string(mpv, "demuxer-readahead-secs", "30")
+        // Flux-validated buffer profile for 1080p/4K HDR (same machine, same
+        // render stack). Deliberately explicit, NOT mpv defaults: our loopback
+        // source has infinite bandwidth but lumpy TDLib fetch latency, and
+        // mpv's internet-tuned defaults (50 MiB / ~10 s) would surface every
+        // fetch hiccup as a pause. mpv still controls the request pattern
+        // (what ranges, when) — these only bound memory and set targets.
+        // (Legacy cache-secs dropped: demuxer-readahead-secs is the live knob
+        // on this libmpv, as in Flux.)
+        mpv_set_property_string(mpv, "demuxer-max-bytes", "314572800") // 300 MiB forward buffer
+        mpv_set_property_string(mpv, "demuxer-max-back-bytes", "104857600") // 100 MiB for instant rewind
+        mpv_set_property_string(mpv, "demuxer-readahead-secs", "60") // 60 s ahead for jitter immunity
+        mpv_set_property_string(mpv, "cache-pause", "yes")
+        mpv_set_property_string(mpv, "cache-pause-wait", "1.0")
+        mpv_set_property_string(mpv, "cache-pause-initial", "yes")
+        // Loopback reconnect insurance (Flux): if the local server ever drops
+        // a connection mid-stream, FFmpeg transparently re-establishes instead
+        // of erroring the demuxer.
+        mpv_set_property_string(mpv, "stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5,reconnect_on_http_error=5xx")
+        mpv_set_property_string(mpv, "demuxer-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5")
         mpv_set_property_string(mpv, "demuxer-mkv-subtitle-preroll", "yes")
         mpv_set_property_string(mpv, "access-references", "no")
         mpv_set_property_string(mpv, "audio-fallback-to-null", "yes")

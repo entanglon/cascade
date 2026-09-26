@@ -2793,6 +2793,35 @@ pre-fix binary — relaunch to pick up the fix; then player work is next.
          token-bucket actor) but worth a quick look since it's on every call
          path.
 
+### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
+
+User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
+(answer: no single HTTP resource exists — the file is N Telegram chunk
+messages reachable only via TDLib; the loopback server is the adapter, same
+pattern as Stremio's server.js), then approved porting the Flux player
+learnings (`Features/MPVVideoView.swift` only):
+
+- `hwdec auto` → **`auto-safe`** (copy-back videotoolbox): Flux proved `auto`
+  attempts zero-copy mapping on the OpenGL layer, which libmpv rejects on
+  10-bit HEVC → silent CPU fallback. Cascade's Dolby/HDR files were
+  software-decoding; now hardware. (AV1 unaffected — M2 has no AV1 decoder.)
+- **FFmpeg reconnect insurance** (`stream-lavf-o` / `demuxer-lavf-o`
+  reconnect=1…): loopback drops re-establish transparently.
+- **Buffer: kept explicit, adopted Flux's proven numbers** (300 MiB forward /
+  100 MiB back / 60 s readahead + cache-pause trio; legacy `cache-secs`
+  dropped). NOT handed to mpv defaults — they assume internet streams, while
+  our source is infinite-bandwidth + lumpy TDLib latency; 50 MiB/~10 s
+  defaults would surface every fetch hiccup as a pause. mpv already controls
+  the request pattern; these only bound memory.
+- Already covered in Cascade, not ported: async teardown, `mpv_command_async`
+  everywhere (= Flux's background loadfile/stop), keep-alive server,
+  telemetry. Deferred to player work: startup watchdog / reconnect-storm
+  detection (single source here — watchdog can only report, not fall back).
+
+Build + full suite green. Running app is pre-change — relaunch to pick it up;
+live playback verification (user plays the Dolby sample, checks hwdec in
+telemetry) still pending.
+
 ### 141. Fresh-vault verification + streaming fetch-timeout fix (2026-09-26)
 
 User uploaded 12 files + 4 folders to the fresh Saved Messages vault and asked
