@@ -2868,6 +2868,12 @@ forward-based link system, Mac-interoperable:
 NOT yet live-tested: actual Mac→Android import (needs a real Mac-minted
 link — user test step), Android→Mac share, revoke propagation.
 
+Follow-up (Android `2072b5a`): folder shares imported flat — the `path`
+manifest was parsed but never used. Import now rebuilds the folder chain
+(Mac resolveImportDestination parity: dropLast, ensure-or-reuse live folders,
+delta-publish created ones). Files already imported flat stay flat
+(rootHash dedup) — delete + re-import to get folders.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
