@@ -268,16 +268,18 @@ final class VideoStreamingEngine {
     private struct FetchTimeout: Error {}
     private struct ShortRangeFetch: Error {}
 
-    private func withFetchTimeout<T>(_ operation: @escaping () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(nanoseconds: 30_000_000_000)
-                throw FetchTimeout()
-            }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else { throw FetchTimeout() }
-            return result
+    private func withFetchTimeout<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        // Genuine timeout via the shared unstructured-task race: the previous
+        // withThrowingTaskGroup implementation could never fire on a dropped
+        // TDLib response (item 124 — a task group must await every child, hung
+        // or not), which would stall the stream forever with no retry.
+        do {
+            return try await TelegramClient.shared.withResponseTimeout(30, operation)
+        } catch TelegramError.timedOut {
+            // The race itself timed out (operation errors pass through
+            // untouched) — surface as FetchTimeout so the retry loop treats
+            // it like any other fetch failure.
+            throw FetchTimeout()
         }
     }
 

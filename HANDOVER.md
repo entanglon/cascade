@@ -99,7 +99,14 @@ material derives from it), Android port migrated (own repo:
 local catalog verified 0 objects. The user's existing encrypted library was
 purged by design; anything kept must be re-uploaded. The user will test
 uploads/streams/thumbnails/shares on the fresh vault in the NEXT session —
-hand off there.
+hand off there. UPDATE 2026-09-26 evening (item 141): the user uploaded 12
+files + 4 folders and asked for verification before player work — thumbnails
+confirmed cloud-bound (attached `inputThumbnail` on every chunk message,
+fetch-back proven live), chunking intact (~1.9 GiB / 1 MiB slices), snapshots
+(checkpoint + deltas) all published and mirrored, and one real bug fixed
+(streaming fetch timeout used the broken task-group race — now uses the proven
+`withResponseTimeout`). Build + tests green. The running app is still the
+pre-fix binary — relaunch to pick up the fix; then player work is next.
 
 ---
 
@@ -2785,6 +2792,41 @@ hand off there.
          every `withFloodWait`) could itself block — unlikely (it's a
          token-bucket actor) but worth a quick look since it's on every call
          path.
+
+### 141. Fresh-vault verification + streaming fetch-timeout fix (2026-09-26)
+
+User uploaded 12 files + 4 folders to the fresh Saved Messages vault and asked
+to verify cross-device thumbnails, byte-to-byte streaming, chunking, and
+snapshots before player work starts. Verified against code + live DB:
+
+- **Thumbnails are cloud-bound, not device-local.** Every chunk message carries
+  the `-up.jpg` as a TDLib `inputThumbnail` (`UploadEngine.sendFile` path);
+  `ThumbnailService.fetchFromTelegram` downloads it back — the exact path a
+  second device takes. Live proof: 10 unique `-tg.jpg` files fetched from
+  Telegram after today's uploads (each photo's 320px thumb, the MKV's 320×180
+  server-generated video frame). Exception by design: **Locked files get no
+  thumbnail generated or attached** (`!isParentPrivate` gate) — a plaintext
+  preview on Telegram's servers would defeat the lock; they show placeholders
+  on a new device until downloaded.
+- **Chunking intact:** uniform ~1.9 GiB (`ChunkPlanner.maxSafeChunkSize` =
+  1900 MiB), 1 MiB streaming slices (`SliceMath`), slice-multiple invariant
+  enforced with a full-download fallback. All 16 chunk rows record
+  `chunkSize=1992294400` in channel 7201237110 (Saved Messages).
+- **Byte mapping correct, but the fetch timeout was structurally broken —
+  FIXED.** `VideoStreamingEngine.withFetchTimeout` used a
+  `withThrowingTaskGroup` race — the exact pattern item 124 proved can never
+  fire on a dropped TDLib response (a group must await every child), which
+  would stall a stream forever with no retry. It now goes through the proven
+  `TelegramClient.withResponseTimeout` (unstructured tasks + ResumeGate;
+  made internal for this), mapping only `.timedOut` → `FetchTimeout()` so
+  operation errors still propagate. No decrypt anywhere in the serve path —
+  plaintext throughout (`fetchRangeData` reads raw ranged bytes, sparse-file
+  aware, memory-bounded).
+- **Snapshots cover everything:** checkpoint 11:54 + deltas after every
+  mutation + fresh checkpoint 12:05:30, all mirrored to the backup channel
+  (`backup_msgs`, all `done`). A restoring device replays checkpoint + deltas
+  → full 16-object catalog with thumbnail-bearing message IDs.
+- Build + full test suite green; user DB untouched (16 objects).
 
 ### 140a. `--purge-cloud` debug hook + full clean-slate (2026-09-26)
 

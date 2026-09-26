@@ -2,7 +2,30 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-26 — "Locked" folder with app-level PIN; Android migrated; local data wiped.**
+> **2026-09-26 — Fresh-vault verification (thumbnails/streaming/chunks/snapshots) + streaming fetch-timeout fix.**
+
+---
+
+## 2026-09-26 — Fresh-Vault Verification + Streaming Fetch-Timeout Fix
+
+User uploaded 12 files (MKV, PDF, EPUB, WAV, MP3, OGG, 6 photos) + 4 folders to
+the fresh Saved Messages vault and asked to verify cross-device thumbnails,
+byte-to-byte streaming, chunking, and snapshots before player work starts.
+
+**Verified (code + live DB):** every chunk message carries the `-up.jpg` as a
+TDLib `inputThumbnail`; `fetchFromTelegram` is the same path any new device
+uses — live `-tg.jpg` files prove the round trip. Locked files intentionally
+get no attached thumbnail. Chunking uniform ~1.9 GiB / 1 MiB slices, all rows
+in Saved Messages. Snapshot checkpoint + per-mutation deltas all published and
+backup-mirrored (`done`).
+
+**Fixed:** `VideoStreamingEngine.withFetchTimeout` used a
+`withThrowingTaskGroup` race that could never fire on a dropped TDLib response
+(same flaw as item 124) — a stream would stall forever with no retry. Now uses
+the proven `TelegramClient.withResponseTimeout` (made internal), mapping only
+`.timedOut` → `FetchTimeout()`.
+
+macOS build + full CascadeTests suite green; user DB untouched (16 objects).
 
 ---
 

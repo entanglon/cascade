@@ -548,7 +548,12 @@ final class TelegramClient {
     /// either one resumes the continuation, with no obligation to wait for the
     /// loser — it keeps running detached and its eventual result (if any) is
     /// discarded via `ResumeGate`.
-    private func withResponseTimeout<T: Sendable>(
+    /// Shared timeout helper (also used by VideoStreamingEngine.withFetchTimeout).
+    /// Unstructured-task race + ResumeGate: unlike a withThrowingTaskGroup race,
+    /// this genuinely returns on timeout even when the operation's continuation
+    /// never resumes (item 124 — a task group must await every child, so a
+    /// group-based timeout hangs forever on a dropped TDLib response).
+    func withResponseTimeout<T: Sendable>(
         _ seconds: Double,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
