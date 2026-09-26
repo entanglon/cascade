@@ -97,9 +97,6 @@ final class AppState {
     /// Targets staged for the Drive-style move picker sheet (pick a
     /// destination folder, confirm). Set from the Move menu action.
     var movePickerTargets: [ObjectRecord]? = nil
-    /// Targets queued for password-protected share link creation.
-    var sharePasswordTargets: [ObjectRecord]? = nil
-    var sharePasswordIsPublic: Bool = false
     /// Share link awaiting password unlock before import.
     var passwordUnlockLink: String? = nil
     /// True when the "Import Shared Link…" dialog should appear (File menu).
@@ -1630,22 +1627,6 @@ final class AppState {
     /// recipient imports them all together. Only someone holding the link can
     /// import the files. `isPublic` mints a never-expiring public link in the
     /// persistent public channel (default: private, expiring, dedicated channel).
-    /// `password` optionally protects the link with a client-side derived password key.
-    @MainActor
-    func promptPasswordShare(_ objects: [ObjectRecord], isPublic: Bool = false) {
-        let shareable = objects.filter { !$0.isPrivate }
-        guard !shareable.isEmpty else {
-            alertMessage = ShareEngine.describe(
-                objects.contains(where: { $0.isPrivate })
-                    ? ShareEngine.ShareError.notShareablePrivate
-                    : ShareEngine.ShareError.notShareable
-            )
-            return
-        }
-        sharePasswordIsPublic = isPublic
-        sharePasswordTargets = shareable
-    }
-
     @MainActor
     func shareFiles(_ objects: [ObjectRecord], isPublic: Bool = false, password: String? = nil) {
         guard !isSharingFile else { return }

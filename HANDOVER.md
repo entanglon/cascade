@@ -2874,6 +2874,38 @@ manifest was parsed but never used. Import now rebuilds the folder chain
 delta-publish created ones). Files already imported flat stay flat
 (rootHash dedup) — delete + re-import to get folders.
 
+### 145. Password shares removed (Mac) + Android startup/open fixes (2026-09-26)
+
+- **Mac password options GONE (user decision).** The engine had already
+  retired passwords (mints ignore them, imports reject old ones with a clear
+  error) but the UI still offered 4 options — a working lie (a
+  "password-protected" folder share imported with NO password prompt). Now:
+  Private / Public only. Removed the context-menu entries, the
+  SharePasswordPromptSheet (125 lines), the AppState prompt plumbing, and a
+  dangling addPasswordToShare doc. Import-side rejection of old password
+  links stays. macOS build + full suite green.
+- **Android login flash fixed** (`MainActivity` splash for Idle WITH stored
+  creds) — then caught a REAL crash it exposed: cold start sat on splash
+  forever (nothing kicked TDLib) — fixed by auto-starting from stored creds.
+- **Android native abort fixed (SIGABRT, dual-receive).** The auto-start +
+  a transient-state LoginScreen composed together → LoginVM auto-begin →
+  reset()+start() → two TDLib clients, two parked receive() loops → TDLib
+  aborts ("Receive must not be called simultaneously"). Fix:
+  `TdClient.ensureStarted` (mutex single-flight, no-op when running;
+  `reset()` deleted, `start()` kept as documented-raw), Closed→started=false
+  for clean restarts, and LoginScreen mounts ONLY for input-needed states
+  (phone/code/password/closed/fresh-install Idle) — transients show splash.
+- **Android open-file "Not Found" fixed.** `forwardMessages` answers with a
+  LOCAL pending id (1048577-style); the old code stored it → every later
+  getMessage/download/forward failed forever. Now resolves via
+  updateMessageSendSucceeded (Mac parity) + delayed verify. Proven live:
+  fresh upload → Share… → real `cascade://share#…` link minted.
+- **Bonus:** background-thread Toast crash on Sync tap → main-safe
+  `toastOnMain` everywhere; thumbnail sweep falls back to chunk-attached
+  thumbs (Mac-synced/imported previews work).
+- **User action needed:** delete the 9 flat/broken imports on Android and
+  re-import the Mac link (their chunk IDs are unresolvable locals).
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively

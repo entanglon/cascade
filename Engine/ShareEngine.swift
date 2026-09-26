@@ -82,8 +82,8 @@ enum ShareEngine {
     /// IDs of the file's chunks in the share channel; `w` = the object key wrapped
     /// under the share key or link key, base64. GROUP shares (two or more files under
     /// one link) additionally carry `f` = a base64url JSON manifest naming every file
-    /// with its own message IDs and wrapped keys. When password protection is enabled,
-    /// `salt` carries the base64 PBKDF2 salt, and `key` is left blank.
+    /// with its own message IDs and wrapped keys. (`salt` only ever appears on
+    /// links minted by old encrypted builds — password protection is retired.)
     struct ShareLink: Equatable, Sendable {
         var id: String
         var channelID: Int64
@@ -339,8 +339,8 @@ enum ShareEngine {
     /// Creates the share (forwarding the vault chunks into the pool channel) and
     /// returns the share link. PRIVATE shares live `lifetime` days in a dedicated
     /// pool channel with a one-use invite; PUBLIC shares (isPublic) never expire
-    /// and live in the persistent public channel. When `password` is non-nil/non-empty,
-    /// seals the link key with PBKDF2 so the recipient must enter the password to open.
+    /// and live in the persistent public channel. (`password` is ignored —
+    /// protection is retired with the encryption era.)
     @discardableResult
     static func share(
         object: ObjectRecord,
@@ -1681,13 +1681,6 @@ enum ShareEngine {
 
     // MARK: - Re-share controls (Wave 2 item 9)
 
-    /// Adds password protection to an EXISTING unprotected single-file share:
-    /// re-wraps the object key under the new password-derived link key and
-    /// mints a fresh obfuscated blob — same channel, messages and expiry. The
-    /// OLD link stops working immediately (its key no longer unwraps anything);
-    /// the new link is returned so the caller can copy it to the clipboard.
-    /// Protected shares cannot be rotated here — the object key would need the
-    /// old password — nor group links (per-file manifest re-wrap).
     // MARK: - Link obfuscation
 
     /// Wraps a plaintext share link so it travels as an opaque blob:
