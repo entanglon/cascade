@@ -2824,6 +2824,15 @@ under plaintext + app-local PIN (net −114 lines):
 destination gate + Forgot-PIN reset), emulator fresh start (old vault channel
 is deleted cloud-side), then M4 playback.
 
+Follow-up same evening (Android `9971e0b`): fresh installs stranded on the API
+ID/hash prompt despite bundled credentials — root cause was
+`LoginViewModel(...)` constructed inline in MainActivity's composable, so every
+auth-driven recomposition swapped in a fresh never-started VM (stuck on
+CREDENTIALS) while a leaked older one owned the running TDLib client (log
+showed `setTdlibParameters` + `WaitPhoneNumber` while the screen sat on the
+prompt). Fix: `remember` one VM per activity. Verified live: clean install
+goes straight to the phone step.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
