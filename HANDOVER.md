@@ -2963,6 +2963,37 @@ SidebarView, FileBrowserView top bar/cards/rows + live Mac screenshots:
 - Incidents fixed en route: light-mode whiteout (forced dark), a lost
   foundation.Image import, orphan annotations.
 
+### 148. TOMORROW — Android UI round 2 (user notes, 2026-09-26 night)
+
+User reviewed the Mac-port UI and left five concrete items. Do NOT start
+without re-reading this list:
+
+1. **Remove the file numbers (badge counts) from the sidebar.** No counts
+   on any drawer row.
+2. **Move sorting + list/grid toggle into the ⋮ menu button.** The top bar
+   keeps: hamburger, back, title + count capsule, search button, overflow.
+   Sort options (Name/Created/Modified/Size/Kind + Asc/Desc) and the
+   grid/list switch live inside the overflow menu.
+3. **Thumbnail sizes, Files-app-relative:** SMALLER tiles in grid mode (more
+   columns fit — compare against Google Files' grid density) and LARGER
+   thumbs in list mode (compare against Google Files' list rows). Measure
+   against the real Files app, don't eyeball.
+4. **Fix the sidebar design** (user-unspecified details — ask what feels off
+   before reworking: spacing, header style, profile card, drawer width?).
+5. **Material You, not just black.** User explicitly wants the dynamic-color
+   M3 system (wallpaper-derived palette, light/dark follows system) APPLIED
+   to the Mac layout — i.e. keep the copied Mac structure/buttons/options,
+   but theme it with dynamic Material You instead of the forced-dark Mac
+   palette. Reconciliation: `CascadeTheme(dynamicColor = true)` default +
+   Mac layout; verify light AND dark renderings via screenshots.
+
+State left: emulator STOPPED (launchd `com.cascade.emulator` booted out;
+re-create with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cascade.emulator.plist`
+— the plist file itself is kept). Both repos clean. Account B on the
+emulator holds the user's live test library (imports, TestFolder, Music in
+trash, one outgoing share) — do NOT `pm clear`.
+Mac app rebuild pending user relaunch (password-removal build).
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
