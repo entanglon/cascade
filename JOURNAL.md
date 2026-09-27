@@ -37,7 +37,10 @@ verified surviving restart); channel settles at `merged: 34 objects, 24
 tombstoned`. End-to-end: link re-import of 5 files in 7.8s with
 server-form chunk ids, `7a2e3154….jpg` opens in Photos with zero
 HashMismatch across three force-stop cycles. Kept new instrumentation
-(delta/merged logs). Known edges: duplicate-content file silently skipped
+(delta/merged logs). Later the same day: dropped the folder back chevron
+from the top bar (Android `0466941`) — user: "people can just go back
+using the address bar"; breadcrumb crumbs + system back verified as the
+remaining paths. Known edges: duplicate-content file silently skipped
 by rootHash dedup (Mac parity); Exorcist orphans invisible (pre-existing).
 Next: user re-test of all six complaints; then Mac-first gaps
 (M4 streaming, playlists, reader, subtitles, people, versions, export).

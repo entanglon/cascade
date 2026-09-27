@@ -3179,6 +3179,14 @@ live-verified; the integrity hunt then exposed two deeper bugs.
   (history resolve, delete, download, forward): `(id and 3) == 0` means
   "real cloud message", everything else is garbage-or-pending.
 
+### 154. Android: folder back chevron removed from top bar (2026-09-27, Android `0466941`)
+User decision: drop the circular `‹` back chip from `MacTopBar` — "people
+can just go back using the address bar." Removed the chip block, the
+`inFolder`/`onBack` params, and the `ChevronLeft` import (KDoc notes the
+decision). Navigation paths kept and verified: breadcrumb crumb tap
+(`All Files › Pictures` → root), system BackHandler (pops one folder
+level), drawer. In-folder dump shows 0 Back buttons; 72 tests green.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
