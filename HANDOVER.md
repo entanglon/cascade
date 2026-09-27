@@ -3047,6 +3047,9 @@ a different column structure (count inline after name vs size/date columns).
 - Grid: names already 13sp; meta is size-only; verified aligned baselines
   in screenshots.
 - Verified live via screenshot: columns align across folder + file rows.
+- Follow-up (Android `f4eb190`): folder glyph still read smaller — it had no
+  tonal tile while thumbs did. Folders now use the identical 56dp tonal box
+  with the glyph centered; verified aligned in a fresh screenshot.
 
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
