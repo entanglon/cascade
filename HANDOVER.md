@@ -3062,6 +3062,51 @@ a different column structure (count inline after name vs size/date columns).
   slots now byte-identical bounds across folder and file rows (verified
   from the dump: 252/528/738 on every row).
 
+### 152. Android basics: Select all, Duplicate, folder sharing + yet-unsent chunk-id root cause (2026-09-27, Android `a8f42d0`)
+User (fed up, rightfully): no Select all, no folder sharing, no copy —
+"basic file-manager functionality that already exists on macOS". All three
+shipped and live-verified in one pass; the share path then hit a deep
+pre-existing bug that blocked ALL Android shares.
+
+- **Select all**: `FilesPane` reports its visible ids upward
+  (`onVisibleIds`, alongside the existing count capsule); contextual
+  overflow's first item selects them. Verified: "7 selected".
+- **Duplicate**: `duplicateObjects()` — Finder/macOS parity: instant
+  server-side copy reusing the source's chunk messages (no re-upload),
+  folders shallow-copy, names `X Copy` / `X Copy (n)` with collision loop,
+  delta-published. Overflow item hidden in Trash. Verified: `Copy.png`
+  row created + delta published.
+- **Folder sharing**: `ShareEngine.shareFiles` now expands folders to
+  descendant files carrying folder-relative paths (`Zain/Copy.png`),
+  de-duped by id; display name uses the shared folder's name (Mac
+  `forwardShare` walk parity). Share button no longer gated behind
+  `hasFiles` — it shows for folder-only selections. Empty selection →
+  "Nothing shareable selected".
+- **Root cause fixed — yet-unsent chunk ids**: every share forward failed
+  with `messages:[null]`. TDLib docs: null = "can't be forwarded".
+  Decoded via TDLib source (`td-build/td`): server ids are multiples of
+  2^20; the stored ids were `server<<20 | 1` (TYPE_YET_UNSENT) — uploads
+  on 09-26 18:58–19:09 ran BEFORE the fa5f35a confirm-IDs fix (20:24) and
+  persisted the pending form. TDLib logs the exact failure: `Can't find
+  yet unsent message 56637.1 to forward`. Fix: `TdRequests.persistentMessageId`
+  (strips low type bits when `id & 3 == 1`) applied at forward entry,
+  upload save, and download; +3 unit tests (65 green).
+- **Secondary forward fix**: this TDLib build has no singular
+  `forwardMessage` ("Unknown class"), and its `forwardMessages` envelope is
+  unusable for ids — so `forwardConfirmed` snapshots the target channel's
+  newest id before forwarding and resolves the new id as "first message
+  newer than baseline" from chat history (channel ids are strictly
+  monotonic), then the existing getMessage verify loop runs.
+- **Live end-to-end**: folder share created
+  `cascade://share#R_CKJr-…` ("shared Zain (1 chunks) private"). Test
+  duplicate trashed afterwards.
+- **Testing lessons**: (1) overflow menu items SHIFT when selection count
+  changes (Rename/Details hide on multi-select) — a stale coordinate tap
+  hit Archive and archived 7 items; always re-dump the menu before
+  tapping. Recovered via Archive pane → Select all → Unarchive (which
+  itself re-verified Select all). (2) Reaffirmed §151 lesson: force-stop +
+  relaunch after `install -r` before testing.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively

@@ -6470,3 +6470,39 @@ PIN remains for Private Vault. Recorded in HANDOVER.md workstream section.
 tap-to-open viewer. Note the OPEN 2026-08-21 streaming investigation above
 (TDLib downloadFile limit auto-cancel) — its findings apply directly to the
 Android M4 design; consider larger slice sizes and read-ahead from the start.
+
+## 2026-09-27 — Android basics: Select all / Duplicate / folder share; the yet-unsent id bug that was silently killing EVERY share
+User came back angry and correct: "Select all missing, no folder sharing,
+no copy files/folders — basic file-manager functionality that already
+exists on macOS." One pass fixed all three (HANDOVER §152, Android
+`a8f42d0`), then folder-share testing exposed a bug that had been blocking
+every Android share since day one.
+
+- **Select all**: panes report visible ids upward; overflow item selects
+  them. Verified "7 selected" — and, ironically, again later when it was
+  used to recover from my own mis-tap (below).
+- **Duplicate**: Finder-style instant copy (server-side chunk reuse,
+  shallow for folders, `X Copy` / `X Copy (n)` naming), delta-published.
+  Verified via DB row + logcat.
+- **Folder sharing**: engine expands folders to descendant files with
+  folder-relative paths (Mac forwardShare parity); Share button no longer
+  hides for folder-only selections.
+- **The real find**: every forward failed with `messages:[null]`. TDLib
+  source on disk (`td-build/td`) gave the answer in one grep — stored
+  chunk ids were yet-unsent form (`server<<20 | 1`) because the uploads
+  ran BEFORE the fa5f35a confirm-ids fix landed the same evening, and
+  TDLib's own log said `Can't find yet unsent message 56637.1 to
+  forward`. Fixed with `persistentMessageId()` (strip low type bits)
+  applied at forward/upload/download + 3 unit tests (65 green). Also
+  worked around this build's broken forwardMessages response by resolving
+  the new id from target-chat history (baseline diff). Folder share then
+  completed end-to-end: `cascade://share#R_CKJr-…` on screen.
+- **Scare of the day**: while testing Duplicate, I reused stale overflow
+  coordinates after the selection count changed (Rename/Details hide on
+  multi-select → menu items shift) and hit ARCHIVE instead — 7 items gone.
+  Recovered via Archive → long-press → Select all → Unarchive, no data
+  touched. Lesson (now in HANDOVER): re-dump menu bounds before EVERY
+  tap; and force-stop + relaunch after `install -r` (§151, reaffirmed).
+- Cleaned up after myself: test duplicate trashed (delta confirmed),
+  library back to its pre-test state. Docs + `a8f42d0` committed same
+  session.
