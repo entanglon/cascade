@@ -3035,6 +3035,19 @@ Research (M3 docs): the top bar TRANSFORMS into the contextual action bar
   62/62 green. One scare: a python edit truncated HomeScreen.kt to 0 bytes —
   restored from git (no committed work lost) and recommitted incrementally.
 
+### 151. List alignment + grid polish (2026-09-27, Android `f27b36f`)
+
+User screenshots: list folders/files misaligned, text out of alignment.
+Root causes: folder rows were shorter (30dp glyph vs 56dp thumbs) and used
+a different column structure (count inline after name vs size/date columns).
+
+- One row geometry for both: 56dp leading box (check / 40dp folder glyph /
+  56dp thumb), name, a shared 80dp end-aligned meta slot (item count OR
+  size), a shared 100dp end-aligned date. Every column lines up.
+- Grid: names already 13sp; meta is size-only; verified aligned baselines
+  in screenshots.
+- Verified live via screenshot: columns align across folder + file rows.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
