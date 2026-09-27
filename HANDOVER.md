@@ -3055,6 +3055,12 @@ a different column structure (count inline after name vs size/date columns).
   always force-stop + relaunch after install before asking the user to test
   (or verify the new UI in a screenshot first). Grid folder glyph bumped
   76→84dp per request; fresh-process screenshot confirms the new UI.
+- Follow-up (Android `5f45552`): list misalignment persisted — measured the
+  truth from layout bounds: folder count started x=455, file sizes x=528.
+  Root cause: name used weight(1f, fill=false), so the meta slot floated
+  with each name's width. Fix: name fills the remaining width; meta/date
+  slots now byte-identical bounds across folder and file rows (verified
+  from the dump: 252/528/738 on every row).
 
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
