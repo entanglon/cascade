@@ -2,9 +2,45 @@
 
 > Chronological log of the work on the Cascade macOS and iOS apps. Companion to
 > HANDOVER.md (current state) and ROADMAP.md (deferred plans). Last entry:
-> **2026-09-26 — Android P0 file-manager parity (multi-select, move, trash lifecycle, Locked gate).**
+> **2026-09-27 — Android round 3: six-complaint sweep, import-integrity root cause, snapshot resurrection.**
 
 ---
+
+## 2026-09-27 — Android Round 3: Six-Complaint Sweep + Import Integrity + Snapshot Resurrection
+
+User returned with six complaints (breadcrumb above top bar, slow Empty
+trash, slow imports, stale "N selected", folder import messages naming a
+file instead of the folder, opened files failing "File integrity check
+failed"). All six shipped and live-verified in Android commit `49bf7b6`
+(72/72 tests green), but the integrity hunt uncovered two deeper bugs
+worth remembering:
+
+1. **The integrity failure was a wrong-message read, not corruption.**
+   `forwardBatch`'s history fallback had no server-form filter and stored
+   yet-unsent ids; download masked those to a server number and TDLib
+   served whatever message sat there (a 486-byte delta doc) → hash
+   mismatch. Fix: `(id and 3) == 0` is now the load-bearing "real cloud
+   message" test in four places (history resolve, delete, download,
+   forward source) — and masking is dead everywhere except upload
+   confirmation bookkeeping.
+2. **Empty trash deleted five innocent catalog deltas.** `deleteMessages`
+   mapped pending ids through `persistentMessageId`; TDLib assigns its own
+   server number on confirm, so masks collide with unrelated messages.
+   Filter-instead-of-mask keeps pending rows' local deletes local.
+3. **Snapshot resurrection**: Android merge-adopts the cloud snapshot on
+   every launch (Mac is fresh-device-only), so adoption kept reinstating
+   tombstoned rows whose tombstones were never published (set A). Extracted
+   `adoptSnapshot` with deletion absolutism both ways +7 tests.
+
+Repair: Empty trash republished set A's tombstones (both delta messages
+verified surviving restart); channel settles at `merged: 34 objects, 24
+tombstoned`. End-to-end: link re-import of 5 files in 7.8s with
+server-form chunk ids, `7a2e3154….jpg` opens in Photos with zero
+HashMismatch across three force-stop cycles. Kept new instrumentation
+(delta/merged logs). Known edges: duplicate-content file silently skipped
+by rootHash dedup (Mac parity); Exorcist orphans invisible (pre-existing).
+Next: user re-test of all six complaints; then Mac-first gaps
+(M4 streaming, playlists, reader, subtitles, people, versions, export).
 
 ## 2026-09-26 — Android P0 File-Manager Parity
 

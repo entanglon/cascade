@@ -3107,6 +3107,78 @@ pre-existing bug that blocked ALL Android shares.
   itself re-verified Select all). (2) Reaffirmed §151 lesson: force-stop +
   relaunch after `install -r` before testing.
 
+### 153. Android round 3: six-complaint sweep + import-integrity root cause + snapshot resurrection (2026-09-27, Android `49bf7b6`)
+User (fed up): breadcrumb renders ABOVE the top bar, Empty trash "very
+slowly", imports feel like re-uploads, stale "N selected" after bulk ops,
+folder-import messages show the first file instead of the folder name, and
+opened files die with "File integrity check failed". All six fixed and
+live-verified; the integrity hunt then exposed two deeper bugs.
+
+- **Breadcrumb below top bar**: `MacTopBar`/`Breadcrumbs` split — nav
+  chrome (hamburger/title/actions) on top, `All Files › Pictures` strip
+  under it (Mac sidebar-path parity). Verified on-screen.
+- **Empty trash <1s**: `bulkDeleteForever` now cascades to folder
+  children, DELETES rows (not tombstone-only), and publishes ONE
+  tombstone delta with chunks deleted in batches — was one delta +
+  one-by-one deletes with `Chunk N/M` noise. Live: "Trash Is Empty" in
+  under a second, `delta published: objects=7`.
+- **Import speed + progress**: `importLink` batches forwards (100/call
+  from `forwardBatch`), reports `Copying "Pictures" (1 of 6)…`, and logs
+  `import Pictures: 6 object(s) in 3508ms`. Final message and dialog title
+  use the link/folder display name (`ShareLink.parse(...).fileName`).
+- **Selection**: `runBulk` clears the selection immediately (before the
+  work runs) — no stale "N selected" surviving a bulk op.
+- **Integrity root cause #2 (forwardBatch history fallback)**: with the
+  forward envelope's ids unusable (`messages:[null]`), the fallback resolved
+  ids from channel history WITHOUT filtering yet-unsent forms — it stored
+  pending ids (`59493056513 …`, low20=1). Download then masked the id to a
+  server number and TDLib happily served the message actually sitting there
+  — a 486-byte delta document → `chunk 0 hash mismatch` → "File integrity
+  check failed". Fix: history fallback requires `isServerForm`
+  (`(id and 3)==0`), retried 40×300ms (sendAwaitConfirmed cannot wait for
+  forward results — no top-level id — so the forward is briefly invisible),
+  and filters KIND_THUMB/KIND_SUB sidecars. Envelope ids trusted only when
+  every slot is server-form above the pre-forward baseline.
+- **Snapshot resurrection**: Android's `restore()` merge-adopts the cloud
+  snapshot on EVERY launch (HomeScreen), while Mac's `restore()` is
+  fresh-device-only (`Storage/CatalogSnapshot.swift:771` guards
+  `!existing.isEmpty && !force`). Adoption resurrected tombstoned rows:
+  after Empty trash wiped the DB, the next launch brought back 10 "live"
+  rows — set A (user's original import) whose tombstones had never been
+  published to the channel, so the channel honestly said "live". Extracted
+  pure `adoptSnapshot(existing, snapshotObjects)` with deletion absolutism
+  BOTH ways (tombstoned locally → adopt the tombstone; in snapshot → keep
+  it dead), LWW + phantom-name rules, chunks filtered by surviving object
+  ids. +7 tests (`CatalogSnapshotRestoreAdoptTest`, 72 green).
+- **Wrong-target deletion**: `TdRequests.deleteMessages` mapped pending ids
+  through `persistentMessageId` — TDLib assigns its OWN server number on
+  confirm, so the mask can name an unrelated message; it deleted five
+  innocent catalog delta documents (channel meta 52→47) during Empty trash.
+  Fix: filter to server-form ids only — pending rows have nothing
+  server-side to delete. Same rule applied to `DownloadEngine` (pending-form
+  chunk id now throws `DownloadError.UnconfirmedUpload` instead of masking)
+  and `forwardBatch` (stale pending source id refuses loudly instead of
+  forwarding the wrong message). `persistentMessageId` narrowed to upload
+  confirmation bookkeeping; test docstring rewritten to say masking is NOT
+  an address lookup.
+- **Channel repair + verification**: Empty trash republished set A's
+  tombstones (deltas `59516125184`, `59517173760` — both 7-object, both
+  survive restart). Post-restart restore settles at `merged: 34 objects,
+  24 tombstoned` → local rows = Exorcist ×3 orphans + ChatGPT Copy
+  (trashed) + the new import; stable across three force-stop cycles.
+- **Full E2E**: re-import link → 5 files in 7832ms, ALL chunk ids
+  server-form (`59518222336 & 3 == 0` …), opens `7a2e3154….jpg` in Photos
+  rendering correctly, zero HashMismatch lines. (6th file skipped by
+  rootHash dedup — same content as the trashed Copy — silent, Mac-parity.)
+- **Instrumentation kept**: `delta <id>: N objects, M tombstoned` in
+  `fetchChannelState`, `merged: …` in `restore`.
+- **Testing lessons**: (1) uiautomator dumps often MISS Compose status
+  text — trust screenshots for final dialog wording. (2) Screencap is
+  900×2000 on a 1080×2400 device — scale tap coords ×1.2 or taps land
+  off-target. (3) Server-form rule is now load-bearing in four places
+  (history resolve, delete, download, forward): `(id and 3) == 0` means
+  "real cloud message", everything else is garbage-or-pending.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
