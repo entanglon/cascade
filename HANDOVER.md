@@ -3036,7 +3036,6 @@ Research (M3 docs): the top bar TRANSFORMS into the contextual action bar
   restored from git (no committed work lost) and recommitted incrementally.
 
 ### 151. List alignment + grid polish (2026-09-27, Android `f27b36f`)
-
 User screenshots: list folders/files misaligned, text out of alignment.
 Root causes: folder rows were shorter (30dp glyph vs 56dp thumbs) and used
 a different column structure (count inline after name vs size/date columns).
@@ -3050,6 +3049,12 @@ a different column structure (count inline after name vs size/date columns).
 - Follow-up (Android `f4eb190`): folder glyph still read smaller — it had no
   tonal tile while thumbs did. Folders now use the identical 56dp tonal box
   with the glyph centered; verified aligned in a fresh screenshot.
+- Follow-up (Android `e1b5dfd`): user reported "no changes" with screenshots
+  proving the OLD build (bare glyph, unaligned columns) — `install -r` had
+  not restarted the live process; their testing raced the install. Lesson:
+  always force-stop + relaunch after install before asking the user to test
+  (or verify the new UI in a screenshot first). Grid folder glyph bumped
+  76→84dp per request; fresh-process screenshot confirms the new UI.
 
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
