@@ -3015,6 +3015,26 @@ All five items from §148, verified live with screenshots (light + dark):
 - Incidents: toggle taps kept missing (bounds confusion) — verified via
   logs + screenshots instead; list-mode switch confirmed working.
 
+### 150. Selection UX rebuild + Details (2026-09-27, Android `d863e33`)
+
+User's screenshot review: second bar below top bar is wrong, thumbs lose
+shape on select, folder/file sizes misalign, fonts too big, no Details.
+Research (M3 docs): the top bar TRANSFORMS into the contextual action bar
+(✕ + count + actions, same height) — never a second bar. Rebuilt to match:
+
+- Top bar transforms in place (same 52dp, nothing jumps); back exits
+  selection first. Old second-bar SelectionBar deleted.
+- Tiles: folder + file zones unified (fillMaxWidth + aspect 1:1), glyph
+  64→76dp, names 14→13sp, grid meta = size only, NO fill wash on tiles
+  (ring + check badge only — thumbs never tint). List placeholder 56→32dp
+  (was filling its box edge-to-edge); thumbs Fit in the square container
+  in both modes.
+- Details bottom sheet (Mac Space-panel parity): thumb header, name, Type /
+  Size (or Items) / Created / Modified / Location rows.
+- Verified live: transform, ring+badge selection, Details sheet content,
+  62/62 green. One scare: a python edit truncated HomeScreen.kt to 0 bytes —
+  restored from git (no committed work lost) and recommitted incrementally.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
