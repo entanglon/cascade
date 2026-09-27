@@ -2994,6 +2994,27 @@ emulator holds the user's live test library (imports, TestFolder, Music in
 trash, one outgoing share) — do NOT `pm clear`.
 Mac app rebuild pending user relaunch (password-removal build).
 
+### 149. UI round 2 DONE (2026-09-27 morning, Android `324257b`)
+
+All five items from §148, verified live with screenshots (light + dark):
+
+1. Sidebar badge counts REMOVED (CountScope/countFor deleted).
+2. Sort + grid/list toggle MOVED into the ⋮ overflow (Grid/List radio,
+   Name/Created/Modified/Size/Kind + Asc/Desc with checks, then Sync now,
+   Settings). Top bar keeps hamburger/back/title+count/search/overflow.
+3. Thumbnails Files-relative: grid is now 3 columns with smaller (~100dp)
+   tiles; list thumbs 40dp → 56dp rounded boxes (+40dp folder glyphs).
+4. Sidebar = standard M3 NavigationDrawerItem pills (dynamic colors) under
+   Mac group order/headings, status-bar top padding, profile card kept.
+5. Material You dynamic color ON (light + dark follow system + wallpaper);
+   all hardcoded whites/blues converted to theme roles (tile names, rows,
+   top bar, drawer, profile card); brand blue kept only for FAB, avatar
+   gradient, selection wash/ring, white-on-accent icons.
+- Verified: 3-col grid, list mode via overflow, drawer (no badges), light +
+  dark renderings, 62/62 tests green.
+- Incidents: toggle taps kept missing (bounds confusion) — verified via
+  logs + screenshots instead; list-mode switch confirmed working.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
