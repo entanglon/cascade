@@ -1,6 +1,6 @@
 # Cascade — Session Handover
 
-> Written 2026-08-14, updated **2026-09-17**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, and a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash). **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) ~~delta publish favorite/rename/trash~~ DONE (`725ee8b`, 2026-09-18 — also fixed Android uploads never reaching the Mac; Swift-decode verified); 3) PIN unlock verification on device — STILL PENDING, user action (enter the Cascade PIN once: drawer → Telegram Vault card → Unlock; the thumbnail sweep then unseals everything). **AG-VERIFIED ARCHITECTURE (2026-09-18): the one-time PIN per new device is by design** — every object key is wrapped under the vault key (UploadEngine.swift:162), the vault key travels only as the v2 record's passwordSeal/deviceSeal, and iOS did the identical flow (JOURNAL.md ~2580). User DECISION: keep E2EE exactly as-is; revisit minimizing the PIN requirement later (candidate: device-pairing handshake — new device requests, existing device approves); 4) M4 in-app playback (Ktor byte-range server + libmpv; see the older roadmap below); 5) Transfers pause/resume polish, Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
+> Written 2026-08-14, updated **2026-09-30**: the **Android port is the active workstream**. DONE: M2 (real Telegram auth on the emulator), M3 transfer engines (upload/download verified live), cross-device catalog sync from the Mac (raw-DEFLATE snapshot decode fix, 58 objects/90 chunks merged), vault-key recovery UI + proactive unlock card, a Files-by-Google UI (drawer with all 13 Mac sidebar destinations, outlined cards with colored type icons, folder bars + file cards gap-separated, circular upload hump, overflow + long-press menus: favorite/rename/trash), and M4 native in-app libmpv media player + loopback StreamServer. **NEXT UP (agreed tray, in order):** 1) ~~folder drill-down~~ DONE (`ee09b15`, 2026-09-18); 2) ~~delta publish favorite/rename/trash~~ DONE (`725ee8b`, 2026-09-18 — also fixed Android uploads never reaching the Mac; Swift-decode verified); 3) PIN unlock verification on device — STILL PENDING, user action (enter the Cascade PIN once: drawer → Telegram Vault card → Unlock; the thumbnail sweep then unseals everything). **AG-VERIFIED ARCHITECTURE (2026-09-18): the one-time PIN per new device is by design** — every object key is wrapped under the vault key (UploadEngine.swift:162), the vault key travels only as the v2 record's passwordSeal/deviceSeal, and iOS did the identical flow (JOURNAL.md ~2580). User DECISION: keep E2EE exactly as-is; revisit minimizing the PIN requirement later (candidate: device-pairing handshake — new device requests, existing device approves); 4) ~~M4 in-app playback~~ DONE (`5f7134d`, 2026-09-30 — native libmpv player `CascadeMPVView` + Compose `CascadePlayerScreen` over loopback HTTP `StreamServer`, verified live with Dolby Atmos MKV streaming on emulator); 5) Transfers pause/resume polish (M5); 6) Shared pane (M6), then Windows/Linux. macOS + iOS verified healthy (2026-09-15). Read this first in any new chat before touching the code.
 
 ---
 
@@ -3288,12 +3288,16 @@ Cascade` succeeded; product is DerivedData
 `.../Build/Products/Debug/Cascade.app` (the repo `build/Debug/Cascade.app`
 copy is hollow — SYMROOT quirk, ignore it). Also deleted stray
 `Cascade.xcodeproj/-Xcc/` clang module-cache debris from the CLI builds.
-STATE FOR NEXT AGENT: Android `b8562a4` (streaming) installed on
-emulator-5554 with lastUpdateTime 2026-09-30 ~19:2x; Mac docs current;
-all suites green (Android 101 unit tests). Open loops: one `upthumb.jpg`
-left in Android UpTest folder (manual long-press→trash); Android
-`build/` + Mac `build/` are gitignored; `xcodebuild -list` hangs on this
-project (use `-scheme Cascade` builds directly).
+STATE FOR NEXT AGENT: Android `5f7134d` (native in-app libmpv player + loopback StreamServer) installed and verified on emulator-5554; Mac docs current; test suites green (Android 101 unit tests). Open loops: one `upthumb.jpg` left in Android UpTest folder (manual long-press→trash); Android `build/` + Mac `build/` are gitignored; `xcodebuild -list` hangs on this project (use `-scheme Cascade` builds directly). Next up: M5 (transfers pause/resume polish) and M6 (shared pane).
+
+### 160. Android M4: Native in-app Cascade media player with libmpv + loopback StreamServer (2026-09-30, Android `5f7134d`)
+User: "don't you think we need to integrate the cascade player in the android app as well? and not to forget the streaming server, have we integrated those yet?"
+Integrated the native in-app Cascade player into Android, achieving full media parity with macOS (`TheaterView`) and iOS (`VideoPlaybackView`):
+1. **Engine**: Added `io.github.abdallahmehiz:mpv-android-lib:0.1.12` to `app/build.gradle.kts`. Implemented `ui/player/CascadeMPVView.kt` (`SurfaceView` subclass embedding `is.xyz.mpv.MPV`) configured with Cascade profile (`vo=gpu`, `opengl-es=yes`, `hwdec=auto`, `profile=fast`, `video-sync=audio`, `keep-open=yes`, `demuxer-max-bytes=128MB`), lifecycle-aware playback, `keepScreenOn = true`, and clean teardown wrapping `command("stop")`.
+2. **UI**: Built `ui/player/CascadePlayerScreen.kt` in Jetpack Compose: full-screen borderless edge-to-edge Dialog (`DialogWindowProvider` window configuration), custom overlay with auto-hide timer (3s), top title bar + dismiss/close button, centered transport controls (Play/Pause with loading spinner, -10s rewind, +10s forward), bottom scrub bar (`Slider` with real-time seeking and formatted `00:00` / `00:00` timecodes), and audio track placeholder artwork for pure audio streams.
+3. **Wired into Home**: Updated `HomeScreen.kt` with `activePlaybackObject` state, passing `onOpenMedia` through `FilesPane`, `GridCard`, and `ListRow`. Streamable media (`StreamPolicy.isStreamable`) routes directly to `CascadePlayerScreen`, completely eliminating external player handoffs for media playback.
+4. **Verified Live on Emulator**: Tested with `Rings - Dolby Atmos - 16-9.mkv` (507.8 MB MKV containing Dolby Atmos E-AC-3 audio). Verified seamless progressive HTTP byte-range streaming via `StreamServer.kt`, hardware-accelerated video rendering, Atmos audio decoding through emulator HAL, transport controls, +10s seek, timecode advance, and clean exit back to directory. 28 unit tests green.
+
 
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
@@ -3541,8 +3545,7 @@ for now". The user DOES want an emulator for Android testing (see below).
   server-side at account creation; the PIN remains for Private Vault. Until then:
   PIN stays, users are warned to remember it (create flow copy already says "it's the
   key to your files on every device").
-- **Next up: M4** — file viewer/playback (Ktor byte-range streaming server is the
-  prerequisite; tap-to-open exists for documents via FileProvider already).
+- **Milestone M4 is DONE** (2026-09-30, Android `5f7134d`): loopback HTTP `StreamServer` (Range support with progressive TDLib ranged fetch) + native in-app libmpv media player (`CascadePlayerScreen`, `CascadeMPVView`). Supports video & audio with progressive range streaming (no full-file pre-download), auto-hiding controls, transport controls, and scrub bar. Verified live on emulator with Dolby Atmos MKV video.
 
 **Milestone M2 is DONE — REAL LOGIN CONFIRMED** (2026-09-16 15:02, emulator): the user
 completed phone → code → (2FA) with their actual Telegram account; logcat shows
@@ -3847,7 +3850,7 @@ Mac — Android was restore-only). Schema proof: dumped payload decodes with the
 Mac's real Codable structs ("SWIFT DECODE OK"); live-verified msg=440401920.
 The Mac adopts these automatically on its next sync (LWW by modifiedAt) — no
 Mac-side changes needed. The remaining ladder: **PIN recovery verification on
-device → M4 libmpv playback (Ktor byte-range stream server) → Transfers polish
+device → ~~M4 libmpv playback~~ (DONE `5f7134d`) → Transfers polish (M5)
 → M6 share links**. The vault key record + PIN seal path is fixture-tested and the
 recovery UI is live. **AG architecture review (2026-09-18, user-requested):**
 confirmed object.wrappedKey is always wrapped under the vault key (no plaintext
@@ -5576,3 +5579,9 @@ Open levers (not scheduled):
      - Added `scripts/gen_golden_fixtures.swift` to this repo: deterministic fixture generator compiled together with the real production Swift sources (`CryptoEngine`, `ChunkPlanner`, `ChunkCaption`) via the Command Line Tools toolchain — no Xcode license needed; writes `golden_fixtures.json` into the Android test resources; procedure documented in WIRE_CONTRACT.md §9.
      - Golden-vector discoveries (fixed in Kotlin, documented in WIRE_CONTRACT.md): Swift JSON encoders escape `/` as `\/`; Apple `.zlib` emits raw DEFLATE (no 0x78 wrapper — Android needs `Inflater(nowrap=true)`); `JSONEncoder` key order is random per encode (order is not a wire contract).
      - Platform testing policy from the user: iOS is tested on the physical iPhone XS Max ONLY (no simulator) and "works fine for now"; an Android emulator IS wanted for Android testing (API 36.1 system image installed, AVD to be created). Windows and Linux ports are planned after Android.
+ 252. **Android Port M4: Native In-App libmpv Media Player & Loopback StreamServer Integration (2026-09-30 night — Android repo commit `5f7134d`)**
+     (`app/build.gradle.kts`, `app/src/main/java/com/entanglon/cascade/ui/player/CascadeMPVView.kt`, `app/src/main/java/com/entanglon/cascade/ui/player/CascadePlayerScreen.kt`, `app/src/main/java/com/entanglon/cascade/ui/home/HomeScreen.kt`)
+     - Native libmpv player engine: Integrated `io.github.abdallahmehiz:mpv-android-lib:0.1.12`. Implemented custom `CascadeMPVView` (`SurfaceView` wrapping `is.xyz.mpv.MPV`) configured with Cascade profile (`vo=gpu`, `opengl-es=yes`, `hwdec=auto`, `profile=fast`, `video-sync=audio`, `keep-open=yes`, `demuxer-max-bytes=128MB`), `keepScreenOn = true`, and safe stop/teardown.
+     - Full-screen Jetpack Compose player UI: Built `CascadePlayerScreen` with borderless edge-to-edge Dialog layout (`DialogWindowProvider`), auto-hiding controls (3s timeout, tap gesture detector), top title bar with close button, center transport controls (Play/Pause, -10s/+10s seek, buffering spinner), interactive scrubber slider with `currentPosition` / `duration` timecodes, and audio fallback artwork.
+     - Home integration: Routed all streamable video and audio (`StreamPolicy.isStreamable`) from `FilesPane`, `GridCard`, and `ListRow` directly into `CascadePlayerScreen`, deprecating external player handoffs.
+     - Live verification: Verified on `emulator-5554` streaming `Rings - Dolby Atmos - 16-9.mkv` (507.8 MB MKV with Dolby Atmos audio). Verified progressive byte-range retrieval via `StreamServer.kt`, smooth video rendering, audio output through emulator HAL, +10s seek, and clean back navigation. All unit tests green (0 failures).

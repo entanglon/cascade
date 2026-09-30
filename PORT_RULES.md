@@ -97,10 +97,12 @@ bad → 416; HEAD; `Accept-Ranges`), progressive on-demand slices
 their original offset in the persistent local file; a new offset/limit
 supersedes an in-flight request, so ranges serialize per file), no auth
 (loopback + random port + unguessable id). Images/PDF/text/other are
-download-then-open. Android differences, both deliberate: the player is
-external (ACTION_VIEW — no embedded mpv exists on Android) kept alive by
-a mediaPlayback foreground service, and stream slices skip hash checks
-(Mac doesn't verify them either; full downloads still do).
+download-then-open. Android parity (2026-09-30, Android `5f7134d`): the
+player is native in-app via `libmpv` (`CascadeMPVView`, `CascadePlayerScreen`),
+matching Mac `TheaterView` and iOS `VideoPlaybackView` 1:1; no external
+player handoff is needed for streamable media. External ACTION_VIEW
+remains only as fallback. Stream slices skip hash checks on-path (same as
+Mac; full downloads still verify).
 
 ## R6 — Thumbnails ride on chunk messages (vault ≠ photo messages)
 `Engine/UploadEngine.swift` (`generateThumbnails` + `thumbnailPath` on

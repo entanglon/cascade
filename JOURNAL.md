@@ -6623,3 +6623,11 @@ green, ran it, user has it. Real product lives in DerivedData, not repo
 `build/`. Deleted `-Xcc` module-cache junk the CLI builds dropped inside
 the xcodeproj. Committing scheme + docs, then opening the repo in
 Antigravity for whatever comes next.
+
+## 2026-09-30 — Android M4: Native in-app libmpv player + loopback StreamServer
+User requested native Cascade player integration on Android. `5f7134d` (HANDOVER §160 / §252, PORT_RULES R8 updated):
+- Added `mpv-android-lib:0.1.12`, implemented `CascadeMPVView` (`SurfaceView` embedding `is.xyz.mpv.MPV`) with GPU rendering (`vo=gpu`, `opengl-es=yes`, `hwdec=auto`, `profile=fast`, `video-sync=audio`, `keep-open=yes`, `demuxer-max-bytes=128MB`).
+- Built `CascadePlayerScreen` in Compose: borderless edge-to-edge Dialog via `DialogWindowProvider`, 3s auto-hiding controls, top title bar with close button, transport controls (play/pause, -10s/+10s seek, buffering indicator), slider scrubber with timecodes, and pure audio artwork.
+- Wired `HomeScreen.kt` to route streamable media (`StreamPolicy.isStreamable`) to `CascadePlayerScreen`. External player handoff is now superseded.
+- Live verification on `emulator-5554`: streamed `Rings - Dolby Atmos - 16-9.mkv` (507.8 MB MKV with Dolby Atmos audio). Verified progressive Range requests from TDLib, video rendering, Atmos audio playback, seeking, and clean teardown.
+
