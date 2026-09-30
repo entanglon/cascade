@@ -110,4 +110,23 @@ every chunk): the vault stores chunks as plain documents and Telegram
 auto-generates previews only for real photo messages, so every uploader
 must attach a locally generated JPEG to every chunk. Android parity:
 `ThumbGen` + `inputThumbnail` (TDLib field name is `thumbnail`, and
-TDLib `Document` names its file field `document` — see HANDOVER §155).
+`Document` names its file field `document` — see HANDOVER §155).
+
+## R9 — Transfers pane & transfer lifecycle: direction separation, pause/resume, and tap-to-reveal
+`App/AppState.swift`, `Features/TransfersView.swift`, `Engine/TransferCenter.swift`.
+- Direction separation: Transfers pane groups items into UPLOADS, DOWNLOADS,
+  and IMPORTS with section header count badges.
+- Live speed rate: Moving average throughput calculation (`SpeedTracker`)
+  displayed on active transfers.
+- Pause / Resume: In-flight transfers can be paused and resumed without losing
+  already uploaded/downloaded chunks or restarting byte counts. Source files
+  staged during upload remain available until completion or explicit discard.
+- Retry / Discard: Failed transfers can be retried or discarded. Discard
+  deletes partial scratch chunks/files and database row. "Clear finished"
+  removes only completed transfers.
+- Tap-to-reveal: Completed transfers feature a "Show" action that navigates
+  directly into the object's parent folder (`ALL_FILES` or `LOCKED`) and
+  highlights/selects the object. Android parity (`8296f75`): `pendingRevealId`
+  retains selection across destination switching, opening the folder with the
+  card highlighted ("1 selected").
+

@@ -6631,3 +6631,13 @@ User requested native Cascade player integration on Android. `5f7134d` (HANDOVER
 - Wired `HomeScreen.kt` to route streamable media (`StreamPolicy.isStreamable`) to `CascadePlayerScreen`. External player handoff is now superseded.
 - Live verification on `emulator-5554`: streamed `Rings - Dolby Atmos - 16-9.mkv` (507.8 MB MKV with Dolby Atmos audio). Verified progressive Range requests from TDLib, video rendering, Atmos audio playback, seeking, and clean teardown.
 
+## 2026-09-30 — Android M5: Transfers polish (sections, speed, pause/resume, tap-to-reveal)
+`8296f75` (HANDOVER §253, PORT_RULES R9):
+- Transfers pane sectioning: Replaced flat list with `UPLOADS`, `DOWNLOADS`, and `IMPORTS` sections with count badges, Files-by-Google styling, state indicators (green checkmark, red failure, orange pause, primary progress), and top "Clear finished" action.
+- Real-time throughput speed tracking: Implemented `SpeedTracker` with moving-average byte rate calculations and human-readable formatting (`2.4 MB/s`, `450 KB/s`, etc.). Unit-tested with deterministic clock steps (`SpeedTrackerTest.kt`).
+- Pause and resume transfers: Enhanced `TransferCenter` to register coroutine `Job`s, track cooperative `pause` / `resume` state, and manage cancellation without discarding partial progress. `UploadEngine` stages source files in `files/transfers/staged/` and skips already uploaded chunks upon resume. `DownloadEngine` supports resuming partial files from scratch cache with `existingTransferID`. Unit-tested job lifecycles (`TransferCenterTest.kt`).
+- Discard & retry actions: Added per-card controls: Pause/Resume on active/paused cards, Retry on failed cards, Discard on active/failed/paused cards (cleaning partial chunks/staged files and DB records), and Remove on completed cards.
+- Tap-to-reveal navigation: Added `onRevealObject` callback with `pendingRevealId` in `HomeScreen.kt`. Completed cards feature a "Show" action (or card tap) that switches to `ALL_FILES` or `LOCKED`, navigates to parent folder, and highlights the target file card ("1 selected").
+- Live verification on `emulator-5554`: Verified "Clear finished", completed card rendering under `DOWNLOADS (1)`, and verified tapping "Show" on `Rings - Dolby Atmos - 16-9.mkv` successfully navigated to All Files with selection highlight active ("1 selected"). All 109 unit tests pass.
+
+
