@@ -3215,6 +3215,30 @@ fallback; Sync-now restore overlapping an upload 35/35 DB polls stable +
 chunk row intact. 78 tests green. Stale-build lesson (again): installed
 APK was 19:17, fix built 19:59 — check `lastUpdateTime` before diagnosing.
 
+### 156. PORT_RULES.md + Android naming parity R1–R5 (2026-09-30, Android `9440f1a`)
+User complaint: same photo uploaded thrice with identical names in one
+folder (my own test uploads — but Mac would never allow that). Two asks:
+write the rules down, and make Android follow them. Three parallel
+research agents mapped the Mac contract into new `PORT_RULES.md`
+(source of truth; Mac wins disagreements): R1 upload collision = silent
+paren rename from 1, same folder, case-sensitive (`UploadEngine:117`);
+R2 canonical unique = Finder `Name 2.ext` from 2, case-insensitive, for
+rename/move/import/Duplicate (`ShareEngine.uniqueName:1610`); R3 import
+dedupe by `rootHash` (reveal, never duplicate); R4 Duplicate seed
+`X Copy` + R2; R5 new folders save verbatim; R6 thumbs ride on chunks.
+Android gaps closed via new `core/Naming.kt` (pure, 6 unit tests):
+UploadEngine applies R1 (verified live: 4th `upthumb.jpg` in root became
+`upthumb (1).jpg`); Duplicate was `Copy (2)` → now `Copy 2`; RenameDialog
+and MovePickerSheet apply R2 (move with batch `reserved:`); import
+uniqueName scoped to destination folder + Finder style (was vault-wide
+paren); new-folder dialog verbatim (was paren-uniqued). Import rootHash
+dedupe already existed. 84 tests green. Cleanup: my 5+1 test upthumbs
+trashed via app UI (proper tombstone deltas) except one last file in
+UpTest — synthetic long-press won't synthesize on this emulator (grid
+never, list ~40%); List view + uiautomator exact bounds is the working
+recipe. Automation lesson: trust dump bounds, never eyeballed screenshot
+coords (missed Sync now by ~300px twice).
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively

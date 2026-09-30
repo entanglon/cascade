@@ -6567,3 +6567,22 @@ vanished then reappeared). Full story in HANDOVER §155, Android `56c74b0`.
   uiautomator bounds are authoritative, screenshots are for confirmation.)
 - Test uploads left in place (UpTest ×2, root ×3 upthumb.jpg) — cheap
   regression corpus for the next thumb pass. 78 tests green.
+
+## 2026-09-30 — PORT_RULES.md: writing down the Mac contract; naming parity on Android
+User asked the right question twice: why does Android allow three
+identical names in one folder, and where are the rules written? (The
+triplicates were my own test uploads, but Mac would have renamed them
+`upthumb (1).jpg` on the spot.) Three research agents in parallel mapped
+upload/import/duplicate/rename/move/new-folder semantics to `PORT_RULES.md`
+(R1–R6, all cited to file:line) — Android `9440f1a` implements them via a
+pure `core/Naming.kt` + 6 tests: R1 verified live on-device, Duplicate
+`Copy (2)`→`Copy 2` fixed, rename/move/import scoping fixed, new-folder
+verbatim per R5. Import rootHash dedupe already matched. 84 green.
+- Cleanup saga: trashed 6 of 7 test dupes through the real UI (tombstone
+  deltas, DB-verified). One `upthumb.jpg` left in UpTest — synthetic
+  long-press is unreliable on this emulator, and I timeboxed the wrestling.
+  Manual step if it bothers you: open UpTest, long-press it, trash.
+- Recipe that finally worked for UI automation: List view (grid tiles
+  swallow synthetic long-press; list rows answer ~40% of the time) +
+  uiautomator dump exact bounds + verify "N selected" from the dump after
+  every tap. Screenshots are confirmation only, never measurement.
