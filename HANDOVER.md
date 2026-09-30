@@ -3274,6 +3274,27 @@ still check). Proof on device, cold cache both sides: Photos scrubber at
 `StreamHttpTest` runs real HTTP against fake sources on JVM loopback:
 200/206/suffix/416/HEAD/404 + range/locate vectors).
 
+### 159. Mac build restored + first shared scheme; session handoff (2026-09-30)
+Mac app seemed "disappeared": nothing in /Applications, no products in
+DerivedData — last Xcode build's outputs were cleaned (freeze/reboot).
+Rebuilt from CLI: SwiftPM re-resolved GRDB/TDLibKit from cache, restored
+`build/GeneratedModuleMaps/MPVKit.modulemap` (gitignored; copy from
+`LocalPackages/LocalMPVKit/build/GeneratedModuleMaps/` — a fresh clone
+needs this step or a full Xcode GUI build), and created the project's
+first shared scheme `Cascade.xcodeproj/xcshareddata/xcschemes/Cascade.xcscheme`
+(there was no Mac scheme at all, only an iOS user scheme — CLI/Xcode
+builds and Test navigator need it). Full-graph `xcodebuild -scheme
+Cascade` succeeded; product is DerivedData
+`.../Build/Products/Debug/Cascade.app` (the repo `build/Debug/Cascade.app`
+copy is hollow — SYMROOT quirk, ignore it). Also deleted stray
+`Cascade.xcodeproj/-Xcc/` clang module-cache debris from the CLI builds.
+STATE FOR NEXT AGENT: Android `b8562a4` (streaming) installed on
+emulator-5554 with lastUpdateTime 2026-09-30 ~19:2x; Mac docs current;
+all suites green (Android 101 unit tests). Open loops: one `upthumb.jpg`
+left in Android UpTest folder (manual long-press→trash); Android
+`build/` + Mac `build/` are gitignored; `xcodebuild -list` hangs on this
+project (use `-scheme Cascade` builds directly).
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively

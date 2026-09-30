@@ -6614,3 +6614,12 @@ no player exists.
   local. 101 tests green, including real loopback-HTTP tests on JVM.
 - Emulator melted mid-session (qemu 223%, load 48) — cold restart fixed
   it; adb kill-server when adbd wedges.
+
+## 2026-09-30 — Mac build resurrected; handing to Antigravity
+Mac app "gone" = never installed, DerivedData cleaned. Rebuilt via CLI
+(HANDOVER §159): restored the gitignored MPVKit modulemap, created the
+first shared `Cascade` scheme (no Mac scheme existed), full-graph build
+green, ran it, user has it. Real product lives in DerivedData, not repo
+`build/`. Deleted `-Xcc` module-cache junk the CLI builds dropped inside
+the xcodeproj. Committing scheme + docs, then opening the repo in
+Antigravity for whatever comes next.
