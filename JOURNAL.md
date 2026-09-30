@@ -6545,3 +6545,25 @@ every Android share since day one.
 - Cleaned up after myself: test duplicate trashed (delta confirmed),
   library back to its pre-test state. Docs + `a8f42d0` committed same
   session.
+
+## 2026-09-30 — Android thumbnails end-to-end; the two wrong-key bugs; vanish race proven dead
+Back on the thumbnail complaint ("uploads don't create thumbnails", file
+vanished then reappeared). Full story in HANDOVER §155, Android `56c74b0`.
+
+- **Burned by stale build first**: device had the 19:17 APK, fix built
+  19:59 — an hour of "why is generate() not running" before checking
+  `lastUpdateTime`. Check it before EVERY diagnosis from now on.
+- **Two wrong-key bugs, both silent**: `inputThumbnail` file field must be
+  `"thumbnail"` (td_api.tl:5804) and TDLib `Document` names its file
+  `"document"` (td_api.tl: `document ... document:file`). Both sends and
+  reads succeeded while doing nothing — the worst kind of bug. TDLib
+  source on disk settled both in minutes; schema-locked tests added.
+- **Attach proven, not assumed**: evicted a fresh upload's thumb, cold
+  start, refetch came back 320×320 from a 1280px source — server
+  downscaled our attached preview. Fallback recovered 3 pre-fix uploads.
+- **Race test done right**: Sync-now restore overlapping a live upload,
+  35 one-second DB polls, zero dips, chunk row intact. (Two failed
+  attempts first: eyeballed screenshot coords missed Sync now by ~300px —
+  uiautomator bounds are authoritative, screenshots are for confirmation.)
+- Test uploads left in place (UpTest ×2, root ×3 upthumb.jpg) — cheap
+  regression corpus for the next thumb pass. 78 tests green.

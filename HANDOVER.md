@@ -3187,6 +3187,34 @@ decision). Navigation paths kept and verified: breadcrumb crumb tap
 (`All Files › Pictures` → root), system BackHandler (pops one folder
 level), drawer. In-folder dump shows 0 Back buttons; 72 tests green.
 
+### 155. Android: upload thumbnails end-to-end + vanish race fixed (2026-09-30, Android `56c74b0`)
+User complaint: uploads never create thumbnails; an uploaded file vanished
+for seconds then reappeared. Four root causes, all fixed and verified live:
+1. Android `UploadEngine` never generated/attached previews (Mac
+`generateThumbnails` + `thumbnailPath` parity) — new `core/ThumbGen.kt`
+(≤512px JPEG for images/video frames), attached to every chunk send,
+cached to `cache/thumbs/<id>.jpg` + `ThumbnailService.bump()` before
+delta publish; failure cleanup deletes remote chunks, rows, staging.
+2. `sendDocumentLocal` built `inputThumbnail` with file field `"file"` —
+TDLib schema is `inputThumbnail thumbnail:InputFile ...` (td_api.tl:5804),
+so the send succeeded but the chunk carried no preview. Fixed + locked by
+`SendDocumentThumbnailTest`.
+3. Sweep fallback read `content.document.file.id` — TDLib `Document` names
+its file field `"document"` (td_api.tl: `document ... document:file`).
+Fixed `documentFileIdOfMessage`; locked by `ThumbnailExtractTest`.
+4. Vanish: `CatalogSnapshotRestore.restore()` read local rows BEFORE the
+slow channel fetch, then `deleteAllForVault`+`saveAll` wiped rows inserted
+concurrently by an in-flight upload. All local reads/adoption/writes now
+inside one `db.withTransaction` (Room serializes writers). Also:
+`ThumbnailService.tick`/`fetchNow` targeted fetch (no more silent 30s
+give-up), `FileThumb` 90s tick-driven poll, failure logs everywhere.
+Verified on-device: new uploads render thumbs instantly; evict + cold
+start refetches (320px file = server-downscaled attached preview, source
+was 1280px — attach path proven); 3 pre-fix uploads recovered via
+fallback; Sync-now restore overlapping an upload 35/35 DB polls stable +
+chunk row intact. 78 tests green. Stale-build lesson (again): installed
+APK was 19:17, fix built 19:59 — check `lastUpdateTime` before diagnosing.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
