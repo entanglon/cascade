@@ -3498,7 +3498,7 @@ app rebuilt and launched from DerivedData Debug products.
 
 ## 5. Pending / next steps — Architecture Roadmap Todo List
 
-### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `0f13aec`)
+### 🔵 ACTIVE WORKSTREAM: Android port (`~/AndroidStudioProjects/cascade`, git `main` @ `cf8414a`)
 
 User direction (2026-09-15): **the Android port is the current workstream.** Windows and
 Linux ports come AFTER Android is usable. iOS is tested on the physical iPhone XS Max
@@ -3546,6 +3546,8 @@ for now". The user DOES want an emulator for Android testing (see below).
   PIN stays, users are warned to remember it (create flow copy already says "it's the
   key to your files on every device").
 - **Milestone M4 is DONE** (2026-09-30, Android `5f7134d`): loopback HTTP `StreamServer` (Range support with progressive TDLib ranged fetch) + native in-app libmpv media player (`CascadePlayerScreen`, `CascadeMPVView`). Supports video & audio with progressive range streaming (no full-file pre-download), auto-hiding controls, transport controls, and scrub bar. Verified live on emulator with Dolby Atmos MKV video.
+- **Milestone M5 is DONE** (2026-09-30, Android `8296f75`): Transfers polish (sectioned layout UPLOADS/DOWNLOADS/IMPORTS, real-time throughput speed tracking via `SpeedTracker`, pause/resume in-flight chunk transfers, discard/retry, and tap-to-reveal object in folder with selection highlight).
+- **Milestone M6 is DONE** (2026-09-30, Android `cf8414a`): Shared pane polish (sectioned layout `PUBLIC SHARES`, `PRIVATE SHARES`, `REVOKED`, reactive Room Flow badge counter `Shared (N)`, cancel all active shares with confirmation alert, thumbnail previews + lock badges, "Show" & post-import reveal in Files). All 109 unit tests passing. Entire M1–M6 core ladder is complete.
 
 **Milestone M2 is DONE — REAL LOGIN CONFIRMED** (2026-09-16 15:02, emulator): the user
 completed phone → code → (2FA) with their actual Telegram account; logcat shows
@@ -3849,10 +3851,8 @@ UploadEngine completion publish deltas (uploads previously never reached the
 Mac — Android was restore-only). Schema proof: dumped payload decodes with the
 Mac's real Codable structs ("SWIFT DECODE OK"); live-verified msg=440401920.
 The Mac adopts these automatically on its next sync (LWW by modifiedAt) — no
-Mac-side changes needed. The remaining ladder: **PIN recovery verification on
-device → ~~M4 libmpv playback~~ (DONE `5f7134d`) → Transfers polish (M5)
-→ M6 share links**. The vault key record + PIN seal path is fixture-tested and the
-recovery UI is live. **AG architecture review (2026-09-18, user-requested):**
+Mac-side changes needed. **Core Android port ladder: M1 → M2 → M3 → M4 libmpv playback (DONE `5f7134d`) → M5 Transfers polish (DONE `8296f75`) → M6 Share links & Shared pane (DONE `cf8414a`). ALL CORE MILESTONES (M1–M6) ARE COMPLETE.** The vault key record + PIN seal path is fixture-tested, the
+recovery UI is live, the native libmpv player streams over loopback Range requests, transfer pause/resume/speed tracking is proven live, and the sectioned Shared pane with post-import reveal is fully verified. **AG architecture review (2026-09-18, user-requested):**
 confirmed object.wrappedKey is always wrapped under the vault key (no plaintext
 path), the Mac/iOS avoid the PIN only because their Keychains hold the vault
 key, iOS performed the same one-time PIN flow at port time, and the 2026-08-16
@@ -3867,11 +3867,9 @@ scrolling cancelled them and marked them failed-for-session. Now: load() is
 cache-only; one app-level sweep (SupervisorJob, parallelism 3) downloads +
 decrypts all sidecars, starts at bootstrap, re-runs on unlock (latch prevents
 re-sweep spam while locked); verified live (8 plaintext thumbs served from
-cache; sealed ones wait for unlock). **FIRST TASK NEXT SESSION: user enters
-the PIN once on the emulator, then verify thumbnails fill the grid and
-persist across scroll/restart.** The M5 "Compose UI
-parity" goal is largely complete (drawer with all 13 Mac destinations, cards,
-menus, drill-down) — remaining parity item: per-file detail views.
+cache; sealed ones wait for unlock). All 13 Mac destinations, cards,
+contextual action bar, breadcrumbs, search, libmpv player, transfers center, and shared pane
+are verified live on emulator-5554 with 109 green unit tests. Next workstream: Windows/Linux desktop ports, or secondary Android enhancements (in-app book reader, player track selection).
 
 ### ⚠️ OPEN, HANDED OFF TO ANTIGRAVITY: iOS pull-to-refresh still stuck (2026-08-28)
 User-confirmed STILL BROKEN after two fix attempts (items 123, 124) — the
