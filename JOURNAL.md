@@ -6597,3 +6597,20 @@ pulled down hash-clean and offered Open-with. Reminder for next media
 bug: check what the Mac SENDS first (`sendFile` kind switch), then what
 Android READS — the two sides drifted here because each was written
 against documents-only assumptions.
+
+## 2026-09-30 — Android streams now (loopback HTTP + ranged fetch)
+User caught it: Android downloaded the whole video before playing; Mac
+streams. `b8562a4` (HANDOVER §158, PORT_RULES R8): `StreamServer` (Range
+in full), `StreamPolicy` (Mac predicates), `StreamService` (fg service so
+VLC/Photos outlives us), tap-to-play wiring with download fallback when
+no player exists.
+- Verification war stories: (1) Photos' ExoPlayer cache kept faking
+  "instant playback" — `pm clear` it AND wipe our TDLib file or the test
+  proves nothing; (2) first implementation starved tail seeks (spinner
+  forever at 58%) because sequential download can't serve mkv cues —
+  TDLib's offset/limit parts (Mac's exact mechanism) fixed it;
+  (3) inline hashing stalled sockets past ExoPlayer's read timeout —
+  verify off-path now. Final proof: scrubber 0:28/2:43 with 22/507 MB
+  local. 101 tests green, including real loopback-HTTP tests on JVM.
+- Emulator melted mid-session (qemu 223%, load 48) — cold restart fixed
+  it; adb kill-server when adbd wedges.

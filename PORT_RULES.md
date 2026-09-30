@@ -84,6 +84,24 @@ Android violated this by reading only `messageDocument` — Mac-shared
 videos failed with "no document". Thumbnails likewise: `messageVideo`
 carries `video.thumbnail`.
 
+## R8 — Media streams; it is never assembled first
+`Engine/VaultStreamServer.swift`, `Engine/VideoStreamingEngine.swift`,
+`Features/TheaterView.swift:1337-1385`. Tapping a video/audio object
+(`Models.swift` `isVideo`/`isAudio` — same predicates as R8's Android
+`StreamPolicy`) plays via a loopback HTTP server
+(`http://127.0.0.1:<ephemeral>/stream/<objectID>`), never a full
+download: full Range support (`bytes=N-`, `N-M`, `-N` suffix → 206;
+bad → 416; HEAD; `Accept-Ranges`), progressive on-demand slices
+(`VideoStreamingEngine.plaintextSliceStream`, 1 MB via TDLib
+`downloadFile(offset, limit, synchronous: true)` — ranged parts land at
+their original offset in the persistent local file; a new offset/limit
+supersedes an in-flight request, so ranges serialize per file), no auth
+(loopback + random port + unguessable id). Images/PDF/text/other are
+download-then-open. Android differences, both deliberate: the player is
+external (ACTION_VIEW — no embedded mpv exists on Android) kept alive by
+a mediaPlayback foreground service, and stream slices skip hash checks
+(Mac doesn't verify them either; full downloads still do).
+
 ## R6 — Thumbnails ride on chunk messages (vault ≠ photo messages)
 `Engine/UploadEngine.swift` (`generateThumbnails` + `thumbnailPath` on
 every chunk): the vault stores chunks as plain documents and Telegram

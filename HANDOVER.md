@@ -3253,6 +3253,27 @@ non-private videos as real Telegram video messages (`TelegramClient:1459`
 downloaded fully (hash-verified, 484 MB) and raised the system Open-with
 sheet. 90 tests green.
 
+### 158. Android: true streaming — loopback HTTP + ranged TDLib fetch (2026-09-30, Android `b8562a4`)
+User: "is the app downloading this video instead of streaming it like
+macOS?" Yes, it was — full 484 MB assembly before Open. Now Mac parity
+(PORT_RULES R8): tapping video/audio hands an external player
+`http://127.0.0.1:<ephemeral>/stream/<id>` immediately; new
+`core/StreamServer.kt` serves full Range semantics (200/206/416/HEAD,
+`Accept-Ranges`) with bytes pulled on demand via synchronous TDLib
+`downloadFile(offset, limit)` parts (Mac fetchRangeData mechanism —
+including the per-file serialization rule, since a new offset
+supersedes), never assembled first; `core/StreamPolicy.kt` mirrors Mac
+`isVideo`/`isAudio`; `core/StreamService.kt` (mediaPlayback foreground
+service) keeps the server alive when the player is foreground.
+Two bugs found by testing, both fixed: (1) first version downloaded
+whole files sequentially and starved tail seeks (mkv cues/mp4 moov) —
+spinner forever; (2) inline whole-chunk hashing stalled sockets past
+players' ~8 s read timeouts — verify moved off-path (full downloads
+still check). Proof on device, cold cache both sides: Photos scrubber at
+0:28/2:43 with only 22 MB of 507 MB local. 101 tests green (new
+`StreamHttpTest` runs real HTTP against fake sources on JVM loopback:
+200/206/suffix/416/HEAD/404 + range/locate vectors).
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
