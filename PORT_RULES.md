@@ -69,6 +69,21 @@ fail — the new file is silently renamed `icon (1).png`, then
 `App/AppState.swift:2059`, `:2212`. Creating "New Folder" twice saves the
 name verbatim both times. (Exception: folder *import* uniques via R2.)
 
+## R7 — Chunk messages come in three content types; readers must speak all
+`Telegram/TelegramClient.swift:1440-1490` (`sendFile`), `:718-745`
+(`MediaKind`, `primaryFile`). Single-chunk, non-private videos go out as
+real Telegram video messages (`inputMessageVideo`, `supportsStreaming:
+true`); everything else — multi-chunk video, private video, photos, docs —
+goes out as plain documents (`inputMessageDocument`,
+`disableContentTypeDetection: true`, so TDLib never re-types .mp3→audio
+or images→photos). Readers must therefore extract the stored file per
+type, exactly like Mac `primaryFile`: document → `document.document`,
+video → `video.video`, photo → widest of `photo.sizes`, audio →
+`audio.audio` (defensive; TDLib auto-conversion makes these appear).
+Android violated this by reading only `messageDocument` — Mac-shared
+videos failed with "no document". Thumbnails likewise: `messageVideo`
+carries `video.thumbnail`.
+
 ## R6 — Thumbnails ride on chunk messages (vault ≠ photo messages)
 `Engine/UploadEngine.swift` (`generateThumbnails` + `thumbnailPath` on
 every chunk): the vault stores chunks as plain documents and Telegram

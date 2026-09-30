@@ -6586,3 +6586,14 @@ verbatim per R5. Import rootHash dedupe already matched. 84 green.
   swallow synthetic long-press; list rows answer ~40% of the time) +
   uiautomator dump exact bounds + verify "N selected" from the dump after
   every tap. Screenshots are confirmation only, never measurement.
+
+## 2026-09-30 — Mac-shared video wouldn't open on Android (messageVideo)
+User's words: imported fine, "Download failed" on open. The toast named
+the culprit (`content is messageVide…`): Mac sends single-chunk videos as
+native video messages and Android only spoke document. Mac's own
+`primaryFile` had the full type matrix; Android now mirrors it
+(`2f817d2`, PORT_RULES R7, 5+1 tests). Live proof: the 484 MB Rings file
+pulled down hash-clean and offered Open-with. Reminder for next media
+bug: check what the Mac SENDS first (`sendFile` kind switch), then what
+Android READS — the two sides drifted here because each was written
+against documents-only assumptions.

@@ -3239,6 +3239,20 @@ never, list ~40%); List view + uiautomator exact bounds is the working
 recipe. Automation lesson: trust dump bounds, never eyeballed screenshot
 coords (missed Sync now by ~300px twice).
 
+### 157. Android: open Mac-shared videos — messageVideo support (2026-09-30, Android `2f817d2`)
+User shared a 484 MB .mkv Mac→Android: import OK, open failed "message
+59574845440 content is messageVide…". Root cause: Mac sends single-chunk
+non-private videos as real Telegram video messages (`TelegramClient:1459`
+`inputMessageVideo`, streaming), while Android `DownloadEngine` only read
+`messageDocument`. Fix mirrors Mac `primaryFile` exactly: document →
+`document.document`, video → `video.video`, photo → widest of
+`sizes[]`, audio → `audio.audio` (new PORT_RULES R7); plus the missing
+`messageVideo` branch in the sweep's attached-thumb reader and a clearer
+"no downloadable file" error. Locked by `DownloadContentTypesTest` (5)
++ a video case in `ThumbnailExtractTest`. Verified live: the Rings file
+downloaded fully (hash-verified, 484 MB) and raised the system Open-with
+sheet. 90 tests green.
+
 ### 142. Flux player ports: hwdec auto-safe, reconnect insurance, Flux buffer profile (2026-09-26)
 
 User asked why Cascade needs VaultStreamServer when mpv does HTTP natively
