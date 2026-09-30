@@ -130,3 +130,13 @@ must attach a locally generated JPEG to every chunk. Android parity:
   retains selection across destination switching, opening the folder with the
   card highlighted ("1 selected").
 
+## R10 — Shared pane & share links: sectioned layout, cancel all, thumbnails, lock badges, and post-import reveal
+`Features/ShareManagerView.swift`, `Cascade iOS/RootView.swift` (`SharedView`), `Engine/ShareEngine.swift`.
+- Sectioned layout: Shared pane displays outgoing shares grouped into `PUBLIC SHARES (N)`, `PRIVATE SHARES (N)`, and `REVOKED (N)` sections with section header count badges.
+- Dynamic count badge: The navigation title or top bar displays the active share count (`Shared (N)`), updated reactively via database Flow observation (`sharesDao().observeOutgoing()`).
+- Cancel all active shares: When multiple active shares exist, a "Cancel all" button is available with a confirmation alert ("Cancel all active shares? Every active share link will be revoked..."). Confirming executes `ShareEngine.revokeAll()`.
+- Thumbnail previews & lock badges: Each share card displays the file's thumbnail preview (or file extension icon) accompanied by an indicator lock badge in the corner (green open/unlocked lock for public shares, orange locked padlock for private shares).
+- Tap-to-reveal: Each card features a "Show" action (linking to `onRevealObject`) navigating directly to the file in `ALL_FILES` or `LOCKED` with selection highlight active.
+- Post-import reveal: Importing a share link via `ImportDialog` provides a "Show in Files" action upon completion (new import, already existing, or self-open) linking directly to `onRevealObject(targetObjectID)`.
+
+

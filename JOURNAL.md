@@ -6640,4 +6640,14 @@ User requested native Cascade player integration on Android. `5f7134d` (HANDOVER
 - Tap-to-reveal navigation: Added `onRevealObject` callback with `pendingRevealId` in `HomeScreen.kt`. Completed cards feature a "Show" action (or card tap) that switches to `ALL_FILES` or `LOCKED`, navigates to parent folder, and highlights the target file card ("1 selected").
 - Live verification on `emulator-5554`: Verified "Clear finished", completed card rendering under `DOWNLOADS (1)`, and verified tapping "Show" on `Rings - Dolby Atmos - 16-9.mkv` successfully navigated to All Files with selection highlight active ("1 selected"). All 109 unit tests pass.
 
+## 2026-09-30 — Android M6: Shared pane polish (sections, cancel all, thumbnails, lock badge, tap-to-reveal)
+`cf8414a` (HANDOVER §254, PORT_RULES R10):
+- Sectioned layout: Refactored `SharedPane` with sections matching macOS `ShareManagerView` and iOS `SharedView`: `PUBLIC SHARES`, `PRIVATE SHARES`, and `REVOKED` with dynamic count badges, empty states, and top action bar.
+- Reactive count badge: Replaced polling with `db.sharesDao().observeOutgoing().collectAsStateWithLifecycle()` sorted by `createdAt DESC`. Top bar and drawer destinations immediately reflect active share count (`Shared (N)`).
+- Cancel all active shares: Added top action button appearing when multiple active shares exist. Tapping prompts confirmation dialog ("Cancel all active shares? Every active share link will be revoked..."), executing `ShareEngine.revokeAll(context)`.
+- Thumbnails & lock badges: Each share card resolves the object via `FileThumb` (or category icon) with lock indicator badge in corner (green open `LockOpen` for public, orange `Lock` for private). Added per-card "Show", "Copy", "Revoke", and "Delete" (for cleaning revoked records).
+- Tap-to-reveal & post-import reveal: Wired `onRevealObject` on share cards ("Show" button) and in `ImportDialog` ("Show in Files" button on import success/existing/self-open), automatically opening parent folder in `ALL_FILES` or `LOCKED` and highlighting the item ("1 selected").
+- Unit tests & live verification: Added tests for invite link plus-sign preservation and multi-file group manifests in `ShareLinkTest.kt`. Verified on `emulator-5554`: badge count updated to `Shared 3`, sections displayed `PRIVATE SHARES (3)` and `REVOKED (1)`, tapping "Show" on `Rings - Dolby Atmos - 16-9.mkv` navigated and highlighted in All Files, and pasting/importing the share link offered "Show in Files" and successfully revealed the object.
+
+
 
