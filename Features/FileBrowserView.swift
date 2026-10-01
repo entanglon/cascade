@@ -2709,7 +2709,7 @@ struct FileItemContextMenu: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.prompt = "Export"
-        panel.message = "Choose a destination folder for the decrypted export"
+        panel.message = "Choose a destination folder for export"
         guard panel.runModal() == .OK, let dest = panel.url else { return }
 
         let itemCount = ids.count

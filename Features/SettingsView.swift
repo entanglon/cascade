@@ -732,7 +732,7 @@ struct SettingsView: View {
                             Text("Export Vault to Local Folder")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.9))
-                            Text("Download and decrypt all cloud files to a local directory")
+                            Text("Download all cloud files to a local directory")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.white.opacity(0.45))
                         }

@@ -1198,7 +1198,7 @@ enum ShareEngine {
             // link can only have been minted by an old encrypted build.
             if link.isPasswordProtected {
                 throw ShareError.createFailed(
-                    "This link is password-protected by an older, encrypted version of the app and can no longer be imported."
+                    "This link is password-protected by an older version of the app and can no longer be imported."
                 )
             }
 
@@ -1241,7 +1241,7 @@ enum ShareEngine {
                 let rewrappedKey: Data?
                 if let wrappedKeyForFile, !wrappedKeyForFile.isEmpty {
                     throw ShareError.createFailed(
-                        "This link was created by an older, encrypted version of the app and can no longer be imported. Ask the sender to re-share from the current version."
+                        "This link was created by an older version of the app and can no longer be imported. Ask the sender to re-share from the current version."
                     )
                 } else {
                     rewrappedKey = nil

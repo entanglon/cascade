@@ -6017,7 +6017,7 @@ struct LoginGateView: View {
                     }
                     if !appState.hasTelegramCredentials {
                         VStack(spacing: 16) {
-                            Text("Connect your Telegram account to access your encrypted vault.")
+                            Text("Connect your Telegram account to access your cloud library.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)

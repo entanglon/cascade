@@ -33,12 +33,12 @@ struct AboutView: View {
             }
 
             VStack(spacing: 4) {
-                Text("Zero-Knowledge Cloud Storage")
+                Text("Personal Cloud Storage")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
 
-                Text("Client-side encrypted • Native MPV media engine")
+                Text("High-performance personal drive • Native MPV media engine")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.45))
                     .multilineTextAlignment(.center)
