@@ -5,7 +5,7 @@
 <h1 align="center">Cascade</h1>
 
 <p align="center">
-  <strong>Native macOS cloud storage with instant media streaming, powered by Telegram.</strong>
+  <strong>Fast, native personal cloud storage and media streaming client for macOS.</strong>
 </p>
 
 <p align="center">
@@ -21,9 +21,9 @@
 
 ## Overview
 
-**Cascade** is a native macOS cloud storage client engineered for speed, fluid navigation, and instant media playback. It utilizes Telegram's distributed cloud infrastructure as a durable, unlimited storage backbone.
+**Cascade** is a native macOS personal cloud storage client engineered for speed, fluid navigation, and instant media playback. It connects to your Telegram account via open TDLib/MTProto protocol to serve as a personal file drive and media streamer.
 
-Files are cataloged locally in high-performance SQLite storage and uploaded using uniform **~1.9 GiB chunks**, engineered specifically to fit comfortably beneath Telegram's 2 GB document upload limit while minimizing message overhead and maximizing transfer throughput.
+Files are cataloged locally in high-performance SQLite storage and uploaded using uniform **~1.9 GiB chunks**, engineered specifically to fit comfortably beneath the 2 GB document upload limit while minimizing message overhead and maximizing transfer throughput.
 
 ---
 

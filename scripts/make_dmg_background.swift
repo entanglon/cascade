@@ -80,7 +80,7 @@ let wordmark = NSFont.systemFont(ofSize: 46, weight: .bold)
 drawCentered("Cascade", y: 318, font: wordmark, color: NSColor.white)
 
 let tagline = NSFont.systemFont(ofSize: 13, weight: .regular)
-drawCentered("Your private cloud — powered by Telegram", y: 288, font: tagline, color: NSColor(calibratedWhite: 0.62, alpha: 1.0))
+drawCentered("Your private cloud with instant media streaming", y: 288, font: tagline, color: NSColor(calibratedWhite: 0.62, alpha: 1.0))
 
 // ---- Icon slots ----
 // App icon slot center: (170, 125); Applications slot center: (490, 125)

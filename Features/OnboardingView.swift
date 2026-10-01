@@ -22,7 +22,7 @@ struct OnboardingView: View {
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(.white)
 
-                Text("Unlimited personal cloud storage powered by Telegram")
+                Text("Unlimited personal cloud storage and instant media streaming")
                     .font(.system(size: 14))
                     .foregroundStyle(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
