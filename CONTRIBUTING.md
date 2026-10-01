@@ -11,12 +11,13 @@ Thank you for your interest in contributing to **Cascade**! We welcome bug repor
 - **Xcode 16.0+** with Command Line Tools installed (`xcode-select --install`)
 - Active git setup
 
-### 2. Fork and Clone
-1. Fork the repository to your own GitHub account:
+### 2. Clone and Setup
+1. Clone the repository locally:
    ```bash
-   git clone https://github.com/<your-username>/cascade.git
+   git clone https://github.com/entanglon/cascade.git
    cd cascade
    ```
+   *(If you are contributing via a fork, fork the repo on GitHub and add your fork as a remote: `git remote add fork <your-fork-url>`)*
 2. Verify you can build the scheme cleanly from your terminal:
    ```bash
    xcodebuild -project Cascade.xcodeproj -scheme Cascade -destination 'platform=macOS' build
