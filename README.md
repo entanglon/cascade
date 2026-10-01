@@ -35,10 +35,10 @@ Cascade is designed natively for each operating system:
 | Platform | Status | Distribution | Minimum Version | Architecture |
 | :--- | :--- | :--- | :--- | :--- |
 | **macOS** | **Public Beta (Available Now)** | [DMG (Direct)](https://github.com/entanglon/cascade/releases) / Sparkle OTA | macOS 15.0+ | Universal (`arm64` + `x86_64`) |
-| **iOS / iPadOS** | *Launching Tomorrow* | TestFlight / IPA | iOS 17.0+ | `arm64` |
-| **Android** | *Launching Tomorrow* | APK / Google Play | Android 10+ (API 29+) | `arm64-v8a`, `armeabi-v7a`, `x86_64` |
-| **Windows** | *Launching Tomorrow* | MSIX / Installer | Windows 10 / 11 | `x64`, `ARM64` |
-| **Linux** | *Launching Tomorrow* | AppImage / Flatpak | Modern Distributions | `x86_64`, `aarch64` |
+| **iOS / iPadOS** | *Coming Soon* | Direct Sideloading (`.ipa` / AltStore / TrollStore) | iOS 17.0+ | `arm64` |
+| **Android** | *Coming Soon* | Direct Download (`.apk`) | Android 10+ (API 29+) | `arm64-v8a`, `armeabi-v7a`, `x86_64` |
+| **Windows** | *Planned* | Native Installer / MSIX | Windows 10 / 11 | `x64`, `ARM64` |
+| **Linux** | *Planned* | AppImage / Flatpak | Modern Distributions | `x86_64`, `aarch64` |
 
 ---
 
@@ -110,9 +110,14 @@ Download the latest release disk image from the [Releases](https://github.com/en
 
 > **Note for macOS Gatekeeper**: Because this is a developer beta build, if macOS displays an unidentified developer prompt on first launch, right-click (or Control-click) `Cascade.app` in Applications and select **Open**.
 
-### iOS, Android, Windows & Linux (Launching Tomorrow)
+### iOS & Android (Coming Soon)
 
-The releases for iOS, Android, Windows, and Linux will be published tomorrow. Pre-built packages (`.ipa` / TestFlight, `.apk`, `.msix`, and `.AppImage`) will be available directly on the [Releases](https://github.com/entanglon/cascade/releases) page and relevant platform app stores.
+- **iOS / iPadOS**: Pre-built `.ipa` packages will be distributed for direct sideloading (via AltStore, SideStore, TrollStore, or manual developer signing). Cascade for iOS is distributed independently outside the Apple App Store.
+- **Android**: Pre-built standalone `.apk` packages will be available directly on the [Releases](https://github.com/entanglon/cascade/releases) page.
+
+### Windows & Linux (Planned)
+
+Native desktop clients for Windows and Linux are planned on the project roadmap and will begin development following the mobile rollouts.
 
 ---
 
