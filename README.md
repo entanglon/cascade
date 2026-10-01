@@ -15,6 +15,7 @@
   <a href="#installation">Installation</a> •
   <a href="#building-from-source">Building</a> •
   <a href="#security--privacy">Security & Privacy</a> •
+  <a href="#contributing">Contributing</a> •
   <a href="#license">License</a>
 </p>
 
@@ -152,6 +153,19 @@ bash scripts/make_dmg.sh 1.2.0
 
 ---
 
-## License
+## Contributing
 
-Cascade is released under the [MIT License](LICENSE).
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for instructions on setting up the development environment, running tests, and opening Pull Requests.
+
+---
+
+## License & Legal
+
+Cascade is licensed under the **[GNU General Public License v3.0 (GPLv3)](LICENSE)** with additional terms pursuant to Section 7:
+
+- **Trademark & Brand Reservation**: All rights to the trade name "Cascade", "Entanglon", official application icons, and brand graphics are strictly reserved by Entanglon and excluded from the open-source license grant. Modified or forked versions must adopt their own distinct name, icon, and branding.
+- **Third-Party Acknowledgements**: Cascade integrates open-source components under their respective licenses:
+  - **TDLib**: [Boost Software License 1.0](https://www.boost.org/users/license.html) © Telegram FZ-LLC
+  - **libmpv**: [LGPLv2.1+ / GPLv2+](https://mpv.io) © mpv development team
+  - **GRDB.swift**: [MIT License](https://github.com/groue/GRDB.swift) © Gwendal Roué
+  - **Sparkle**: [MIT License](https://sparkle-project.org) © Andy Matuschak & Sparkle contributors
