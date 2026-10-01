@@ -681,3 +681,11 @@ Pursuant to Section 7(e) of the GNU General Public License, Version 3:
      Copyright (c) 2015-2026 Gwendal Roué
    - Sparkle: Licensed under the MIT License
      Copyright (c) 2006-2026 Andy Matuschak and Sparkle project contributors
+
+4. App Store & Digital Distribution Exception:
+   As a special exception pursuant to Section 7 of the GNU General Public
+   License, Version 3, Entanglon grants permission to convey and distribute
+   compiled binary versions of Cascade through digital application stores
+   (including the Apple App Store, Mac App Store, TestFlight, and Google Play
+   Store) under the respective store's standard terms and distribution conditions,
+   notwithstanding any restrictions or terms of this License.
