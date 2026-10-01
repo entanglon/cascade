@@ -40,24 +40,31 @@ LocalPackages/LocalMPVKit/.swiftpm/
 website/
 scratch/
 
-# Internal handovers, engineering journals, prompt specs & plans
+# Internal handovers, engineering journals, prompt specs & internal plans
 HANDOVER.md
 JOURNAL.md
 iOS_HANDOVER.md
 iOS_UI_INSTRUCTIONS.md
 SYNC_SEARCH_PLAN.md
 PORT_RULES.md
+ROADMAP.md
+TESTING.md
+PROJECT_SUMMARY.md
+DISTRIBUTION.md
+FILE_SYNC_ARCHITECTURE.md
 *HANDOVER*
 *handover*
 *JOURNAL*
 *journal*
-docs/ANTIGRAVITY*
-docs/*PLAN*
-docs/*plan*
-docs/AUDIT*
-docs/*consult*
-docs/PROBLEMS.md
-docs/STREAMING_FIX.md
+docs/
+
+# Temporary / testing screenshots & legacy unused assets
+iOS-Screenshots/
+icon.png
+Resources/
+Public/*.png
+!Public/files/
+!Public/android/
 
 # Secrets, certificates, and profiles
 *.pem

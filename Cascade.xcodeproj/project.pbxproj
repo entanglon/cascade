@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BACKUP0002 /* Resources/backup.png in Resources */ = {isa = PBXBuildFile; fileRef = BACKUP0001 /* Resources/backup.png */; };
-		CASCADE0002 /* Resources/cascade.png in Resources */ = {isa = PBXBuildFile; fileRef = CASCADE0001 /* Resources/cascade.png */; };
 		F71DD54D3023297400135A65 /* CascadeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD54C3023297400135A65 /* CascadeApp.swift */; };
 		F71DD57930232A9500135A65 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57830232A8D00135A65 /* AppState.swift */; };
 		F71DD57C30232B4500135A65 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71DD57B30232B4500135A65 /* RootView.swift */; };
@@ -48,8 +46,6 @@
 		F7F5E741304037E800CB9740 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F783B6503023365500326355 /* GRDB */; };
 		F7F5E742304037E800CB9740 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = F783B661302340F500326355 /* TDLibKit */; };
 		F7F5E743304037E800CB9740 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7C0FF00000000000000A001 /* MPVKit */; };
-		OCPNG0002 /* Resources/oc.png in Resources */ = {isa = PBXBuildFile; fileRef = OCPNG0001 /* Resources/oc.png */; };
-		PCPNG0002 /* Resources/pc.png in Resources */ = {isa = PBXBuildFile; fileRef = PCPNG0001 /* Resources/pc.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,8 +66,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		BACKUP0001 /* Resources/backup.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/backup.png; sourceTree = "<group>"; };
-		CASCADE0001 /* Resources/cascade.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/cascade.png; sourceTree = "<group>"; };
 		F71DD5493023297400135A65 /* Cascade.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cascade.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F71DD54C3023297400135A65 /* CascadeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CascadeApp.swift; sourceTree = "<group>"; };
 		F71DD5563023297500135A65 /* CascadeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CascadeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -109,8 +103,6 @@
 		F7D1B00100000000000000D1 /* ShareManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareManagerView.swift; sourceTree = "<group>"; };
 		F7D1B00100000000000000D2 /* PendingImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingImportView.swift; sourceTree = "<group>"; };
 		F7F5E729304036FB00CB9740 /* Cascade iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cascade iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		OCPNG0001 /* Resources/oc.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/oc.png; sourceTree = "<group>"; };
-		PCPNG0001 /* Resources/pc.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/pc.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -209,7 +201,6 @@
 				F71DD57330232A1600135A65 /* App */,
 				F71DD57530232A3400135A65 /* Design */,
 				F71DD57730232A5800135A65 /* Features */,
-				F7F5E5553040369E00CB9740 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -276,17 +267,6 @@
 				F7C3CC00000000000000D000 /* VersionsSheet.swift */,
 			);
 			path = Features;
-			sourceTree = "<group>";
-		};
-		F7F5E5553040369E00CB9740 /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				PCPNG0001 /* Resources/pc.png */,
-				OCPNG0001 /* Resources/oc.png */,
-				BACKUP0001 /* Resources/backup.png */,
-				CASCADE0001 /* Resources/cascade.png */,
-			);
-			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -454,10 +434,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				PCPNG0002 /* Resources/pc.png in Resources */,
-				OCPNG0002 /* Resources/oc.png in Resources */,
-				BACKUP0002 /* Resources/backup.png in Resources */,
-				CASCADE0002 /* Resources/cascade.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

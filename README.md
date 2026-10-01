@@ -5,7 +5,7 @@
 <h1 align="center">Cascade</h1>
 
 <p align="center">
-  <strong>Zero-knowledge, client-side encrypted cloud storage with native media streaming, powered by Telegram.</strong>
+  <strong>Native macOS cloud storage with instant media streaming, powered by Telegram.</strong>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <a href="#architecture">Architecture</a> •
   <a href="#installation">Installation</a> •
   <a href="#building-from-source">Building</a> •
-  <a href="#security">Security</a> •
+  <a href="#security--privacy">Security & Privacy</a> •
   <a href="#license">License</a>
 </p>
 
@@ -21,40 +21,40 @@
 
 ## Overview
 
-**Cascade** is a native macOS cloud storage client engineered for speed, privacy, and media performance. It leverages Telegram's distributed infrastructure as an unlimited, durable storage layer while maintaining strict **zero-knowledge, client-side encryption**. 
+**Cascade** is a native macOS cloud storage client engineered for speed, fluid navigation, and instant media playback. It utilizes Telegram's distributed cloud infrastructure as a durable, unlimited storage backbone.
 
-Your files are chunked, encrypted, and cataloged locally before uploading. Telegram only ever sees opaque, encrypted ciphertext.
+Files are cataloged locally in high-performance SQLite storage and uploaded using uniform **~1.9 GiB chunks**, engineered specifically to fit comfortably beneath Telegram's 2 GB document upload limit while minimizing message overhead and maximizing transfer throughput.
 
 ---
 
 ## Features
 
-- 🔐 **Zero-Knowledge Encryption**  
-  Every file, chunk, and thumbnail is encrypted client-side using **AES-256-GCM** with keys managed via the macOS Keychain. Telegram has zero access to your filenames, metadata, or file content.
-
 - 🎬 **Native MPV Media Engine**  
-  Built with a custom libmpv engine for hardware-accelerated playback of 4K HDR (AV1, HEVC, H.264), lossless audio (FLAC, ALAC, Opus), and advanced subtitle rendering (ASS/SSA, SRT, VTT).
+  Built-in custom `libmpv` media pipeline for hardware-accelerated playback of 4K HDR (AV1, HEVC, H.264), lossless audio (FLAC, ALAC, Opus), and advanced subtitle rendering (ASS/SSA, SRT, VTT).
 
 - ⚡️ **Instant Byte-Range Cloud Streaming**  
-  Stream videos and music directly from the cloud without waiting for full downloads, powered by an internal loopback HTTP range server.
+  Stream videos and audio files directly from your cloud storage without waiting for full downloads. Cascade's internal loopback HTTP range server (`VaultStreamServer`) serves virtual byte ranges directly to the media engine for zero-wait seeking and scrubbing.
+
+- 📦 **Uniform ~1.9 GiB Chunking**  
+  Large files are partitioned into uniform ~1.9 GiB chunks, maximizing Telegram's single-document ceiling while minimizing message count. Small and medium files under 1.9 GiB upload as single, intact documents. Resumes are handled reliably at internal part granularity via TDLib.
 
 - 🔍 **Finder-Grade Across-App Search**  
   Search instantly across all folders, subfolders, media categories, books, and documents. Includes Finder-style scope toggling (`Everywhere` vs. `Current Folder`), breadcrumb path tags, and "Show in Enclosing Folder".
 
 - 🛡️ **Private Vault**  
-  A dedicated locked partition protected by Touch ID, Face ID, or a master PIN. Hidden from the main library and search until explicitly unlocked.
+  A dedicated locked partition protected by Touch ID, Face ID, or a master PIN. Hidden from the main library and search until explicitly unlocked. PIN verification is backed by PBKDF2-HMAC-SHA256 (600,000 iterations) with exponential attempt backoff.
 
 - 📚 **Integrated Readers & Collections**  
   Built-in EPUB and PDF reader with reading progress tracking, alongside smart categories for **Photos**, **Videos**, **Audio**, **Documents**, and **Books**.
 
-- 📝 **Encrypted Notes**  
-  A fast, Google Keep-style encrypted note-taking space with Markdown preview, auto-detected links, and tag filtering.
+- 📝 **Integrated Notes**  
+  A fast, lightweight note-taking space with Markdown preview, auto-detected links, and tag filtering.
 
 - 💾 **Adaptive Offline Cache & Pinning**  
   Mark files or entire folders with **"Keep Downloaded"** for offline access. The engine includes an adaptive LRU cache that respects system disk pressure.
 
 - 🎨 **Liquid Glass macOS Interface**  
-  Engineered specifically for macOS with interactive liquid glass controls, dynamic dark/light Dock tile switching, and keyboard navigation.
+  Engineered specifically for macOS with interactive liquid glass controls, dynamic dark/light Dock tile switching, and keyboard navigation. Automatically adapts to standard translucent system materials on any display or hardware profile.
 
 ---
 
@@ -62,21 +62,21 @@ Your files are chunked, encrypted, and cataloged locally before uploading. Teleg
 
 ```mermaid
 graph TD
-    A["Local Files / Dropped Assets"] --> B["ChunkPlanner (64MB - 256MB)"]
-    B --> C["Crypto Engine (AES-256-GCM)"]
-    C --> D["TelegramClient (TDLib)"]
-    D --> E["Private Telegram Vault Channel"]
+    A["Local Files / Dropped Assets"] --> B["ChunkPlanner (Uniform ~1.9 GiB)"]
+    B --> C["UploadEngine / TDLib Client"]
+    C --> D["Private Telegram Storage Channel"]
 
-    E -.->|Byte-Range Streaming| F["VaultStreamServer (HTTP Loopback)"]
-    F --> G["MPV Video / Audio Engine"]
+    D -.->|Byte-Range Streaming| E["VaultStreamServer (HTTP Loopback)"]
+    E --> F["MPV Media Engine (Video / Audio)"]
     
-    C --> H["Local SQLite Catalog (GRDB)"]
-    H --> I["Cascade SwiftUI Interface"]
+    B --> G["Local SQLite Catalog (GRDB)"]
+    G --> H["Cascade SwiftUI Interface"]
 ```
 
-- **Transfer Engines**: `UploadEngine` and `DownloadEngine` manage concurrent chunk transfers, resume on interrupt, and handle automatic retry on network changes.
-- **Local Catalog**: Stored in an encrypted SQLite database via **GRDB**, syncing metadata snapshots back to the vault channel for cross-device consistency.
-- **Streaming Pipeline**: `VaultStreamServer` serves virtual HTTP byte ranges straight into `libmpv`, providing scrub scrubbing without downloading multi-gigabyte files.
+- **Chunk Management**: `ChunkPlanner` determines document boundaries with a uniform `1,900 MiB` safe ceiling.
+- **Transfer Engines**: `UploadEngine` and `DownloadEngine` manage concurrent transfers, TDLib-backed resumes, and automatic network retry.
+- **Local Catalog**: Stored in a local SQLite database via **GRDB**, providing instant search, tagging, folder hierarchy navigation, and offline metadata access.
+- **Streaming Pipeline**: `VaultStreamServer` serves virtual HTTP byte ranges straight into `libmpv`, enabling instant scrubbing through multi-gigabyte media without downloading the whole file.
 
 ---
 
@@ -96,7 +96,7 @@ Download the latest release disk image from the [Releases](https://github.com/en
 
 ### Prerequisites
 
-- macOS 14.0 or later
+- macOS 15.0 or later
 - Xcode 16.0 or later with Command Line Tools
 - [create-dmg](https://github.com/create-dmg/create-dmg) (optional, for packaging installer disk images)
 
@@ -114,12 +114,11 @@ bash scripts/make_dmg.sh 1.2.0
 
 ---
 
-## Security Model
+## Security & Privacy
 
-1. **Client-Side Only**: Cryptographic keys are generated locally on device and stored securely in the macOS Keychain.
-2. **Encrypted at Rest**: All file chunks, catalog snapshots, and thumbnail sidecars uploaded to Telegram channels are encrypted with authenticated AES-256-GCM.
-3. **Biometric Protection**: Vault unlock relies on the LocalAuthentication framework (Touch ID / Face ID) backed by the Secure Enclave.
-4. **Hardened Runtime**: Ships with macOS Hardened Runtime enabled for tamper resistance.
+1. **Keychain Storage**: Telegram credentials and vault authentication credentials are stored locally in the macOS Keychain using `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`.
+2. **Biometric Protection**: Vault unlock uses the LocalAuthentication framework (Touch ID / Face ID) backed by the Secure Enclave, with exponential backoff on repeated PIN failures.
+3. **Hardened Runtime**: Built with macOS Hardened Runtime enabled for code-signing tamper resistance.
 
 ---
 
