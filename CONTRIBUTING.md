@@ -83,5 +83,6 @@ To ensure that Cascade can be safely distributed to users worldwide across all p
 
 If you discover a security vulnerability or sensitive bug:
 - **Do not open a public issue.**
-- Please send details privately to: **contact@entanglon.com** or reach out directly to the core maintainers.
+- Please send details privately to: **entanglonlabs+security@gmail.com** or reach out directly to the core maintainers.
+- For general inquiries or questions regarding Cascade, contact **entanglonlabs+contact@gmail.com**.
 - We will acknowledge receipt within 48 hours and work with you on a timely resolution prior to public disclosure.
