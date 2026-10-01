@@ -864,13 +864,27 @@ struct SettingsView: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 2) {
-            Text("Cascade")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.35))
-            Text(versionString)
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.25))
+        VStack(spacing: 8) {
+            Button {
+                UpdateManager.shared.checkForUpdates()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("Check for Updates…")
+                }
+                .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.xGlass)
+            .disabled(!UpdateManager.shared.canCheckForUpdates)
+
+            VStack(spacing: 2) {
+                Text("Cascade")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.35))
+                Text(versionString)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 4)

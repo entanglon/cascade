@@ -75,6 +75,11 @@ struct CascadeApp: App {
             }
 
             CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    UpdateManager.shared.checkForUpdates()
+                }
+                .disabled(!UpdateManager.shared.canCheckForUpdates)
+
                 Button("Settings...") {
                     appState.showSettings = true
                 }

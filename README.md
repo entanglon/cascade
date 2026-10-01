@@ -53,6 +53,9 @@ Files are cataloged locally in high-performance SQLite storage and uploaded usin
 - 💾 **Adaptive Offline Cache & Pinning**  
   Mark files or entire folders with **"Keep Downloaded"** for offline access. The engine includes an adaptive LRU cache that respects system disk pressure.
 
+- 🔄 **Over-the-Air Updates (Sparkle 2)**  
+  Built-in seamless automatic updates powered by Sparkle 2 with Ed25519 cryptographic signature verification. Check for updates directly from the app menu or Settings.
+
 - 🎨 **Liquid Glass macOS Interface**  
   Engineered specifically for macOS with interactive liquid glass controls, dynamic dark/light Dock tile switching, and keyboard navigation. Automatically adapts to standard translucent system materials on any display or hardware profile.
 

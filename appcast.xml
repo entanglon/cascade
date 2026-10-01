@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+    <channel>
+        <title>Cascade Updates</title>
+        <link>https://raw.githubusercontent.com/entanglon/cascade/main/appcast.xml</link>
+        <description>Over-the-air updates for Cascade for macOS by Entanglon.</description>
+        <language>en</language>
+        <!-- Universal: macOS 15.0+ through macOS 26+ -->
+        <item>
+            <title>Cascade 1.2.0 (macOS Beta)</title>
+            <sparkle:releaseNotesLink>https://github.com/entanglon/cascade/releases/tag/v1.2.0-beta.1</sparkle:releaseNotesLink>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <pubDate>Thu, 01 Oct 2026 13:28:59 +0000</pubDate>
+            <enclosure url="https://github.com/entanglon/cascade/releases/download/v1.2.0-beta.1/Cascade-1.2.0.dmg" length="108812718" sparkle:version="1" sparkle:shortVersionString="1.2.0" sparkle:edSignature="0g66XYPp6MhzJRAxy2XeXrHqT2mZVO+H9v+N2ZINntDrE9mzI4wRs8ZwEy1xGr4VShVOQQwNhJsR5nmR/LSBDg==" type="application/octet-stream"></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: QAhyr2r24gAktEZu+V/L4XvmPeYAsMRMbHsBb2+XMVZrBOeao+HdAj6r+3GWKlt9d3oSzxutwLk7/WLzCC6SCQ==
+length: 1470
+-->

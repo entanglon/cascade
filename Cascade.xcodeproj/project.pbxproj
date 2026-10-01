@@ -46,6 +46,7 @@
 		F7F5E741304037E800CB9740 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F783B6503023365500326355 /* GRDB */; };
 		F7F5E742304037E800CB9740 /* TDLibKit in Frameworks */ = {isa = PBXBuildFile; productRef = F783B661302340F500326355 /* TDLibKit */; };
 		F7F5E743304037E800CB9740 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7C0FF00000000000000A001 /* MPVKit */; };
+		F783B6993023500000000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F783B6993023500000000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -156,6 +157,7 @@
 				F783B6513023365500326355 /* GRDB in Frameworks */,
 				F783B662302340F500326355 /* TDLibKit in Frameworks */,
 				F7C0FF00000000000000A002 /* MPVKit in Frameworks */,
+				F783B6993023500000000003 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -296,6 +298,7 @@
 				F783B6503023365500326355 /* GRDB */,
 				F783B661302340F500326355 /* TDLibKit */,
 				F7C0FF00000000000000A001 /* MPVKit */,
+				F783B6993023500000000002 /* Sparkle */,
 			);
 			productName = Cascade;
 			productReference = F71DD5493023297400135A65 /* Cascade.app */;
@@ -414,6 +417,7 @@
 			packageReferences = (
 				F783B64F3023365500326355 /* XCRemoteSwiftPackageReference "GRDB" */,
 				F783B660302340F500326355 /* XCRemoteSwiftPackageReference "TDLibKit" */,
+				F783B6993023500000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				F7C0FF00000000000000A000 /* XCLocalSwiftPackageReference "LocalPackages/LocalMPVKit" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -983,6 +987,14 @@
 				minimumVersion = "1.5.2-tdlib-1.8.66-022d6020";
 			};
 		};
+		F783B6993023500000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.4;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -999,6 +1011,11 @@
 		F7C0FF00000000000000A001 /* MPVKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MPVKit;
+		};
+		F783B6993023500000000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F783B6993023500000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
