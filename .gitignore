@@ -1,12 +1,72 @@
+# Xcode / Apple development
 build/
-.DS_Store
-
-# Generated / machine-local artifacts — never commit
-*.dmg
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcbkptlist
 *.profraw
-.freebuff/worktrees/
-.freebuff/desktop-v2.db
-.freebuff/desktop-v2.db-shm
-.freebuff/desktop-v2.db-wal
+*.profdata
+*.dSYM
+*.dmg
+.DS_Store
+*/.DS_Store
+
+# Freebuff / local test databases & caches
+.freebuff/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+
+# Swift Package Manager & Local Packages
+.build/
+.swiftpm/
 LocalPackages/LocalMPVKit/.swiftpm/
+
+# Website / Scratch
 website/
+scratch/
+
+# Internal handovers, engineering journals, prompt specs & plans
+HANDOVER.md
+JOURNAL.md
+iOS_HANDOVER.md
+iOS_UI_INSTRUCTIONS.md
+SYNC_SEARCH_PLAN.md
+PORT_RULES.md
+*HANDOVER*
+*handover*
+*JOURNAL*
+*journal*
+docs/ANTIGRAVITY*
+docs/*PLAN*
+docs/*plan*
+docs/AUDIT*
+docs/*consult*
+docs/PROBLEMS.md
+docs/STREAMING_FIX.md
+
+# Secrets, certificates, and profiles
+*.pem
+*.p12
+*.key
+*.cer
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+.env
+.env.*

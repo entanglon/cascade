@@ -310,6 +310,21 @@ final class AppState {
         return result
     }
 
+    /// Formatted path breadcrumb for any object (e.g. "All Files / Projects / Logo.png" or "Locked / Secrets").
+    func folderPath(for record: ObjectRecord) -> String {
+        var chain: [String] = []
+        var current = record.parentID
+        while let id = current, let folder = files.first(where: { $0.id == id }) {
+            chain.append(folder.name)
+            current = folder.parentID
+        }
+        let root = record.isPrivate ? "Locked" : "All Files"
+        if chain.isEmpty {
+            return root
+        }
+        return ([root] + chain.reversed()).joined(separator: " / ")
+    }
+
     @MainActor
     func loadFiles(reconcileCloud: Bool = false) async {
         if reconcileCloud && TelegramClient.shared.isAuthorized,

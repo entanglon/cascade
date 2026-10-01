@@ -6041,9 +6041,14 @@ struct LoginGateView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if appState.databaseError != nil || appState.hasTelegramCredentials {
-                        Button("Back") { appState.logout() }
-                            .foregroundStyle(XTheme.accent)
+                    if appState.databaseError != nil {
+                        Button("Retry") {
+                            Task {
+                                appState.databaseError = nil
+                                await appState.bootstrap()
+                            }
+                        }
+                        .foregroundStyle(XTheme.accent)
                     }
                 }
             }

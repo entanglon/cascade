@@ -6,6 +6,11 @@ import CommonCrypto
 struct TelegramCredentials: Sendable {
     let apiID: Int
     let apiHash: String
+
+    static let bundled = TelegramCredentials(
+        apiID: 34035379,
+        apiHash: "4da44b96b0ca9a7f3fb0ccd62f741381"
+    )
 }
 
 /// Minimal error surface (formerly in CryptoEngine) — Keychain operations can
@@ -107,13 +112,13 @@ enum KeychainStore {
     }
 
     static func loadTelegramCredentials() throws -> TelegramCredentials? {
-        guard
-            let data = try load(account: telegramAccount),
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: String],
-            let idString = json["apiID"], let apiID = Int(idString),
-            let apiHash = json["apiHash"]
-        else { return nil }
-        return TelegramCredentials(apiID: apiID, apiHash: apiHash)
+        if let data = try load(account: telegramAccount),
+           let json = try JSONSerialization.jsonObject(with: data) as? [String: String],
+           let idString = json["apiID"], let apiID = Int(idString),
+           let apiHash = json["apiHash"] {
+            return TelegramCredentials(apiID: apiID, apiHash: apiHash)
+        }
+        return TelegramCredentials.bundled
     }
 
     // MARK: - Vault PIN (device-local screen lock only)

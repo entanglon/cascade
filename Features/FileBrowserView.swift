@@ -46,6 +46,27 @@ struct FileBrowserView: View {
     @AppStorage("xc.sortOptionRaw") private var sortOptionRaw = "name"
     @AppStorage("xc.sortAscending") private var sortAscending = false
 
+    private enum SearchScope: Hashable {
+        case everywhere
+        case currentFolder
+    }
+
+    @State private var searchScope: SearchScope = .everywhere
+
+    private var isSearching: Bool {
+        !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var currentScopeName: String? {
+        if let folder = appState.files.first(where: { $0.id == appState.currentFolderID }) {
+            return folder.name
+        }
+        if appState.selectedDestination != .allFiles {
+            return appState.selectedDestination.title
+        }
+        return nil
+    }
+
     private var sortOption: SortOption {
         get { Self.sortOption(for: sortOptionRaw) }
         nonmutating set {
@@ -83,6 +104,11 @@ struct FileBrowserView: View {
     }
 
     private var visibleFiles: [ObjectRecord] {
+        let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            return searchResults(for: query)
+        }
+
         let base: [ObjectRecord] = {
             let files = appState.files.filter { $0.state == "ready" }
             switch appState.selectedDestination {
@@ -150,39 +176,144 @@ struct FileBrowserView: View {
         // Archived files are hidden everywhere except the Archive destination.
         let baseUnarchived = appState.selectedDestination == .archive ? base : base.filter { !$0.isArchived }
 
-        let query = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = query.isEmpty ? baseUnarchived : baseUnarchived.filter { $0.name.lowercased().contains(query) }
-
-        if appState.selectedDestination == .recent && query.isEmpty {
-            return filtered
+        if appState.selectedDestination == .recent {
+            return baseUnarchived
         }
 
         switch sortOption {
         case .name:
-            return filtered.sorted {
+            return baseUnarchived.sorted {
                 let res = $0.name.localizedCaseInsensitiveCompare($1.name)
                 return sortAscending ? res == .orderedAscending : res == .orderedDescending
             }
         case .dateCreated:
-            return filtered.sorted {
+            return baseUnarchived.sorted {
                 sortAscending ? $0.createdAt < $1.createdAt : $0.createdAt > $1.createdAt
             }
         case .dateModified:
-            return filtered.sorted {
+            return baseUnarchived.sorted {
                 sortAscending ? $0.modifiedAt < $1.modifiedAt : $0.modifiedAt > $1.modifiedAt
             }
         case .size:
-            return filtered.sorted {
+            return baseUnarchived.sorted {
                 sortAscending ? $0.size < $1.size : $0.size > $1.size
             }
         case .kind:
-            return filtered.sorted {
+            return baseUnarchived.sorted {
                 let k0 = $0.isFolder ? "0_\($0.mime)" : "1_\($0.mime)"
                 let k1 = $1.isFolder ? "0_\($1.mime)" : "1_\($1.mime)"
                 let res = k0.localizedCaseInsensitiveCompare(k1)
                 return sortAscending ? res == .orderedAscending : res == .orderedDescending
             }
         }
+    }
+
+    private func searchResults(for query: String) -> [ObjectRecord] {
+        let files = appState.files.filter { $0.state == "ready" }
+
+        let pool: [ObjectRecord] = {
+            if searchScope == .currentFolder {
+                switch appState.selectedDestination {
+                case .allFiles:
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.parentID == appState.currentFolderID }
+                case .privateVault:
+                    return files.filter { !$0.trashed && $0.isPrivate && $0.parentID == appState.currentFolderID }
+                case .recent:
+                    return files.filter { !$0.trashed && !$0.isFolder && !$0.isPrivate }
+                case .favorites:
+                    return files.filter { $0.isFavorite && !$0.trashed && !$0.isPrivate }
+                case .photos:
+                    return files.filter { !$0.trashed && !$0.isPrivate && ($0.mime.hasPrefix("image/") || $0.isPhoto) }
+                case .video:
+                    return files.filter { !$0.trashed && !$0.isPrivate && ($0.mime.hasPrefix("video/") || $0.isVideo) }
+                case .audio:
+                    return files.filter { !$0.trashed && !$0.isPrivate && ($0.mime.hasPrefix("audio/") || $0.isAudio) }
+                case .documents:
+                    return files.filter { !$0.trashed && !$0.isPrivate && $0.isDocument }
+                case .library:
+                    return files.filter { !$0.trashed && $0.isBook }
+                case .archive:
+                    return files.filter { $0.isArchived }
+                case .trash:
+                    return files.filter { $0.trashed }
+                case .transfers, .shared:
+                    return files.filter { !$0.trashed && !$0.isPrivate && !$0.isArchived }
+                }
+            } else {
+                // Everywhere across the app!
+                if appState.selectedDestination == .trash {
+                    return files.filter { $0.trashed }
+                } else if appState.selectedDestination == .archive {
+                    return files.filter { $0.isArchived && !$0.trashed }
+                } else if appState.selectedDestination == .privateVault {
+                    return files.filter { $0.isPrivate && !$0.trashed && !$0.isArchived }
+                } else {
+                    return files.filter { file in
+                        guard !file.trashed, !file.isArchived else { return false }
+                        if file.isPrivate {
+                            return appState.isPrivateVaultUnlocked
+                        }
+                        return true
+                    }
+                }
+            }
+        }()
+
+        let matching = pool.filter { matchesSearch($0, query: query) }
+
+        let q = query.lowercased()
+        return matching.sorted { a, b in
+            let aPrefix = a.name.lowercased().hasPrefix(q)
+            let bPrefix = b.name.lowercased().hasPrefix(q)
+            if aPrefix != bPrefix { return aPrefix }
+
+            if a.isFolder != b.isFolder { return a.isFolder }
+
+            switch sortOption {
+            case .name:
+                let res = a.name.localizedCaseInsensitiveCompare(b.name)
+                return sortAscending ? res == .orderedAscending : res == .orderedDescending
+            case .dateCreated:
+                return sortAscending ? a.createdAt < b.createdAt : a.createdAt > b.createdAt
+            case .dateModified:
+                return sortAscending ? a.modifiedAt < b.modifiedAt : a.modifiedAt > b.modifiedAt
+            case .size:
+                return sortAscending ? a.size < b.size : a.size > b.size
+            case .kind:
+                let k0 = a.isFolder ? "0_\(a.mime)" : "1_\(a.mime)"
+                let k1 = b.isFolder ? "0_\(b.mime)" : "1_\(b.mime)"
+                let res = k0.localizedCaseInsensitiveCompare(k1)
+                return sortAscending ? res == .orderedAscending : res == .orderedDescending
+            }
+        }
+    }
+
+    private func matchesSearch(_ file: ObjectRecord, query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return true }
+
+        // 1. Direct name match (case- and diacritic-insensitive)
+        if file.name.localizedCaseInsensitiveContains(q) {
+            return true
+        }
+
+        // 2. Extension match
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        let cleanQ = q.hasPrefix(".") ? String(q.dropFirst()).lowercased() : q.lowercased()
+        if !ext.isEmpty && (ext == cleanQ || ext.localizedCaseInsensitiveContains(cleanQ)) {
+            return true
+        }
+
+        // 3. Category / kind keyword match
+        if (cleanQ == "image" || cleanQ == "photo" || cleanQ == "photos") && file.isPhoto { return true }
+        if (cleanQ == "video" || cleanQ == "movie" || cleanQ == "movies") && file.isVideo { return true }
+        if (cleanQ == "audio" || cleanQ == "music" || cleanQ == "song" || cleanQ == "songs" || cleanQ == "mp3") && file.isAudio { return true }
+        if (cleanQ == "book" || cleanQ == "books" || cleanQ == "epub") && file.isBook { return true }
+        if (cleanQ == "doc" || cleanQ == "document" || cleanQ == "documents" || cleanQ == "pdf") && file.isDocument { return true }
+        if (cleanQ == "folder" || cleanQ == "folders") && file.isFolder { return true }
+        if (cleanQ == "favorite" || cleanQ == "favorites" || cleanQ == "starred") && file.isFavorite { return true }
+
+        return false
     }
 
     var body: some View {
@@ -327,7 +458,16 @@ struct FileBrowserView: View {
     /// Extracted so mainContent stays under the type-checker's expression limit.
     @ViewBuilder
     private var destinationContent: some View {
-        if appState.selectedDestination == .transfers {
+        if isSearching {
+            if visibleFiles.isEmpty {
+                emptyStateView
+            } else {
+                VStack(spacing: 16) {
+                    if viewModeRaw == "list" { listView } else { gridView }
+                    Spacer(minLength: 0)
+                }
+            }
+        } else if appState.selectedDestination == .transfers {
             TransfersView()
         } else if appState.selectedDestination == .shared {
             ShareManagerView()
@@ -352,6 +492,62 @@ struct FileBrowserView: View {
         }
     }
 
+    private func searchScopeBar(scopeName: String) -> some View {
+        HStack(spacing: 8) {
+            Text("Search:")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.5))
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    searchScope = .everywhere
+                }
+            } label: {
+                Text("Everywhere")
+                    .font(.system(size: 11, weight: searchScope == .everywhere ? .semibold : .regular))
+                    .foregroundStyle(searchScope == .everywhere ? .white : .white.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background {
+                        if searchScope == .everywhere {
+                            Capsule().fill(Color.white.opacity(0.18))
+                        } else {
+                            Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    searchScope = .currentFolder
+                }
+            } label: {
+                Text("\"\(scopeName)\"")
+                    .font(.system(size: 11, weight: searchScope == .currentFolder ? .semibold : .regular))
+                    .foregroundStyle(searchScope == .currentFolder ? .white : .white.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background {
+                        if searchScope == .currentFolder {
+                            Capsule().fill(Color.white.opacity(0.18))
+                        } else {
+                            Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+        .background(Color.black.opacity(0.15))
+        .overlay(alignment: .bottom) {
+            Divider().overlay(.white.opacity(0.05))
+        }
+    }
+
     private var mainContent: some View {
         ZStack(alignment: .bottomTrailing) {
             AppBackground()
@@ -362,6 +558,10 @@ struct FileBrowserView: View {
                         .transition(.opacity)
                 } else {
                     topBar
+
+                    if isSearching, let scopeName = currentScopeName {
+                        searchScopeBar(scopeName: scopeName)
+                    }
 
                     destinationContent
                         // No transition here: crossfading between destinations
@@ -432,6 +632,12 @@ struct FileBrowserView: View {
             }
         }
         .onKeyPress(.escape) {
+            if isSearching {
+                appState.searchText = ""
+                searchScope = .everywhere
+                searchFocused = false
+                return .handled
+            }
             appState.clearSelection()
             return .handled
         }
@@ -827,13 +1033,16 @@ struct FileBrowserView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.4))
-                TextField("Search", text: $appState.searchText)
+                TextField("Search across Cascade…", text: $appState.searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .foregroundStyle(.white)
                     .focused($searchFocused)
                 if !appState.searchText.isEmpty {
-                    Button { appState.searchText = "" } label: {
+                    Button {
+                        appState.searchText = ""
+                        searchScope = .everywhere
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.4))
@@ -934,6 +1143,9 @@ struct FileBrowserView: View {
     }
 
     private var headingTitle: String {
+        if isSearching {
+            return "Search Results"
+        }
         if let folder = appState.files.first(where: { $0.id == appState.currentFolderID }) {
             return folder.name
         }
@@ -1352,6 +1564,8 @@ struct FileBrowserView: View {
     private func open(_ file: ObjectRecord) {
         appState.isSidebarFocused = false
         if file.isFolder {
+            appState.searchText = ""
+            searchScope = .everywhere
             appState.openFolder(file)
         } else if file.isBook {
             // Books open in the dedicated reader (Library page or anywhere else).
@@ -1667,7 +1881,20 @@ struct FileBrowserView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
 
-            if appState.selectedDestination == .allFiles || appState.selectedDestination == .privateVault {
+            if isSearching {
+                Button {
+                    appState.searchText = ""
+                    searchScope = .everywhere
+                } label: {
+                    Label("Clear Search", systemImage: "xmark.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.15)))
+                }
+                .buttonStyle(.plain)
+            } else if appState.selectedDestination == .allFiles || appState.selectedDestination == .privateVault {
                 Button {
                     showImporter = true
                 } label: {
@@ -1774,6 +2001,7 @@ struct FileBrowserView: View {
     }
 
     private var emptyIcon: String {
+        if isSearching { return "magnifyingglass" }
         switch appState.selectedDestination {
         case .trash: return "trash"
         case .archive: return "archivebox"
@@ -1789,6 +2017,10 @@ struct FileBrowserView: View {
     }
 
     private var emptyTitle: String {
+        if isSearching {
+            let q = appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "No Results for “\(q)”"
+        }
         if appState.selectedDestination == .trash { return "Trash is Empty" }
         if appState.selectedDestination == .archive { return "Archive is Empty" }
         if appState.selectedDestination == .library { return "Library is Empty" }
@@ -1798,6 +2030,11 @@ struct FileBrowserView: View {
     }
 
     private var emptySubtitle: String {
+        if isSearching {
+            return searchScope == .currentFolder
+                ? "Try searching Everywhere, or check your spelling."
+                : "Check your spelling or try searching with fewer keywords."
+        }
         if appState.selectedDestination == .library {
             return "Upload EPUB, PDF or text books and they'll be collected here."
         }
@@ -2205,6 +2442,16 @@ struct FileItemContextMenu: View {
                 )
             }
         }
+
+        if !appState.searchText.isEmpty {
+            Button {
+                appState.revealObject(file)
+            } label: {
+                Label("Show in Enclosing Folder", systemImage: "folder")
+            }
+            Divider()
+        }
+
         // Share + Export live here (files AND folders — the engine expands
         // folders to their descendants). Private-only selections show neither
         // (same rule as before, now uniform).
@@ -2801,6 +3048,14 @@ struct FileGridItem: View {
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
 
+                if !appState.searchText.isEmpty {
+                    Text(appState.folderPath(for: file))
+                        .font(.system(size: 10))
+                        .foregroundStyle(XTheme.accent)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+
                 Text("\(itemCount) item\(itemCount == 1 ? "" : "s")")
                     .font(.system(size: 11))
                     .foregroundStyle(XTheme.textTertiary)
@@ -2957,6 +3212,14 @@ struct FileGridItem: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
+
+                if !appState.searchText.isEmpty {
+                    Text(appState.folderPath(for: file))
+                        .font(.system(size: 10))
+                        .foregroundStyle(XTheme.accent)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
 
                 Text(file.createdAt.formatted(.relative(presentation: .named)))
                     .font(.system(size: 11))
@@ -3156,10 +3419,19 @@ struct FileListRow: View {
 
             rowIcon
 
-            Text(file.name)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(XTheme.textPrimary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.name)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(XTheme.textPrimary)
+                    .lineLimit(1)
+
+                if !appState.searchText.isEmpty {
+                    Text(appState.folderPath(for: file))
+                        .font(.system(size: 11))
+                        .foregroundStyle(XTheme.accent)
+                        .lineLimit(1)
+                }
+            }
 
             if file.isFolder {
                 Text("\(itemCount) item\(itemCount == 1 ? "" : "s")")

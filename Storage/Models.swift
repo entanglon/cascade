@@ -279,6 +279,13 @@ extension ObjectRecord {
         let ext = (name as NSString).pathExtension.lowercased()
         return Self.subtitleExtensions.contains(ext)
     }
+
+    var isDocument: Bool {
+        guard !isFolder else { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        let docExts = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pages", "numbers", "keynote", "txt", "rtf", "odt", "csv", "tsv", "md", "markdown"]
+        return mime.contains("pdf") || mime.hasPrefix("text/") || mime.contains("msword") || mime.contains("officedocument") || docExts.contains(ext)
+    }
 }
 
 // MARK: - Chunks
