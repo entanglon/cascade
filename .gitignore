@@ -58,13 +58,16 @@ FILE_SYNC_ARCHITECTURE.md
 *journal*
 docs/
 
+# Incomplete mobile targets (kept local until ready for release)
+Cascade iOS/
+Public/android/
+
 # Temporary / testing screenshots & legacy unused assets
 iOS-Screenshots/
 icon.png
 Resources/
 Public/*.png
 !Public/files/
-!Public/android/
 
 # Secrets, certificates, and profiles
 *.pem
