@@ -37,7 +37,7 @@ Cascade is designed natively for each operating system:
 | :--- | :--- | :--- | :--- | :--- |
 | **macOS** | **Public Beta (Available Now)** | [DMG (Direct)](https://github.com/entanglon/cascade/releases) / Sparkle OTA | macOS 15.0+ | Universal (`arm64` + `x86_64`) |
 | **iOS / iPadOS** | *Coming Soon* | Direct Sideloading (`.ipa` / AltStore / TrollStore) | iOS 17.0+ | `arm64` |
-| **Android** | *Coming Soon* | Direct Download (`.apk`) | Android 10+ (API 29+) | `arm64-v8a`, `armeabi-v7a`, `x86_64` |
+| **Android** | *Coming Soon* | Direct Download (`.apk`) | Android 7.0+ (API 24+) | `arm64-v8a`, `armeabi-v7a`, `x86_64` |
 | **Windows** | *Planned* | Native Installer / MSIX | Windows 10 / 11 | `x64`, `ARM64` |
 | **Linux** | *Planned* | AppImage / Flatpak | Modern Distributions | `x86_64`, `aarch64` |
 
@@ -107,9 +107,14 @@ Download the latest release disk image from the [Releases](https://github.com/en
 
 1. Download **`Cascade-1.2.0.dmg`**.
 2. Open the disk image and drag **Cascade** to your **Applications** folder.
-3. Launch Cascade. On first launch, connect your account via QR code or phone number.
+3. Launch Cascade and connect your account via phone number.
 
-> **Note for macOS Gatekeeper**: Because this is a developer beta build, if macOS displays an unidentified developer prompt on first launch, right-click (or Control-click) `Cascade.app` in Applications and select **Open**.
+> **Note for macOS Gatekeeper**: Because this is a pre-release developer beta, macOS may block the app on first launch with an unidentified developer notice. On macOS 15 (Sequoia) and later, you can open it via:
+> - **System Settings**: Go to **System Settings > Privacy & Security**, scroll down to the **Security** section, and click **Open Anyway**.
+> - **Terminal**: Alternatively, remove the quarantine attribute by running:
+>   ```bash
+>   xattr -cr /Applications/Cascade.app
+>   ```
 
 ### iOS & Android (Coming Soon)
 
