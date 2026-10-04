@@ -172,9 +172,6 @@ enum DownloadEngine {
                 let chunks = try DatabaseManager.shared.chunks(for: object.id)
                 guard !chunks.isEmpty else { throw DownloadError.noChunks }
 
-                // Pre-fetch messages so TDLib has them in its local cache
-                await TelegramClient.shared.fetchRecentMessages(chatId: vault.channelID, limit: 200)
-
                 let fm = FileManager.default
                 let destPath = dest.path(percentEncoded: false)
 
@@ -218,21 +215,21 @@ enum DownloadEngine {
                     guard i >= startIndex else { continue }
                     guard let messageId = chunk.messageID else { throw DownloadError.fileNotFound }
                     guard writtenMessageIDs.insert(messageId).inserted else { continue }
-                    let n = i + 1
 
-                    report("Downloading chunk \(n)/\(chunks.count)", Double(i) / total)
+                    report("Downloading…", Double(i) / total)
                     let tmp = tmpDir.appendingPathComponent("dl-\(chunk.id).bin")
+                    let targetChatID = chunk.channelID ?? vault.channelID
                     try await TelegramClient.shared.downloadMessageFile(
                         messageId: messageId,
-                        chatId: vault.channelID,
+                        chatId: targetChatID,
                         to: tmp,
                         onProgress: { p in
                             let overallProgress = (Double(i) + min(max(0.0, p), 1.0)) / total
-                            report("Downloading chunk \(n)/\(chunks.count)", min(overallProgress, 0.99))
+                            report("Downloading…", min(overallProgress, 0.99))
                         }
                     )
 
-                    report("Verifying chunk \(n)/\(chunks.count)", (Double(i) + 0.5) / total)
+                    report("Preparing…", (Double(i) + 0.5) / total)
 
                     // Stream the downloaded document through verification +
                     // decryption one sealed slice at a time — never holds the
@@ -287,7 +284,7 @@ enum DownloadEngine {
                     writtenTotal = writtenBytes
 
                     try? fm.removeItem(at: tmp)
-                    report("Assembled chunk \(n)/\(chunks.count)", Double(n) / total)
+                    report("Preparing…", Double(i + 1) / total)
                 }
 
                 try handle.close()

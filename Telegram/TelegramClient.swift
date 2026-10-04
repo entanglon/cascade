@@ -255,6 +255,8 @@ final class TelegramClient {
     // the lock rather than the MainActor isolation.
     @ObservationIgnored nonisolated(unsafe) private var pendingSendContinuations: [Int64: CheckedContinuation<Int64, any Swift.Error>] = [:]
     @ObservationIgnored nonisolated(unsafe) private var completedSends: [Int64: Result<Int64, any Swift.Error>] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var completedDownloads: [Int: Result<String, any Swift.Error>] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var loadedChats: Set<Int64> = []
     @ObservationIgnored nonisolated(unsafe) private var fileDownloadProgressHandlers: [Int: (Double) -> Void] = [:]
     @ObservationIgnored nonisolated(unsafe) private var fileUploadProgressHandlers: [Int: (Double) -> Void] = [:]
     @ObservationIgnored nonisolated(unsafe) private var fileDownloadContinuations: [Int: CheckedContinuation<String, any Swift.Error>] = [:]
@@ -389,15 +391,20 @@ final class TelegramClient {
                     if isCompleted && !path.isEmpty {
                         let continuation = syncLock { fileDownloadContinuations.removeValue(forKey: fileId) }
                         syncLock { fileDownloadWatchdogs.removeValue(forKey: fileId)?.cancel() }
-                        continuation?.resume(returning: path)
+                        if let continuation {
+                            continuation.resume(returning: path)
+                        } else {
+                            syncLock { completedDownloads[fileId] = .success(path) }
+                        }
                     } else if !isDownloading && !isCompleted, syncLock({ fileDownloadSeenProgress.contains(fileId) }) {
-                        // The download stopped without completing (network failure or
-                        // TDLib gave up). Resume the waiter with an error instead of
-                        // leaking its continuation and hanging "Downloading chunk"
-                        // forever (SWIFT TASK CONTINUATION MISUSE).
+                        // The download stopped without completing (network failure or TDLib gave up)
                         let continuation = syncLock { fileDownloadContinuations.removeValue(forKey: fileId) }
                         syncLock { fileDownloadWatchdogs.removeValue(forKey: fileId)?.cancel() }
-                        continuation?.resume(throwing: DownloadError.downloadFailed)
+                        if let continuation {
+                            continuation.resume(throwing: DownloadError.downloadFailed)
+                        } else {
+                            syncLock { completedDownloads[fileId] = .failure(DownloadError.downloadFailed) }
+                        }
                     }
                 }
             }
@@ -646,8 +653,27 @@ final class TelegramClient {
         }
     }
 
+    /// Ensures TDLib has the chat loaded into memory/cache so operations on it don't fail with "Chat not found".
+    func ensureChatLoaded(chatId: Int64) async {
+        guard let client else { return }
+        let alreadyLoaded = syncLock { loadedChats.contains(chatId) }
+        if alreadyLoaded { return }
+
+        if chatId > 0 {
+            _ = try? await withFloodWait {
+                try await client.createPrivateChat(force: false, userId: chatId)
+            }
+        }
+        if let chat = try? await withFloodWait({
+            try await client.getChat(chatId: chatId)
+        }) {
+            syncLock { loadedChats.insert(chat.id) }
+        }
+    }
+
     func getOrFetchMessage(chatId: Int64, messageId: Int64) async throws -> Message {
         guard let client else { throw TelegramError.notInitialized }
+        await ensureChatLoaded(chatId: chatId)
         for attempt in 1...3 {
             do {
                 let msg = try await withResponseTimeout(15) {
@@ -672,8 +698,13 @@ final class TelegramClient {
                 print("Cascade getOrFetchMessage msg \(messageId): attempt \(attempt) getMessages failed: \(error)")
             }
             do {
-                // Force TDLib to sync recent channel history from server
-                _ = try await withResponseTimeout(15) {
+                // If message isn't cached locally yet, query chat history around this messageId from the server
+                _ = try? await withResponseTimeout(15) {
+                    try await self.withFloodWait {
+                        try await client.getChatHistory(chatId: chatId, fromMessageId: messageId, limit: 10, offset: -5, onlyLocal: false)
+                    }
+                }
+                _ = try? await withResponseTimeout(15) {
                     try await self.withFloodWait {
                         try await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false)
                     }
@@ -920,6 +951,22 @@ final class TelegramClient {
             return
         }
 
+        // Fast path: check if updateFile already completed this download before this call
+        if let preResult = syncLock({ completedDownloads.removeValue(forKey: file.id) }) {
+            switch preResult {
+            case .success(let path):
+                onProgress?(1.0)
+                let dest = destination.path(percentEncoded: false)
+                if FileManager.default.fileExists(atPath: dest) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: destination)
+                return
+            case .failure(let err):
+                throw err
+            }
+        }
+
         let updated = try await client?.downloadFile(
             fileId: file.id,
             limit: 0,
@@ -935,19 +982,44 @@ final class TelegramClient {
         } else {
             localPath = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    syncLock { fileDownloadContinuations[file.id] = continuation }
-                    // Backstop: if TDLib never reports completion OR failure (a
-                    // failed/superseded download can stop updating), resume with an
-                    // error after 5 minutes so the caller fails cleanly instead of
-                    // leaking the continuation and hanging forever.
+                    let alreadyDone: Result<String, any Swift.Error>? = syncLock {
+                        if let cached = completedDownloads.removeValue(forKey: file.id) {
+                            return cached
+                        } else {
+                            fileDownloadContinuations[file.id] = continuation
+                            return nil
+                        }
+                    }
+                    if let alreadyDone {
+                        switch alreadyDone {
+                        case .success(let p): continuation.resume(returning: p)
+                        case .failure(let e): continuation.resume(throwing: e)
+                        }
+                        return
+                    }
+
+                    // Active watchdog: poll TDLib every 300ms to immediately catch completions
+                    // that occurred without emitting updateFile or arrived during a race window.
                     let watchdog = Task { [weak self] in
-                        try? await Task.sleep(nanoseconds: 300_000_000_000)
-                        guard !Task.isCancelled else { return }
                         guard let self else { return }
+                        for _ in 1...100 { // Poll for up to 30 seconds
+                            try? await Task.sleep(nanoseconds: 300_000_000)
+                            guard !Task.isCancelled else { return }
+                            if let curFile = try? await self.client?.getFile(fileId: file.id),
+                               curFile.local.isDownloadingCompleted,
+                               !curFile.local.path.isEmpty {
+                                let pending = self.syncLock { self.fileDownloadContinuations.removeValue(forKey: file.id) }
+                                if let pending {
+                                    self.syncLock { self.fileDownloadWatchdogs.removeValue(forKey: file.id)?.cancel() }
+                                    pending.resume(returning: curFile.local.path)
+                                    return
+                                }
+                            }
+                        }
                         let pending = self.syncLock { self.fileDownloadContinuations.removeValue(forKey: file.id) }
-                        if pending != nil {
+                        if let pending {
                             self.syncLock { self.fileDownloadWatchdogs.removeValue(forKey: file.id)?.cancel() }
-                            pending?.resume(throwing: DownloadError.downloadFailed)
+                            pending.resume(throwing: DownloadError.downloadFailed)
                         }
                     }
                     syncLock { fileDownloadWatchdogs[file.id] = watchdog }
@@ -959,11 +1031,6 @@ final class TelegramClient {
                 syncLock { fileDownloadWatchdogs.removeValue(forKey: file.id)?.cancel() }
                 syncLock { fileDownloadProgressHandlers.removeValue(forKey: file.id) }
                 continuation?.resume(throwing: CancellationError())
-                // True cancel/pause: ALSO stop TDLib's native download — otherwise
-                // bytes keep flowing in the background after the caller gives up.
-                // TDLib keeps the downloaded prefix for the fileId, so a re-issued
-                // downloadFile resumes from cached parts (same family of behavior
-                // verified empirically on the upload side, item 156).
                 let client = self.client
                 let fileId = file.id
                 Task {

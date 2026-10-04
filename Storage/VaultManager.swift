@@ -26,6 +26,8 @@ enum VaultManager {
             // In TDLib's JSON API the Saved Messages chat ID equals the account's
             // own user ID — a positive ~1e9 number. Must strictly match the authenticated user!
             if existing.channelID == userID && existing.channelID > 1_000_000 {
+                // Ensure TDLib has materialized and loaded the Saved Messages chat in this session
+                _ = try? await TelegramClient.shared.savedMessagesChatID()
                 return existing
             }
             logger.warning("Vault channel mismatch (existing=\(existing.channelID), current=\(userID)) — purging stale vault and data")

@@ -830,14 +830,22 @@ struct TheaterView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(downloadStatus)
+                Text(cleanDownloadStatus)
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.4))
-                    .animation(.easeInOut(duration: 0.15), value: downloadStatus)
+                    .animation(.easeInOut(duration: 0.15), value: cleanDownloadStatus)
             }
         }
         .padding(32)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+    }
+
+    private var cleanDownloadStatus: String {
+        let lower = downloadStatus.lowercased()
+        if lower.contains("chunk") {
+            return "Downloading…"
+        }
+        return downloadStatus
     }
 
     // MARK: - Error View
