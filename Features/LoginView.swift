@@ -297,7 +297,8 @@ struct LoginStepsView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var showCountryPicker = false
-    @State private var restartHovering = false
+    @State private var phoneHovering = false
+    @State private var qrHovering = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -319,11 +320,9 @@ struct LoginStepsView: View {
     var body: some View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
-                if !titleForStep.isEmpty {
-                    Text(titleForStep)
-                        .font(.system(size: 20, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                }
+                Text(titleForStep)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
 
                 Text(subtitleForStep)
                     .font(.system(size: 12))
@@ -337,15 +336,24 @@ struct LoginStepsView: View {
                 case .phone:
                     if loginMethod == .qrCode {
                         confirmationView
+                            .transition(.opacity)
                     } else {
                         phoneInputView
+                            .transition(.opacity)
                     }
-                case .code: codeInputView
-                case .password: passwordInputView
-                case .confirmation: confirmationView
+                case .code:
+                    codeInputView
+                        .transition(.opacity)
+                case .password:
+                    passwordInputView
+                        .transition(.opacity)
+                case .confirmation:
+                    confirmationView
+                        .transition(.opacity)
                 }
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: currentStep)
+            .animation(.easeInOut(duration: 0.25), value: loginMethod)
+            .animation(.easeInOut(duration: 0.25), value: currentStep)
             .onChange(of: currentStep) { _, step in
                 switch step {
                 case .code: focusedField = .code
@@ -371,31 +379,8 @@ struct LoginStepsView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            // Universal escape hatch: if a login attempt gets wedged (e.g. the
-            // other-device confirmation never resolves because the other session was
-            // signed out), reset the whole auth flow back to the phone step.
-            Button(action: signOutAndRestart) {
-                Label("Start over", systemImage: "arrow.counterclockwise")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(restartHovering ? .white.opacity(0.9) : .white.opacity(0.55))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(restartHovering ? .white.opacity(0.10) : .white.opacity(0.05))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                            .allowsHitTesting(false)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(isLoading)
-            .onHover { restartHovering = $0 }
         }
-        .padding(28)
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Header text
@@ -411,7 +396,7 @@ struct LoginStepsView: View {
 
     private var titleForStep: String {
         switch currentStep {
-        case .phone: return loginMethod == .qrCode ? "Quick Login" : ""
+        case .phone: return loginMethod == .qrCode ? "Quick Login" : "Log in with Phone"
         case .code: return "Enter Code"
         case .password: return "Two-Step Verification"
         case .confirmation: return "Quick Login"
@@ -420,7 +405,7 @@ struct LoginStepsView: View {
 
     private var subtitleForStep: String {
         switch currentStep {
-        case .phone: return loginMethod == .qrCode ? "Scan with Telegram on your phone to log in instantly." : "Enter your phone number to get started."
+        case .phone: return loginMethod == .qrCode ? "Scan with Telegram on your phone to log in instantly." : "Enter your phone number to receive a verification code."
         case .code: return "We've sent you a verification code."
         case .password: return "Your account is protected with an additional password."
         case .confirmation: return "Scan with Telegram on your phone to log in instantly."
@@ -493,15 +478,16 @@ struct LoginStepsView: View {
                     Text("Log in with QR Code instead")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(qrHovering ? .white : .white.opacity(0.85))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
+                        .fill(qrHovering ? Color.white.opacity(0.12) : Color.white.opacity(0.08))
                 )
             }
             .buttonStyle(.plain)
+            .onHover { qrHovering = $0 }
             .padding(.top, 4)
         }
     }
@@ -533,13 +519,27 @@ struct LoginStepsView: View {
             .buttonStyle(.xGlassProminent)
             .disabled(authCode.filter(\.isNumber).isEmpty || isLoading)
 
-            Button(action: resendCode) {
-                Text("Resend Code")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.blue.opacity(0.85))
+            HStack(spacing: 14) {
+                Button(action: resendCode) {
+                    Text("Resend Code")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(XTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoading)
+
+                Text("•")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.25))
+
+                Button(action: signOutAndRestart) {
+                    Text("Change Number")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoading)
             }
-            .buttonStyle(.plain)
-            .disabled(isLoading)
         }
     }
 
@@ -569,7 +569,15 @@ struct LoginStepsView: View {
             .buttonStyle(.xGlassProminent)
             .disabled(password.isEmpty || isLoading)
 
-            Text("Forgot it? Reset your password in Cascade on another device.")
+            Button(action: signOutAndRestart) {
+                Text("Log in with a different account")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoading)
+
+            Text("Forgot it? Reset your password in Telegram on your phone.")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.4))
                 .multilineTextAlignment(.center)
@@ -580,9 +588,8 @@ struct LoginStepsView: View {
         VStack(spacing: 16) {
             if let link = TelegramClient.shared.qrCodeLink {
                 QRCodeCardView(content: link, size: 200)
-                    .transition(.scale.combined(with: .opacity))
 
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(Color.green)
@@ -592,23 +599,54 @@ struct LoginStepsView: View {
                             .foregroundStyle(.white.opacity(0.9))
                     }
 
-                    Text("1. Open Telegram on your phone\n2. Go to Settings → Devices → Link Desktop Device\n3. Point your camera at this QR code")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("1.")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(XTheme.accent)
+                            Text("Open Telegram on your phone")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.75))
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("2.")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(XTheme.accent)
+                            Text("Go to Settings → Devices → Link Desktop Device")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.75))
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("3.")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(XTheme.accent)
+                            Text("Point your camera at this QR code")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(0.04))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                            )
+                    )
                 }
             } else {
                 VStack(spacing: 14) {
                     ProgressView()
                         .tint(.white)
                         .scaleEffect(1.2)
-                        .padding(.vertical, 28)
+                        .padding(.vertical, 36)
                     Text("Preparing QR code…")
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.7))
                 }
+                .frame(height: 280)
             }
 
             Button(action: switchToPhone) {
@@ -618,15 +656,16 @@ struct LoginStepsView: View {
                     Text("Log in with phone number instead")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(phoneHovering ? .white : .white.opacity(0.85))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
+                        .fill(phoneHovering ? Color.white.opacity(0.12) : Color.white.opacity(0.08))
                 )
             }
             .buttonStyle(.plain)
+            .onHover { phoneHovering = $0 }
             .padding(.top, 4)
         }
     }
@@ -743,14 +782,18 @@ struct LoginStepsView: View {
     }
 
     private func switchToPhone() {
-        loginMethod = .phoneNumber
+        withAnimation(.easeInOut(duration: 0.25)) {
+            loginMethod = .phoneNumber
+        }
         if TelegramClient.shared.authStep == .confirmation {
             signOutAndRestart()
         }
     }
 
     private func switchToQR() {
-        loginMethod = .qrCode
+        withAnimation(.easeInOut(duration: 0.25)) {
+            loginMethod = .qrCode
+        }
         requestQrCode()
     }
 

@@ -75,6 +75,7 @@ struct LoginGateView: View {
                 .allowsHitTesting(false)
         }
         .shadow(color: .black.opacity(0.45), radius: 40, y: 16)
+        .animation(.easeInOut(duration: 0.25), value: needsCredentials)
     }
 }
 

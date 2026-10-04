@@ -398,10 +398,10 @@ final class AppState {
     }
 
     /// Uploads a fresh catalog snapshot immediately, bypassing the debounce. Used by
-    /// the Settings "Sync Now" button and at the end of every post-auth setup, so the
-    /// channel is guaranteed to carry a snapshot even if it was ever missing.
+    /// the Settings "Sync Now" button (with notifications) and at the end of post-auth setup
+    /// (silently), so the channel is guaranteed to carry a snapshot even if it was ever missing.
     @MainActor
-    func forcePublishSnapshot() async {
+    func forcePublishSnapshot(notifyUser: Bool = true) async {
         guard TelegramClient.shared.isAuthorized else { return }
         // Collapse guard: never overwrite the channel's snapshot if the local
         // catalog is empty — an empty publish is exactly how the 2026-08-15
@@ -419,9 +419,13 @@ final class AppState {
             // The upload merges the channel's snapshot into the local catalog —
             // reload so records published by other devices show up immediately.
             await self.loadFiles()
-            notify(title: "Catalog Synced", message: "Cloud catalog snapshot successfully updated.", kind: .success)
+            if notifyUser {
+                notify(title: "Catalog Synced", message: "Cloud catalog snapshot successfully updated.", kind: .success)
+            }
         } else {
-            notify(title: "Sync Failed", message: "Unable to update cloud snapshot. Check your connection.", kind: .error)
+            if notifyUser {
+                notify(title: "Sync Failed", message: "Unable to update cloud snapshot. Check your connection.", kind: .error)
+            }
         }
     }
 
@@ -1096,8 +1100,8 @@ final class AppState {
         }
         // Always publish a snapshot after login — even if the channel's snapshot was
         // ever missing or deleted, every launch recreates it from the local catalog
-        // (the auto-database-repair guarantee).
-        await forcePublishSnapshot()
+        // (the auto-database-repair guarantee). Run silently without error toasts.
+        await forcePublishSnapshot(notifyUser: false)
     }
 
     @MainActor

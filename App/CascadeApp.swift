@@ -94,7 +94,17 @@ struct CascadeApp: App {
             }
 
             CommandGroup(after: .pasteboard) {
-                Button("Select All") { appState.selectAll() }
+                Button("Select All") {
+                    let isEditingText: Bool = {
+                        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
+                        return firstResponder is NSText || firstResponder is NSTextField
+                    }()
+                    if isEditingText {
+                        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                    } else {
+                        appState.selectAll()
+                    }
+                }
                     .keyboardShortcut("a", modifiers: .command)
                 Button("Deselect All") { appState.clearSelection() }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
