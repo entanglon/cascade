@@ -10,39 +10,62 @@ actor DatabaseManager {
     static let shared = DatabaseManager()
 
     private var pool: DatabasePool?
+    private var currentUserID: Int64?
     private let logger = Logger(subsystem: "com.cascade.app", category: "database")
 
-    func start(customURL: URL? = nil) throws {
+    func start(forUserID userID: Int64? = nil, customURL: URL? = nil) throws {
         if let customURL {
             let newPool = try DatabasePool(path: customURL.path(percentEncoded: false))
             var migrator = DatabaseMigrator()
             Self.registerMigrations(&migrator)
             try migrator.migrate(newPool)
             pool = newPool
+            currentUserID = userID
             logger.info("Cascade database ready (custom/test URL: \(customURL.path, privacy: .public))")
             return
         }
-        guard pool == nil else { return }
 
-        let url = try Self.databaseFileURL()
+        let targetUserID = userID ?? (UserDefaults.standard.object(forKey: "xc.lastActiveUserID") as? Int64)
+        if pool != nil, currentUserID == targetUserID {
+            return
+        }
+        pool = nil
+
+        let url = try Self.databaseFileURL(forUserID: targetUserID)
         let newPool = try DatabasePool(path: url.path(percentEncoded: false))
         
         var migrator = DatabaseMigrator()
         Self.registerMigrations(&migrator)
         try migrator.migrate(newPool)
         pool = newPool
+        currentUserID = targetUserID
 
-        logger.info("Cascade database ready")
+        logger.info("Cascade database ready (user: \(targetUserID.map(String.init) ?? "anon"))")
+    }
+
+    func switchUser(userID: Int64) throws {
+        if pool != nil && currentUserID == userID {
+            return
+        }
+        pool = nil
+        try start(forUserID: userID)
+    }
+
+    func close() {
+        pool = nil
+        currentUserID = nil
+        logger.info("Cascade database closed")
     }
 
     func resetForTesting() throws {
         guard Self.isRunningTests else { return }
         pool = nil
-        let url = try Self.databaseFileURL()
+        let url = try Self.databaseFileURL(forUserID: currentUserID)
+        let folder = url.deletingLastPathComponent()
         try? FileManager.default.removeItem(at: url)
-        try? FileManager.default.removeItem(at: url.appendingPathExtension("wal"))
-        try? FileManager.default.removeItem(at: url.appendingPathExtension("shm"))
-        try start()
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(url.lastPathComponent)-wal"))
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(url.lastPathComponent)-shm"))
+        try start(forUserID: currentUserID)
     }
 
     /// True once `start()` has opened the pool. DownloadEngine's launch janitor
@@ -1483,7 +1506,7 @@ actor DatabaseManager {
         ProcessInfo.processInfo.environment["XCInjectBundleInto"] != nil
     }
 
-    private static func databaseFileURL() throws -> URL {
+    private static func databaseFileURL(forUserID userID: Int64? = nil) throws -> URL {
         let fm = FileManager.default
         let support = try fm.url(
             for: .applicationSupportDirectory,
@@ -1493,6 +1516,51 @@ actor DatabaseManager {
         )
         let folder = support.appendingPathComponent(AppPaths.dataFolder, isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appendingPathComponent("cascade.sqlite")
+
+        let legacyURL = folder.appendingPathComponent("cascade.sqlite")
+        if fm.fileExists(atPath: legacyURL.path(percentEncoded: false)) {
+            if let ownerID = detectLegacyDatabaseOwner(at: legacyURL) {
+                let ownerURL = folder.appendingPathComponent("cascade_\(ownerID).sqlite")
+                if !fm.fileExists(atPath: ownerURL.path(percentEncoded: false)) {
+                    try? fm.moveItem(at: legacyURL, to: ownerURL)
+                    let legacyWal = folder.appendingPathComponent("cascade.sqlite-wal")
+                    let ownerWal = folder.appendingPathComponent("cascade_\(ownerID).sqlite-wal")
+                    if fm.fileExists(atPath: legacyWal.path(percentEncoded: false)) {
+                        try? fm.moveItem(at: legacyWal, to: ownerWal)
+                    }
+                    let legacyShm = folder.appendingPathComponent("cascade.sqlite-shm")
+                    let ownerShm = folder.appendingPathComponent("cascade_\(ownerID).sqlite-shm")
+                    if fm.fileExists(atPath: legacyShm.path(percentEncoded: false)) {
+                        try? fm.moveItem(at: legacyShm, to: ownerShm)
+                    }
+                } else {
+                    try? fm.removeItem(at: legacyURL)
+                    try? fm.removeItem(at: folder.appendingPathComponent("cascade.sqlite-wal"))
+                    try? fm.removeItem(at: folder.appendingPathComponent("cascade.sqlite-shm"))
+                }
+            } else {
+                try? fm.removeItem(at: legacyURL)
+                try? fm.removeItem(at: folder.appendingPathComponent("cascade.sqlite-wal"))
+                try? fm.removeItem(at: folder.appendingPathComponent("cascade.sqlite-shm"))
+            }
+        }
+
+        guard let userID else {
+            return folder.appendingPathComponent("cascade_anon.sqlite")
+        }
+        return folder.appendingPathComponent("cascade_\(userID).sqlite")
+    }
+
+    private static func detectLegacyDatabaseOwner(at url: URL) -> Int64? {
+        guard let queue = try? DatabaseQueue(path: url.path(percentEncoded: false)) else { return nil }
+        return try? queue.read { db in
+            if let row = try Row.fetchOne(db, sql: "SELECT channelID FROM vaults WHERE channelID > 1000000 LIMIT 1") {
+                return row["channelID"]
+            }
+            if let row = try Row.fetchOne(db, sql: "SELECT telegramUserID FROM accounts WHERE telegramUserID > 1000000 LIMIT 1") {
+                return row["telegramUserID"]
+            }
+            return nil
+        }
     }
 }

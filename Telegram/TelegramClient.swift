@@ -582,6 +582,8 @@ final class TelegramClient {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
+        clearAllScanCaches()
+
         await MainActor.run {
             self.client = nil
             self.isConnected = false
@@ -1666,6 +1668,13 @@ final class TelegramClient {
     /// objects in the UI.
     func invalidateScanCache(chatId: Int64) {
         invalidateChannelScanCache(chatId: chatId)
+    }
+
+    /// Drops all cached channel message scans across all channels (called on logout).
+    func clearAllScanCaches() {
+        Self.withScanCache {
+            Self.channelScanCache.removeAll()
+        }
     }
 
     func allChannelMessages(chatId: Int64, usingCache: Bool = false) async -> [Message] {

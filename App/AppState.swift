@@ -452,7 +452,8 @@ final class AppState {
                 self.notify(title: title, message: message, kind: kind)
             }
 
-            try await DatabaseManager.shared.start()
+            let lastUserID = UserDefaults.standard.object(forKey: "xc.lastActiveUserID") as? Int64
+            try await DatabaseManager.shared.start(forUserID: lastUserID)
             Self.bootLog("db started")
             // Re-seat long-lived secrets with ThisDeviceOnly accessibility so they
             // never ride Keychain backup flows to other devices (audit item M2).
@@ -460,14 +461,16 @@ final class AppState {
             try await DatabaseManager.shared.selfTest()
             Self.bootLog("db selfTest ok")
             isDatabaseReady = true
-            await self.loadFiles()
-            Self.bootLog("files loaded")
-
-            // Restore finished-transfer history (completed/failed cards) so the
-            // Transfers page keeps its cards across app restarts.
-            await TransferCenter.shared.restoreHistory()
-            await self.loadShares()
-            Self.bootLog("shares loaded")
+            if lastUserID != nil {
+                await self.loadFiles()
+                Self.bootLog("files loaded")
+                await TransferCenter.shared.restoreHistory()
+                await self.loadShares()
+                Self.bootLog("shares loaded")
+            } else {
+                self.files = []
+                Self.bootLog("no active user — skipping file load")
+            }
 
             // Engine self-tests are SANITY CHECKS, not launch gates: a failure is
             // logged and surfaced as a banner but must never block Telegram
@@ -925,6 +928,13 @@ final class AppState {
         isInitialLoading = true
         defer { isInitialLoading = false }
 
+        // Switch database to the authenticated Telegram user
+        if let currentUserID = try? await TelegramClient.shared.myUserID() {
+            try? await DatabaseManager.shared.switchUser(userID: currentUserID)
+            UserDefaults.standard.set(currentUserID, forKey: "xc.lastActiveUserID")
+            lastSnapshotSignature = ""
+        }
+
         // Fetch the account identity/profile FIRST — the sidebar user card fills
         // in within a second of login instead of waiting for the full channel
         // scan (which can take 10–20s on a fresh account and left the card
@@ -1140,6 +1150,19 @@ final class AppState {
         lastSyncDate = nil
         selectedDestination = .allFiles
         showSettings = false
+        lastSnapshotSignature = ""
+
+        AudioPlayerEngine.shared.stop()
+        MirrorSyncEngine.shared.stop()
+        await ThumbnailService.shared.clearMemoryCache()
+        TransferCenter.shared.reset()
+        uploads.reset()
+        CatalogSnapshot.clearCache()
+
+        UserDefaults.standard.removeObject(forKey: "xc.lastActiveUserID")
+        UserDefaults.standard.removeObject(forKey: "xc.catalogHealClean")
+
+        await DatabaseManager.shared.close()
 
         try? await TelegramClient.shared.logout()
     }

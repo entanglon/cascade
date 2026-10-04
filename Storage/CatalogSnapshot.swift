@@ -573,6 +573,13 @@ enum CatalogSnapshot {
         channelStateCache[chatId] = state
     }
 
+    /// Clears the in-memory channel state cache across all channels (called on account logout).
+    static func clearCache() {
+        channelStateCacheLock.lock()
+        defer { channelStateCacheLock.unlock() }
+        channelStateCache.removeAll()
+    }
+
     /// Merges the channel's published state into one remote catalog (normalized for
     /// local adoption): newest checkpoint + every delta newer than its base message
     /// ID (deltas at or before the base are already contained in the checkpoint).

@@ -372,6 +372,17 @@ final class TransferCenter {
         unpersist(ids: finished.map(\.id))
         items.removeAll { $0.state == .complete || $0.state == .failed }
     }
+
+    /// Cancels all in-flight transfers and clears all transfer items from memory.
+    func reset() {
+        for handler in cancelHandlers.values {
+            handler()
+        }
+        cancelHandlers.removeAll()
+        items.removeAll()
+        settledWork = 0
+        settledItems.removeAll()
+    }
 }
 
 // MARK: - Transfer history persistence

@@ -36,6 +36,15 @@ final class UploadManager {
         drain()
     }
 
+    /// Resets the queue and upload state.
+    func reset() {
+        queue.removeAll()
+        isDraining = false
+        appState?.isUploading = false
+        appState?.uploadStatus = nil
+        appState?.uploadProgress = 0
+    }
+
     /// Drains the queue serially until empty.
     func drain() {
         guard !isDraining else { return }

@@ -19,20 +19,20 @@ enum VaultManager {
     /// derived deterministically from the user ID, and both devices of the same
     /// account converge on the same chat.
     static func ensureVault() async throws -> VaultRecord {
+        let userID = try await TelegramClient.shared.myUserID()
+        let accountID = String(userID)
+
         if let existing = try await DatabaseManager.shared.firstVault() {
             // In TDLib's JSON API the Saved Messages chat ID equals the account's
-            // own user ID — a positive ~1e9 number. Legacy vault CHANNEL rows are
-            // negative, and dummy/test rows are small positives (999999), so
-            // anything below 1,000,000 is stale and gets purged + re-adopted.
-            if existing.channelID > 1_000_000 {
+            // own user ID — a positive ~1e9 number. Must strictly match the authenticated user!
+            if existing.channelID == userID && existing.channelID > 1_000_000 {
                 return existing
             }
+            logger.warning("Vault channel mismatch (existing=\(existing.channelID), current=\(userID)) — purging stale vault and data")
             try? await DatabaseManager.shared.deleteVaultAndData(id: existing.id)
         }
 
         // 1) Register the Telegram account row (satisfies the vaults foreign key)
-        let userID = try await TelegramClient.shared.myUserID()
-        let accountID = String(userID)
         try await DatabaseManager.shared.save(AccountRecord(
             id: accountID,
             telegramUserID: userID,
