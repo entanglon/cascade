@@ -211,6 +211,12 @@ final class TelegramClient {
 
     func start() async throws {
         guard client == nil else { return }
+        if currentAPIID == nil || currentAPIHash == nil {
+            if let creds = try? KeychainStore.loadTelegramCredentials() {
+                currentAPIID = creds.apiID
+                currentAPIHash = creds.apiHash
+            }
+        }
         guard let apiID = currentAPIID,
               let apiHash = currentAPIHash else {
             throw TelegramError.notInitialized
@@ -317,6 +323,25 @@ final class TelegramClient {
                         self.isAuthorized = true
                         self.isAuthResolved = true
                         self.logger.info("Telegram authorized successfully")
+                    case "authorizationStateLoggingOut":
+                        self.qrCodeLink = nil
+                        self.authStep = .unknown
+                        self.isAuthorized = false
+                        self.isAuthResolved = true
+                        self.logger.info("Telegram logging out")
+                    case "authorizationStateClosing":
+                        self.qrCodeLink = nil
+                        self.authStep = .unknown
+                        self.isAuthorized = false
+                        self.logger.info("Telegram closing")
+                    case "authorizationStateClosed":
+                        self.qrCodeLink = nil
+                        self.authStep = .unknown
+                        self.isConnected = false
+                        self.isAuthorized = false
+                        self.isAuthResolved = true
+                        self.client = nil
+                        self.logger.info("Telegram closed")
                     default:
                         self.qrCodeLink = nil
                         self.authStep = .unknown
@@ -537,8 +562,37 @@ final class TelegramClient {
     }
 
     func logout() async throws {
-        guard let client else { throw TelegramError.notInitialized }
-        try await client.logOut()
+        await MainActor.run {
+            self.isAuthorized = false
+            self.qrCodeLink = nil
+            self.authStep = .unknown
+        }
+
+        if let current = client {
+            do {
+                try await current.logOut()
+            } catch {
+                logger.error("TDLib logOut failed: \(error.localizedDescription)")
+            }
+        }
+
+        // Wait up to 3s for TDLib to emit closed state and release the SQLite lock
+        for _ in 0..<30 {
+            if client == nil { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        await MainActor.run {
+            self.client = nil
+            self.isConnected = false
+            self.isAuthorized = false
+            self.qrCodeLink = nil
+            self.authStep = .unknown
+            self.isAuthResolved = true
+        }
+
+        // Restart a clean TDLib instance so it enters WaitPhoneNumber / QR authentication
+        try? await start()
     }
 
     /// Fetches message either from local TDLib cache or directly from Telegram server if not cached.

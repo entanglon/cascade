@@ -65,6 +65,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var showClearCacheConfirm = false
+    @State private var showLogoutConfirm = false
     @State private var tdlibCacheSize: Int64?
     @State private var isExporting = false
     @State private var exportProgressText = ""
@@ -119,6 +120,15 @@ struct SettingsView: View {
             isPresented: $showClearCacheConfirm, titleVisibility: .visible
         ) {
             Button("Clear Cache", role: .destructive) { appState.clearLocalCache() }
+        }
+        .confirmationDialog(
+            "Log out of Telegram? Your local index stays, but uploads/downloads stop until you sign back in.",
+            isPresented: $showLogoutConfirm, titleVisibility: .visible
+        ) {
+            Button("Log Out", role: .destructive) {
+                dismiss()
+                Task { await appState.logout() }
+            }
         }
         .task { refreshTdlibSize() }
         .onReceive(NotificationCenter.default.publisher(for: .tdlibCacheChanged)) { _ in
@@ -192,6 +202,25 @@ struct SettingsView: View {
             }
 
             Spacer()
+
+            Button(role: .destructive) {
+                showLogoutConfirm = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 11))
+                    Text("Log Out")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(.red.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.red.opacity(0.12))
+                )
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
     }

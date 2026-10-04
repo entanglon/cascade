@@ -1129,14 +1129,19 @@ final class AppState {
 
     @MainActor
     func logout() async {
-        try? await TelegramClient.shared.logout()
-        identity = nil
-        profilePhotoData = nil
+        files = []
         selectedFiles.removeAll()
         theaterFile = nil
+        readerFile = nil
+        currentFolderID = nil
+        identity = nil
+        profilePhotoData = nil
         hasCompletedPostAuthSetup = false
-        files = []
-        await self.loadFiles()
+        lastSyncDate = nil
+        selectedDestination = .allFiles
+        showSettings = false
+
+        try? await TelegramClient.shared.logout()
     }
 
     /// Append-only launch diagnostics to /tmp/cascade-boot.log — survives any
