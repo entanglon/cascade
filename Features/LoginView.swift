@@ -281,15 +281,15 @@ struct CountryFlagView: View {
     }
 }
 
+enum LoginMethod {
+    case qrCode
+    case phoneNumber
+}
+
 /// The phone/code/password/confirmation login steps, driven by TDLib's live
 /// authorization state. Embedded in the full-screen login gate.
-///
-/// Every auth call is guarded against the current state: firing an auth method while
-/// TDLib is in a different state (e.g. submitting a code after it already advanced to the
-/// 2FA password step, or calling resendAuthenticationCode from the other-device
-/// confirmation step) returns an instant 400 "unexpected" error, which used to surface as
-/// a confusing "login got out of sync". The guards instead let the UI follow TDLib's state.
 struct LoginStepsView: View {
+    @State private var loginMethod: LoginMethod = .qrCode
     @State private var dialCode = CountryDetector.currentDialCode
     @State private var phoneNumber = ""
     @State private var authCode = ""
@@ -334,7 +334,12 @@ struct LoginStepsView: View {
 
             Group {
                 switch currentStep {
-                case .phone: phoneInputView
+                case .phone:
+                    if loginMethod == .qrCode {
+                        confirmationView
+                    } else {
+                        phoneInputView
+                    }
                 case .code: codeInputView
                 case .password: passwordInputView
                 case .confirmation: confirmationView
@@ -346,6 +351,16 @@ struct LoginStepsView: View {
                 case .code: focusedField = .code
                 case .password: focusedField = .password
                 default: focusedField = nil
+                }
+            }
+            .onChange(of: TelegramClient.shared.authStep) { _, step in
+                if (step == .phone || step == .unknown) && loginMethod == .qrCode {
+                    requestQrCode()
+                }
+            }
+            .onAppear {
+                if (TelegramClient.shared.authStep == .phone || TelegramClient.shared.authStep == .unknown) && loginMethod == .qrCode {
+                    requestQrCode()
                 }
             }
 
@@ -387,28 +402,28 @@ struct LoginStepsView: View {
 
     private var iconForStep: String {
         switch currentStep {
-        case .phone: return "person.crop.circle.badge.checkmark"
+        case .phone: return loginMethod == .qrCode ? "qrcode" : "person.crop.circle.badge.checkmark"
         case .code: return "message.fill"
         case .password: return "lock.fill"
-        case .confirmation: return "iphone.gen3"
+        case .confirmation: return "qrcode"
         }
     }
 
     private var titleForStep: String {
         switch currentStep {
-        case .phone: return "" // No title on the phone step — just the subtitle.
+        case .phone: return loginMethod == .qrCode ? "Quick Login" : ""
         case .code: return "Enter Code"
         case .password: return "Two-Step Verification"
-        case .confirmation: return "Confirm Login"
+        case .confirmation: return "Quick Login"
         }
     }
 
     private var subtitleForStep: String {
         switch currentStep {
-        case .phone: return "Enter your phone number to get started."
+        case .phone: return loginMethod == .qrCode ? "Scan with Telegram on your phone to log in instantly." : "Enter your phone number to get started."
         case .code: return "We've sent you a verification code."
         case .password: return "Your account is protected with an additional password."
-        case .confirmation: return "Open Cascade on another device and approve the login."
+        case .confirmation: return "Scan with Telegram on your phone to log in instantly."
         }
     }
 
@@ -470,6 +485,24 @@ struct LoginStepsView: View {
             }
             .buttonStyle(.xGlassProminent)
             .disabled(phoneNumber.filter(\.isNumber).count < 5 || isLoading)
+
+            Button(action: switchToQR) {
+                HStack(spacing: 6) {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 13))
+                    Text("Log in with QR Code instead")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
     }
 
@@ -545,24 +578,56 @@ struct LoginStepsView: View {
 
     private var confirmationView: some View {
         VStack(spacing: 16) {
-            Image(systemName: iconForStep)
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(.white.opacity(0.7))
+            if let link = TelegramClient.shared.qrCodeLink {
+                QRCodeCardView(content: link, size: 200)
+                    .transition(.scale.combined(with: .opacity))
 
-            Button(action: checkConfirmation) {
-                HStack {
-                    if isLoading { ProgressView().tint(.white) }
-                    else { Text("I've Confirmed — Check Again") }
+                VStack(spacing: 6) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                        Text("Waiting for scan…")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+
+                    Text("1. Open Telegram on your phone\n2. Go to Settings → Devices → Link Desktop Device\n3. Point your camera at this QR code")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.top, 2)
                 }
-                .frame(maxWidth: .infinity)
+            } else {
+                VStack(spacing: 14) {
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(1.2)
+                        .padding(.vertical, 28)
+                    Text("Preparing QR code…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
             }
-            .buttonStyle(.xGlassProminent)
-            .disabled(isLoading)
 
-            Text("Didn't get a prompt? Make sure you're logged into Cascade on another device.")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.4))
-                .multilineTextAlignment(.center)
+            Button(action: switchToPhone) {
+                HStack(spacing: 6) {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 11))
+                    Text("Log in with phone number instead")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
     }
 
@@ -673,6 +738,33 @@ struct LoginStepsView: View {
             isLoading = true
             errorMessage = nil
             try? await TelegramClient.shared.logout()
+            isLoading = false
+        }
+    }
+
+    private func switchToPhone() {
+        loginMethod = .phoneNumber
+        if TelegramClient.shared.authStep == .confirmation {
+            signOutAndRestart()
+        }
+    }
+
+    private func switchToQR() {
+        loginMethod = .qrCode
+        requestQrCode()
+    }
+
+    private func requestQrCode() {
+        Task { @MainActor in
+            guard TelegramClient.shared.authStep == .phone || TelegramClient.shared.authStep == .unknown else { return }
+            isLoading = true
+            errorMessage = nil
+            do {
+                try await TelegramClient.shared.requestQrCodeAuthentication()
+            } catch {
+                logger.error("requestQrCodeAuthentication failed: \(error.localizedDescription)")
+                errorMessage = TelegramClient.describeAuthError(error, method: "requestQrCodeAuthentication")
+            }
             isLoading = false
         }
     }

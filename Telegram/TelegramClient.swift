@@ -182,6 +182,10 @@ final class TelegramClient {
     var isAuthorized = false
     var authStep: TelegramAuthStep = .unknown
 
+    /// The active QR code login link (`tg://login?token=...`) emitted when waiting
+    /// for other-device confirmation.
+    var qrCodeLink: String? = nil
+
     /// True once TDLib has reported a real authorization state (waiting for phone,
     /// code, password, confirmation, or ready). Until then the app can't know whether
     /// the user is logged in, so the UI shows a neutral splash instead of flashing the
@@ -280,34 +284,41 @@ final class TelegramClient {
                 Task { @MainActor in
                     switch stateType {
                     case "authorizationStateWaitTdlibParameters":
+                        self.qrCodeLink = nil
                         self.authStep = .unknown
                     case "authorizationStateWaitPhoneNumber":
+                        self.qrCodeLink = nil
                         self.authStep = .phone
                         self.isConnected = true
                         self.isAuthorized = false
                         self.isAuthResolved = true
                     case "authorizationStateWaitCode":
+                        self.qrCodeLink = nil
                         self.authStep = .code
                         self.isConnected = true
                         self.isAuthorized = false
                         self.isAuthResolved = true
                     case "authorizationStateWaitPassword":
+                        self.qrCodeLink = nil
                         self.authStep = .password
                         self.isConnected = true
                         self.isAuthorized = false
                         self.isAuthResolved = true
                     case "authorizationStateWaitOtherDeviceConfirmation":
+                        self.qrCodeLink = state["link"] as? String
                         self.authStep = .confirmation
                         self.isConnected = true
                         self.isAuthorized = false
                         self.isAuthResolved = true
                     case "authorizationStateReady":
+                        self.qrCodeLink = nil
                         self.authStep = .ready
                         self.isConnected = true
                         self.isAuthorized = true
                         self.isAuthResolved = true
                         self.logger.info("Telegram authorized successfully")
                     default:
+                        self.qrCodeLink = nil
                         self.authStep = .unknown
                     }
                 }
@@ -413,6 +424,11 @@ final class TelegramClient {
     }
 
     // MARK: - Auth actions
+
+    func requestQrCodeAuthentication() async throws {
+        guard let client else { throw TelegramError.notInitialized }
+        _ = try await client.requestQrCodeAuthentication(otherUserIds: [])
+    }
 
     func setAuthenticationPhoneNumber(_ phone: String) async throws {
         guard let client else { throw TelegramError.notInitialized }
